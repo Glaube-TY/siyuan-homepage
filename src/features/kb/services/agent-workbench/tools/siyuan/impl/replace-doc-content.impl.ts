@@ -5,7 +5,6 @@ import { buildEditDiffPreview } from "../../../../doc-content-edit/diff/edit-dif
 import { withDocumentTitle } from "../../../../doc-content-edit/doc-content-edit-document-preview";
 import { createDocContentEditConfirmation } from "../../../../doc-content-edit/doc-content-edit-confirmation-service";
 import { requestDocContentEditConfirmation } from "../../../../doc-content-edit/doc-content-edit-confirmation-bridge";
-import { shouldRequireDocContentEditConfirmation } from "../../../../doc-content-edit/doc-content-edit-confirmation-policy";
 import { executeConfirmedReplaceDocContent } from "../../../../doc-content-edit/doc-content-edit-replace-doc-content-executor";
 import { removeDocContentEditConfirmation } from "../../../../doc-content-edit/doc-content-edit-confirmation-store";
 import type { SiyuanToolDeps } from "../siyuan-tool-deps";
@@ -179,10 +178,7 @@ export async function executeReplaceDocContent(
   const target = prepareResult.target;
 
   // 3. 请求用户确认（内部桥接 UI 弹窗）
-  const requireConfirmation = shouldRequireDocContentEditConfirmation(
-    deps.getSettings?.(),
-    "replace_doc_content",
-  );
+  const requireConfirmation = true;
 
   if (requireConfirmation) {
     const confirmationRes = await requestDocContentEditConfirmation({

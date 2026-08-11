@@ -109,28 +109,6 @@ export const DEFAULT_SELECTION_AI_TOOLBAR_SETTINGS: SelectionAiToolbarSettings =
   confirmBeforeReplace: true,
 };
 
-const MIGRATION_DEFAULT_ENABLED_ACTIONS: SelectionAiAction[] = ["ask", "explain", "translate", "polish"];
-
-function migrateEnabledActions(value: unknown, hasLegacyField: boolean): SelectionAiAction[] {
-  if (!hasLegacyField) return [...MIGRATION_DEFAULT_ENABLED_ACTIONS];
-  if (!Array.isArray(value)) return [];
-
-  const valid = new Set(SELECTION_AI_ACTIONS);
-  const actions = value.filter((item): item is SelectionAiAction =>
-    typeof item === "string" && valid.has(item as SelectionAiAction)
-  );
-  return [...new Set(actions)];
-}
-
-interface LegacyGlobalConfig {
-  providerId?: string;
-  modelId?: string;
-  temperature?: number;
-  maxOutputChars?: number;
-  maxSelectedTextChars?: number;
-  stream?: boolean;
-}
-
 function normalizeOptionalString(value: unknown): string | undefined {
   if (typeof value !== "string") return undefined;
   const trimmed = value.trim();
@@ -149,12 +127,12 @@ function normalizeOptionalBoolean(value: unknown): boolean | undefined {
 function normalizeSkill(
   item: Record<string, unknown>,
   defaultSkill: SelectionAiSkill | undefined,
-  legacyGlobal: LegacyGlobalConfig
 ): SelectionAiSkill | null {
   const id = typeof item.id === "string" && item.id.trim() ? item.id.trim() : undefined;
   if (!id) return null;
 
   const builtin = item.builtin === true;
+  if (builtin && !defaultSkill) return null;
   const builtInAction = builtin
     ? (defaultSkill?.builtInAction ?? (typeof item.builtInAction === "string" ? item.builtInAction as SelectionAiBuiltInAction : undefined))
     : undefined;
@@ -181,24 +159,17 @@ function normalizeSkill(
       ? item.placement
       : (defaultSkill?.placement ?? "menu");
 
-  // 每技能独立模型和生成参数：技能自身 → 旧全局 → 内置默认 → fallback
   const modelProviderId = normalizeOptionalString(item.modelProviderId)
-    ?? normalizeOptionalString(legacyGlobal.providerId)
     ?? normalizeOptionalString(defaultSkill?.modelProviderId);
   const modelId = normalizeOptionalString(item.modelId)
-    ?? normalizeOptionalString(legacyGlobal.modelId)
     ?? normalizeOptionalString(defaultSkill?.modelId);
   const temperature = normalizeOptionalNumber(item.temperature, 0, 2)
-    ?? normalizeOptionalNumber(legacyGlobal.temperature, 0, 2)
     ?? normalizeOptionalNumber(defaultSkill?.temperature, 0, 2);
   const maxSelectedTextChars = normalizeOptionalNumber(item.maxSelectedTextChars, 1, 30000)
-    ?? normalizeOptionalNumber(legacyGlobal.maxSelectedTextChars, 1, 30000)
     ?? normalizeOptionalNumber(defaultSkill?.maxSelectedTextChars, 1, 30000);
   const maxOutputChars = normalizeOptionalNumber(item.maxOutputChars, 256, 20000)
-    ?? normalizeOptionalNumber(legacyGlobal.maxOutputChars, 256, 20000)
     ?? normalizeOptionalNumber(defaultSkill?.maxOutputChars, 256, 20000);
   const stream = normalizeOptionalBoolean(item.stream)
-    ?? normalizeOptionalBoolean(legacyGlobal.stream)
     ?? normalizeOptionalBoolean(defaultSkill?.stream);
 
   return {
@@ -221,22 +192,12 @@ function normalizeSkill(
   };
 }
 
-// 已废弃的内置技能 id，归一化时应移除
-const DEPRECATED_BUILTIN_IDS = new Set([
-  "builtin:grammar",
-  "builtin:tone",
-  "builtin:summary",
-]);
-
-function normalizeSkills(raw: unknown, enabledActions: SelectionAiAction[], legacyGlobal: LegacyGlobalConfig): SelectionAiSkill[] {
+function normalizeSkills(raw: unknown): SelectionAiSkill[] {
   const defaults = DEFAULT_SELECTION_AI_SKILLS;
   const defaultsById = new Map(defaults.map((s) => [s.id, s]));
 
   if (!Array.isArray(raw) || raw.length === 0) {
-    return defaults.map((s) => ({
-      ...s,
-      enabled: enabledActions.includes(s.builtInAction!),
-    }));
+    return defaults.map((s) => ({ ...s }));
   }
 
   const seen = new Set<string>();
@@ -245,9 +206,7 @@ function normalizeSkills(raw: unknown, enabledActions: SelectionAiAction[], lega
   for (const item of raw) {
     if (!item || typeof item !== "object") continue;
     const itemId = (item as Record<string, unknown>).id;
-    // 跳过已废弃的内置技能
-    if (typeof itemId === "string" && DEPRECATED_BUILTIN_IDS.has(itemId)) continue;
-    const skill = normalizeSkill(item as Record<string, unknown>, defaultsById.get(itemId as string), legacyGlobal);
+    const skill = normalizeSkill(item as Record<string, unknown>, defaultsById.get(itemId as string));
     if (!skill || seen.has(skill.id)) continue;
     seen.add(skill.id);
     skill.order = result.length;
@@ -259,7 +218,6 @@ function normalizeSkills(raw: unknown, enabledActions: SelectionAiAction[], lega
     if (!seen.has(defaultSkill.id)) {
       result.push({
         ...defaultSkill,
-        enabled: enabledActions.includes(defaultSkill.builtInAction!),
       });
     }
   }
@@ -276,23 +234,7 @@ export function normalizeSelectionAiToolbarSettings(
   }
 
   const value = raw as Record<string, unknown>;
-  // 仅用于旧配置迁移：从 enabledActions 推导内置技能启用状态
-  const hasLegacyEnabledActions = Object.prototype.hasOwnProperty.call(value, "enabledActions");
-  const migratedEnabledActions = migrateEnabledActions(value.enabledActions, hasLegacyEnabledActions);
-
-  // 提取旧全局生成参数，用于迁移到每个技能
-  // 兼容旧字段名：modelProviderId 和 providerId 都可能是旧全局模型字段
-  const legacyGlobal: LegacyGlobalConfig = {
-    providerId: normalizeOptionalString(value.modelProviderId)
-      ?? normalizeOptionalString(value.providerId),
-    modelId: normalizeOptionalString(value.modelId),
-    temperature: normalizeOptionalNumber(value.temperature, 0, 2),
-    maxOutputChars: normalizeOptionalNumber(value.maxOutputChars, 256, 20000),
-    maxSelectedTextChars: normalizeOptionalNumber(value.maxSelectedTextChars, 1, 30000),
-    stream: normalizeOptionalBoolean(value.stream),
-  };
-
-  const skills = normalizeSkills(value.skills, migratedEnabledActions, legacyGlobal);
+  const skills = normalizeSkills(value.skills);
 
   return {
     enabled: typeof value.enabled === "boolean" ? value.enabled : defaults.enabled,

@@ -1,8 +1,6 @@
 import {
   COUNTDOWN_STORE_TRANSACTION_LOCK,
-  hasValidatedSharedWidgetMigration,
   loadSharedJson,
-  loadSharedRawJson,
   mutateSharedJson,
   runSharedWidgetExclusive,
   saveSharedJsonChecked,
@@ -11,7 +9,6 @@ import {
   COUNTDOWN_EVENTS_FILE,
   COUNTDOWN_EVENTS_SCHEMA,
 } from "../sharedLocalStorage/sharedWidgetStoragePaths";
-import { assertSharedWidgetMigrationReady } from "../sharedLocalStorage/sharedWidgetMigration";
 import { resolveCountdownOccurrence } from "./countdownDateEngine";
 import {
   COUNTDOWN_EVENT_KINDS,
@@ -155,7 +152,6 @@ function normalizeLunarDate(value: unknown): CountdownEventRecord["lunarDate"] {
 export function normalizeCountdownEvent(
   input: CountdownEventInput,
   order = 0,
-  legacy = false,
 ): CountdownEventRecord {
   if (!input || typeof input !== "object") throw new Error("纪念日记录无效");
   const name = typeof input.name === "string" ? input.name.trim() : "";
@@ -163,13 +159,10 @@ export function normalizeCountdownEvent(
   const kind = enumValue<CountdownEventKind>(
     input.kind,
     EVENT_KIND_SET,
-    input.anniversary ? "anniversary" : "custom",
+    "custom",
   );
   const calendar = input.calendar === "lunar" ? "lunar" : "solar";
-  const recurrence =
-    input.recurrence === "yearly" || (legacy && input.anniversary)
-      ? "yearly"
-      : "none";
+  const recurrence = input.recurrence === "yearly" ? "yearly" : "none";
   const date = strictDate(input.date);
   const lunarDate = normalizeLunarDate(input.lunarDate);
   if (calendar === "solar" && !date) throw new Error("公历纪念日必须填写日期");
@@ -275,15 +268,11 @@ export function normalizeCountdownEventsFile(
   const value = raw as Record<string, unknown>;
   if (value.schema !== COUNTDOWN_EVENTS_SCHEMA)
     throw new Error("纪念日数据 schema 不受支持");
-  if (value.version !== 1 && value.version !== COUNTDOWN_EVENTS_VERSION)
+  if (value.version !== COUNTDOWN_EVENTS_VERSION)
     throw new Error("纪念日数据 version 不受支持");
   if (!Array.isArray(value.events)) throw new Error("纪念日列表无效");
-  if (
-    value.version === COUNTDOWN_EVENTS_VERSION &&
-    !Array.isArray(value.categories)
-  )
+  if (!Array.isArray(value.categories))
     throw new Error("纪念日分类列表无效");
-  const legacy = value.version === 1;
   const events = value.events.map((item, index) => {
     if (!item || typeof item !== "object" || Array.isArray(item))
       throw new Error("纪念日记录无效");
@@ -294,19 +283,13 @@ export function normalizeCountdownEventsFile(
       typeof event.name !== "string"
     )
       throw new Error("纪念日关键字段无效");
-    return normalizeCountdownEvent(
-      event as unknown as CountdownEventInput,
-      index,
-      legacy,
-    );
+    return normalizeCountdownEvent(event as unknown as CountdownEventInput, index);
   });
-  const categories = legacy
-    ? []
-    : (value.categories as unknown[]).map((item, index) => {
-        if (!item || typeof item !== "object" || Array.isArray(item))
-          throw new Error("纪念日分类记录无效");
-        return normalizeCategory(item as CountdownCategoryInput, index);
-      });
+  const categories = (value.categories as unknown[]).map((item, index) => {
+    if (!item || typeof item !== "object" || Array.isArray(item))
+      throw new Error("纪念日分类记录无效");
+    return normalizeCategory(item as CountdownCategoryInput, index);
+  });
   return {
     schema: COUNTDOWN_EVENTS_SCHEMA,
     version: COUNTDOWN_EVENTS_VERSION,
@@ -314,7 +297,6 @@ export function normalizeCountdownEventsFile(
     updatedAt: typeof value.updatedAt === "string" ? value.updatedAt : "",
     categories,
     events,
-    migration: value.migration as CountdownEventsFile["migration"],
   };
 }
 
@@ -375,40 +357,17 @@ export function mergeCountdownEvents(
   for (const list of lists)
     for (const input of list || []) {
       try {
-        const event = normalizeCountdownEvent(input, order++, !input.kind);
+        const event = normalizeCountdownEvent(input, order++);
         const key =
           input.id?.trim() ||
           `${event.name}|${event.date || JSON.stringify(event.lunarDate)}|${event.recurrence}`;
         const old = map.get(key);
         if (!old || event.updatedAt > old.updatedAt) map.set(key, event);
-      } catch {
-        /* invalid legacy row is ignored before persistent migration */
-      }
+      } catch { /* invalid row */ }
     }
   return [...map.values()]
     .sort((a, b) => a.order - b.order)
     .map((event, index) => ({ ...event, order: index }));
-}
-
-async function migrateV1IfNeeded(): Promise<void> {
-  const raw = await loadSharedRawJson(COUNTDOWN_EVENTS_FILE);
-  if (
-    !raw ||
-    typeof raw !== "object" ||
-    Array.isArray(raw) ||
-    (raw as Record<string, unknown>).version !== 1
-  )
-    return;
-  const normalized = normalizeCountdownEventsFile(raw);
-  normalized.revision += 1;
-  normalized.updatedAt = nowIso();
-  await saveSharedJsonChecked(
-    "countdown",
-    COUNTDOWN_EVENTS_FILE,
-    normalized,
-    normalizeCountdownEventsFile,
-    validateFile,
-  );
 }
 
 async function loadFileUnlocked(): Promise<CountdownEventsFile> {
@@ -421,35 +380,7 @@ async function loadFileUnlocked(): Promise<CountdownEventsFile> {
 }
 
 async function loadCountdownFileForRead(): Promise<CountdownEventsFile> {
-  const raw = await loadSharedRawJson(COUNTDOWN_EVENTS_FILE);
-  const existing =
-    raw === null ? null : normalizeCountdownEventsFile(raw);
-  const hasCurrentSchema =
-    raw !== null &&
-    typeof raw === "object" &&
-    !Array.isArray(raw) &&
-    (raw as Record<string, unknown>).version === COUNTDOWN_EVENTS_VERSION;
-  if (
-    hasCurrentSchema &&
-    hasValidatedSharedWidgetMigration(existing)
-  ) {
-    return existing;
-  }
-
-  await assertSharedWidgetMigrationReady("countdown");
-  await runSharedWidgetExclusive(
-    COUNTDOWN_STORE_TRANSACTION_LOCK,
-    migrateV1IfNeeded,
-  );
-  const migrated = await loadSharedJson(
-    COUNTDOWN_EVENTS_FILE,
-    normalizeCountdownEventsFile,
-  );
-  if (!migrated) throw new Error("纪念日数据文件不存在或尚未同步完成");
-  if (!hasValidatedSharedWidgetMigration(migrated)) {
-    throw new Error("纪念日历史迁移尚未完成");
-  }
-  return migrated;
+  return loadFileUnlocked();
 }
 
 export async function ensureCountdownStoreReadable(): Promise<void> {
@@ -458,14 +389,11 @@ export async function ensureCountdownStoreReadable(): Promise<void> {
 
 export async function getCountdownStoreStatus(): Promise<CountdownStoreStatus> {
   try {
-    const file = await loadCountdownFileForRead();
+    await loadCountdownFileForRead();
     return {
       ok: true,
       missingFields: [],
-      message:
-        file?.migration?.cleanupStatus === "pending"
-          ? "旧数据库清理待重试"
-          : "本地数据已就绪",
+      message: "本地数据已就绪",
     };
   } catch (error) {
     return {
@@ -549,7 +477,6 @@ export async function saveCountdownEvent(
   snapshot?: CountdownEventEditSnapshot,
   options: { force?: boolean } = {},
 ): Promise<CountdownEventRecord> {
-  await assertSharedWidgetMigrationReady("countdown");
   let result!: CountdownEventRecord;
   await mutateFile((file) => {
     if (snapshot && file.revision !== snapshot.baseRevision && !options.force)
@@ -587,7 +514,6 @@ async function setArchive(
   archived: boolean,
   options: { expectedUpdatedAt?: string; expectedRevision?: number } = {},
 ): Promise<void> {
-  await assertSharedWidgetMigrationReady("countdown");
   await mutateFile((file) => {
     if (options.expectedRevision !== undefined && file.revision !== options.expectedRevision)
       throw new Error("纪念日数据版本已变化，请重新读取。");
@@ -609,7 +535,6 @@ export async function deleteCountdownEventPermanently(
   eventId: string,
   options: { expectedUpdatedAt?: string; expectedRevision?: number } = {},
 ): Promise<void> {
-  await assertSharedWidgetMigrationReady("countdown");
   await mutateFile((file) => {
     if (options.expectedRevision !== undefined && file.revision !== options.expectedRevision)
       throw new Error("纪念日数据版本已变化，请重新读取。");
@@ -626,7 +551,6 @@ export async function deleteCountdownEventPermanently(
 export async function reorderCountdownEvents(
   eventIds: string[],
 ): Promise<void> {
-  await assertSharedWidgetMigrationReady("countdown");
   await mutateFile((file) => {
     const targetIds = new Set(eventIds);
     if (targetIds.size !== eventIds.length)
@@ -660,7 +584,6 @@ export async function bulkUpdateCountdownEvents(
   eventIds: string[],
   patch: CountdownBulkPatch,
 ): Promise<void> {
-  await assertSharedWidgetMigrationReady("countdown");
   const ids = new Set(eventIds);
   await mutateFile((file) => {
     for (const event of file.events)
@@ -679,7 +602,6 @@ export async function bulkUpdateCountdownEvents(
 export async function createCountdownCategory(
   input: CountdownCategoryInput,
 ): Promise<CountdownCategoryRecord> {
-  await assertSharedWidgetMigrationReady("countdown");
   let result!: CountdownCategoryRecord;
   await mutateFile((file) => {
     result = normalizeCategory(input, file.categories.length);
@@ -698,7 +620,6 @@ export async function updateCountdownCategory(
   input: Partial<CountdownCategoryInput>,
   options: { expectedUpdatedAt?: string } = {},
 ): Promise<CountdownCategoryRecord> {
-  await assertSharedWidgetMigrationReady("countdown");
   let result!: CountdownCategoryRecord;
   await mutateFile((file) => {
     const index = file.categories.findIndex(
@@ -734,7 +655,6 @@ async function setCategoryArchive(
   archived: boolean,
   options: { expectedUpdatedAt?: string } = {},
 ): Promise<void> {
-  await assertSharedWidgetMigrationReady("countdown");
   await mutateFile((file) => {
     const category = file.categories.find((item) => item.id === categoryId);
     if (!category) throw new Error("分类不存在");
@@ -755,7 +675,6 @@ export async function deleteCountdownCategory(
   moveToCategoryId?: string,
   options: { expectedRevision?: number; expectedEventCount?: number } = {},
 ): Promise<void> {
-  await assertSharedWidgetMigrationReady("countdown");
   await mutateFile((file) => {
     if (options.expectedRevision !== undefined && file.revision !== options.expectedRevision)
       throw new Error("纪念日数据版本已变化，请重新读取。");
@@ -782,7 +701,6 @@ export async function deleteCountdownCategory(
 export async function reorderCountdownCategories(
   categoryIds: string[],
 ): Promise<void> {
-  await assertSharedWidgetMigrationReady("countdown");
   await mutateFile((file) => {
     const order = new Map(
       categoryIds.map((categoryId, index) => [categoryId, index]),
@@ -802,7 +720,6 @@ export async function reorderCountdownCategories(
 export async function runCountdownAutoArchiveMaintenance(
   anchor = new Date(),
 ): Promise<number> {
-  await assertSharedWidgetMigrationReady("countdown");
   let count = 0;
   await mutateFile((file) => {
     for (const event of file.events) {
@@ -826,7 +743,6 @@ export async function runCountdownAutoArchiveMaintenance(
 export async function replaceCountdownEventsFile(
   next: CountdownEventsFile,
 ): Promise<CountdownEventsFile> {
-  await assertSharedWidgetMigrationReady("countdown");
   const normalized = normalizeCountdownEventsFile(next);
   return runSharedWidgetExclusive(
     COUNTDOWN_STORE_TRANSACTION_LOCK,
@@ -849,10 +765,9 @@ export async function saveCountdownEvents(
   events: CountdownEventInput[],
   snapshot?: CountdownEditSnapshot,
 ): Promise<CountdownEventRecord[]> {
-  await assertSharedWidgetMigrationReady("countdown");
   const normalized = events
     .filter((event) => event?.name?.trim())
-    .map((event, index) => normalizeCountdownEvent(event, index, !event.kind));
+    .map((event, index) => normalizeCountdownEvent(event, index));
   const draftIds = new Set(normalized.map((event) => event.id));
   const file = await mutateFile((current) => {
     const latest = new Map(current.events.map((event) => [event.id, event]));

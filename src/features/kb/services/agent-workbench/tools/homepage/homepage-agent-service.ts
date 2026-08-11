@@ -1,7 +1,7 @@
 import type { Plugin } from "siyuan";
 import { createRuntimeUuid } from "@/libs/runtime-id";
 import { getCurrentDeviceViewContext } from "@/homepage/deviceView/deviceViewContext";
-import { ensureCurrentDeviceViewMigrated } from "@/homepage/deviceView/deviceViewMigration";
+import { ensureCurrentDeviceViewReady } from "@/homepage/deviceView/deviceViewReadiness";
 import {
   createWidgetInstanceConfig,
   createWidgetInstanceId,
@@ -19,12 +19,11 @@ import {
   validateLayoutViewSectionConsistency,
   type DeleteWidgetResult,
 } from "@/components/utils/widgetBlock/utils/layout-shared";
-import { readDeviceViewManifest, updateDeviceViewManifest } from "@/homepage/deviceView/deviceViewStorage";
 import {
   dispatchHomepageAgentStorageChanged,
   type HomepageAgentStorageChangeReason,
 } from "@/homepage/deviceView/deviceViewEvents";
-import type { DeviceViewContext, DeviceViewManifest, DeviceWidgetDocument } from "@/homepage/deviceView/deviceViewTypes";
+import type { DeviceViewContext, DeviceWidgetDocument } from "@/homepage/deviceView/deviceViewTypes";
 import { normalizeComponentSections } from "@/homepage/homepageSetting/config";
 import type { HomepageAgentReadResult, HomepageAgentSurface, HomepageWidgetResolutionStatus } from "./homepage-manage-types";
 import {
@@ -34,11 +33,9 @@ import {
 import {
   computeOverviewCounts,
   missingConfigWarningText,
-  resolveMissingWidgetStatus,
   surfaceCategoryId,
   surfaceCategoryLabel,
   surfaceCategorySource,
-  unresolvedLegacyWarningText,
 } from "./homepage-agent-surface-resolution";
 import { sanitizeWidgetConfigForAgent } from "./homepage-agent-widget-sanitizer";
 import { applyHomepageWidgetPatch, createHomepageWidgetConfig, readHomepageWidgetData, validateAndNormalizeHomepageWidgetPatch } from "./homepage-agent-widget-adapters";
@@ -62,13 +59,11 @@ export class HomepageAgentServiceError extends Error {
  */
 export interface HomepageAgentDeviceViewOps {
   getContext(plugin: Plugin, surface: HomepageAgentSurface): DeviceViewContext;
-  ensureMigrated(context: DeviceViewContext): Promise<void>;
+  ensureReady(context: DeviceViewContext): Promise<void>;
   readSnapshot(context: DeviceViewContext): Promise<Awaited<ReturnType<typeof readCoordinatedSnapshotForContext>>>;
-  readManifest(context: DeviceViewContext): Promise<DeviceViewManifest | null>;
   readWidgetDocument(context: DeviceViewContext, widgetId: string): Promise<DeviceWidgetDocument | null>;
   loadLayoutSettings(plugin: Plugin, options: { sectionsEnabled?: boolean; sectionId?: string | null }, context: DeviceViewContext): Promise<{ widgetLayoutNumber: number; widgetGap: number }>;
-  updateManifest(context: DeviceViewContext, mutate: (manifest: DeviceViewManifest) => DeviceViewManifest, options?: { expectedRevision?: number }): Promise<DeviceViewManifest>;
-  deleteWidgetFromSurface(context: DeviceViewContext, widgetId: string, options: { expectedLayoutRevision?: number; expectedWidgetRevision?: number; expectWidgetMissing?: boolean }): Promise<DeleteWidgetResult>;
+  deleteWidgetFromSurface(context: DeviceViewContext, widgetId: string, options: { expectedLayoutRevision?: number; expectedWidgetRevision?: number }): Promise<DeleteWidgetResult>;
 }
 
 interface HomepageAgentServiceDeps {
@@ -78,7 +73,6 @@ interface HomepageAgentServiceDeps {
 
 type WidgetResolution =
   | { status: "resolved"; doc: DeviceWidgetDocument }
-  | { status: "legacy_unresolved" }
   | { status: "missing_config" };
 
 function getProfile(snapshot: Awaited<ReturnType<typeof readCoordinatedSnapshotForContext>>) {
@@ -115,12 +109,10 @@ export class HomepageAgentService {
     const overrides = deps.deviceView ?? {};
     this.dv = {
       getContext: overrides.getContext ?? getCurrentDeviceViewContext,
-      ensureMigrated: overrides.ensureMigrated ?? ensureCurrentDeviceViewMigrated,
+      ensureReady: overrides.ensureReady ?? ensureCurrentDeviceViewReady,
       readSnapshot: overrides.readSnapshot ?? readCoordinatedSnapshotForContext,
-      readManifest: overrides.readManifest ?? readDeviceViewManifest,
       readWidgetDocument: overrides.readWidgetDocument ?? readWidgetInstanceDocument,
       loadLayoutSettings: overrides.loadLayoutSettings ?? loadWidgetLayoutSettings,
-      updateManifest: overrides.updateManifest ?? updateDeviceViewManifest,
       deleteWidgetFromSurface: overrides.deleteWidgetFromSurface ?? deleteWidgetFromSurface,
     };
   }
@@ -137,10 +129,9 @@ export class HomepageAgentService {
     const plugin = this.deps.getPlugin();
     const context = this.dv.getContext(plugin, resolvedSurface);
     try {
-      await this.dv.ensureMigrated(context);
+      await this.dv.ensureReady(context);
       const snapshot = await this.dv.readSnapshot(context);
-      const manifest = await this.dv.readManifest(context).catch(() => null);
-      return { plugin, context, surface: resolvedSurface, snapshot, profile: getProfile(snapshot), manifest };
+      return { plugin, context, surface: resolvedSurface, snapshot, profile: getProfile(snapshot) };
     } catch (error) {
       throw new HomepageAgentServiceError(
         "homepage_not_ready",
@@ -152,14 +143,13 @@ export class HomepageAgentService {
   private async widgetResolutionOf(state: Awaited<ReturnType<HomepageAgentService["read"]>>, widgetId: string): Promise<WidgetResolution> {
     const doc = await this.dv.readWidgetDocument(state.context, widgetId);
     if (doc) return { status: "resolved", doc };
-    const status = resolveMissingWidgetStatus(widgetId, state.manifest?.migration?.unresolvedLegacyWidgetIds);
-    return status === "legacy_unresolved" ? { status: "legacy_unresolved" } : { status: "missing_config" };
+    return { status: "missing_config" };
   }
 
-  private async hasLegacyUnresolvedOnSurface(state: Awaited<ReturnType<HomepageAgentService["read"]>>): Promise<boolean> {
+  private async hasMissingConfigOnSurface(state: Awaited<ReturnType<HomepageAgentService["read"]>>): Promise<boolean> {
     const order = normalizeLayoutItems(state.profile?.order ?? state.snapshot.layout.layout.order);
     for (const item of order) {
-      if ((await this.widgetResolutionOf(state, item.id)).status === "legacy_unresolved") return true;
+      if ((await this.widgetResolutionOf(state, item.id)).status === "missing_config") return true;
     }
     return false;
   }
@@ -176,7 +166,6 @@ export class HomepageAgentService {
       return { status: resolution.status as HomepageWidgetResolutionStatus, type: null };
     }));
     const counts = computeOverviewCounts(rows);
-    if (counts.unresolvedWidgetCount > 0) warnings.push(unresolvedLegacyWarningText(counts.unresolvedWidgetCount));
     if (counts.missingConfigWidgetCount > 0) warnings.push(missingConfigWarningText(counts.missingConfigWidgetCount));
     const consistency = state.surface === "desktop-homepage" && state.snapshot.view
       ? validateLayoutViewSectionConsistency(state.snapshot.layout.layout, state.context.scopeId, state.snapshot.view.config)
@@ -188,7 +177,7 @@ export class HomepageAgentService {
           sectionId: state.profile?.activeSectionId ?? null,
         }, state.context)
       : null;
-    const hasUnresolvedOrMissing = counts.unresolvedWidgetCount > 0 || counts.missingConfigWidgetCount > 0;
+    const hasUnresolvedOrMissing = counts.missingConfigWidgetCount > 0;
     return {
       status: consistency.ok && !hasUnresolvedOrMissing ? "ok" : "degraded",
       surface: state.surface,
@@ -199,7 +188,6 @@ export class HomepageAgentService {
       layoutReferenceCount: order.length,
       widgetCount: counts.resolvedWidgetCount,
       resolvedWidgetCount: counts.resolvedWidgetCount,
-      unresolvedWidgetCount: counts.unresolvedWidgetCount,
       missingConfigWidgetCount: counts.missingConfigWidgetCount,
       sectionModeEnabled: state.surface === "desktop-homepage" ? sectionModeEnabled : undefined,
       activeSectionId: state.surface === "desktop-homepage" ? state.profile?.activeSectionId ?? null : undefined,
@@ -229,12 +217,11 @@ export class HomepageAgentService {
         : null;
       const sectionName = sectionId ? sectionNames.get(sectionId) ?? sectionId : null;
       if (resolution.status !== "resolved") {
-        const legacy = resolution.status === "legacy_unresolved";
         return {
           widgetId: item.id,
           resolutionStatus: resolution.status,
           type: null,
-          label: legacy ? "旧布局残留" : "组件配置缺失",
+          label: "组件配置缺失",
           index,
           sectionId,
           sectionName,
@@ -243,9 +230,7 @@ export class HomepageAgentService {
           editable: false,
           advancedRequired: false,
           businessCapability: null,
-          warnings: [legacy
-            ? "该旧版迁移遗留的布局引用已没有对应组件配置文件，无法识别类型，也无法正常渲染，可在确认后清理。"
-            : "该组件仍在布局中，但组件配置文件缺失，无法识别类型或正常渲染。"],
+          warnings: ["该组件仍在布局中，但组件配置文件缺失，无法识别类型或正常渲染。"],
         };
       }
       const doc = resolution.doc;
@@ -278,14 +263,6 @@ export class HomepageAgentService {
     if (layoutIndex < 0) throw new HomepageAgentServiceError("widget_not_found", `当前 ${state.surface} 中不存在组件 ${widgetId}。`);
     const resolution = await this.widgetResolutionOf(state, widgetId);
     if (resolution.status !== "resolved") {
-      if (resolution.status === "legacy_unresolved") {
-        throw new HomepageAgentServiceError(
-          "widget_config_unresolved",
-          `组件 ${widgetId} 是旧版迁移遗留的无效布局引用，没有可读取的组件配置，无法识别类型，也无法正常渲染。可在确认后清理。`,
-          true,
-          { widgetId, resolutionStatus: "legacy_unresolved", layoutIndex },
-        );
-      }
       throw new HomepageAgentServiceError(
         "widget_config_missing",
         `组件 ${widgetId} 存在于布局中，但组件配置文件缺失，无法识别类型或正常渲染。`,
@@ -505,10 +482,10 @@ export class HomepageAgentService {
         const doc = await this.dv.readWidgetDocument(state.context, item.id);
         if (doc && normalizeType(doc.config) === input.widgetType) throw new HomepageAgentServiceError("singleton_conflict", `${descriptor.label} 在当前主页只能存在一个。`);
       }
-      if (await this.hasLegacyUnresolvedOnSurface(state)) {
+      if (await this.hasMissingConfigOnSurface(state)) {
         throw new HomepageAgentServiceError(
           "singleton_state_uncertain",
-          "当前主页仍有无法识别的旧组件引用，请先恢复或清理这些残留后再添加单实例组件。",
+          "当前主页仍有缺失配置的组件引用，请先修复主页数据后再添加单实例组件。",
           true,
         );
       }
@@ -676,122 +653,6 @@ export class HomepageAgentService {
     this.dispatchRefresh(state.surface, { reason: "widget-removed", affectedWidgetIds: [input.widgetId] });
     const warning = result.status === "layoutCommittedConfigRetained" ? result.warning : undefined;
     return { status: result.status === "success" ? "ok" : "degraded", surface: state.surface, changed: true, target: { widgetId: input.widgetId, type: input.expectedType }, summary: result.status === "success" ? "组件已从主页移除" : "组件已从布局移除，但配置因安全原因保留", warnings: warning ? [warning] : [] };
-  }
-
-  /**
-   * 安全清理旧版迁移遗留的无效布局引用。
-   *
-   * 只允许处理同时满足以下条件的引用：
-   * 1. widgetId 当前仍在布局 order（或分栏）中；
-   * 2. 组件配置文档当前仍不存在；
-   * 3. 当前 manifest.migration.unresolvedLegacyWidgetIds 仍包含该 ID；
-   * 4. layout revision 与 expectedLayoutRevision 一致。
-   *
-   * 这是高风险写操作，必须走确认预览；只删除当前设备的无效布局引用，
-   * 不删除共享业务数据，不跨设备处理，也绝不创建或借用组件配置。
-   */
-  async cleanupUnresolvedWidgets(input: {
-    surface?: HomepageAgentSurface;
-    expectedLayoutRevision: number;
-    items: Array<{
-      widgetId: string;
-      expectedIndex: number;
-      expectedSectionId: string | null;
-      expectedResolutionStatus: "legacy_unresolved";
-    }>;
-  }): Promise<HomepageAgentReadResult> {
-    const state = await this.read(input.surface);
-    this.assertWritableConsistency(state);
-    this.assertLayoutRevision(state.snapshot.layout.revision, input.expectedLayoutRevision);
-    if (!Array.isArray(input.items) || input.items.length === 0) {
-      throw new HomepageAgentServiceError("invalid_widget_patch", "没有提供可清理的旧布局残留。");
-    }
-    const order = normalizeLayoutItems(state.profile?.order ?? state.snapshot.layout.layout.order);
-    for (const item of input.items) {
-      if (!item || typeof item.widgetId !== "string" || !item.widgetId.trim()) {
-        throw new HomepageAgentServiceError("invalid_widget_patch", "清理项缺少 widgetId。");
-      }
-      if (item.expectedResolutionStatus !== "legacy_unresolved") {
-        throw new HomepageAgentServiceError("invalid_widget_patch", `组件 ${item.widgetId} 必须是 legacy_unresolved 状态才能清理。`, false);
-      }
-      const layoutIndex = order.findIndex((row) => row.id === item.widgetId);
-      if (layoutIndex < 0) throw new HomepageAgentServiceError("widget_not_found", `组件 ${item.widgetId} 已不在当前布局中。`);
-      if (layoutIndex !== item.expectedIndex) throw new HomepageAgentServiceError("layout_revision_conflict", `组件 ${item.widgetId} 当前位置已变化，请重新读取主页布局。`);
-      const sectionId = state.surface === "desktop-homepage"
-        ? sectionForWidget(state.profile?.sections, item.widgetId)
-        : null;
-      if (sectionId !== item.expectedSectionId) throw new HomepageAgentServiceError("layout_revision_conflict", `组件 ${item.widgetId} 所属分栏已变化，请重新读取主页布局。`);
-      const resolution = await this.widgetResolutionOf(state, item.widgetId);
-      if (resolution.status !== "legacy_unresolved") {
-        throw new HomepageAgentServiceError(
-          "widget_config_missing",
-          `组件 ${item.widgetId} 当前不是旧版迁移遗留的 unresolved 状态（可能配置已恢复或未在 manifest 声明），已拒绝清理。`,
-          false,
-          { widgetId: item.widgetId, resolutionStatus: resolution.status },
-        );
-      }
-    }
-
-    const cleaned: string[] = [];
-    let latestRevision = state.snapshot.layout.revision;
-    for (const item of input.items) {
-      const snapshot = await this.dv.readSnapshot(state.context);
-      latestRevision = snapshot.layout.revision;
-      const result = await this.dv.deleteWidgetFromSurface(state.context, item.widgetId, {
-        expectedLayoutRevision: latestRevision,
-        expectWidgetMissing: true,
-      });
-      if (result.status === "notCommitted") {
-        throw new HomepageAgentServiceError("write_not_committed", result.reason ?? `组件 ${item.widgetId} 未被清理。`);
-      }
-      if (result.status === "uncertainManualCheck") {
-        throw new HomepageAgentServiceError("write_state_uncertain", result.reason ?? `组件 ${item.widgetId} 清理状态不确定，请人工检查。`, false);
-      }
-      if (result.status === "layoutCommittedConfigRetained") {
-        throw new HomepageAgentServiceError(
-          "write_state_uncertain",
-          result.warning ?? `组件 ${item.widgetId} 清理期间配置突然出现，配置已保留，请人工检查。`,
-          false,
-          { widgetId: item.widgetId },
-        );
-      }
-      cleaned.push(item.widgetId);
-    }
-
-    const verified = await this.listWidgets(state.surface);
-    const verifiedWidgets = (verified.widgets as Array<{ widgetId: string }> | undefined) ?? [];
-    const remaining = input.items.filter((item) => verifiedWidgets.some((row) => row.widgetId === item.widgetId));
-    if (remaining.length > 0) {
-      throw new HomepageAgentServiceError("write_not_committed", "清理后仍有旧布局引用残留，写后验证失败。", false, { remainingWidgetIds: remaining.map((item) => item.widgetId) });
-    }
-    // 清理成功后，把已清理 ID 从 manifest.unresolvedLegacyWidgetIds 中移除，
-    // 保持 manifest 与 layout 一致，避免下一次迁移 reconcile 误判“unresolved 集合与布局冲突”。
-    // 这是显式确认过的清理写链路，不属于普通迁移静默改写。
-    const cleanedSet = new Set(cleaned);
-    if (cleaned.length > 0) {
-      const latestManifest = await this.dv.readManifest(state.context);
-      const unresolved = latestManifest?.migration?.unresolvedLegacyWidgetIds ?? [];
-      if (unresolved.some((id) => cleanedSet.has(id))) {
-        await this.dv.updateManifest(state.context, (manifest) => ({
-          ...manifest,
-          migration: {
-            ...manifest.migration,
-            unresolvedLegacyWidgetIds: (manifest.migration.unresolvedLegacyWidgetIds ?? []).filter((id) => !cleanedSet.has(id)),
-          },
-        }), { expectedRevision: latestManifest?.revision });
-      }
-    }
-    this.dispatchRefresh(state.surface, { reason: "unresolved-cleaned", affectedWidgetIds: cleaned, layoutRevision: latestRevision });
-    return {
-      status: "ok",
-      surface: state.surface,
-      layoutRevision: latestRevision,
-      changed: true,
-      cleanedCount: cleaned.length,
-      cleanedWidgetIds: cleaned,
-      summary: `已清理 ${cleaned.length} 个旧布局残留`,
-      warnings: ["本操作只删除当前设备的无效布局引用，未删除任何共享业务数据，也未跨设备处理。"],
-    };
   }
 
   async updateLayout(input: { surface?: HomepageAgentSurface; widgetLayoutNumber: number; widgetGap: number; expectedWidgetLayoutNumber: number; expectedWidgetGap: number; sectionId?: string; expectedLayoutRevision: number }): Promise<HomepageAgentReadResult> {

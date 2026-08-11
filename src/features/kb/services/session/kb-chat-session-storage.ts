@@ -23,7 +23,7 @@ export interface PersistedReferenceItem {
   index: number;
   docId?: string;
   sourceBlockIds?: string[];
-  readLevel?: "content" | "structure" | "candidate" | "snippet" | "section" | "document";
+  readLevel?: "content" | "structure" | "candidate";
   referenceReason?: "agent_explicit" | "read_content" | "structure_result" | "search_candidate";
   grounded?: boolean;
   docTitle?: string;
@@ -176,7 +176,6 @@ function toPersistedAgentTurnMemory(memory: AgentTurnMemory): PersistedAgentTurn
 }
 
 function fromPersistedAgentTurnMemory(memory: PersistedAgentTurnMemory): AgentTurnMemory {
-  // Ignore legacy answerSummary / answerItems if present in old persisted data
   return {
     turnId: memory.turnId,
     createdAt: memory.createdAt,

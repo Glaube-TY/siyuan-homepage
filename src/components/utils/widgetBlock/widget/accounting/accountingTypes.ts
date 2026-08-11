@@ -201,11 +201,6 @@ export interface AccountingSummaryFile {
     months: Record<string, AccountingMonthSummary>;
 }
 
-// ── Asset Type Alias (UI unified as 资产) ──
-/** UI 层统一使用"资产"，代码兼容旧类型 */
-export type AccountingAsset = AccountingAccount;
-export type AccountingAssetInput = AccountingAccountInput;
-
 export const ASSET_TYPE_OPTIONS = [
     { value: "internet", label: "互联网账户" },
     { value: "debitCard", label: "借记卡" },

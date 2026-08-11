@@ -605,13 +605,8 @@
           parsedData.data?.countdownDisplaySystem === "classic" ||
           parsedData.data?.countdownDisplaySystem === "center"
             ? parsedData.data.countdownDisplaySystem
-            : parsedData.data?.countdownView
-              ? "center"
-              : "classic";
-        countdownView = normalizeCountdownWidgetView(
-          parsedData.data?.countdownView,
-          countdownStyle,
-        );
+            : "center";
+        countdownView = normalizeCountdownWidgetView(parsedData.data?.countdownView);
         countdownCard1BgSelect =
           parsedData.data?.countdownCard1BgSelect || "remote";
         countdownCard1RemoteBg = parsedData.data?.countdownCard1RemoteBg || "";
@@ -622,7 +617,7 @@
           parsedData.data?.countdownList2BgColor || "#000000";
       } else if (parsedData.type === "weather") {
         customWeatherCityName =
-          parsedData.data?.cityName || parsedData.data?.city || "";
+          parsedData.data?.cityName || "";
         customWeatherCityCode = parsedData.data?.cityCode || "";
         weatherStyle = parsedData.data?.weatherStyle || "default";
       } else if (parsedData.type === "HOT") {

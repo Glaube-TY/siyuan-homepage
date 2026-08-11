@@ -1,8 +1,4 @@
-import {
-    getBlockAttrs,
-    setBlockAttrsChecked,
-    sql,
-} from "@/api";
+import { sql } from "@/api";
 import {
     addDaysFromToday,
     diffDays,
@@ -10,7 +6,6 @@ import {
     intervalsToText,
     isValidDateText,
     normalizeIntervals,
-    normalizeReviewDate,
     shouldUseIntervalSchedule,
     toLocalDateString,
 } from "./reviewDocsSchedule";
@@ -18,13 +13,10 @@ import { appendReviewLog } from "./reviewDocsData";
 import {
     getReviewIndexResult,
     getReviewIndexItem,
-    mergeReviewIndexItems,
     removeReviewIndexItem,
-    runHomepageManualIndexSqlQuery,
     updateReviewIndexItem,
     type ComponentDataResult,
 } from "@/components/tools/siyuanComponentDataApi";
-import type { ComponentMigrationStatus } from "../common/componentMigrationTypes";
 import type {
     CompleteReviewParams,
     PostponeReviewParams,
@@ -42,26 +34,6 @@ import type {
     ReviewTargetType,
     ReviewView,
 } from "./reviewDocsTypes";
-
-export const REVIEW_ATTR_KEYS = {
-    reviewId: "custom-homepage-review-id",
-    nextDate: "custom-homepage-review-next-date",
-    note: "custom-homepage-review-note",
-    category: "custom-homepage-review-category",
-    priority: "custom-homepage-review-priority",
-    plan: "custom-homepage-review-plan",
-    intervals: "custom-homepage-review-intervals",
-    intervalIndex: "custom-homepage-review-interval-index",
-    reviewCount: "custom-homepage-review-count",
-    lastReviewedAt: "custom-homepage-review-last-reviewed-at",
-    targetType: "custom-homepage-review-target-type",
-    createdAt: "custom-homepage-review-created-at",
-    updatedAt: "custom-homepage-review-updated-at",
-} as const;
-
-const REVIEW_ATTR_KEY_SET = new Set<string>(Object.values(REVIEW_ATTR_KEYS));
-const REVIEW_MIGRATION_PAGE_SIZE = 500;
-const REVIEW_MIGRATION_MAX_ROWS = 50000;
 
 export interface ReviewOperationResult {
     ok: boolean;
@@ -100,109 +72,12 @@ function emptyReviewAttrs(): ReviewAttrs {
     };
 }
 
-function safeNumber(value: unknown, fallback = 0): number {
-    const num = Number(value);
-    return Number.isFinite(num) ? num : fallback;
-}
-
-function normalizePriority(value: string): ReviewPriority {
-    if (value === "high" || value === "medium" || value === "low") return value;
-    return "";
-}
-
-function normalizeTargetType(value: string): ReviewTargetType | "" {
-    if (value === "doc" || value === "block") return value;
-    return "";
-}
-
-function normalizePlan(value: string): ReviewAttrs["plan"] {
-    if (value === "manual" || value === "ebbinghaus" || value === "custom") return value;
-    return "";
-}
-
 function generateReviewId(): string {
     return `review-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
 function generateLogId(): string {
     return `review-log-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
-}
-
-function simpleHash(value: string): string {
-    let hash = 0;
-    for (let i = 0; i < value.length; i += 1) {
-        hash = (hash * 31 + value.charCodeAt(i)) >>> 0;
-    }
-    return hash.toString(36);
-}
-
-function isTemporaryReviewId(value: string): boolean {
-    return value.startsWith("review-temp-");
-}
-
-function unescapeIALValue(value: string): string {
-    return value
-        .replace(/\\"/g, "\"")
-        .replace(/\\\\/g, "\\");
-}
-
-function attrsFromRawMap(raw: Record<string, string>, fallbackReviewIdSeed = ""): ReviewAttrs | null {
-    const nextDate = normalizeReviewDate(raw[REVIEW_ATTR_KEYS.nextDate] || "", "");
-    if (!nextDate) return null;
-
-    const intervals = normalizeIntervals(
-        (raw[REVIEW_ATTR_KEYS.intervals] || "")
-            .split(",")
-            .map((part) => part.trim())
-            .filter(Boolean)
-            .map(Number)
-    );
-    const reviewId =
-        raw[REVIEW_ATTR_KEYS.reviewId] ||
-        `review-temp-${simpleHash(`${fallbackReviewIdSeed}:${nextDate}`)}`;
-
-    return {
-        reviewId,
-        nextDate,
-        note: raw[REVIEW_ATTR_KEYS.note] || "",
-        category: raw[REVIEW_ATTR_KEYS.category] || "",
-        priority: normalizePriority(raw[REVIEW_ATTR_KEYS.priority] || ""),
-        plan: normalizePlan(raw[REVIEW_ATTR_KEYS.plan] || ""),
-        intervals,
-        intervalIndex: Math.max(0, safeNumber(raw[REVIEW_ATTR_KEYS.intervalIndex], 0)),
-        reviewCount: Math.max(0, safeNumber(raw[REVIEW_ATTR_KEYS.reviewCount], 0)),
-        lastReviewedAt: raw[REVIEW_ATTR_KEYS.lastReviewedAt] || "",
-        targetType: normalizeTargetType(raw[REVIEW_ATTR_KEYS.targetType] || ""),
-        createdAt: raw[REVIEW_ATTR_KEYS.createdAt] || "",
-        updatedAt: raw[REVIEW_ATTR_KEYS.updatedAt] || "",
-    };
-}
-
-export function parseReviewAttrsFromIAL(ial: string): ReviewAttrs | null {
-    if (!ial || !ial.includes(REVIEW_ATTR_KEYS.nextDate)) return null;
-
-    const raw: Record<string, string> = {};
-    const regex = /([\w-]+)\s*=\s*"((?:\\.|[^"\\])*)"/g;
-    let match: RegExpExecArray | null;
-    while ((match = regex.exec(ial)) !== null) {
-        if (REVIEW_ATTR_KEY_SET.has(match[1])) {
-            raw[match[1]] = unescapeIALValue(match[2]);
-        }
-    }
-
-    return attrsFromRawMap(raw, ial);
-}
-
-export function parseReviewAttrsFromBlockAttrs(attrs: Record<string, string> | null | undefined): ReviewAttrs | null {
-    if (!attrs) return null;
-    return attrsFromRawMap(attrs);
-}
-
-export function createClearReviewAttrsMap(): Record<string, string> {
-    return Object.values(REVIEW_ATTR_KEYS).reduce<Record<string, string>>((result, key) => {
-        result[key] = "";
-        return result;
-    }, {});
 }
 
 function escapeSqlString(value: string): string {
@@ -287,136 +162,6 @@ function filterReviewItemsByNotebooks<T extends { box?: string }>(
 ): T[] {
     if (notebookIds.length === 0) return items;
     return items.filter((item) => item.box && notebookIds.includes(item.box));
-}
-
-function reviewItemFromGlobalSqlRow(row: any): ReviewItem | null {
-    const attrs = parseReviewAttrsFromIAL(row?.ial);
-    if (!attrs?.nextDate) return null;
-    const type: ReviewTargetType = row?.type === "d" ? "doc" : "block";
-    const target = normalizeBlockRow(row, type);
-    if (!target.id) return null;
-    return reviewItemFromTarget(target, attrs);
-}
-
-export async function migrateReviewIndexFromGlobalSql(
-    plugin: any,
-    notebookIds: string[] = [],
-): Promise<ComponentMigrationStatus> {
-    const now = new Date().toISOString();
-    if (!plugin) {
-        return {
-            lastRunAt: now,
-            lastStatus: "error",
-            lastMessage: "缺少插件实例，无法执行旧复习迁移。",
-            migratedCount: 0,
-            skippedCount: 0,
-        };
-    }
-
-    try {
-        const selectedNotebookIds = notebookIds.filter(Boolean);
-        const itemMap = new Map<string, ReviewItem>();
-        let totalSkipped = 0;
-        let totalCleanupFailed = 0;
-        let reachedLimit = false;
-
-        for (let offset = 0; offset < REVIEW_MIGRATION_MAX_ROWS; offset += REVIEW_MIGRATION_PAGE_SIZE) {
-            const stmt = `
-                SELECT id, content, created, updated, box, path, hpath, ial, type, parent_id, root_id
-                FROM blocks
-                WHERE ial LIKE '%custom-homepage-review-next-date%'
-                ORDER BY updated DESC, id DESC
-                LIMIT ${REVIEW_MIGRATION_PAGE_SIZE} OFFSET ${offset}
-            `;
-            const result = await runHomepageManualIndexSqlQuery(plugin, stmt);
-            if (result.ok === false) {
-                return {
-                    lastRunAt: now,
-                    lastStatus: "error",
-                    lastMessage: result.reason,
-                    migratedCount: 0,
-                    skippedCount: 0,
-                };
-            }
-
-            const rows = result.rows;
-            if (rows.length === 0) break;
-
-            const pageItems: ReviewItem[] = [];
-            const migratedIds: string[] = [];
-            let pageSkipped = 0;
-
-            for (const row of rows) {
-                let item: ReviewItem | null = null;
-                try {
-                    item = reviewItemFromGlobalSqlRow(row);
-                } catch {
-                    item = null;
-                }
-                if (!item?.id) {
-                    pageSkipped += 1;
-                    continue;
-                }
-                if (selectedNotebookIds.length > 0 && !(item.box && selectedNotebookIds.includes(item.box))) {
-                    pageSkipped += 1;
-                    continue;
-                }
-                itemMap.set(item.id, item);
-                pageItems.push(item);
-                migratedIds.push(item.id);
-            }
-
-            if (pageItems.length > 0) {
-                await mergeReviewIndexItems(pageItems);
-            }
-            totalSkipped += pageSkipped;
-
-            let pageCleanupFailed = 0;
-            for (const id of migratedIds) {
-                try {
-                    await setBlockAttrsChecked(id, createClearReviewAttrsMap());
-                } catch {
-                    pageCleanupFailed += 1;
-                }
-            }
-            totalCleanupFailed += pageCleanupFailed;
-
-            if (rows.length < REVIEW_MIGRATION_PAGE_SIZE) break;
-            if (offset + REVIEW_MIGRATION_PAGE_SIZE >= REVIEW_MIGRATION_MAX_ROWS) {
-                reachedLimit = true;
-                break;
-            }
-        }
-
-        const migratedCount = itemMap.size;
-        const lastMessage = reachedLimit
-            ? `旧复习迁移达到 ${REVIEW_MIGRATION_MAX_ROWS} 条安全上限，可能仍有未迁移数据；已迁移 ${migratedCount} 条，跳过 ${totalSkipped} 条，${totalCleanupFailed} 条旧属性清理失败。`
-            : migratedCount > 0
-                ? totalCleanupFailed > 0
-                    ? `迁移完成：写入/更新 ${migratedCount} 条，跳过 ${totalSkipped} 条，${totalCleanupFailed} 条旧属性清理失败。`
-                    : `迁移完成：写入/更新 ${migratedCount} 条，跳过 ${totalSkipped} 条，并已清理旧属性。`
-                : totalSkipped > 0
-                    ? "未找到符合当前笔记本范围的可迁移复习数据。"
-                    : "未找到需要迁移的旧复习数据。";
-
-        return {
-            lastRunAt: now,
-            lastStatus: "success",
-            lastMessage,
-            migratedCount,
-            skippedCount: totalSkipped,
-            cleanedCount: Math.max(0, migratedCount - totalCleanupFailed),
-            cleanupFailedCount: totalCleanupFailed,
-        };
-    } catch (error) {
-        return {
-            lastRunAt: now,
-            lastStatus: "error",
-            lastMessage: error instanceof Error ? error.message : "旧复习迁移失败",
-            migratedCount: 0,
-            skippedCount: 0,
-        };
-    }
 }
 
 export async function loadAllReviewItemsResult(
@@ -556,21 +301,11 @@ export function getReviewSummary(items: ReviewItem[], futureDays = 7): ReviewSum
 
 export async function readCurrentReviewAttrs(targetId: string): Promise<ReviewAttrs | null> {
     const indexed = await getReviewIndexItem<ReviewItem>(targetId);
-    if (indexed?.attrs?.nextDate) return indexed.attrs;
-    const attrs = await getBlockAttrs(targetId);
-    return parseReviewAttrsFromBlockAttrs(attrs);
-}
-
-async function clearLegacyReviewAttrsSafely(targetId: string): Promise<void> {
-    try {
-        await setBlockAttrsChecked(targetId, createClearReviewAttrsMap());
-    } catch {
-        // 清理旧复习属性失败不影响本地索引状态。
-    }
+    return indexed?.attrs?.nextDate ? indexed.attrs : null;
 }
 
 function ensurePersistentReviewId(attrs: ReviewAttrs): ReviewAttrs {
-    if (!attrs.reviewId || isTemporaryReviewId(attrs.reviewId)) {
+    if (!attrs.reviewId) {
         return { ...attrs, reviewId: generateReviewId() };
     }
     return attrs;
@@ -665,7 +400,6 @@ async function markReviewTargetUnlocked(params: ReviewPlanOperationParams): Prom
     });
 
     await updateReviewIndexItem(reviewItemFromTarget(target, after));
-    await clearLegacyReviewAttrsSafely(params.targetId);
     const logWarning = await appendLogSafely(
         buildLogEntry(before.reviewId ? "update" : "create", target, before, after)
     );
@@ -705,7 +439,6 @@ async function updateReviewTargetUnlocked(params: ReviewPlanOperationParams): Pr
     };
 
     await updateReviewIndexItem(reviewItemFromTarget(target, after));
-    await clearLegacyReviewAttrsSafely(params.targetId);
     const logWarning = await appendLogSafely(
         buildLogEntry("update", target, before, after)
     );
@@ -764,7 +497,6 @@ async function completeReviewOnceUnlocked(params: CompleteReviewParams): Promise
     };
 
     await updateReviewIndexItem(reviewItemFromTarget(target, after));
-    await clearLegacyReviewAttrsSafely(params.targetId);
     const logWarning = await appendLogSafely(
         buildLogEntry("review", target, before, after)
     );
@@ -795,7 +527,6 @@ async function postponeReviewTargetUnlocked(params: PostponeReviewParams): Promi
     };
 
     await updateReviewIndexItem(reviewItemFromTarget(target, after));
-    await clearLegacyReviewAttrsSafely(params.targetId);
     const logWarning = await appendLogSafely(
         buildLogEntry("postpone", target, before, after)
     );
@@ -817,7 +548,6 @@ async function finishReviewTargetUnlocked(params: ReviewOperationParams): Promis
 
     const after = attrsAfterClear();
     await removeReviewIndexItem(params.targetId);
-    await clearLegacyReviewAttrsSafely(params.targetId);
     const logWarning = await appendLogSafely(
         buildLogEntry("finish", target, before, after)
     );
@@ -836,7 +566,6 @@ async function clearReviewTargetUnlocked(params: ReviewOperationParams): Promise
     const after = attrsAfterClear();
 
     await removeReviewIndexItem(params.targetId);
-    await clearLegacyReviewAttrsSafely(params.targetId);
     const logWarning = await appendLogSafely(
         buildLogEntry("remove", target, before, after)
     );

@@ -32,7 +32,7 @@ export interface GenerateTasksPlusTaskInput {
     taskCheck?: string;
     projectTargetId?: string;
     projectTitle?: string;
-    /** 兼容旧编辑器：原样保留已存在的可见项目引用。 */
+    /** 当前编辑器未暴露项目选择器时，原样保留任务已有的项目引用。 */
     visibleProjectReference?: string;
 }
 

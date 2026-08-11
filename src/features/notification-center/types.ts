@@ -86,13 +86,6 @@ export interface NotificationCenterSettings {
     rateLimit: { enabled: boolean; minIntervalMs: number };
     dedupe: { enabled: boolean; windowMs: number };
   };
-  migration?: {
-    version: 1;
-    migratedAt: string;
-    notifyBridgeSettingsMigrated: boolean;
-    oldHistoryMigrated: boolean;
-    error?: string;
-  };
 }
 
 export interface NotificationSendOptions {
@@ -176,7 +169,6 @@ export interface NotificationDeliveryHistoryRecord {
   errorCode?: string;
   errorMessage?: string;
   payloadHash?: string;
-  legacyExternalCompleted?: boolean;
 }
 
 export interface NotificationHistoryIndex {

@@ -6,11 +6,9 @@
  */
 
 import { RobotKernelClient } from "../runtime/robot-kernel-client";
-import type { ElectronCredentialStoragePort } from "../runtime/robot-electron-credentials";
 import { isRobotEnvelope } from "../security/robot-secret-vault";
 import { createDefaultRobotAssistantSettings, type RobotAssistantSettings, type RobotRuntimeOwner } from "./robot-settings-types";
 import { normalizeV2Settings } from "./robot-settings-migration";
-import { decryptSecretCipherText, isEncryptedSecret } from "../../kb/services/settings/kb-sensitive-secret-crypto";
 import type { RobotProviderId } from "../contracts/robot-provider";
 import type { RobotStatus } from "../contracts/robot-provider";
 
@@ -24,11 +22,7 @@ export interface RobotStatusSnapshot {
 }
 
 export class RobotSettingsClient {
-  constructor(
-    private readonly kernel: RobotKernelClient,
-    // 保留第二参数以兼容已有调用方；Provider Secret 已统一交由 Kernel 加密。
-    _storage: ElectronCredentialStoragePort,
-  ) {}
+  constructor(private readonly kernel: RobotKernelClient) {}
 
   get available(): boolean {
     return this.kernel.available;
@@ -63,35 +57,12 @@ export class RobotSettingsClient {
         ? wrapped.settings
         : (raw as RobotAssistantSettings | null);
       if (candidate && typeof candidate === "object" && candidate.version === 2) {
-        const normalized = normalizeV2Settings(candidate);
-        await this.migrateLegacyProviderSecrets(normalized);
-        return normalized;
+        return normalizeV2Settings(candidate);
       }
     } catch {
       // 内核不可用时回退默认值
     }
     return createDefaultRobotAssistantSettings();
-  }
-
-  /** v1 的 kb AES-GCM 密文只在浏览器可解；解密一次后转存 Robot Vault envelope。 */
-  private async migrateLegacyProviderSecrets(settings: RobotAssistantSettings): Promise<void> {
-    let changed = false;
-    for (const providerId of ["feishu", "qq"] as const) {
-      const section = settings[providerId];
-      const legacy = section.encryptedAppSecret.trim();
-      if (!legacy || isRobotEnvelope(legacy)) continue;
-      try {
-        const plaintext = isEncryptedSecret(legacy) ? await decryptSecretCipherText(legacy) : legacy;
-        const envelope = await this.encryptSecret(plaintext);
-        if (!envelope) throw new Error("robot_secret_encrypt_failed");
-        section.encryptedAppSecret = envelope;
-      } catch {
-        // 明确清空不可恢复密文，使 UI 显示需要重新填写，而不把旧密文误当成明文。
-        section.encryptedAppSecret = "";
-      }
-      changed = true;
-    }
-    if (changed) await this.saveSettings(settings).catch(() => undefined);
   }
 
   async saveSettings(settings: RobotAssistantSettings): Promise<RobotAssistantSettings> {

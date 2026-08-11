@@ -5,8 +5,7 @@ import {
 } from "./sharedWidgetDataEvents";
 import type { SharedWidgetStore } from "./sharedWidgetStoragePaths";
 
-// 锁顺序固定为：迁移总锁 → store 事务锁 → 单文件路径锁；正常写入从 store 事务锁开始。
-export const SHARED_WIDGET_MIGRATION_LOCK = "siyuan-homepage/transaction/shared-widget-migration";
+// 锁顺序固定为：store 事务锁 → 单文件路径锁。
 export const FOCUS_STORE_TRANSACTION_LOCK = "siyuan-homepage/transaction/focus";
 export const CYBMOK_STORE_TRANSACTION_LOCK = "siyuan-homepage/transaction/cybmok";
 export const COUNTDOWN_STORE_TRANSACTION_LOCK = "siyuan-homepage/transaction/countdown";
@@ -18,33 +17,6 @@ export interface SharedRevisionedFile {
     version: number;
     revision: number;
     updatedAt: string;
-}
-
-export interface SharedWidgetMigrationMetadata {
-    version: 1;
-    dataValidated: true;
-    importedAt: string;
-    status: "complete" | "cleanup-pending" | "failed";
-    sourceRecordCount: number;
-    importedRecordCount: number;
-    legacyDatabaseIds: string[];
-    legacyRootFiles: string[];
-    cleanupStatus: "complete" | "pending";
-    cleanupError?: string;
-    pendingDatabaseRows?: Array<{
-        databaseId: string;
-        rowIds: string[];
-        srcIds?: string[];
-    }>;
-}
-
-export function hasValidatedSharedWidgetMigration(
-    file: (SharedRevisionedFile & { migration?: SharedWidgetMigrationMetadata }) | null,
-): boolean {
-    const migration = file?.migration;
-    return migration?.dataValidated === true
-        && (migration.status === "complete" || migration.status === "cleanup-pending")
-        && (migration.cleanupStatus === "complete" || migration.cleanupStatus === "pending");
 }
 
 export type SharedJsonNormalizer<T extends SharedRevisionedFile> = (raw: unknown) => T;
@@ -234,13 +206,6 @@ export function mutateSharedJson<T extends SharedRevisionedFile>(options: Mutati
             options.dispatch !== false,
         );
     });
-}
-
-export async function removeSharedLegacyDataChecked(path: string): Promise<void> {
-    const plugin = getSharedWidgetStoragePlugin();
-    await plugin.removeData(path);
-    const remaining = await loadRaw(path);
-    if (remaining != null) throw new Error(`旧本地文件删除校验失败：${path}`);
 }
 
 export function registerSharedWidgetFlusher(flusher: () => Promise<void>): () => void {

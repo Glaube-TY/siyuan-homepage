@@ -1,18 +1,15 @@
 import {
     FIXED_ASSETS_STORE_TRANSACTION_LOCK,
-    hasValidatedSharedWidgetMigration,
     loadSharedJson,
     mutateSharedJson,
     runSharedWidgetExclusive,
     type SharedRevisionedFile,
-    type SharedWidgetMigrationMetadata,
 } from "../sharedLocalStorage/sharedLocalStorage";
 import {
     FIXED_ASSETS_FILE,
     FIXED_ASSETS_SCHEMA,
     SHARED_WIDGET_DATA_VERSION,
 } from "../sharedLocalStorage/sharedWidgetStoragePaths";
-import { assertSharedWidgetMigrationReady } from "../sharedLocalStorage/sharedWidgetMigration";
 
 export type FixedAssetCostMode = "elapsed" | "expectedLife" | "retireDate";
 
@@ -36,7 +33,6 @@ export interface FixedAssetRecord {
 
 export interface FixedAssetsFile extends SharedRevisionedFile {
     assets: FixedAssetRecord[];
-    migration?: SharedWidgetMigrationMetadata;
 }
 
 export interface FixedAssetsStoreStatus {
@@ -113,7 +109,6 @@ export function normalizeFixedAssetsFile(raw: unknown): FixedAssetsFile {
         revision: finiteCount(value.revision),
         updatedAt: typeof value.updatedAt === "string" ? value.updatedAt : "",
         assets,
-        migration: value.migration as SharedWidgetMigrationMetadata | undefined,
     };
 }
 
@@ -160,25 +155,16 @@ function validateAssets(actual: FixedAssetsFile, expected: FixedAssetsFile): voi
 }
 
 async function loadFixedAssetsFileForRead(): Promise<FixedAssetsFile> {
-    const existing = await loadSharedJson(FIXED_ASSETS_FILE, normalizeFixedAssetsFile);
-    if (hasValidatedSharedWidgetMigration(existing)) return existing;
-
-    await assertSharedWidgetMigrationReady("fixed-assets");
-    const migrated = await loadSharedJson(FIXED_ASSETS_FILE, normalizeFixedAssetsFile);
-    if (!migrated) throw new Error("固定资产数据文件不存在或尚未同步完成");
-    if (!hasValidatedSharedWidgetMigration(migrated)) {
-        throw new Error("固定资产历史迁移尚未完成");
-    }
-    return migrated;
+    return (await loadSharedJson(FIXED_ASSETS_FILE, normalizeFixedAssetsFile)) || createEmptyFixedAssetsFile();
 }
 
 export async function getFixedAssetsStoreStatus(): Promise<FixedAssetsStoreStatus> {
     try {
-        const file = await loadFixedAssetsFileForRead();
+        await loadFixedAssetsFileForRead();
         return {
             ok: true,
             missingFields: [],
-            message: file.migration?.cleanupStatus === "pending" ? "旧数据库清理待重试" : "本地数据已就绪",
+            message: "本地数据已就绪",
         };
     } catch (error) {
         return { ok: false, missingFields: [], message: error instanceof Error ? error.message : "本地存储不可用" };
@@ -199,7 +185,6 @@ export async function saveFixedAsset(
     input: Partial<FixedAssetRecord>,
     options: { expectedUpdatedAt?: string } = {},
 ): Promise<FixedAssetRecord> {
-    await assertSharedWidgetMigrationReady("fixed-assets");
     return runSharedWidgetExclusive(FIXED_ASSETS_STORE_TRANSACTION_LOCK, async () => {
         const now = new Date().toISOString();
         const asset = normalizeAsset({ ...input, updatedAt: now });
@@ -232,7 +217,6 @@ export async function archiveFixedAsset(
     assetId: string,
     options: { expectedUpdatedAt?: string } = {},
 ): Promise<void> {
-    await assertSharedWidgetMigrationReady("fixed-assets");
     await runSharedWidgetExclusive(FIXED_ASSETS_STORE_TRANSACTION_LOCK, () => mutateSharedJson({
         store: "fixed-assets",
         path: FIXED_ASSETS_FILE,

@@ -2,7 +2,6 @@ import type { CreateDocInput, CreateDocOutput, PreparedCreateDocConfirmation } f
 import { assessDocContentEditRisk } from "../../../../doc-content-edit/doc-content-edit-risk";
 import { createDocContentEditConfirmation } from "../../../../doc-content-edit/doc-content-edit-confirmation-service";
 import { requestDocContentEditConfirmation } from "../../../../doc-content-edit/doc-content-edit-confirmation-bridge";
-import { shouldRequireDocContentEditConfirmation } from "../../../../doc-content-edit/doc-content-edit-confirmation-policy";
 import { executeConfirmedCreateDoc } from "../../../../doc-content-edit/doc-content-edit-create-doc-executor";
 import { removeDocContentEditConfirmation } from "../../../../doc-content-edit/doc-content-edit-confirmation-store";
 import type { SiyuanToolDeps } from "../siyuan-tool-deps";
@@ -130,10 +129,7 @@ export async function executeCreateDoc(
   const target = prepareResult.target;
 
   // 2. 请求用户确认（内部桥接 UI 弹窗）
-  const requireConfirmation = shouldRequireDocContentEditConfirmation(
-    deps.getSettings?.(),
-    "create_doc",
-  );
+  const requireConfirmation = true;
 
   if (requireConfirmation) {
     const confirmationRes = await requestDocContentEditConfirmation({

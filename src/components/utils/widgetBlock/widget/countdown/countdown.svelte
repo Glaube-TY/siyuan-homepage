@@ -45,25 +45,23 @@
     }
   }
   const config = $derived(parse(contentTypeJson));
-  const legacyStyle = $derived(config.data?.countdownStyle || "list1");
+  const classicStyle = $derived(config.data?.countdownStyle || "list1");
   const displaySystem = $derived(
     config.data?.countdownDisplaySystem === "classic" ||
       config.data?.countdownDisplaySystem === "center"
       ? config.data.countdownDisplaySystem
-      : config.data?.countdownView
-        ? "center"
-        : "classic",
+      : "center",
   );
   const normalizedView = $derived(
-    normalizeCountdownWidgetView(config.data?.countdownView, legacyStyle),
+    normalizeCountdownWidgetView(config.data?.countdownView),
   );
   const view = $derived({
     ...normalizedView,
     viewMode:
       displaySystem === "classic"
-        ? legacyStyle === "list2"
+        ? classicStyle === "list2"
           ? "compact"
-          : legacyStyle === "card1" || legacyStyle === "card2"
+          : classicStyle === "card1" || classicStyle === "card2"
             ? "cards"
             : "list"
         : normalizedView.viewMode,
@@ -368,7 +366,7 @@
           {#each models as model (model.event.id)}<button
               type="button"
               class:image={displaySystem === "classic" &&
-                legacyStyle === "card1"}
+                classicStyle === "card1"}
               onclick={() => openEvent(model)}
               aria-label={`${model.displayName}，${model.relativeLabel}`}
               onkeydown={(event) => {
@@ -380,7 +378,7 @@
                 {preferences}
                 variant={displaySystem === "center"
                   ? "center"
-                  : legacyStyle === "card1"
+                  : classicStyle === "card1"
                     ? "image"
                     : "classic"}
               /></button

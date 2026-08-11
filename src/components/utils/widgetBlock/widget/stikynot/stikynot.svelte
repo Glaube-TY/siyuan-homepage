@@ -71,7 +71,7 @@
         }
 
         Promise.resolve(runtimeContext.deviceViewContext
-            ? loadWidgetInstanceConfig(runtimeContext.deviceViewContext, parsedContent.instanceId ?? parsedContent.blockId)
+            ? loadWidgetInstanceConfig(runtimeContext.deviceViewContext, parsedContent.instanceId)
             : null)
             .then((saved: any) => {
                 if (saved && saved.html) {
@@ -127,7 +127,7 @@
                 html,
             };
             if (!runtimeContext.deviceViewContext) return;
-            await saveWidgetInstanceConfig(runtimeContext.deviceViewContext, parsedContent.instanceId ?? parsedContent.blockId, saveconf);
+            await saveWidgetInstanceConfig(runtimeContext.deviceViewContext, parsedContent.instanceId, saveconf);
         }, 1000);
     }
 </script>

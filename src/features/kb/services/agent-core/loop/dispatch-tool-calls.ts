@@ -17,23 +17,7 @@ export interface DispatchToolCallsResult {
   fatalErrorMessage?: string;
 }
 
-/** Deprecated database tool names → migration hint for the model. */
-const DEPRECATED_TOOL_HINTS: Record<string, string> = {
-  read_attribute_view_stats:
-    "read_attribute_view_stats 已废弃。请使用 read_attribute_view 读取 schema/rows 后自行分析统计。",
-  batch_update_attribute_view_cells:
-    "batch_update_attribute_view_cells 已合并进 update_attribute_view_cell。批量更新请使用 update_attribute_view_cell 的 updates[] 参数。",
-  get_attribute_view_item_ids_by_bound_ids:
-    "get_attribute_view_item_ids_by_bound_ids 不是可见工具，ID 映射由工具内部自动处理。请先用 read_attribute_view 或 find_attribute_view_rows 定位行。",
-  get_attribute_view_bound_block_ids_by_item_ids:
-    "get_attribute_view_bound_block_ids_by_item_ids 不是可见工具，ID 映射由工具内部自动处理。请先用 read_attribute_view 或 find_attribute_view_rows 定位行。",
-  read_candidate_docs:
-    "read_candidate_docs 已废弃。请使用 search_scope + read_docs 两步完成文档阅读。",
-};
-
 function buildUnknownToolHint(toolName: string): string {
-  const hint = DEPRECATED_TOOL_HINTS[toolName];
-  if (hint) return hint;
   return `Tool is not registered: ${toolName}`;
 }
 

@@ -9,7 +9,6 @@ import {
   COUNTDOWN_CENTER_SETTINGS_FILE,
   COUNTDOWN_CENTER_SETTINGS_SCHEMA,
 } from "../sharedLocalStorage/sharedWidgetStoragePaths";
-import { assertSharedWidgetMigrationReady } from "../sharedLocalStorage/sharedWidgetMigration";
 import {
   DEFAULT_COUNTDOWN_DISPLAY_PREFERENCES,
   DEFAULT_COUNTDOWN_WIDGET_VIEW,
@@ -225,7 +224,6 @@ export async function loadCountdownCenterSettings(): Promise<CountdownCenterSett
 export async function saveCountdownCenterSettings(
   input: CountdownCenterSettingsFile,
 ): Promise<CountdownCenterSettingsFile> {
-  await assertSharedWidgetMigrationReady("countdown");
   const normalized = normalizeCountdownCenterSettings(input);
   const saved = await runSharedWidgetExclusive(
     COUNTDOWN_STORE_TRANSACTION_LOCK,
@@ -264,18 +262,11 @@ export function subscribeCountdownCenterSettingsChanged(
 
 export function normalizeCountdownWidgetView(
   raw: unknown,
-  legacyStyle?: string,
 ): CountdownWidgetViewConfig {
   const value =
     raw && typeof raw === "object" && !Array.isArray(raw)
       ? (raw as Partial<CountdownWidgetViewConfig>)
       : {};
-  const legacyView =
-    legacyStyle === "list2"
-      ? "compact"
-      : legacyStyle === "card1" || legacyStyle === "card2"
-        ? "cards"
-        : "list";
   const array = <T>(candidate: unknown): T[] =>
     Array.isArray(candidate) ? ([...new Set(candidate)] as T[]) : [];
   const dateRange = [
@@ -318,7 +309,7 @@ export function normalizeCountdownWidgetView(
       value.viewMode === "cards" ||
       value.viewMode === "timeline"
         ? value.viewMode
-        : legacyView,
+        : DEFAULT_COUNTDOWN_WIDGET_VIEW.viewMode,
     displayMode: value.displayMode === "custom" ? "custom" : "inherit",
     displayOverrides:
       value.displayOverrides && typeof value.displayOverrides === "object"

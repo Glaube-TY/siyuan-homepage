@@ -1,6 +1,5 @@
 import type { ComponentMigrationStatus } from "@/components/utils/widgetBlock/widget/common/componentMigrationTypes";
 import {
-    migrateFavoritesIndexFromGlobalSql,
     rebuildTaskIndexFromGlobalSql,
     rebuildHeatmapDailyIndexFromGlobalSql,
     refreshFavoritesIndex,
@@ -8,7 +7,6 @@ import {
     refreshTaskIndexFromRecentDocuments,
     refreshHeatmapIndexFromRecentDocuments,
 } from "@/components/tools/siyuanComponentDataApi";
-import { migrateReviewIndexFromGlobalSql } from "@/components/utils/widgetBlock/widget/reviewDocs/reviewDocs";
 import {
     rebuildStatIndexFromGlobalSql,
     refreshStatIndexFromRecentDocuments,
@@ -57,11 +55,11 @@ export async function rebuildAllHomepageIndexes(
     const tasks: Array<{ key: keyof RebuildAllResult; fn: () => Promise<ComponentMigrationStatus> }> = [
         {
             key: "favorites",
-            fn: () => migrateFavoritesIndexFromGlobalSql(plugin),
+            fn: () => refreshFavoritesIndex(plugin),
         },
         {
             key: "review",
-            fn: () => migrateReviewIndexFromGlobalSql(plugin),
+            fn: () => refreshReviewIndex(plugin),
         },
         {
             key: "task",

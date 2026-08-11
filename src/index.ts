@@ -30,15 +30,14 @@ import {
     resolveBackgroundImage,
 } from "./homepage/configLoader";
 import { getCurrentDeviceViewContext } from "./homepage/deviceView/deviceViewContext";
-import { ensureCurrentDeviceViewMigrated } from "./homepage/deviceView/deviceViewMigration";
+import { ensureCurrentDeviceViewReady } from "./homepage/deviceView/deviceViewReadiness";
 import type { DeviceViewSurface } from "./homepage/deviceView/deviceViewTypes";
 import { ensureDeviceIdentityReady } from "./homepage/utils/deviceProfile";
 import {
-    DeviceViewMigrationBlockedError,
+    DeviceViewAccessBlockedError,
     DeviceViewTemporarilyIncompleteError,
     formatDeviceViewBlockedUserMessage,
     markDeviceViewBlockedNotified,
-    recordDeviceViewBlockedState,
 } from "./homepage/deviceView/deviceViewErrors";
 import { readDeviceViewSettings, updateDeviceViewSettings } from "./homepage/deviceView/deviceViewStorage";
 import {
@@ -56,7 +55,6 @@ import {
     flushPendingSharedWidgetWrites,
     setSharedWidgetStoragePlugin,
 } from "./components/utils/widgetBlock/widget/sharedLocalStorage/sharedLocalStorage";
-import { ensureLegacySharedWidgetMigration } from "./components/utils/widgetBlock/widget/sharedLocalStorage/sharedWidgetMigration";
 import type { ReviewMenuTarget } from "./components/utils/widgetBlock/widget/reviewDocs/reviewDocsTypes";
 import EnhancedDiaryWorkspacePage from "./components/utils/widgetBlock/widget/enhancedDiary/workspace/enhancedDiaryWorkspacePage.svelte";
 import KbPremiumGatePanel from "@/features/kb/components/panels/kb-premium-gate-panel.svelte";
@@ -66,13 +64,11 @@ import { setReferenceNavigationPlugin } from "@/features/kb/services/siyuan/refe
 import { setNotebrainPlugin } from "@/features/kb/services/agent-workbench/storage";
 import { saveData, loadData, removeData } from "@/features/kb/services/agent-workbench/storage/notebrain-plugin-storage";
 import { setPluginStorage } from "@/features/kb/services/agent-workbench/runtime/in-flight-turn-journal";
-import { setNotifyBridgePlugin } from "@/features/notify-bridge";
 import { RobotClientRuntime } from "@/features/robot-assistant/runtime/robot-client-runtime";
 import { RobotKernelBridge } from "@/features/robot-assistant/runtime/robot-kernel-bridge";
 import { syncRobotAgentRuntimeConfig } from "@/features/robot-assistant/runtime/robot-agent-config-sync";
 import {
     destroyNotificationCenterRuntime,
-    ensureNotificationCenterMigration,
     registerMobileNotificationPlanProvider,
     setNotificationCenterPlugin,
     settleMobilePlanReconcile,
@@ -253,7 +249,6 @@ interface PluginConfig {
     quickNotesAddPosition?: string;
     taskEditorEnabled?: boolean;
     sidebarEnabled?: boolean;
-    autoOpenMobileHomepage?: boolean;
     mobileAutoOpenEnabled?: boolean;
     mobileAutoOpenTarget?: string;
     mobileQuickActionsEnabled?: boolean;
@@ -311,8 +306,8 @@ export default class PluginHomepage extends Plugin {
     // 全局背景异步刷新版本号：防止旧请求覆盖新状态
     private globalBackgroundApplyVersion = 0;
 
-    // 设备视图迁移阻断状态：结构化错误被捕获后保存，用于阻止依赖设备视图的功能
-    private deviceViewBlocked: Readonly<DeviceViewMigrationBlockedError> | null = null;
+    // 设备视图访问阻断状态：结构化错误被捕获后保存，用于阻止依赖设备视图的功能
+    private deviceViewBlocked: Readonly<DeviceViewAccessBlockedError> | null = null;
 
     // 主页 surface 暂不可用只影响主页，不阻断独立业务。
     private homepageSurfaceUnavailable: Readonly<DeviceViewTemporarilyIncompleteError> | null = null;
@@ -334,9 +329,6 @@ export default class PluginHomepage extends Plugin {
     private baseEventListenersRegistered = false;
     private contentMenuListenerRegistered = false;
     private sidebarDockRegistered = false;
-    private legacySharedMigrationInFlight: Promise<void> | null = null;
-    private legacySharedMigrationCompleted = false;
-
     public override onDataChanged(): void {
         // 安全空实现：不调用基类实现，不卸载插件，不启动迁移，不重建主页。
         // 标签重新打开时通过标准init读取当前设备视图。
@@ -370,11 +362,10 @@ export default class PluginHomepage extends Plugin {
 
     private captureHomepageSurfaceError(surface: DeviceViewSurface, error: unknown): void {
         this.readyDeviceViewSurfaces.delete(surface);
-        if (error instanceof DeviceViewMigrationBlockedError) {
+        if (error instanceof DeviceViewAccessBlockedError) {
             this.deviceViewBlocked = Object.freeze(error);
             this.homepageSurfaceUnavailable = null;
             this.homepageSurfaceReadError = null;
-            recordDeviceViewBlockedState(error);
             return;
         }
         if (error instanceof DeviceViewTemporarilyIncompleteError) {
@@ -424,7 +415,6 @@ export default class PluginHomepage extends Plugin {
         setNotebrainPlugin(this);
         setPluginStorage({ saveData, loadData, removeData });
         setNotificationCenterPlugin(this);
-        setNotifyBridgePlugin(this);
         setTaskNotifyPlugin(this);
         setCountdownNotifyPlugin(this);
         setEnhancedDiaryNotifyPlugin(this);
@@ -468,10 +458,9 @@ export default class PluginHomepage extends Plugin {
                 quickNotesAddPosition: config.quickNotesAddPosition ?? "bottom",
             }).catch((error) => console.warn("[Homepage] 快速笔记 Kernel 配置快照同步失败", error));
             this.syncHomepageConfigDependentListeners(config);
-            this.maybeStartLegacySharedWidgetMigration();
         } catch (error) {
             this.syncHomepageConfigDependentListeners(null);
-            if (error instanceof DeviceViewMigrationBlockedError) {
+            if (error instanceof DeviceViewAccessBlockedError) {
                 if (markDeviceViewBlockedNotified(error.deviceId, error.surface)) {
                     showMessage(formatDeviceViewBlockedUserMessage(error), 0, "error");
                 }
@@ -768,14 +757,13 @@ export default class PluginHomepage extends Plugin {
     async onLayoutReady() {
         // 独立业务先启动：通知中心、机器人客户端、日记通知等不依赖设备身份。
         try {
-            await ensureNotificationCenterMigration();
             startNotificationCenterRuntime();
             startTaskNotifyScheduler();
             startCountdownNotifyScheduler();
             startEnhancedDiaryNotifyScheduler();
             startReviewNotifyScheduler();
         } catch (error) {
-            console.warn("[Homepage] 通知中心迁移失败，业务通知调度器未启动", error);
+            console.warn("[Homepage] 通知中心启动失败，业务通知调度器未启动", error);
         }
 
         // 手机端不参与机器人运行设备竞争，也不加载任何渠道 Provider。
@@ -790,7 +778,6 @@ export default class PluginHomepage extends Plugin {
         try {
             const config = await this.recoverDeviceViewRuntimeAfterIdentityReady();
             this.syncHomepageConfigDependentListeners(config);
-            this.maybeStartLegacySharedWidgetMigration();
             if (!this.homepageLayoutReadyFinalized) {
                 await this.finalizeHomepageSurfaceOnLayoutReady(config);
                 this.homepageLayoutReadyFinalized = true;
@@ -878,7 +865,7 @@ export default class PluginHomepage extends Plugin {
                 try {
                     await self.recoverDeviceViewRuntimeAfterIdentityReady();
                 } catch (error) {
-                    if (error instanceof DeviceViewMigrationBlockedError) {
+                    if (error instanceof DeviceViewAccessBlockedError) {
                         self.renderHomepageBlockedNotice(this.element as HTMLElement);
                         return;
                     }
@@ -1037,7 +1024,7 @@ export default class PluginHomepage extends Plugin {
 
     /**
      * 身份重试成功后执行完整设备视图恢复，不重复注册命令/Dock/事件监听器。
-     * 顺序：confirm identity → migrate primary → sidebar readiness → shared migration → verify license。
+     * 顺序：confirm identity → migrate primary → sidebar readiness → verify license。
      */
     private async recoverDeviceViewRuntimeAfterIdentityReady(): Promise<PluginConfig> {
         await this.ensureDeviceIdentityForRuntime();
@@ -1053,10 +1040,10 @@ export default class PluginHomepage extends Plugin {
         ) {
             try {
                 const context = getCurrentDeviceViewContext(this, primarySurface);
-                await ensureCurrentDeviceViewMigrated(context);
+                await ensureCurrentDeviceViewReady(context);
             } catch (error) {
                 this.captureHomepageSurfaceError(primarySurface, error);
-                if (error instanceof DeviceViewMigrationBlockedError) {
+                if (error instanceof DeviceViewAccessBlockedError) {
                     if (markDeviceViewBlockedNotified(error.deviceId, error.surface)) {
                         showMessage(formatDeviceViewBlockedUserMessage(error), 0, "error");
                     }
@@ -1069,7 +1056,7 @@ export default class PluginHomepage extends Plugin {
         if (!this.isMobile && !this.readyDeviceViewSurfaces.has("desktop-sidebar")) {
             try {
                 const sidebarContext = getCurrentDeviceViewContext(this, "desktop-sidebar");
-                await ensureCurrentDeviceViewMigrated(sidebarContext);
+                await ensureCurrentDeviceViewReady(sidebarContext);
                 this.readyDeviceViewSurfaces.add("desktop-sidebar");
             } catch (error) {
                 console.warn("[Homepage] desktop-sidebar readiness 未完成；仅侧边栏暂不可用", error);
@@ -1082,42 +1069,12 @@ export default class PluginHomepage extends Plugin {
             this.readyDeviceViewSurfaces.add(primarySurface);
             await this.initializeHomepageSurface(config);
             this.syncHomepageConfigDependentListeners(config);
-            this.maybeStartLegacySharedWidgetMigration();
             return config;
         } catch (error) {
             this.captureHomepageSurfaceError(primarySurface, error);
             this.syncHomepageConfigDependentListeners(null);
             throw error;
         }
-    }
-
-    private maybeStartLegacySharedWidgetMigration(): void {
-        if (this.legacySharedMigrationCompleted || this.legacySharedMigrationInFlight) return;
-        const requiredSurfaces: DeviceViewSurface[] = this.isMobile
-            ? ["mobile-homepage"]
-            : ["desktop-homepage", "desktop-sidebar"];
-        if (!requiredSurfaces.every((surface) => this.readyDeviceViewSurfaces.has(surface))) return;
-
-        let migrationStart: Promise<void>;
-        try {
-            migrationStart = ensureLegacySharedWidgetMigration(this, requiredSurfaces);
-        } catch (error) {
-            console.warn("[Homepage] 启动共享组件历史数据迁移失败；surface 保持 ready，可在下次明确操作重试", error);
-            return;
-        }
-        const migration = migrationStart
-            .then(() => {
-                this.legacySharedMigrationCompleted = true;
-            })
-            .catch((error) => {
-                console.warn("[Homepage] 共享组件历史数据迁移失败；surface 保持 ready，可在下次明确操作重试", error);
-            })
-            .finally(() => {
-                if (this.legacySharedMigrationInFlight === migration) {
-                    this.legacySharedMigrationInFlight = null;
-                }
-            });
-        this.legacySharedMigrationInFlight = migration;
     }
 
     // 在容器内渲染设备视图阻断安全提示；不调用 showMessage，不输出完整堆栈
@@ -1295,13 +1252,6 @@ export default class PluginHomepage extends Plugin {
                 this.ADVANCED = true;
                 window.dispatchEvent(new CustomEvent("homepage-advanced-ready"));
 
-                if (licenseResult.legacyDeprecated) {
-                    showMessage(
-                        "⚠️ 当前使用的是旧版激活码。激活方式已更换，请联系作者换发新版激活码。旧版激活方式将只兼容到 2026 年 8 月 31 日，请尽快联系作者换发新版激活码。",
-                        10000
-                    );
-                }
-
                 const remainingDays = licenseResult.userInfo.remainingDays;
                 const isLifetime = licenseResult.userInfo.isLifetime === true;
 
@@ -1318,7 +1268,7 @@ export default class PluginHomepage extends Plugin {
                 this.ADVANCED = false;
                 window.dispatchEvent(new CustomEvent("homepage-advanced-unavailable"));
 
-                if ([31, 40, 43].includes(licenseResult.code) && licenseResult.error) {
+                if (licenseResult.code === 31 && licenseResult.error) {
                     showMessage(licenseResult.error);
                 }
             }
@@ -2215,7 +2165,7 @@ export default class PluginHomepage extends Plugin {
             await this.recoverDeviceViewRuntimeAfterIdentityReady();
             await this.verifyLicense();
         } catch (error) {
-            if (error instanceof DeviceViewMigrationBlockedError) {
+            if (error instanceof DeviceViewAccessBlockedError) {
                 showMessage(formatDeviceViewBlockedUserMessage(error), 0, "error");
             } else {
                 showMessage("移动主页暂不可用；未修改现有主页数据，请稍后重试。", 5000, "error");

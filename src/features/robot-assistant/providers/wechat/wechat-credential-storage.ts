@@ -12,7 +12,6 @@ export interface WeChatCredentialStoragePort {
   setUpdatesBuf(buf: string | null): Promise<void>;
 }
 
-const LEGACY_KEY_CREDENTIAL = "wechat-credential-v1";
 const SECRET_KEY_CREDENTIAL = "wechat-credential";
 const KEY_UPDATES_BUF = "wechat-get-updates-buf-v1";
 
@@ -20,27 +19,15 @@ export function createKernelWeChatCredentialStorage(host: RobotKernelHost): WeCh
   const vault = new RobotSecretVaultStore(createKernelSecretStoragePort(host));
   return {
     async getCredential(): Promise<WeChatCredential | null> {
-      let raw = await vault.readSecret(SECRET_KEY_CREDENTIAL);
-      if (!raw) {
-        // 一次性迁移早期开发包的明文凭据；迁移后立即清空旧文件。
-        raw = await host.storage.get(LEGACY_KEY_CREDENTIAL);
-        const legacy = parseCredential(raw);
-        if (legacy) {
-          await vault.saveSecret(SECRET_KEY_CREDENTIAL, JSON.stringify(legacy));
-          await host.storage.set(LEGACY_KEY_CREDENTIAL, "");
-          return legacy;
-        }
-      }
+      const raw = await vault.readSecret(SECRET_KEY_CREDENTIAL);
       if (!raw) return null;
       return parseCredential(raw);
     },
     async setCredential(credential: WeChatCredential): Promise<void> {
       await vault.saveSecret(SECRET_KEY_CREDENTIAL, JSON.stringify(credential));
-      await host.storage.set(LEGACY_KEY_CREDENTIAL, "");
     },
     async clearCredential(): Promise<void> {
       await vault.deleteSecret(SECRET_KEY_CREDENTIAL);
-      await host.storage.set(LEGACY_KEY_CREDENTIAL, "");
       await host.storage.set(KEY_UPDATES_BUF, "");
     },
     async getUpdatesBuf(): Promise<string | null> {

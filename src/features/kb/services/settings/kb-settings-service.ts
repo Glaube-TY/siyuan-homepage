@@ -3,12 +3,11 @@
  * 负责读取/合并/保存 KB 设置
  */
 
-import type { KbSettings, KbChatProviderConfig, KbChatModelConfig, WebSearchSettings, KbSkillSettings, KbToolSettings, KbDangerousSkillToolName, GlobalMemorySettings, QuickPromptsSettings, KbProcessDisplayMode, NotebrainAgentWorkspaceSettings, ExternalSkillSettings, McpSettings, NotebrainPermissionAction, RuntimeToolsSettings, KbChatAppearanceSettings, KbChatAppearanceStyle, KbChatAvatarSettings } from "../../types/settings";
+import type { KbSettings, KbChatProviderConfig, KbChatModelConfig, WebSearchSettings, KbToolSettings, GlobalMemorySettings, QuickPromptsSettings, KbProcessDisplayMode, NotebrainAgentWorkspaceSettings, ExternalSkillSettings, McpSettings, NotebrainPermissionAction, RuntimeToolsSettings, KbChatAppearanceSettings, KbChatAppearanceStyle, KbChatAvatarSettings } from "../../types/settings";
 import {
   DEFAULT_KB_SETTINGS,
   DEFAULT_TEMPERATURE,
   DEFAULT_WEB_SEARCH_SETTINGS,
-  DEFAULT_SKILL_SETTINGS,
   DEFAULT_TOOL_SETTINGS,
   DEFAULT_GLOBAL_MEMORY_SETTINGS,
   DEFAULT_QUICK_PROMPTS_SETTINGS,
@@ -33,10 +32,6 @@ import {
 } from "./kb-sensitive-secret-crypto";
 import { pushAgentDebugEvent } from "../agent-workbench/debug/workbench-debug";
 import { AGGREGATE_TOOL_NAMES, AGGREGATE_TOOL_CATALOG, findAggregateToolMeta } from "../agent-workbench/tools/aggregate/aggregate-tool-metadata";
-import {
-  BUILTIN_SKILL_TO_AGGREGATE_TOOL,
-  OLD_TOOL_TO_AGGREGATE_TOOL,
-} from "../agent-workbench/tools/aggregate/aggregate-tool-migration";
 
 const SETTINGS_KEY = "kb-settings";
 const MAX_AVATAR_DATA_URL_LENGTH = 1_572_864;
@@ -116,10 +111,6 @@ function normalizeChatAppearanceStyle(raw: unknown): KbChatAppearanceStyle {
   if (raw === "default" || raw === "minimal" || raw === "prose" || raw === "card") {
     return raw;
   }
-  // 迁移旧品牌样式名到新中性样式
-  if (raw === "gpt") return "minimal";
-  if (raw === "deepseek" || raw === "gemini") return "prose";
-  if (raw === "claude") return "card";
   return DEFAULT_CHAT_APPEARANCE_SETTINGS.style;
 }
 
@@ -176,43 +167,13 @@ function normalizeStringArray(raw: unknown): string[] {
   )];
 }
 
-/**
- * 归一化 Skill 设置
- * - 内置 Skill 已不再作为独立管理项，字段仅保留旧配置迁移用
- */
-function normalizeSkillSettings(raw: unknown): KbSkillSettings {
-  if (!raw || typeof raw !== "object") {
-    return { ...DEFAULT_SKILL_SETTINGS };
-  }
-  const s = raw as Record<string, unknown>;
-  const rawNames = s.disabledBuiltinSkillNames;
-  let names: string[] = [];
-  if (Array.isArray(rawNames)) {
-    names = rawNames.filter((n): n is string => typeof n === "string" && n.length > 0);
-    names = [...new Set(names)];
-  }
-
-  const rawInit = s.initializedDefaultDisabledBuiltinSkillNames;
-  let initialized: string[] = [];
-  if (Array.isArray(rawInit)) {
-    initialized = rawInit.filter((n): n is string => typeof n === "string" && n.length > 0);
-    initialized = [...new Set(initialized)];
-  }
-
-  return {
-    disabledBuiltinSkillNames: names,
-    initializedDefaultDisabledBuiltinSkillNames: initialized,
-  };
-}
-
 function toAggregateGlobalToolName(rawName: unknown): KbToolSettings["disabledGlobalToolNames"][number] | null {
   if (typeof rawName !== "string") return null;
-  const name = rawName === "append_global_memory" ? "edit_global_memory" : rawName;
+  const name = rawName.trim();
   if ((AGGREGATE_TOOL_NAMES as readonly string[]).includes(name)) {
     return name as KbToolSettings["disabledGlobalToolNames"][number];
   }
-  const migrated = OLD_TOOL_TO_AGGREGATE_TOOL[name];
-  return migrated ? migrated as KbToolSettings["disabledGlobalToolNames"][number] : null;
+  return null;
 }
 
 /**
@@ -240,20 +201,15 @@ function writeActionsOf(toolName: string): string[] {
  * - 仅保留合法 (toolName, actionName) 组合
  * - 仅对聚合工具且有 actions 的工具生效；无 action 工具直接忽略
  * - 仅保留 requiresConfirmation=true 的 action（只读 action 永远不弹确认，无需覆盖）
- * - 旧 tool 级 disabledWriteToolConfirmationNames 中属于聚合工具的，迁移到该工具所有写入 action，值为 false
- *   只读 action 不受迁移影响
- * - 旧字段中属于无 action 直接工具的，仍由调用方保留在 disabledWriteToolConfirmationNames
  */
 function normalizeToolActionConfirmOverrides(
   raw: unknown,
-  legacyWriteConfirmationNames: readonly string[],
 ): NonNullable<KbToolSettings["toolActionConfirmOverrides"]> {
   const result: Record<string, Record<string, boolean>> = {};
   const aggregateToolNames: Set<string> = new Set(
     AGGREGATE_TOOL_CATALOG.filter((t) => t.actions.length > 0).map((t) => t.name),
   );
 
-  // 1. 解析 raw overrides
   if (raw && typeof raw === "object" && !Array.isArray(raw)) {
     const entries = raw as Record<string, unknown>;
     for (const [toolName, actionMap] of Object.entries(entries)) {
@@ -270,52 +226,21 @@ function normalizeToolActionConfirmOverrides(
     }
   }
 
-  // 2. 迁移旧 tool 级 disabledWriteToolConfirmationNames
-  //    属于聚合工具的，迁移到该工具所有写入 action，值为 false（trusted）
-  //    属于无 action 直接工具的，由调用方保留在原字段，不在此处理
-  for (const name of legacyWriteConfirmationNames) {
-    if (!aggregateToolNames.has(name)) continue;
-    const actions = writeActionsOf(name);
-    if (actions.length === 0) continue;
-    if (!result[name]) result[name] = {};
-    for (const actionName of actions) {
-      // 只在用户未显式覆盖时设为 false；已存在值不覆盖
-      if (result[name][actionName] === undefined) {
-        result[name][actionName] = false;
-      }
-    }
-  }
-
   return result;
-}
-
-function migrateDisabledBuiltinSkillsToTools(
-  skillSettings: KbSkillSettings | undefined,
-): KbToolSettings["disabledGlobalToolNames"] {
-  const migrated: KbToolSettings["disabledGlobalToolNames"] = [];
-  for (const skillName of skillSettings?.disabledBuiltinSkillNames ?? []) {
-    const toolName = BUILTIN_SKILL_TO_AGGREGATE_TOOL[skillName];
-    if (toolName) migrated.push(toolName as KbToolSettings["disabledGlobalToolNames"][number]);
-  }
-  return [...new Set(migrated)];
 }
 
 /**
  * 归一化全局工具设置
  * - 只保留合法聚合工具名
- * - 迁移旧全局小工具名和旧内置 Skill 禁用项到聚合工具
- * - 系统必需工具（agent_tool_help）永远不进入 disabledGlobalToolNames，历史配置中存在也会被过滤
+ * - 系统必需工具（agent_tool_help）永远不进入 disabledGlobalToolNames
  * - 去重
- * - 旧设置缺失时回退默认值
- * - 旧 tool 级 disabledWriteToolConfirmationNames 中属于聚合工具的，迁移到 toolActionConfirmOverrides
- *   仅保留属于无 action 直接工具的条目在 disabledWriteToolConfirmationNames
+ * - 设置缺失时回退默认值
  */
-function normalizeToolSettings(raw: unknown, skillSettings?: KbSkillSettings): KbToolSettings {
+function normalizeToolSettings(raw: unknown): KbToolSettings {
   const hasRawToolSettings = !!raw && typeof raw === "object";
-  const hasLegacySkillSettings = (skillSettings?.disabledBuiltinSkillNames?.length ?? 0) > 0;
   const s = hasRawToolSettings ? raw as Record<string, unknown> : {};
   const rawNames = s.disabledGlobalToolNames;
-  let names: KbToolSettings["disabledGlobalToolNames"] = hasRawToolSettings || hasLegacySkillSettings
+  let names: KbToolSettings["disabledGlobalToolNames"] = hasRawToolSettings
     ? []
     : [...DEFAULT_TOOL_SETTINGS.disabledGlobalToolNames];
   if (Array.isArray(rawNames)) {
@@ -323,27 +248,11 @@ function normalizeToolSettings(raw: unknown, skillSettings?: KbSkillSettings): K
       .map(toAggregateGlobalToolName)
       .filter((n): n is KbToolSettings["disabledGlobalToolNames"][number] => !!n);
   }
-  names = [...new Set([...names, ...migrateDisabledBuiltinSkillsToTools(skillSettings)])];
+  names = [...new Set(names)];
   // 系统必需工具永远固定启用：从 disabledGlobalToolNames 中移除
   names = names.filter((n) => !SYSTEM_REQUIRED_TOOL_NAMES.has(n));
 
-  // 归一化旧字段 disabledDangerousSkillToolConfirmationNames（迁移用）
-  const validDangerousToolNames: KbDangerousSkillToolName[] = [
-    "create_doc", "update_block", "insert_block", "delete_blocks",
-    "move_block", "rename_doc", "delete_doc", "replace_doc_content",
-  ];
-  const rawDangerous = s.disabledDangerousSkillToolConfirmationNames;
-  let dangerousNames: KbDangerousSkillToolName[] = [];
-  if (Array.isArray(rawDangerous)) {
-    dangerousNames = rawDangerous.filter(
-      (n): n is KbDangerousSkillToolName =>
-        typeof n === "string" && validDangerousToolNames.includes(n as KbDangerousSkillToolName)
-    );
-    dangerousNames = [...new Set(dangerousNames)];
-  }
-
-  // 归一化 disabledWriteToolConfirmationNames
-  // 合并旧字段 dangerousNames 到新字段
+  // 无 action 的直接写工具仍使用工具级确认开关。
   const rawWriteConfirmation = s.disabledWriteToolConfirmationNames;
   let writeConfirmationNames: string[] = [];
   if (Array.isArray(rawWriteConfirmation)) {
@@ -352,20 +261,14 @@ function normalizeToolSettings(raw: unknown, skillSettings?: KbSkillSettings): K
       .map((n) => n.trim())
       .filter((n) => n.length > 0);
   }
-  // 合并旧字段
-  for (const name of dangerousNames) {
-    if (!writeConfirmationNames.includes(name)) {
-      writeConfirmationNames.push(name);
-    }
-  }
   writeConfirmationNames = [...new Set(writeConfirmationNames)];
 
-  // 归一化 toolActionConfirmOverrides + 迁移旧 tool 级 trusted（聚合工具部分）
+  // 聚合工具仅接受 action 级确认覆盖。
   const rawOverrides = s.toolActionConfirmOverrides;
-  const overrides = normalizeToolActionConfirmOverrides(rawOverrides, writeConfirmationNames);
+  const overrides = normalizeToolActionConfirmOverrides(rawOverrides);
 
   // writeConfirmationNames 仅保留无 action 的直接工具（如 edit_global_memory）
-  // 聚合工具的 trusted 已迁移到 overrides，不再保留在 writeConfirmationNames
+  // 聚合工具的可信状态由 action 级配置单独管理。
   const directWriteConfirmationNames = writeConfirmationNames.filter((n) => DIRECT_WRITE_TOOL_NAMES.has(n));
 
   const result: KbToolSettings = {
@@ -376,10 +279,6 @@ function normalizeToolSettings(raw: unknown, skillSettings?: KbSkillSettings): K
   }
   if (Object.keys(overrides).length > 0) {
     result.toolActionConfirmOverrides = overrides;
-  }
-  // 保留旧字段存储（下次合并时仍可读取）
-  if (dangerousNames.length > 0) {
-    result.disabledDangerousSkillToolConfirmationNames = dangerousNames;
   }
   return result;
 }
@@ -447,10 +346,9 @@ function normalizeNotebrainWorkspaceSettings(raw: unknown): NotebrainAgentWorksp
   }
   const s = raw as Record<string, unknown>;
   return {
-    // 迁移：老设置没有 enabled 字段时，如果 commandExecutionEnabled 为 true 则自动启用沙箱
     enabled: typeof s.enabled === "boolean"
       ? s.enabled
-      : s.commandExecutionEnabled === true,
+      : DEFAULT_NOTEBRAIN_WORKSPACE_SETTINGS.enabled,
     commandExecutionEnabled: typeof s.commandExecutionEnabled === "boolean"
       ? s.commandExecutionEnabled
       : DEFAULT_NOTEBRAIN_WORKSPACE_SETTINGS.commandExecutionEnabled,
@@ -510,9 +408,6 @@ function normalizeExternalSkillSettings(raw: unknown): ExternalSkillSettings {
       ? s.autoInstallEnabled
       : DEFAULT_EXTERNAL_SKILL_SETTINGS.autoInstallEnabled,
     disabledSkillIds: normalizeStringArray(s.disabledSkillIds),
-    legacyUserSkillDirectInject: typeof s.legacyUserSkillDirectInject === "boolean"
-      ? s.legacyUserSkillDirectInject
-      : DEFAULT_EXTERNAL_SKILL_SETTINGS.legacyUserSkillDirectInject,
   };
 }
 
@@ -522,18 +417,12 @@ function normalizeMcpSettings(raw: unknown): McpSettings {
   }
   const s = raw as Record<string, unknown>;
 
-  // Migration: old default maxVisibleToolsPerTurn was 12, new default is 40.
-  // Treat exact-12 as old default and migrate to 40.
-  let maxVisible = DEFAULT_MCP_SETTINGS.maxVisibleToolsPerTurn; // 40
+  let maxVisible = DEFAULT_MCP_SETTINGS.maxVisibleToolsPerTurn;
   const rawVal = s.maxVisibleToolsPerTurn;
   if (rawVal !== undefined && rawVal !== null) {
     const parsed = parseInt(String(rawVal), 10);
     if (Number.isFinite(parsed) && parsed > 0) {
-      if (parsed === 12) {
-        maxVisible = 40; // Migrate old default
-      } else {
-        maxVisible = Math.min(80, Math.max(1, Math.round(parsed)));
-      }
+      maxVisible = Math.min(80, Math.max(1, Math.round(parsed)));
     }
   }
 
@@ -1073,8 +962,6 @@ export function mergeKbSettings(userSettings: Partial<KbSettings>): KbSettings {
   );
   const finalSelectedProviderId = selectedConfig.selectedProviderId;
   const finalSelectedModelId = selectedConfig.selectedModelId;
-  const legacySkillSettings = normalizeSkillSettings(normalized.skillSettings);
-  const skillSettings = { ...DEFAULT_SKILL_SETTINGS };
 
   // 第四步：显式构造 KbSettings 返回对象
   return {
@@ -1094,8 +981,7 @@ export function mergeKbSettings(userSettings: Partial<KbSettings>): KbSettings {
     selectedChatProviderId: finalSelectedProviderId,
     selectedChatModelId: finalSelectedModelId,
     webSearch: normalizeWebSearchSettings(normalized.webSearch),
-    skillSettings,
-    toolSettings: normalizeToolSettings(normalized.toolSettings, legacySkillSettings),
+    toolSettings: normalizeToolSettings(normalized.toolSettings),
     globalMemory: normalizeGlobalMemorySettings(normalized.globalMemory),
     quickPrompts: normalizeQuickPromptsSettings(normalized.quickPrompts),
     notebrainWorkspace: normalizeNotebrainWorkspaceSettings(normalized.notebrainWorkspace),

@@ -5,9 +5,6 @@ export const siyuanBookmarkManageInputSchema = z.object({
   oldBookmark: z.string().trim().min(1).max(200).optional(),
   newBookmark: z.string().trim().min(1).max(200).optional(),
   bookmark: z.string().trim().min(1).max(200).optional(),
-  oldLabel: z.string().trim().min(1).max(200).optional(),
-  newLabel: z.string().trim().min(1).max(200).optional(),
-  label: z.string().trim().min(1).max(200).optional(),
   keyword: z.string().trim().max(200).optional(),
   maxItems: z.number().int().min(1).max(200).optional(),
   maxChars: z.number().int().min(200).max(50000).optional(),
@@ -15,12 +12,12 @@ export const siyuanBookmarkManageInputSchema = z.object({
   blockIds: z.array(z.string().trim().min(1).max(256)).min(1).max(50).optional(),
 }).strict().superRefine((value, ctx) => {
   if (value.action === "rename") {
-    const hasOld = Boolean(value.oldBookmark ?? value.oldLabel);
-    const hasNew = Boolean(value.newBookmark ?? value.newLabel);
+    const hasOld = Boolean(value.oldBookmark);
+    const hasNew = Boolean(value.newBookmark);
     if (!hasOld || !hasNew) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: "rename 需要 oldBookmark/newBookmark + blockIds；oldLabel/newLabel 仅兼容旧字段。",
+        message: "rename 需要 oldBookmark/newBookmark + blockIds。",
         path: ["oldBookmark"],
       });
     }
@@ -34,11 +31,11 @@ export const siyuanBookmarkManageInputSchema = z.object({
   }
 
   if (value.action === "remove") {
-    const hasBookmark = Boolean(value.bookmark ?? value.label);
+    const hasBookmark = Boolean(value.bookmark);
     if (!hasBookmark) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: "remove 需要 bookmark + blockIds；label 仅兼容旧字段。",
+        message: "remove 需要 bookmark + blockIds。",
         path: ["bookmark"],
       });
     }

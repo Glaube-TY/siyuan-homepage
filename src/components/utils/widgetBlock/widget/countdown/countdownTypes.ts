@@ -1,6 +1,5 @@
 import type {
   SharedRevisionedFile,
-  SharedWidgetMigrationMetadata,
 } from "../sharedLocalStorage/sharedLocalStorage";
 
 export const COUNTDOWN_EVENTS_VERSION = 2;
@@ -73,8 +72,6 @@ export interface CountdownEventRecord {
 
 export type CountdownEventInput = Partial<CountdownEventRecord> & {
   name: string;
-  /** v1 compatibility */
-  anniversary?: boolean;
 };
 
 export interface CountdownCategoryRecord {
@@ -97,7 +94,6 @@ export interface CountdownEventsFile extends SharedRevisionedFile {
   version: 2;
   categories: CountdownCategoryRecord[];
   events: CountdownEventRecord[];
-  migration?: SharedWidgetMigrationMetadata;
 }
 
 export interface CountdownOccurrence {

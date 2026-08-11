@@ -97,9 +97,6 @@ export function normalizeNotificationCenterSettings(raw: unknown): NotificationC
   const defaultChannelIds = Array.isArray(external.defaultChannelIds)
     ? [...new Set(external.defaultChannelIds.filter((item): item is string => typeof item === "string").map((item) => item.trim()).filter(Boolean))]
     : [];
-  const migration = value.migration && typeof value.migration === "object"
-    ? value.migration as NotificationCenterSettings["migration"]
-    : undefined;
   return {
     version: 1,
     desktop: {
@@ -126,7 +123,6 @@ export function normalizeNotificationCenterSettings(raw: unknown): NotificationC
         windowMs: clamp(dedupe.windowMs, 60000, 1000, 3600000),
       },
     },
-    migration,
   };
 }
 
@@ -178,13 +174,6 @@ const notificationCenterSettingsSchema: z.ZodSchema<NotificationCenterSettings> 
     rateLimit: z.object({ enabled: z.boolean(), minIntervalMs: z.number() }),
     dedupe: z.object({ enabled: z.boolean(), windowMs: z.number() }),
   }),
-  migration: z.object({
-    version: z.literal(1),
-    migratedAt: z.string(),
-    notifyBridgeSettingsMigrated: z.boolean(),
-    oldHistoryMigrated: z.boolean(),
-    error: z.string().optional(),
-  }).optional(),
 });
 
 async function encryptChannel(channel: NotificationExternalChannel): Promise<NotificationExternalChannel> {
@@ -287,10 +276,6 @@ export function saveNotificationCenterSettings(settings: NotificationCenterSetti
   return withNotificationLock(notificationSettingsLockName(), () => saveNotificationCenterSettingsChecked(settings));
 }
 
-export function saveNotificationCenterSettingsForMigration(settings: NotificationCenterSettings): Promise<NotificationCenterSettings> {
-  return withNotificationLock(notificationSettingsLockName(), () => saveNotificationCenterSettingsChecked(settings));
-}
-
 export function updateNotificationCenterMobileSettings(
   mobile: NotificationCenterSettings["mobile"],
 ): Promise<NotificationCenterSettings["mobile"]> {
@@ -312,7 +297,6 @@ export function updateNotificationCenterMobileSettings(
     if (
       JSON.stringify(verified.desktop) !== JSON.stringify(latest.desktop)
       || JSON.stringify(verified.external) !== JSON.stringify(latest.external)
-      || JSON.stringify(verified.migration) !== JSON.stringify(latest.migration)
     ) {
       throw new Error("移动通知设置保存影响了其他通知配置，已停止后续操作。");
     }

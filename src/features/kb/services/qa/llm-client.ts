@@ -253,10 +253,6 @@ export function getProviderRejectionInfo(err: unknown): ProviderRejectionInfo {
     }
   }
 
-  if (!isRejected && providerType === "kimi" && finalStatusCode === 400) {
-    isRejected = true;
-  }
-
   return {
     rejected: isRejected,
     statusCode: finalStatusCode,

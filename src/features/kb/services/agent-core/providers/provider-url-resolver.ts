@@ -42,10 +42,8 @@ export function normalizeOpenAICompatibleBaseUrl(baseUrl: string): string {
 }
 
 export const PROVIDER_DEFAULT_BASE_URLS: Partial<Record<KbChatProviderType, string>> = {
-  kimi: "https://api.moonshot.cn/v1",
   "kimi-api": "https://api.moonshot.cn/v1",
   "kimi-coding": "https://api.kimi.com/coding/v1",
-  deepseek: "https://api.deepseek.com/v1",
   "deepseek-api": "https://api.deepseek.com/v1",
   "mimo-api": "https://api.xiaomimimo.com/v1",
   "mimo-coding-plan": "https://token-plan-cn.xiaomimimo.com/v1",

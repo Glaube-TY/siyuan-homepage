@@ -23,7 +23,3 @@ export function openSiyuanEmojiPicker(
         },
     });
 }
-
-// 兼容旧接口的别名
-export const calculateEmojiPickerPosition = () => null;
-export const bindEmojiPickerEvents = () => () => {};

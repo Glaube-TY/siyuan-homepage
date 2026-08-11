@@ -919,26 +919,28 @@ async function queryStartDate(): Promise<StatisticalDataResult> {
 export async function getStatisticalData(statisticalType: string, plugin: any): Promise<StatisticalDataResult> {
     void plugin;
     try {
-        if (statisticalType === "notebooksCount") {
+        // `dailynotesCount` 是已落盘的统计键；组件表单曾使用驼峰写法，读取时统一到现行存储键。
+        const normalizedType = statisticalType === "dailyNotesCount" ? "dailynotesCount" : statisticalType;
+        if (normalizedType === "notebooksCount") {
             const res = await lsNotebooks();
             return okStat(res.notebooks.length, "official_api");
         }
-        if (statisticalType === "tagsCount") {
+        if (normalizedType === "tagsCount") {
             const tags = await getTag(1, true, "statisticalCard");
             return okStat(tags.length, "official_api");
         }
-        if (statisticalType === "startDate") return queryStartDate();
+        if (normalizedType === "startDate") return queryStartDate();
         const taskStatKeys: TaskStatKey[] = [
             "tasksCount", "doneTasksCount", "undoneTasksCount", "dueTodayTasksCount",
             "overdueTasksCount", "highPriorityTasksCount", "unscheduledTasksCount",
         ];
-        if (taskStatKeys.includes(statisticalType as TaskStatKey)) {
-            return queryTaskIndexStat(statisticalType as TaskStatKey);
+        if (taskStatKeys.includes(normalizedType as TaskStatKey)) {
+            return queryTaskIndexStat(normalizedType as TaskStatKey);
         }
-        if (STAT_KEYS.includes(statisticalType as StatIndexKey)) {
-            return queryStatIndexStat(statisticalType as StatIndexKey);
+        if (STAT_KEYS.includes(normalizedType as StatIndexKey)) {
+            return queryStatIndexStat(normalizedType as StatIndexKey);
         }
-        return unsupportedStat(`未知统计项：${statisticalType}`);
+        return unsupportedStat(`未知统计项：${normalizedType}`);
     } catch (error) {
         return errorStat(error instanceof Error ? error.message : "统计 API 调用失败");
     }

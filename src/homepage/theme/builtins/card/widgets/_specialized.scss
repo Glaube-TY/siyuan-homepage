@@ -167,7 +167,7 @@
 
     .widget-block[data-widget-presentation="card.workspace.native.stikynot"][data-widget-placement="homepage"][data-widget-presentation-scope="native"] {
         .stikynot-display { border-radius: inherit; background-color: transparent; box-shadow: none; }
-        .stikynot-editor-shell { margin: var(--hp-widget-space-3); overflow: hidden; border: 1px solid transparent; border-radius: 12px; background: var(--hp-card-surface-sunken); box-shadow: var(--hp-card-shadow-inset); }
+        .stikynot-editor-shell { height: 100%; margin: 0; overflow: hidden; border: 0; border-radius: inherit; background: var(--hp-card-surface-sunken); box-shadow: none; }
         .ql-editor { color: var(--hp-card-text); }
         .ql-toolbar.ql-snow { border-top: 1px solid var(--hp-card-divider) !important; background: var(--hp-card-surface-muted); }
     }
@@ -206,7 +206,7 @@
 
     .homepage-container[data-hp-theme="builtin.card"]
         .widget-block[data-widget-presentation="card.workspace.native.stikynot"][data-widget-placement="homepage"]
-        .stikynot-editor-shell { margin: 10px; }
+        .stikynot-editor-shell { margin: 0; }
 
     .homepage-container[data-hp-theme="builtin.card"]
         :is(

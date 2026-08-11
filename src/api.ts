@@ -1425,16 +1425,14 @@ export async function setAttributeViewBlockAttrChecked(
 export async function setAttributeViewBlockAttrWithCellChecked(params: {
     avID: string;
     keyID: string;
-    /** 真实条目 ID（itemID）。rowID 作为旧别名兼容，内部转换为 itemID。 */
-    itemID?: string;
-    rowID?: string;
+    /** 真实条目 ID（itemID）。 */
+    itemID: string;
     cellID?: string;
     value: any;
 }): Promise<void> {
-    // itemID 优先；若没有 itemID 但传了 rowID，则用 rowID 作为 itemID
-    const resolvedItemId = params.itemID?.trim() || params.rowID?.trim();
+    const resolvedItemId = params.itemID.trim();
     if (!resolvedItemId) {
-        throw new Error('setAttributeViewBlockAttrWithCellChecked: itemID 和 rowID 均为空，必须提供真实条目 ID。');
+        throw new Error('setAttributeViewBlockAttrWithCellChecked: itemID 为空，必须提供真实条目 ID。');
     }
     const payload: any = {
         avID: params.avID,
@@ -1631,10 +1629,10 @@ export async function batchUpdateTaskListItemMarker(ids: BlockId[], marker: Task
     return res?.code === 0 || false;
 }
 
-// **************************************** Old Wrapper Checked Versions ****************************************
-// Checked versions for legacy wrappers that use request() and swallow API failures.
-// These are used by impl files to ensure API failures are not mistaken for success.
-// Original wrappers are kept unchanged to avoid breaking legacy callers.
+// **************************************** Strict API Operations ****************************************
+// Canonical checked operations for writes and integrity-sensitive reads.
+// They prevent API failures from being mistaken for success while the permissive request()
+// helpers remain available for current best-effort UI reads.
 // All functions delegate to requestChecked so that code !== 0 throws with "思源 API 调用失败",
 // which GenericSiyuanTool recognizes as siyuan_api_failed.
 

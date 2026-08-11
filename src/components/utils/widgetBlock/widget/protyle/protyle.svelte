@@ -4,7 +4,7 @@
     import { getContentBearingRootDocumentCandidates } from "@/components/tools/siyuanComponentDataApi";
     import { openDocs } from "@/components/tools/openDocs";
     import SiyuanIcon from "@/components/utils/shared/SiyuanIcon.svelte";
-    import { isValidSiyuanNodeId } from "../../utils/widget-instance-utils";
+    import { isValidSiyuanBlockId } from "../../utils/widget-instance-utils";
     import { normalizeProtyleDisplayConfig } from "./protyleDisplayConfig";
 
     // 组件销毁后丢弃异步结果，避免更新已卸载状态
@@ -62,7 +62,7 @@
     // 只在组件挂载、bind:this 与布局稳定后创建编辑器。
     $effect(() => {
         void protyleOptionsKey;
-        if (!isMounted || !blockID || !isValidSiyuanNodeId(blockID)) {
+        if (!isMounted || !blockID || !isValidSiyuanBlockId(blockID)) {
             destroyProtyle();
             return;
         }
@@ -89,7 +89,7 @@
 
     function destroyAndCreateProtyle(validId: string): void {
         destroyProtyle();
-        if (!validId || !isValidSiyuanNodeId(validId) || isDestroyed) return;
+        if (!validId || !isValidSiyuanBlockId(validId) || isDestroyed) return;
         if (!divProtyle || !divProtyle.isConnected) return;
         const gen = ++protyleGeneration;
         protyleFrame = window.requestAnimationFrame(() => {
@@ -124,7 +124,7 @@
         if (isDestroyed || generation !== sourceGeneration || docs.length === 0) {
             return;
         }
-        const candidates = docs.filter((doc) => isValidSiyuanNodeId(doc.id));
+        const candidates = docs.filter((doc) => isValidSiyuanBlockId(doc.id));
         if (candidates.length === 0) return;
         const candidate = candidates[Math.floor(Math.random() * candidates.length)];
         blockID = candidate.id;
@@ -139,7 +139,7 @@
     style={`--protyle-outer-padding:${displayConfig.outerPadding}px;--protyle-content-padding:${displayConfig.contentPadding === "system" ? 0 : displayConfig.contentPadding}px;`}
 >
     <div id="protyle" bind:this={divProtyle}></div>
-    {#if !displayConfig.showBreadcrumb && blockID && isValidSiyuanNodeId(blockID)}
+    {#if !displayConfig.showBreadcrumb && blockID && isValidSiyuanBlockId(blockID)}
         <button
             type="button"
             class="open-source-button"

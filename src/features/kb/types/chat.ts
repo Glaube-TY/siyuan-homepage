@@ -36,9 +36,8 @@ export type ReferenceItem = {
    * - content: 已读正文
    * - structure: 结构来源
    * - candidate: 搜索候选
-   * - snippet/section/document: 旧格式兼容
    */
-  readLevel?: "content" | "structure" | "candidate" | "snippet" | "section" | "document";
+  readLevel?: "content" | "structure" | "candidate";
   /** 引用原因（可选，Agent Core 使用） */
   referenceReason?: "agent_explicit" | "read_content" | "structure_result" | "search_candidate";
   /** 是否已通过 grounding 校验（Agent Core 使用） */
@@ -217,20 +216,18 @@ export type KbConversationSession = {
   messages: ChatMessage[];
   /** Agent 生成的会话内阶段摘要，仅用于当前会话上下文预算管理 */
   stageSummaries?: ConversationStageSummary[];
-  /** 压缩状态（可选，兼容旧会话） */
+  /** 当前会话压缩状态。 */
   compressionState?: import("./context-usage").ContextCompressionState;
   /** 压缩摘要文本（可选） */
   compressedContextSummary?: string;
   /**
    * 当前会话输入区"深度思考"按钮状态
    * - 跟随会话持久化，切换会话/重启插件后恢复
-   * - 旧会话缺字段时默认 "off"
    */
   thinkingMode?: ThinkingMode;
   /**
    * 当前会话输入区"联网搜索"按钮状态
    * - 跟随会话持久化，切换会话/重启插件后恢复
-   * - 旧会话缺字段时默认 "off"
    * - 全局 webSearch 关闭时 UI 临时显示 off，但不覆盖会话保存值
    */
   webAccessMode?: WebAccessMode;

@@ -435,21 +435,6 @@ ${guidance.trim()}`;
         </span>
       </label>
 
-      <label class="setting-card">
-        <span class="setting-main">
-          <span class="setting-title">兼容旧全文注入</span>
-          <span class="setting-desc">默认关闭。仅当旧自定义 Skill 依赖每轮全文上下文时临时启用。</span>
-        </span>
-        <span class="switch">
-          <input
-            type="checkbox"
-            checked={settings.externalSkills?.legacyUserSkillDirectInject === true}
-            on:change={(event) => patchExternalSkillSettings({ legacyUserSkillDirectInject: event.currentTarget.checked })}
-          />
-          <span class="slider"></span>
-        </span>
-      </label>
-
       <label class="setting-card vertical">
         <span class="setting-title">单次读取上限</span>
         <input

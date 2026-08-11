@@ -91,17 +91,14 @@ export function createSelectedChatModel(
 /**
  * 根据提供商类型创建 AI SDK model
  * 四入口统一走 resolveOpenAICompatibleBaseUrlForProvider + createOpenAICompatible
- * - kimi/deepseek: 空 baseUrl 使用默认地址
- * - mimo/openai-compatible: 必须用户填写 baseUrl
+ * - 内置入口：空 baseUrl 使用对应默认地址
+ * - openai-compatible：必须用户填写 baseUrl
  */
 const PROVIDER_DISPLAY_NAMES: Record<string, string> = {
-  kimi: "Kimi",
   "kimi-api": "Kimi API",
   "kimi-coding": "Kimi Coding",
-  mimo: "Mimo",
   "mimo-api": "MiMo API",
   "mimo-coding-plan": "MiMo Coding Plan",
-  deepseek: "DeepSeek",
   "deepseek-api": "DeepSeek API",
   "openai-compatible": "自定义接口",
 };
@@ -119,7 +116,7 @@ export function createChatModelFromProvider(
     throw new Error(`提供商 "${providerName}" 的模型 ID 为空`);
   }
 
-  if (["kimi", "kimi-api", "kimi-coding", "mimo", "mimo-api", "mimo-coding-plan", "deepseek", "deepseek-api", "openai-compatible"].includes(providerType) && !apiKey) {
+  if (["kimi-api", "kimi-coding", "mimo-api", "mimo-coding-plan", "deepseek-api", "openai-compatible"].includes(providerType) && !apiKey) {
     throw new Error(`${PROVIDER_DISPLAY_NAMES[providerType] || providerType} API Key 不能为空`);
   }
 

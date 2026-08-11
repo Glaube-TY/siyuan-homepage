@@ -5,7 +5,6 @@ import { buildEditDiffPreview } from "../../../../doc-content-edit/diff/edit-dif
 import { previewUpdatedBlockInDocument, withDocumentTitle } from "../../../../doc-content-edit/doc-content-edit-document-preview";
 import { createDocContentEditConfirmation } from "../../../../doc-content-edit/doc-content-edit-confirmation-service";
 import { requestDocContentEditConfirmation } from "../../../../doc-content-edit/doc-content-edit-confirmation-bridge";
-import { shouldRequireDocContentEditConfirmation } from "../../../../doc-content-edit/doc-content-edit-confirmation-policy";
 import { executeConfirmedUpdateBlock } from "../../../../doc-content-edit/doc-content-edit-update-block-executor";
 import { removeDocContentEditConfirmation } from "../../../../doc-content-edit/doc-content-edit-confirmation-store";
 import type { SiyuanToolDeps } from "../siyuan-tool-deps";
@@ -145,10 +144,7 @@ export async function executeUpdateBlock(
   const target = prepareResult.target;
 
   // 2. 请求用户确认（内部桥接 UI 弹窗）
-  const requireConfirmation = shouldRequireDocContentEditConfirmation(
-    deps.getSettings?.(),
-    "update_block",
-  );
+  const requireConfirmation = true;
 
   if (requireConfirmation) {
     const confirmationRes = await requestDocContentEditConfirmation({

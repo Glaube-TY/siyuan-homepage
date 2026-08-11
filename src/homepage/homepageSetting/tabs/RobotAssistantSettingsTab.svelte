@@ -573,10 +573,7 @@
         isElectron = detectElectron();
         kernelBridge = new RobotKernelBridge(plugin);
         kernelStatus = kernelBridge.status;
-        client = new RobotSettingsClient(kernelBridge.client, {
-            loadData: (name) => plugin.loadData(name),
-            saveData: (name, value) => plugin.saveData(name, value),
-        });
+        client = new RobotSettingsClient(kernelBridge.client);
         destroyFns.push(kernelBridge.subscribe(() => {
             const next = kernelBridge!.status;
             kernelStatus = next;

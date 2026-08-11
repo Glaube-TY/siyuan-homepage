@@ -14,7 +14,7 @@ export function createSiyuanBookmarkManageTool(deps: SiyuanBookmarkManageDeps) {
     inputSchema: siyuanBookmarkManageInputSchema,
     readOnly: false,
     readOnlyActions: ["list", "list_blocks"],
-    inputHint: "action=list/list_blocks/rename/remove；rename/remove 必须提供 blockIds；rename 优先使用 oldBookmark/newBookmark；remove 优先使用 bookmark；oldLabel/newLabel/label 仅作为兼容旧字段。",
+    inputHint: "action=list/list_blocks/rename/remove；rename/remove 必须提供 blockIds；rename 使用 oldBookmark/newBookmark；remove 使用 bookmark。",
     boundary: "list/list_blocks 只读；rename/remove 写入确认且必须提供 blockIds。list_blocks 返回 bookmark 非空的块的 id/contentPreview/created/updated/bookmark；rename/remove 通过 setBlockAttrs 按块操作，不调用全局 bookmark rename/remove API。",
     deps: { execute: deps.executeSiyuanBookmarkManage },
     inputJsonSchemaOverride: undefined,

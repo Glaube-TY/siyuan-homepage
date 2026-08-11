@@ -876,7 +876,7 @@
             if (!localCode.startsWith("SH.")) {
                 setSyncMessage(
                     boundCtx,
-                    "当前使用旧版本地授权，仅在现有兼容期内继续使用，不支持自动登记服务器。后续请联系作者获取会员兑换码完成迁移。",
+                    "当前本地授权不是有效的 SH 激活码，请使用会员兑换码重新激活。",
                 );
                 return;
             }
@@ -1424,13 +1424,6 @@
                 <p>群内会同步教程、常见问题和会员相关说明，也欢迎交流你的主页配置思路。</p>
             </div>
 
-            {#if activationResult?.legacyDeprecated}
-                <div class="legacy-license-warning">
-                    <SiyuanIcon name="iconInfo" size={16} />
-                    当前使用旧版本地授权，仅在现有兼容期内继续使用，不支持自动登记服务器。
-                    后续请联系作者获取会员兑换码完成迁移。
-                </div>
-            {/if}
             <button
                 class="deactivate-button"
                 onclick={handleDeactivate}

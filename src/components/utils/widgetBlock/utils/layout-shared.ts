@@ -3,11 +3,7 @@ import { classifyWidgetAppearance } from "@/homepage/theme/widgetAppearance/widg
 import { canSaveLayoutFromRestoreState } from "./layout-save-guard";
 import { isDesktopDeviceProfileEnabled } from "@/homepage/utils/deviceProfile";
 import { getCurrentDeviceViewContext } from "@/homepage/deviceView/deviceViewContext";
-import {
-    ensureCurrentDeviceViewMigrated,
-    getLegacyReadOnlyFallback,
-    loadLegacyReadOnlyWidgetFallback,
-} from "@/homepage/deviceView/deviceViewMigration";
+import { ensureCurrentDeviceViewReady } from "@/homepage/deviceView/deviceViewReadiness";
 import {
     readDeviceViewLayout,
     readDeviceViewManifest,
@@ -36,7 +32,10 @@ import {
     cloneJsonSafeOmittingUndefinedObjectProperties,
     hasSameJsonSemantic,
 } from "@/homepage/deviceView/jsonSafe";
-import { saveHomepageSharedSettings } from "@/homepage/sharedSettings/homepageSharedSettings";
+import {
+    omitHomepageSharedSettings,
+    saveHomepageSharedSettings,
+} from "@/homepage/sharedSettings/homepageSharedSettings";
 import {
     assertSectionLayoutInvariants,
     hasNoSectionMembers,
@@ -255,7 +254,7 @@ function compatibilityLayoutToDeviceLayout(context: DeviceViewContext, layout: W
 
 async function getReadyContext(plugin: Plugin, surface: DeviceViewSurface): Promise<DeviceViewContext> {
     const context = getCurrentDeviceViewContext(plugin, surface);
-    await ensureCurrentDeviceViewMigrated(context);
+    await ensureCurrentDeviceViewReady(context);
     return context;
 }
 
@@ -265,7 +264,7 @@ async function updateCurrentDeviceLayout(
     options: { expectedRevision?: number; assumeReady?: boolean } = {},
 ): Promise<number> {
     if (options.assumeReady !== true) {
-        await ensureCurrentDeviceViewMigrated(context);
+        await ensureCurrentDeviceViewReady(context);
     }
     const start = await loadLayoutSnapshotForContext(context, { assumeReady: options.assumeReady });
     if (options.expectedRevision !== undefined && options.expectedRevision !== start.revision) {
@@ -312,7 +311,7 @@ export async function loadLayoutSnapshotForContext(
     options: { assumeReady?: boolean } = {},
 ): Promise<LayoutSnapshot> {
     if (options.assumeReady !== true) {
-        await ensureCurrentDeviceViewMigrated(context);
+        await ensureCurrentDeviceViewReady(context);
     }
     const deviceLayout = await readDeviceViewLayout(context);
     if (!deviceLayout) {
@@ -348,7 +347,7 @@ export async function saveLayoutDataForContext(
     layout: WidgetLayoutData,
     options: { expectedRevision?: number } = {},
 ): Promise<void> {
-    await ensureCurrentDeviceViewMigrated(context);
+    await ensureCurrentDeviceViewReady(context);
     await replaceDeviceViewLayout(context, compatibilityLayoutToDeviceLayout(context, layout), options);
 }
 
@@ -367,7 +366,7 @@ export async function loadLayoutDataWithRetry(
     surface: DeviceViewSurface = "desktop-homepage",
 ): Promise<WidgetLayoutData | null> {
     const context = getCurrentDeviceViewContext(plugin, surface);
-    await ensureCurrentDeviceViewMigrated(context);
+    await ensureCurrentDeviceViewReady(context);
     const layout = await readDeviceViewLayout(context);
     if (!layout) throw new Error(`当前设备 ${surface} 的 layout.json 缺失`);
     return deviceLayoutToCompatibilityLayout(context, layout);
@@ -388,25 +387,10 @@ export async function loadWidgetConfigWithRetry(
         try {
             const context = fixedContext ?? getCurrentDeviceViewContext(plugin, surface);
             if (context.surface !== surface) throw new Error("组件读取 context 与 surface 不一致");
-            const readOnlyFallback = getLegacyReadOnlyFallback(context);
-            if (readOnlyFallback) {
-                const fallbackValue = await loadLegacyReadOnlyWidgetFallback(context, widgetId);
-                const normalizedFallback = normalizeWidgetConfigData(fallbackValue);
-                if (isStrictlyValidWidgetConfig(normalizedFallback)) return normalizedFallback;
-                unstableObservation = true;
-                lastError = new Error(`旧结构组件 ${widgetId} 配置缺失或无效`);
-                continue;
+            if (!fixedContext) {
+                await ensureCurrentDeviceViewReady(context);
             }
-            let value: Record<string, unknown> | null;
-            try {
-                if (!fixedContext) {
-                    await ensureCurrentDeviceViewMigrated(context);
-                }
-                value = await loadWidgetInstanceConfig(context, widgetId);
-            } catch (error) {
-                value = getLegacyReadOnlyFallback(context)?.widgets.get(widgetId) || null;
-                if (!value) throw error;
-            }
+            const value: Record<string, unknown> | null = await loadWidgetInstanceConfig(context, widgetId);
             if (value === null) {
                 unstableObservation = true;
                 lastError = new Error(`组件 ${widgetId} 配置暂时缺失`);
@@ -669,7 +653,7 @@ export interface CoordinatedSnapshot {
 }
 
 export async function readCoordinatedSnapshotForContext(context: DeviceViewContext): Promise<CoordinatedSnapshot> {
-    await ensureCurrentDeviceViewMigrated(context);
+    await ensureCurrentDeviceViewReady(context);
     const expectsView = deviceViewSurfaceHasSettings(context.surface);
     const retryDelays = [0, 25, 75] as const;
     let lastInstability = "";
@@ -2258,7 +2242,7 @@ async function getSameHardwareHistoricalOrder(
     _sectionsEnabled: boolean,
     _sectionId: string,
 ): Promise<LayoutItem[]> {
-    // 新结构只允许读取当前设备目录；旧硬件 profile 只在迁移器里用于一次性导入。
+    // 当前结构只允许读取当前设备目录，不跨设备 profile 推断或合并布局。
     return [];
 }
 
@@ -2271,7 +2255,7 @@ async function repairCurrentProfileAfterCompleteRestore(
     finalOrder: LayoutItem[],
 ): Promise<boolean> {
     // 分栏模式下不得根据恢复结果自动写入分栏成员归属。
-    // 分栏成员只能由显式用户操作或正式迁移修改。
+    // 分栏成员只能由显式用户操作修改。
     if (
         layoutFileName !== "desktop-homepage"
         || finalOrder.length === 0
@@ -3702,7 +3686,7 @@ export type DeleteWidgetResult =
 async function deleteWidgetFromSurfaceCore(
     context: DeviceViewContext,
     widgetId: string,
-    options: { expectedLayoutRevision?: number; expectedWidgetRevision?: number; expectWidgetMissing?: boolean } = {},
+    options: { expectedLayoutRevision?: number; expectedWidgetRevision?: number } = {},
 ): Promise<DeleteWidgetResult> {
 
     const isReferenced = (layout: DeviceViewLayout): boolean => (
@@ -3731,12 +3715,6 @@ async function deleteWidgetFromSurfaceCore(
     if (options.expectedWidgetRevision !== undefined && initialWidgetDocument?.revision !== options.expectedWidgetRevision) {
         return { status: "notCommitted", reason: `组件 revision 冲突：预期 ${options.expectedWidgetRevision}，当前 ${initialWidgetDocument?.revision ?? "不存在"}` };
     }
-    // expectWidgetMissing：用于安全清理旧版迁移残留。事务开始时若配置文档已经存在，
-    // 立即拒绝，绝不能移除布局引用或删除配置。
-    if (options.expectWidgetMissing === true && initialWidgetDocument) {
-        return { status: "notCommitted", reason: "期望组件配置缺失，但配置当前已存在，已拒绝移除布局引用" };
-    }
-
     // 2) 确认 widgetId 存在于 order 或 sections 中
     const wasReferenced = isReferenced(currentLayout);
     let confirmedLayout = currentLayout;
@@ -3833,14 +3811,6 @@ async function deleteWidgetFromSurfaceCore(
         // 配置不存在但布局已移除 → 视为成功
         return { status: "success" };
     }
-    // expectWidgetMissing：清理场景下配置在移除布局后突然出现时，绝不能删除该配置。
-    // 说明清理过程中配置被恢复（例如同步），应保留配置并让调用方降级处理。
-    if (options.expectWidgetMissing === true) {
-        return {
-            status: "layoutCommittedConfigRetained",
-            warning: "布局已移除组件，但组件配置在清理期间突然出现，配置已保留",
-        };
-    }
     if (initialWidgetDocument && widgetDocument.revision !== initialWidgetDocument.revision) {
         return {
             status: "layoutCommittedConfigRetained",
@@ -3878,7 +3848,7 @@ async function deleteWidgetFromSurfaceCore(
 export async function deleteWidgetFromSurface(
     context: DeviceViewContext,
     widgetId: string,
-    options: { expectedLayoutRevision?: number; expectedWidgetRevision?: number; expectWidgetMissing?: boolean } = {},
+    options: { expectedLayoutRevision?: number; expectedWidgetRevision?: number } = {},
 ): Promise<DeleteWidgetResult> {
     const queueKey = `${context.scopeId}:${context.surface}`;
     return runInSurfaceTransaction(queueKey, () => deleteWidgetFromSurfaceCore(context, widgetId, options));
@@ -3886,7 +3856,7 @@ export async function deleteWidgetFromSurface(
 
 /**
  * 从当前设备桌面主页布局读取列数和间距。
- * 兼容层只包含当前设备数据；优先读取当前分栏，其次读取当前 surface 布局值。
+ * 只读取当前设备数据；优先读取当前分栏，其次读取当前 surface 布局值。
  */
 export async function loadWidgetLayoutSettings(
     plugin: Plugin,
@@ -4072,7 +4042,7 @@ export async function saveHomepageSettingsInTransaction(
                 const result = await syncLayoutAndViewInTransaction(
                     context,
                     () => nextLayout,
-                    () => nextConfig,
+                    () => omitHomepageSharedSettings(nextConfig),
                     start,
                 );
                 await saveHomepageSharedSettings(plugin, nextConfig);
@@ -4127,7 +4097,7 @@ export async function saveHomepageSettingsInTransaction(
                 const result = await syncLayoutAndViewInTransaction(
                     context,
                     () => nextLayout,
-                    () => nextConfig,
+                    () => omitHomepageSharedSettings(nextConfig),
                     start,
                 );
                 await saveHomepageSharedSettings(plugin, nextConfig);
@@ -4177,7 +4147,7 @@ export async function saveHomepageSettingsInTransaction(
         const result = await syncLayoutAndViewInTransaction(
             context,
             () => nextLayout,
-            () => nextConfig,
+            () => omitHomepageSharedSettings(nextConfig),
             start,
         );
         await saveHomepageSharedSettings(plugin, nextConfig);

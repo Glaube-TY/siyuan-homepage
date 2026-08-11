@@ -31,20 +31,6 @@ interface ResolvedToolOperation {
   args: Record<string, unknown>;
 }
 
-const LEGACY_ACTION_BY_TOOL: Record<string, string> = {
-  search_scope: "search",
-  read_docs: "read_docs",
-  read_doc_blocks: "read_blocks",
-  update_block: "update_block",
-  replace_doc_content: "replace_doc_content",
-  insert_block: "insert_block",
-  delete_blocks: "delete_blocks",
-  move_block: "move_block",
-  create_doc: "create_doc",
-  rename_doc: "rename_doc",
-  delete_doc: "delete_doc",
-};
-
 function collectToolCallArgs(messages: readonly AgentMessage[]): Map<string, Record<string, unknown>> {
   const result = new Map<string, Record<string, unknown>>();
   for (const message of messages) {
@@ -61,12 +47,12 @@ function collectToolCallArgs(messages: readonly AgentMessage[]): Map<string, Rec
   return result;
 }
 
-function resolveToolOperation(message: AgentToolMessage, rawArgs?: Record<string, unknown>): ResolvedToolOperation {
+function resolveToolOperation(rawArgs?: Record<string, unknown>): ResolvedToolOperation {
   const outer = rawArgs ?? {};
   const nested = outer.args && typeof outer.args === "object" && !Array.isArray(outer.args)
     ? outer.args as Record<string, unknown>
     : outer;
-  const action = typeof outer.action === "string" ? outer.action : (LEGACY_ACTION_BY_TOOL[message.name] ?? "unknown");
+  const action = typeof outer.action === "string" ? outer.action : "unknown";
   const innerAction = nested !== outer && typeof nested.action === "string" ? nested.action : undefined;
   return { action, innerAction, args: nested };
 }
@@ -103,7 +89,7 @@ function actionAwareStorageContent(
   message: AgentToolMessage,
   rawArgs?: Record<string, unknown>,
 ): string {
-  const operation = resolveToolOperation(message, rawArgs);
+  const operation = resolveToolOperation(rawArgs);
   let parsed: Record<string, any> = {};
   try { parsed = asRecord(JSON.parse(message.content)); } catch { /* safe fallback below */ }
   const payload = unwrapToolPayload(parsed);
@@ -388,7 +374,7 @@ function compactToolMessage(
 ): AgentToolMessage {
   if (message.content.length <= maxChars) return message;
 
-  const operation = resolveToolOperation(message, rawArgs);
+  const operation = resolveToolOperation(rawArgs);
   if (message.name === "siyuan_kb") {
     if (operation.action === "search") return { ...message, content: compactSearchScopeContent(message.content) };
     if (operation.action === "read_docs" || operation.action === "read_evidence") {

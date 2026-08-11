@@ -10,7 +10,7 @@ import {
     sqlChecked,
 } from "@/api";
 import { openDocs } from "@/components/tools/openDocs";
-import { renderEnhancedDiaryTemplate, scanDiaryContentForPeriod, getLegacyCompletionMarker, getSkipMarker } from "./enhancedDiaryUtils";
+import { renderEnhancedDiaryTemplate, scanDiaryContentForPeriod, getSkipMarker } from "./enhancedDiaryUtils";
 import type { EnhancedDiaryPeriod, EnhancedDiaryTemplateContext, EnhancedDiaryHeadingStructureConfig, EnhancedDiaryTemplateFieldMapping } from "./enhancedDiaryTypes";
 import {
     ENHANCED_DIARY_COMPLETED_SUFFIX,
@@ -722,16 +722,6 @@ function escapeSqlString(value: string): string {
     return value.replace(/'/g, "''");
 }
 
-function getCompletionMarkerKeyword(period: EnhancedDiaryPeriod): string {
-    const labels: Record<EnhancedDiaryPeriod, string> = {
-        day: "今日记录🌞",
-        week: "本周复盘📅",
-        month: "本月总结🌙",
-        year: "年度总结🎇",
-    };
-    return labels[period];
-}
-
 function getSkipMarkerKeyword(period: EnhancedDiaryPeriod): string {
     const labels: Record<EnhancedDiaryPeriod, string> = {
         day: "已跳过今日记录⏭️",
@@ -747,44 +737,6 @@ type MarkerLookupResult =
     | { status: "found"; id: string; markdown: string }
     | { status: "missing" }
     | { status: "query_failed" };
-
-/** 仅查找旧版任务列表式完成标记块，用于兼容历史数据。 */
-async function findLegacyCompletionMarkerBlock(
-    docId: string,
-    period: EnhancedDiaryPeriod
-): Promise<MarkerLookupResult> {
-    const keyword = getCompletionMarkerKeyword(period);
-    const escapedDocId = escapeSqlString(docId);
-
-    // 先按 root_id 范围拉取有限块，再在 JS 中匹配标记，避免 markdown LIKE 全表扫描
-    const query = `SELECT id, markdown FROM blocks WHERE root_id = '${escapedDocId}' ORDER BY created DESC, id DESC LIMIT 200`;
-
-    let results: any[];
-    try {
-        results = await sqlChecked(query);
-    } catch (err) {
-        console.warn("[enhancedDiaryDoc] findLegacyCompletionMarkerBlock query failed", err);
-        return { status: "query_failed" };
-    }
-    if (!results || results.length === 0) return { status: "missing" };
-
-    const legacyUnchecked = getLegacyCompletionMarker(period, false);
-    const legacyChecked = getLegacyCompletionMarker(period, true);
-    const legacyCheckedUpper = legacyChecked.replace("[x]", "[X]");
-
-    for (const row of results) {
-        const md = row.markdown as string;
-        if (!md.includes(keyword)) continue;
-        if (
-            md.includes(legacyUnchecked) ||
-            md.includes(legacyChecked) ||
-            md.includes(legacyCheckedUpper)
-        ) {
-            return { status: "found", id: row.id as string, markdown: md };
-        }
-    }
-    return { status: "missing" };
-}
 
 async function findSkipMarkerBlock(
     docId: string,
@@ -862,22 +814,6 @@ export async function skipPeriod(params: {
 
     const skip = getSkipMarker(period);
 
-    // 优先替换旧版完成标记块为跳过标记，保持旧文档兼容；
-    // 如果找不到旧标记，则在文档末尾追加跳过标记。
-    const legacyResult = await findLegacyCompletionMarkerBlock(docId, period);
-    if (legacyResult.status === "query_failed") {
-        return { ok: false, reason: "marker_query_failed" };
-    }
-    if (legacyResult.status === "found") {
-        try {
-            await updateBlockChecked("markdown", skip, legacyResult.id);
-            return { ok: true };
-        } catch (err) {
-            console.warn("[enhancedDiaryDoc] skipPeriod update legacy marker failed", err);
-            return { ok: false, reason: "update_failed" };
-        }
-    }
-    // status === "missing" — append new marker
     try {
         await appendBlockChecked("markdown", "\n\n" + skip, docId);
         return { ok: true };

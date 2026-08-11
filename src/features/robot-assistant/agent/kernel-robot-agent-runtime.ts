@@ -1,7 +1,7 @@
 import type { RobotAgentRuntime, RobotAgentTurnInput, RobotAgentTurnResult, RobotAgentToolSummary } from "./robot-agent-runtime";
 import { NativeToolAgentLoop } from "../../../features/kb/services/agent-core/loop/native-tool-agent-loop";
 import { AgentSession } from "../../../features/kb/services/agent-core/session/agent-session";
-import { createAssistantMessage, createUserMessage, type AgentMessage } from "../../../features/kb/services/agent-core/messages/agent-message";
+import type { AgentMessage } from "../../../features/kb/services/agent-core/messages/agent-message";
 import { compactAgentSessionMessagesForStorage } from "../../../features/kb/services/agent-core/messages/message-compactor";
 import { createProviderAdapterForKbModel } from "../../../features/kb/services/agent-core/providers/agent-provider-factory";
 import { NativeToolRegistry } from "../../../features/kb/services/agent-core/tools/native-tool-registry";
@@ -60,13 +60,6 @@ export class KernelRobotAgentRuntime implements RobotAgentRuntime {
 
     const persistedAgentMessages = Array.isArray(input.session.agentMessages) ? input.session.agentMessages : [];
     const session = new AgentSession(input.conversationId, persistedAgentMessages);
-    if (persistedAgentMessages.length === 0) {
-      // v1 会话迁移：首次运行时用可视聊天记录恢复最小上下文，之后改存完整 AgentMessage。
-      for (const record of input.session.recentMessages) {
-        if (record.role === "user") session.append(createUserMessage(record.content));
-        else if (record.role === "assistant") session.append(createAssistantMessage({ content: record.content }));
-      }
-    }
 
     const bridge = new RobotConfirmationBridge({
       provider: input.provider,

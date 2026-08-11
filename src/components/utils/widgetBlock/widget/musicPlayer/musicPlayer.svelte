@@ -93,8 +93,8 @@
     const mobileRuntime = mobileSurface || physicalMobileRuntime;
     const delegatedMobileSurface = mobileSurface && physicalMobileRuntime && !persistentMobileRuntime;
     const sourceMode = resolveMusicSourceKindForRuntime(initialConfig.sourceMode, mobileRuntime);
-    const blockId = typeof (initialParsed.instanceId ?? initialParsed.blockId) === "string"
-        ? String(initialParsed.instanceId ?? initialParsed.blockId)
+    const blockId = typeof initialParsed.instanceId === "string"
+        ? String(initialParsed.instanceId)
         : "";
 
     let destroyed = false;
@@ -884,7 +884,7 @@
         if (persistentMobileRuntime) return;
         try {
             const currentParsed = JSON.parse(contentTypeJson);
-            await saveWidgetContentPreservingSize(plugin, currentParsed.instanceId ?? currentParsed.blockId, {
+            await saveWidgetContentPreservingSize(plugin, currentParsed.instanceId, {
                 ...currentParsed,
                 data: {
                     ...currentParsed.data,

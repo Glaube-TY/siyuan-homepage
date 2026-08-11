@@ -70,7 +70,6 @@ const historyRecordSchema: z.ZodSchema<NotificationDeliveryHistoryRecord> = z.ob
   errorCode: z.string().optional(),
   errorMessage: z.string().optional(),
   payloadHash: z.string().optional(),
-  legacyExternalCompleted: z.boolean().optional(),
 });
 
 const historyIndexSchema: z.ZodSchema<NotificationHistoryIndex> = z.object({
@@ -197,7 +196,7 @@ export async function findNotificationDeliveryHistory(
   }
   const find = (records: NotificationDeliveryHistoryRecord[]) => records.find((record) =>
     record.occurrenceKey === event.occurrenceKey
-    && (record.targetKey === targetKey || (targetKey.startsWith("external:") && record.targetKey === "external:legacy" && record.legacyExternalCompleted)),
+    && record.targetKey === targetKey,
   );
   const found = find(current.records);
   if (found) return found;
@@ -265,7 +264,6 @@ export async function recordNotificationDelivery(
       errorCode,
       errorMessage: result.status === "failed" || result.status === "skipped" ? redactMessage(result.message ?? "") : undefined,
       payloadHash,
-      legacyExternalCompleted: previous?.legacyExternalCompleted,
     };
     if (index >= 0) file.records[index] = record;
     else file.records.push(record);
@@ -292,30 +290,6 @@ export async function recordNotificationDelivery(
   pendingWrites.add(write);
   void write.finally(() => pendingWrites.delete(write)).catch(() => undefined);
   return write;
-}
-
-export async function upsertLegacyNotificationHistory(record: NotificationDeliveryHistoryRecord): Promise<void> {
-  const year = new Date(record.lastAttemptAt).getFullYear();
-  const lock = notificationLockName("history", String(year));
-  await withNotificationLock(lock, async () => {
-    const file = await loadNotificationHistoryYear(year);
-    if (file.records.some((item) => item.occurrenceKey === record.occurrenceKey && item.targetKey === record.targetKey)) return;
-    file.records.push(record);
-    file.revision += 1;
-    file.updatedAt = new Date().toISOString();
-    const savedYear = await writeJSON(historyYearKey(year), file, historyYearFileSchema);
-    if (!savedYear.records.some((item) => item.occurrenceKey === record.occurrenceKey && item.targetKey === record.targetKey)) {
-      throw new Error("旧通知历史迁移写入后校验失败。");
-    }
-    const index = await loadNotificationHistoryIndex();
-    index.revision += 1;
-    index.updatedAt = file.updatedAt;
-    index.years = [...new Set([...index.years, year])].sort((a, b) => b - a);
-    index.yearCounts[String(year)] = savedYear.records.length;
-    index.totalRecords = Object.values(index.yearCounts).reduce((sum, count) => sum + Number(count || 0), 0);
-    const savedIndex = await writeJSON(NOTIFICATION_CENTER_HISTORY_INDEX_KEY, index, historyIndexSchema);
-    validateSavedIndex(savedIndex, year, savedYear.records.length);
-  });
 }
 
 export async function loadRecentNotificationDeliveries(limit = 50): Promise<NotificationDeliveryHistoryRecord[]> {

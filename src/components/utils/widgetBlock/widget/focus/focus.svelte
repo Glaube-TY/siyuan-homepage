@@ -92,7 +92,7 @@
             focusLocalImage = data.focusLocalImage || focusLocalImage;
             breakLocalImage = data.breakLocalImage || breakLocalImage;
             const savedConfig = runtimeContext.deviceViewContext
-                ? await loadWidgetInstanceConfig(runtimeContext.deviceViewContext, contentTypeJsonObj.instanceId ?? contentTypeJsonObj.blockId)
+                ? await loadWidgetInstanceConfig(runtimeContext.deviceViewContext, contentTypeJsonObj.instanceId)
                 : null;
             // 保留旧 showSyNotif 及其他未知字段；它们不再参与运行时，但保存设置时也不能被主动删除。
             savedWidgetData = savedConfig?.data && typeof savedConfig.data === "object"
@@ -114,7 +114,7 @@
             totalFocusTimes = stats.totalFocusTimes;
         } catch (error) {
             console.warn("[focus] 读取本地统计失败", error);
-            showMessage("旧数据迁移尚未完成，请重新加载插件后重试。", 4000);
+            showMessage("本地统计暂时无法读取，请稍后重试。", 4000);
         }
         unsubscribeDataUpdated = subscribeSharedWidgetDataUpdated("focus", async () => {
             try {
@@ -388,7 +388,7 @@
         };
         savedWidgetData = structuredClone(contentTypeJsonObj.data);
         if (!runtimeContext.deviceViewContext) throw new Error("专注组件缺少设备视图上下文");
-        await saveWidgetInstanceConfig(runtimeContext.deviceViewContext, contentTypeJsonObj.instanceId ?? contentTypeJsonObj.blockId, contentTypeJsonObj);
+        await saveWidgetInstanceConfig(runtimeContext.deviceViewContext, contentTypeJsonObj.instanceId, contentTypeJsonObj);
         clearTimerHandles();
         resetTimer(isBreak ? "break" : "focus");
         showSettings = false;

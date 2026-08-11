@@ -269,13 +269,6 @@ export function readPossibleBoundBlockId(value: any): string | undefined {
   return blockId || undefined;
 }
 
-/**
- * @deprecated 使用 readStrictItemId 代替，保留向后兼容
- */
-function readRowId(value: any): string {
-  return readStrictItemId(value);
-}
-
 function readBoundBlockId(value: any, rowId: string): string | undefined {
   const blockId = readPossibleBoundBlockId(value);
   if (!blockId || blockId === rowId) return undefined;
@@ -305,7 +298,7 @@ function groupRows(av: AttributeView): GroupRowsResult {
 
   for (const keyValue of av.keyValues || []) {
     for (const value of keyValue.values || []) {
-      const rowId = readRowId(value);
+      const rowId = readStrictItemId(value);
       if (!rowId) {
         // 尝试从 value.blockID 读取（仅当它出现在 itemIds 中时）
         const blockId = safeString(value?.blockID ?? value?.blockId);

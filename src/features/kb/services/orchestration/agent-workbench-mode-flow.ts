@@ -1062,7 +1062,7 @@ export async function runAgentWorkbenchModeFlow(
         throw new Error(`Agent Workbench runtime failed: ${safeCode}`);
       }
 
-      // 用户可读错误消息：优先使用 displayError，fallback 到旧格式
+      // 用户可读错误消息：优先使用结构化 displayError，缺失时使用稳定通用提示。
       const errMsg = displayError
         ? `${displayError.title}：${displayError.message}${displayError.completedStepsSummary ? `\n${displayError.completedStepsSummary}` : ""}`
         : "本轮未完成：模型没有给出可继续执行的有效内容，本轮已停止。";

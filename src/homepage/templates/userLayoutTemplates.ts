@@ -53,30 +53,17 @@ interface UserLayoutTemplateBase {
     layoutItems: UserLayoutTemplateItem[];
 }
 
-export interface PublishedLegacyUserLayoutTemplate extends UserLayoutTemplateBase {
-    /** 仅兼容已发布旧公开数据；运行时完全忽略。 */
-    deviceId?: string | null;
-    widgetConfigs?: never;
-}
-
 export interface CurrentUserLayoutTemplate extends UserLayoutTemplateBase {
-    deviceId?: never;
     widgetConfigs: Record<string, Record<string, unknown>>;
 }
 
-export type UserLayoutTemplate = PublishedLegacyUserLayoutTemplate | CurrentUserLayoutTemplate;
+export type UserLayoutTemplate = CurrentUserLayoutTemplate;
 
 export interface UserLayoutTemplateAvailability {
     available: boolean;
     reason: string;
     currentColumns: number;
     templateColumns: number;
-    /** 旧公开模板在当前设备可恢复组件数。 */
-    recoverableCount?: number;
-    /** 旧公开模板在当前设备缺失组件数。 */
-    skippedCount?: number;
-    /** 是否为旧公开模板。 */
-    isLegacy?: boolean;
 }
 
 export interface ApplyUserLayoutTemplateResult {
@@ -121,26 +108,15 @@ function isValidLayoutItem(item: unknown): boolean {
     return true;
 }
 
-/** 简单结构分类：仅区分旧公开模板、当前模板和无效数据。 */
-function classifyTemplateStructure(value: unknown): "published-legacy" | "current" | "invalid" {
+function classifyTemplateStructure(value: unknown): "current" | "invalid" {
     if (!isPlainObject(value)) return "invalid";
     const t = value as Record<string, unknown>;
-    const allowedKeys = new Set(["id", "name", "description", "createdAt", "updatedAt", "deviceId", "columns", "gap", "layoutItems", "widgetConfigs"]);
+    const allowedKeys = new Set(["id", "name", "description", "createdAt", "updatedAt", "columns", "gap", "layoutItems", "widgetConfigs"]);
     if (Object.keys(t).some((key) => !allowedKeys.has(key))) return "invalid";
 
     const hasWC = t.widgetConfigs !== undefined && isPlainObject(t.widgetConfigs) && isJsonSafe(t.widgetConfigs);
 
-    if (hasWC) {
-        const forbiddenCurrentKeys = ["deviceId"];
-        if (forbiddenCurrentKeys.some((key) => Object.prototype.hasOwnProperty.call(t, key))) return "invalid";
-        return "current";
-    }
-    if (t.widgetConfigs === undefined) {
-        if (t.deviceId !== undefined && typeof t.deviceId !== "string" && t.deviceId !== null) return "invalid";
-        return "published-legacy";
-    }
-    // widgetConfigs 存在但无效
-    return "invalid";
+    return hasWC ? "current" : "invalid";
 }
 
 function isValidUserLayoutTemplate(value: unknown): value is UserLayoutTemplate {
@@ -168,55 +144,38 @@ function isValidUserLayoutTemplate(value: unknown): value is UserLayoutTemplate 
         seenOrders.add(order);
     }
 
-    // 使用统一结构分类决定格式是否有效。
     const structure = classifyTemplateStructure(value);
     if (structure === "invalid") return false;
 
-    // 当前模板必须执行严格语义校验。
-    if (structure === "current") {
-        const widgetConfigs = t.widgetConfigs as Record<string, unknown>;
-        for (let order = 0; order < t.layoutItems.length; order++) {
-            if (!seenOrders.has(order)) return false;
-        }
+    const widgetConfigs = t.widgetConfigs as Record<string, unknown>;
+    for (let order = 0; order < t.layoutItems.length; order++) {
+        if (!seenOrders.has(order)) return false;
+    }
 
-        // 非空 layoutItems 配空 widgetConfigs 必须拒绝。
-        if (t.layoutItems.length > 0 && Object.keys(widgetConfigs).length === 0) return false;
+    // 非空 layoutItems 配空 widgetConfigs 必须拒绝。
+    if (t.layoutItems.length > 0 && Object.keys(widgetConfigs).length === 0) return false;
 
-        // widgetConfigs 的每个值都必须是可序列化普通对象。
-        for (const config of Object.values(widgetConfigs)) {
-            if (!isPlainObject(config) || !isJsonSafe(config)) return false;
-            // 配置必须包含非空字符串 type（去除空格后仍非空）。
-            const configType = (config as Record<string, unknown>).type;
-            if (typeof configType !== "string" || !configType.trim()) return false;
-        }
+    for (const config of Object.values(widgetConfigs)) {
+        if (!isPlainObject(config) || !isJsonSafe(config)) return false;
+        const configType = (config as Record<string, unknown>).type;
+        if (typeof configType !== "string" || !configType.trim()) return false;
+    }
 
-        // 每个 layout item 必须有且只有一个对应配置。
-        for (const item of t.layoutItems) {
-            const widgetId = (item as Record<string, unknown>).widgetId as string;
-            if (!widgetConfigs[widgetId]) return false;
-        }
+    for (const item of t.layoutItems) {
+        const widgetId = (item as Record<string, unknown>).widgetId as string;
+        if (!widgetConfigs[widgetId]) return false;
+    }
 
-        // widgetConfigs 不得包含 layoutItems 之外的额外 ID。
-        for (const key of Object.keys(widgetConfigs)) {
-            if (!seenWidgetIds.has(key)) return false;
-        }
+    for (const key of Object.keys(widgetConfigs)) {
+        if (!seenWidgetIds.has(key)) return false;
     }
 
     return true;
 }
 
-/**
- * 旧公开模板：published-legacy 结构（无 widgetConfigs）。
- */
-function isPublishedLegacyTemplate(template: UserLayoutTemplate): template is PublishedLegacyUserLayoutTemplate {
-    return classifyTemplateStructure(template) === "published-legacy";
-}
-
 function isCurrentUserLayoutTemplate(template: UserLayoutTemplate): template is CurrentUserLayoutTemplate {
     return classifyTemplateStructure(template) === "current";
 }
-
-export { isPublishedLegacyTemplate as isLegacyUserLayoutTemplate };
 
 /**
  * 加载个人布局模板列表。
@@ -674,48 +633,20 @@ export async function resolveCurrentLayoutTarget(plugin: any, fixedContext?: Dev
 /**
  * 将模板归一化为不含分栏信息的 SectionLayoutTemplatePayload。
  *
- * - 旧公开模板：使用 evaluator 返回的 validLayoutItems 和 widgetConfigs。
- * - 当前模板：直接使用内嵌 widgetConfigs，按规范顺序排列。
+ * 直接使用当前模板内嵌的 widgetConfigs，并按规范顺序排列。
  */
-async function normalizeTemplateToPayload(
-    plugin: any,
-    template: UserLayoutTemplate,
-    fixedContext?: DeviceViewContext,
-): Promise<SectionLayoutTemplatePayload> {
+function normalizeTemplateToPayload(template: UserLayoutTemplate): SectionLayoutTemplatePayload {
     const structure = classifyTemplateStructure(template);
     if (structure === "invalid") {
         throw new Error("模板格式损坏，无法归一化");
     }
 
-    // 防御性校验：即使调用方未事先校验，也必须确保模板对象完整合法。
-    // isValidUserLayoutTemplate 调用 classifyTemplateStructure，不会反向调用归一化，无递归风险。
     if (!isValidUserLayoutTemplate(template)) {
         throw new Error("模板格式完整校验失败，无法归一化");
     }
-
-    if (structure === "published-legacy") {
-        // 使用 evaluator 统一评估旧公开模板。
-        const context = fixedContext ?? getCurrentDeviceViewContext(plugin, "desktop-homepage");
-        const result = await evaluateLegacyTemplateAgainstCurrentDevice(template as PublishedLegacyUserLayoutTemplate, context);
-        if (!result.ok) {
-            throw new Error((result as { ok: false; reason: string }).reason);
-        }
-        const { evaluation } = result;
-        if (evaluation.validLayoutItems.length === 0) {
-            throw new Error("旧模板在当前设备无可恢复组件");
-        }
-        return {
-            layoutItems: evaluation.validLayoutItems,
-            widgetConfigs: evaluation.widgetConfigs,
-            columns: template.columns,
-            gap: template.gap,
-        };
-    }
-
-    // current：直接使用内嵌 widgetConfigs（分类已通过，widgetConfigs 必然存在且合法），按规范顺序排列。
     return {
         layoutItems: normalizeLayoutItemsByOrder(toJsonSafeClone(template.layoutItems)),
-        widgetConfigs: toJsonSafeClone((template as CurrentUserLayoutTemplate).widgetConfigs),
+        widgetConfigs: toJsonSafeClone(template.widgetConfigs),
         columns: template.columns,
         gap: template.gap,
     };
@@ -854,9 +785,8 @@ export async function getUserLayoutTemplateAvailability(
     fixedTarget?: LayoutTarget,
 ): Promise<UserLayoutTemplateAvailability> {
     const templateColumns = template.columns;
-    const isLegacy = classifyTemplateStructure(template) === "published-legacy";
     if (!isValidUserLayoutTemplate(template)) {
-        return { available: false, reason: "模板格式损坏", currentColumns: 0, templateColumns, isLegacy };
+        return { available: false, reason: "模板格式损坏", currentColumns: 0, templateColumns };
     }
 
     if (!isDesktopDeviceProfileEnabled()) {
@@ -865,7 +795,6 @@ export async function getUserLayoutTemplateAvailability(
             reason: "个人布局模板仅支持主主页桌面设备布局",
             currentColumns: 0,
             templateColumns: template.columns,
-            isLegacy,
         };
     }
 
@@ -882,7 +811,6 @@ export async function getUserLayoutTemplateAvailability(
             reason: error instanceof Error ? error.message : "无法读取当前布局目标列数",
             currentColumns: 0,
             templateColumns: template.columns,
-            isLegacy,
         };
     }
 
@@ -892,50 +820,18 @@ export async function getUserLayoutTemplateAvailability(
             reason: `模板为 ${template.columns} 列，当前布局为 ${currentColumns} 列，请先调整当前布局列数`,
             currentColumns,
             templateColumns: template.columns,
-            isLegacy,
         };
     }
 
-    // 旧公开模板使用 evaluator 统一评估。
-    if (isLegacy && isPublishedLegacyTemplate(template)) {
-        const result = await evaluateLegacyTemplateAgainstCurrentDevice(template, context);
-        if (!result.ok) {
-            return {
-                available: false,
-                reason: (result as { ok: false; reason: string }).reason,
-                currentColumns,
-                templateColumns: template.columns,
-                isLegacy: true,
-                recoverableCount: 0,
-                skippedCount: 0,
-            };
-        }
-        const { evaluation } = result;
-        const hasRecoverable = evaluation.recoverableCount > 0;
-        return {
-            available: hasRecoverable,
-            reason: hasRecoverable
-                ? (evaluation.skippedCount > 0 ? `可应用，将跳过 ${evaluation.skippedCount} 个历史缺失组件` : "")
-                : "当前设备没有该旧模板中的可恢复组件",
-            currentColumns,
-            templateColumns: template.columns,
-            isLegacy: true,
-            recoverableCount: evaluation.recoverableCount,
-            skippedCount: evaluation.skippedCount,
-        };
-    }
-
-    // 当前模板：使用归一化判断可用性。
     let payload: SectionLayoutTemplatePayload;
     try {
-        payload = await normalizeTemplateToPayload(plugin, template, context);
+        payload = normalizeTemplateToPayload(template);
     } catch (error) {
         return {
             available: false,
             reason: error instanceof Error ? error.message : "模板归一化失败",
             currentColumns,
             templateColumns: template.columns,
-            isLegacy: false,
         };
     }
 
@@ -946,7 +842,6 @@ export async function getUserLayoutTemplateAvailability(
             reason: "空模板不可添加",
             currentColumns,
             templateColumns: template.columns,
-            isLegacy: false,
         };
     }
 
@@ -955,232 +850,7 @@ export async function getUserLayoutTemplateAvailability(
         reason: "",
         currentColumns,
         templateColumns: template.columns,
-        isLegacy: false,
     };
-}
-
-/** 旧模板评估可注入 I/O 接口。 */
-interface LegacyTemplateEvaluatorIO {
-    expectedDeviceId: string;
-    expectedSurface: "desktop-homepage";
-    loadLayoutSnapshot(): Promise<LayoutSnapshot>;
-    loadWidgetDocument(widgetId: string): Promise<DeviceWidgetDocument | null>;
-}
-
-interface LegacyTemplateEvaluation {
-    snapshot: LayoutSnapshot;
-    currentOrderIds: Set<string>;
-    /** 按规范顺序排列的有效 layoutItems。 */
-    validLayoutItems: SectionLayoutTemplatePayload["layoutItems"];
-    /** 与有效 item 一一对应的 widgetConfigs。 */
-    widgetConfigs: Record<string, Record<string, unknown>>;
-    /** 历史缺失的组件 ID。 */
-    skippedWidgetIds: string[];
-    /** 可恢复组件数。 */
-    recoverableCount: number;
-    /** 历史缺失组件数。 */
-    skippedCount: number;
-    /** 起始 layout revision。 */
-    startRevision: number;
-}
-
-/**
- * 旧模板评估核心（可注入 I/O，用于测试和生产共享）。
- *
- * 规则：
- * - 模板 ID 不在当前 global order：认定为历史缺失，计入 skipped，不读取组件文件；
- * - 模板 ID 在当前 global order：读取完整组件文档并校验身份、revision、config；
- * - 全部初始读取后复核 layout（revision + 完整 JSON 语义）；
- * - layout 复核通过后二次复核每个组件文档（revision + config 语义）；
- * - 返回的 widgetConfigs 使用初始已确认的 JSON-safe clone。
- *
- * 供 preview、availability、apply 三个入口统一消费。
- */
-async function evaluateLegacyTemplateCore(
-    io: LegacyTemplateEvaluatorIO,
-    template: PublishedLegacyUserLayoutTemplate,
-): Promise<{ ok: true; evaluation: LegacyTemplateEvaluation } | { ok: false; reason: string }> {
-    // ── 第一阶段：读取初始 layout 快照 ──
-    let snapshot: LayoutSnapshot;
-    try {
-        snapshot = await io.loadLayoutSnapshot();
-    } catch (error) {
-        return {
-            ok: false,
-            reason: error instanceof Error ? error.message : "读取当前设备布局失败，无法判断旧模板可用性",
-        };
-    }
-
-    if (snapshot.deviceId !== io.expectedDeviceId || snapshot.surface !== io.expectedSurface) {
-        return { ok: false, reason: "旧公开模板评估快照与固定设备 context 不一致" };
-    }
-    const profile = snapshot.layout.profiles?.[snapshot.deviceId];
-    if (!profile || !Array.isArray(profile.order)) {
-        return { ok: false, reason: "当前运行设备 profile 或全局 order 缺失，无法评估旧公开模板" };
-    }
-    const currentOrderIds = new Set<string>();
-    for (const item of normalizeOrderItems(profile?.order)) {
-        if (!item.id) return { ok: false, reason: "当前运行设备全局 order 包含无效组件 ID" };
-        if (currentOrderIds.has(item.id)) return { ok: false, reason: `当前运行设备全局 order 包含重复组件 ${item.id}` };
-        currentOrderIds.add(item.id);
-    }
-
-    // ── 第二阶段：逐个读取组件完整文档，记录初始状态 ──
-    interface InitialWidgetState {
-        widgetId: string;
-        revision: number;
-        config: Record<string, unknown>;
-    }
-    const validLayoutItems: SectionLayoutTemplatePayload["layoutItems"] = [];
-    const initialStates: InitialWidgetState[] = [];
-    const skippedWidgetIds: string[] = [];
-    let skippedCount = 0;
-
-    for (const layoutItem of template.layoutItems) {
-        if (!currentOrderIds.has(layoutItem.widgetId)) {
-            // 模板 ID 不在全局 order 中：认定为历史缺失，不读取组件文件。
-            skippedCount++;
-            skippedWidgetIds.push(layoutItem.widgetId);
-            continue;
-        }
-
-        // ID 在全局 order 中：读取完整组件文档。
-        let doc: DeviceWidgetDocument | null = null;
-        try {
-            doc = await io.loadWidgetDocument(layoutItem.widgetId);
-        } catch (error) {
-            // 真实读取异常不能按历史缺失处理。
-            return {
-                ok: false,
-                reason: error instanceof Error
-                    ? `读取组件 ${layoutItem.widgetId} 文档失败：${error.message}`
-                    : "读取旧模板组件文档失败",
-            };
-        }
-
-        if (!doc) {
-            return {
-                ok: false,
-                reason: `当前设备布局引用组件 ${layoutItem.widgetId} 文档缺失，视图不完整`,
-            };
-        }
-        // 校验文档身份。
-        if (doc.deviceId !== io.expectedDeviceId || doc.surface !== io.expectedSurface || doc.instanceId !== layoutItem.widgetId) {
-            return {
-                ok: false,
-                reason: `组件 ${layoutItem.widgetId} 文档与固定设备 context 不一致`,
-            };
-        }
-        // revision 必须为正整数。
-        if (typeof doc.revision !== "number" || !Number.isInteger(doc.revision) || doc.revision <= 0) {
-            return {
-                ok: false,
-                reason: `组件 ${layoutItem.widgetId} revision 无效`,
-            };
-        }
-        // config 必须为 JSON-safe 普通对象且 type 为非空字符串。
-        if (!isPlainObject(doc.config) || typeof doc.config.type !== "string" || !doc.config.type.trim() || !isJsonSafe(doc.config)) {
-            return {
-                ok: false,
-                reason: `当前设备布局引用组件 ${layoutItem.widgetId} 配置缺失或无效，视图不完整`,
-            };
-        }
-
-        validLayoutItems.push({ ...layoutItem });
-        initialStates.push({
-            widgetId: layoutItem.widgetId,
-            revision: doc.revision,
-            config: toJsonSafeClone(doc.config),
-        });
-    }
-
-    // ── 第三阶段：完整复核 layout ──
-    let latestSnapshot: LayoutSnapshot;
-    try {
-        latestSnapshot = await io.loadLayoutSnapshot();
-    } catch (error) {
-        return {
-            ok: false,
-            reason: error instanceof Error
-                ? `评估后重读布局失败：${error.message}`
-                : "评估后重读布局失败",
-        };
-    }
-    if (
-        latestSnapshot.deviceId !== io.expectedDeviceId
-        || latestSnapshot.surface !== io.expectedSurface
-        || latestSnapshot.revision !== snapshot.revision
-    ) {
-        return { ok: false, reason: "评估旧模板期间布局已发生变化，请重试" };
-    }
-    if (!hasSameSemanticValue(latestSnapshot.layout, snapshot.layout)) {
-        return { ok: false, reason: "评估旧模板期间 layout 内容发生变化，请重试" };
-    }
-
-    // ── 第四阶段：二次复核组件文档 ──
-    for (const state of initialStates) {
-        let reDoc: DeviceWidgetDocument | null = null;
-        try {
-            reDoc = await io.loadWidgetDocument(state.widgetId);
-        } catch (error) {
-            return {
-                ok: false,
-                reason: error instanceof Error
-                    ? `二次复核组件 ${state.widgetId} 失败：${error.message}`
-                    : `二次复核组件 ${state.widgetId} 失败`,
-            };
-        }
-        if (!reDoc) {
-            return { ok: false, reason: `二次复核组件 ${state.widgetId} 文档消失` };
-        }
-        if (reDoc.deviceId !== io.expectedDeviceId || reDoc.surface !== io.expectedSurface || reDoc.instanceId !== state.widgetId) {
-            return { ok: false, reason: `二次复核组件 ${state.widgetId} 文档身份异常` };
-        }
-        if (reDoc.revision !== state.revision) {
-            return { ok: false, reason: `评估旧模板期间组件 ${state.widgetId} revision 发生变化，请重试` };
-        }
-        if (!isPlainObject(reDoc.config) || !isJsonSafe(reDoc.config) || !hasSameSemanticValue(reDoc.config, state.config)) {
-            return { ok: false, reason: `评估旧模板期间组件 ${state.widgetId} 配置发生变化，请重试` };
-        }
-    }
-
-    // ── 输出：使用初始已确认的 JSON-safe clone ──
-    const widgetConfigs: Record<string, Record<string, unknown>> = {};
-    for (const state of initialStates) {
-        widgetConfigs[state.widgetId] = state.config;
-    }
-    const sortedValidLayoutItems = normalizeLayoutItemsByOrder(validLayoutItems);
-
-    return {
-        ok: true,
-        evaluation: {
-            snapshot,
-            currentOrderIds,
-            validLayoutItems: sortedValidLayoutItems,
-            widgetConfigs,
-            skippedWidgetIds,
-            recoverableCount: initialStates.length,
-            skippedCount,
-            startRevision: snapshot.revision,
-        },
-    };
-}
-
-/**
- * 旧公开模板评估（生产入口）。
- */
-async function evaluateLegacyTemplateAgainstCurrentDevice(
-    template: PublishedLegacyUserLayoutTemplate,
-    context: DeviceViewContext,
-): Promise<{ ok: true; evaluation: LegacyTemplateEvaluation } | { ok: false; reason: string }> {
-    assertDesktopHomepageContext(context);
-    const io: LegacyTemplateEvaluatorIO = {
-        expectedDeviceId: context.scopeId,
-        expectedSurface: "desktop-homepage",
-        loadLayoutSnapshot: async () => (await readCoordinatedSnapshotForContext(context)).layout,
-        loadWidgetDocument: (widgetId) => readWidgetInstanceDocument(context, widgetId),
-    };
-    return evaluateLegacyTemplateCore(io, template);
 }
 
 export async function applyUserLayoutTemplateToCurrentDevice(
@@ -1310,29 +980,8 @@ async function appendTemplateToTarget(
             return { success: false, reason: `模板为 ${template.columns} 列，当前布局为 ${target.columns} 列，请先调整当前布局列数`, skippedWidgetIds: [] };
         }
 
-        let payload: SectionLayoutTemplatePayload;
-        let skippedWidgetIds: string[] = [];
-        if (isPublishedLegacyTemplate(template)) {
-            const evaluated = await evaluateLegacyTemplateAgainstCurrentDevice(template, context);
-            if (evaluated.ok === false) return { success: false, reason: evaluated.reason, skippedWidgetIds: [] };
-            if (evaluated.evaluation.startRevision !== target.layoutRevision) {
-                return { success: false, reason: "评估旧模板期间当前布局已变化，请重试", skippedWidgetIds: [] };
-            }
-            skippedWidgetIds = evaluated.evaluation.skippedWidgetIds;
-            payload = {
-                layoutItems: evaluated.evaluation.validLayoutItems,
-                widgetConfigs: evaluated.evaluation.widgetConfigs,
-                columns: template.columns,
-                gap: template.gap,
-            };
-        } else {
-            payload = {
-                layoutItems: normalizeLayoutItemsByOrder(toJsonSafeClone(template.layoutItems)),
-                widgetConfigs: toJsonSafeClone(template.widgetConfigs),
-                columns: template.columns,
-                gap: template.gap,
-            };
-        }
+        const skippedWidgetIds: string[] = [];
+        const payload: SectionLayoutTemplatePayload = normalizeTemplateToPayload(template);
         try { validateTemplatePayload(payload); } catch (error) {
             return { success: false, reason: error instanceof Error ? error.message : "模板内容无效", skippedWidgetIds };
         }
@@ -1885,9 +1534,7 @@ function getWidgetTypeDisplayName(widgetType: string): string {
 }
 
 export async function buildUserLayoutTemplatePreview(
-    plugin: any,
     template: UserLayoutTemplate,
-    fixedContext?: DeviceViewContext,
 ): Promise<UserLayoutTemplatePreview> {
     const structure = classifyTemplateStructure(template);
     if (structure === "invalid") {
@@ -1895,18 +1542,6 @@ export async function buildUserLayoutTemplatePreview(
     }
 
     const items: UserLayoutTemplatePreviewItem[] = [];
-    const isLegacy = structure === "published-legacy";
-
-    // 旧公开模板预览使用 evaluator 统一评估。
-    let legacyEvaluation: LegacyTemplateEvaluation | null = null;
-    if (isLegacy && isPublishedLegacyTemplate(template)) {
-        const context = fixedContext ?? getCurrentDeviceViewContext(plugin, "desktop-homepage");
-        const result = await evaluateLegacyTemplateAgainstCurrentDevice(template, context);
-        if (!result.ok) {
-            throw new Error((result as { ok: false; reason: string }).reason);
-        }
-        legacyEvaluation = result.evaluation;
-    }
 
     // 构建预览项的辅助函数。
     const buildPreviewItem = (
@@ -1961,30 +1596,12 @@ export async function buildUserLayoutTemplatePreview(
         };
     };
 
-    if (isLegacy && legacyEvaluation) {
-        // 旧公开模板：基于 evaluator 返回的 validLayoutItems 和 skippedWidgetIds 生成预览。
-        // 有效项（已按 order 排序）。
-        for (const layoutItem of legacyEvaluation.validLayoutItems) {
-            const config = legacyEvaluation.widgetConfigs[layoutItem.widgetId] ?? null;
-            items.push(buildPreviewItem(layoutItem, config, false));
-        }
-        // 跳过的项（历史缺失）。
-        for (const widgetId of legacyEvaluation.skippedWidgetIds) {
-            const originalItem = template.layoutItems.find((item) => item.widgetId === widgetId);
-            if (originalItem) {
-                items.push(buildPreviewItem(originalItem, null, true));
-            }
-        }
-    } else {
-        // 当前模板：直接使用内嵌 widgetConfigs，按规范顺序排列。
-        const sortedLayoutItems = normalizeLayoutItemsByOrder(template.layoutItems);
-        for (const layoutItem of sortedLayoutItems) {
-            const config = (template.widgetConfigs?.[layoutItem.widgetId] as Record<string, unknown>) ?? null;
-            items.push(buildPreviewItem(layoutItem, config, false));
-        }
+    const sortedLayoutItems = normalizeLayoutItemsByOrder(template.layoutItems);
+    for (const layoutItem of sortedLayoutItems) {
+        const config = template.widgetConfigs[layoutItem.widgetId] ?? null;
+        items.push(buildPreviewItem(layoutItem, config, false));
     }
 
-    // 最终按 order 排序（确保 skipped 项也按正确顺序）。
     items.sort((a, b) => a.order - b.order);
 
     return {

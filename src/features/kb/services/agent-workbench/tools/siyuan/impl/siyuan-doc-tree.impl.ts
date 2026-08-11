@@ -62,8 +62,7 @@ export async function executeSiyuanDocTree(args: SiyuanDocTreeInput): Promise<{ 
       }, ["fromIDs", "toID"]));
       break;
     case "duplicate": {
-      const duplicateId = args.id ?? args.ids?.[0];
-      data = await duplicateDoc({ id: requireString(duplicateId, "id") });
+      data = await duplicateDoc({ id: requireString(args.id, "id") });
       break;
     }
     case "sort":

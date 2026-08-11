@@ -47,9 +47,7 @@ export interface LicenseVerifyResult {
     code: number;
     error?: string;
     userInfo?: LicenseUserInfo;
-    licenseVersion?: 1 | 2;
-    legacy?: boolean;
-    legacyDeprecated?: boolean;
+    licenseVersion?: 2;
 }
 
 // ── 辅助函数 ─────────────────────────────────────────────────────────────────
@@ -302,8 +300,6 @@ export function verifySignedLicense(
             valid: true,
             code: 0,
             licenseVersion: 2,
-            legacy: false,
-            legacyDeprecated: false,
             userInfo: {
                 name: USER_NAME,
                 userId: USER_ID,

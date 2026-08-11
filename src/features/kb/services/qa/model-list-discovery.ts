@@ -96,17 +96,14 @@ const KIMI_MODEL_PRIORITY: Record<string, { priority: number; isLegacy: boolean;
  * 判断是否为 Kimi 系列提供商
  */
 export function isKimiProviderType(type: string): boolean {
-  return type === "kimi" || type === "kimi-api" || type === "kimi-coding";
+  return type === "kimi-api" || type === "kimi-coding";
 }
 
 const PROVIDER_DISCOVERY_NAMES: Record<string, string> = {
-  kimi: "Kimi",
   "kimi-api": "Kimi API",
   "kimi-coding": "Kimi Coding",
-  mimo: "Mimo",
   "mimo-api": "MiMo API",
   "mimo-coding-plan": "MiMo Coding Plan",
-  deepseek: "DeepSeek",
   "deepseek-api": "DeepSeek API",
   "openai-compatible": "自定义接口",
 };
@@ -195,13 +192,10 @@ export async function discoverOpenAICompatibleModelsForProvider(
 
 export async function discoverProviderModels(provider: KbChatProviderConfig): Promise<DiscoverModelsResult> {
   switch (provider.type) {
-    case "kimi":
     case "kimi-api":
     case "kimi-coding":
-    case "mimo":
     case "mimo-api":
     case "mimo-coding-plan":
-    case "deepseek":
     case "deepseek-api":
     case "openai-compatible":
       return discoverOpenAICompatibleModelsForProvider(provider);

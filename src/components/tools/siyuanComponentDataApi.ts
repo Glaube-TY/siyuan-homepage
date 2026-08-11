@@ -25,7 +25,6 @@ import {
     removeFavoriteItemsByIds,
     reorderFavoriteItems,
     readFavoritesIndexStrict,
-    loadFavoritesForUI,
     doesFavoritesIndexExist,
 } from "@/features/favorites-manager/favorites-store";
 import {
@@ -219,7 +218,7 @@ export interface ManualIndexSqlOptions {
 }
 
 /**
- * 只用于用户可感知的索引建设：本地索引文件不存在时的前台初次初始化、设置面板手动重建索引、旧数据迁移。
+ * 只用于用户可感知的索引建设：本地索引文件不存在时的前台初次初始化，以及设置面板手动重建索引。
  * 禁止用于组件展示查询或后台自动刷新。
  */
 export async function runHomepageManualIndexSqlQuery<T = Record<string, unknown>>(
@@ -2152,7 +2151,7 @@ export async function getFavoritesIndexResult(
         };
     }
     if (strict.kind === "missing") {
-        return disabledResult("收藏索引为空，可重新收藏文档，或到主页设置 > 检索管理中迁移旧收藏属性。", "index");
+        return disabledResult("收藏索引为空，可从文档树重新收藏文档。", "index");
     }
 
     let items = strict.payload.items;
@@ -2190,163 +2189,11 @@ export async function getFavoritesIndexResult(
     if (filtered.length > 0) {
         return okResult(filtered, "index");
     }
-    return disabledResult("收藏索引为空，可重新收藏文档，或到主页设置 > 检索管理中迁移旧收藏属性。", "index");
-}
-
-export async function mergeFavoriteIndexItems(items: ComponentDocInfo[]): Promise<number> {
-    const payload = await loadFavoritesForUI();
-    const map = new Map<string, FavoriteItemRecordForMerge>(
-        payload.items.filter((row) => row?.id).map((row) => [row.id, row as unknown as FavoriteItemRecordForMerge]),
-    );
-    let nextOrder = payload.items.reduce(
-        (maximum, row, index) =>
-            Math.max(
-                maximum,
-                Number.isFinite(row.favoriteOrder) ? Number(row.favoriteOrder) : index,
-            ),
-        -1,
-    ) + 1;
-    const mergedIds = new Set<string>();
-    for (const item of items) {
-        if (!item?.id) continue;
-        const previous = map.get(item.id);
-        const merged = {
-            ...previous,
-            ...item,
-            favoriteOrder: Number.isFinite(previous?.favoriteOrder)
-                ? previous?.favoriteOrder
-                : Number.isFinite((item as any).favoriteOrder)
-                    ? (item as any).favoriteOrder
-                    : nextOrder++,
-        };
-        map.set(item.id, merged as unknown as FavoriteItemRecordForMerge);
-        mergedIds.add(item.id);
-    }
-    // 使用批量 add 写入每个合并的文档
-    let count = 0;
-    for (const [id, merged] of map) {
-        if (mergedIds.has(id)) {
-            await addFavoriteItem(merged as any);
-            count++;
-        }
-    }
-    return count;
-}
-
-interface FavoriteItemRecordForMerge {
-    id: string;
-    favoriteOrder?: number;
-    [key: string]: unknown;
-}
-
-export async function migrateFavoritesIndexFromGlobalSql(
-    plugin: any,
-    notebookIds: string[] = [],
-): Promise<ComponentMigrationStatus> {
-    void plugin;
-    const now = new Date().toISOString();
-    const PAGE_SIZE = 500;
-    const MAX_ROWS = 50000;
-
-    try {
-        let totalMigrated = 0;
-        let totalSkipped = 0;
-        let totalCleanupFailed = 0;
-        let reachedLimit = false;
-
-        for (let offset = 0; offset < MAX_ROWS; offset += PAGE_SIZE) {
-            const stmt = `
-                SELECT id, content, created, updated, box, path, hpath, ial
-                FROM blocks
-                WHERE type = 'd' AND ial LIKE '%custom-homepage-favorites%'
-                ORDER BY updated DESC, id DESC
-                LIMIT ${PAGE_SIZE} OFFSET ${offset}
-            `;
-            const result = await runHomepageManualIndexSqlQuery<ComponentDocInfo>(plugin, stmt);
-            if (result.ok === false) {
-                return {
-                    lastRunAt: now,
-                    lastStatus: "error",
-                    lastMessage: result.reason,
-                    migratedCount: totalMigrated,
-                    skippedCount: totalSkipped,
-                };
-            }
-
-            const rows = result.rows;
-            if (rows.length === 0) break;
-
-            const docs: ComponentDocInfo[] = [];
-            const migratedIds: string[] = [];
-            let pageSkipped = 0;
-
-            for (const row of rows) {
-                const doc = blockToDocInfo(row);
-                if (!doc?.id) {
-                    pageSkipped += 1;
-                    continue;
-                }
-                if (notebookIds.length > 0 && !(doc.box && notebookIds.includes(doc.box))) {
-                    pageSkipped += 1;
-                    continue;
-                }
-                const exists = await isExistingBlock(doc.id);
-                if (!exists) {
-                    pageSkipped += 1;
-                    continue;
-                }
-                docs.push(doc);
-                migratedIds.push(doc.id);
-            }
-
-            const pageMigrated = await mergeFavoriteIndexItems(docs);
-            totalMigrated += pageMigrated;
-            totalSkipped += pageSkipped;
-
-            let pageCleanupFailed = 0;
-            for (const id of migratedIds) {
-                try {
-                    await setBlockAttrsChecked(id, { "custom-homepage-favorites": "" });
-                } catch {
-                    pageCleanupFailed += 1;
-                }
-            }
-            totalCleanupFailed += pageCleanupFailed;
-
-            if (rows.length < PAGE_SIZE) break;
-            if (offset + PAGE_SIZE >= MAX_ROWS) {
-                reachedLimit = true;
-                break;
-            }
-        }
-
-        return {
-            lastRunAt: now,
-            lastStatus: "success",
-            lastMessage: reachedLimit
-                ? `旧收藏迁移达到 ${MAX_ROWS} 条安全上限，可能仍有未迁移数据；已迁移 ${totalMigrated} 条，跳过 ${totalSkipped} 条，${totalCleanupFailed} 条旧属性清理失败。`
-                : totalCleanupFailed > 0
-                    ? `已将 ${totalMigrated} 条旧收藏迁移到索引，跳过 ${totalSkipped} 条，${totalCleanupFailed} 条旧属性清理失败。`
-                    : `已将 ${totalMigrated} 条旧收藏迁移到索引，跳过 ${totalSkipped} 条，并已清理旧属性。`,
-            migratedCount: totalMigrated,
-            skippedCount: totalSkipped,
-            cleanedCount: Math.max(0, totalMigrated - totalCleanupFailed),
-            cleanupFailedCount: totalCleanupFailed,
-        };
-    } catch (error) {
-        return {
-            lastRunAt: now,
-            lastStatus: "error",
-            lastMessage: error instanceof Error ? error.message : "旧收藏迁移失败",
-            migratedCount: 0,
-            skippedCount: 0,
-        };
-    }
+    return disabledResult("收藏索引为空，可重新收藏文档。", "index");
 }
 
 /**
  * 收藏索引前台自动初始化：仅在 favorites-index.json 不存在时创建一个空索引文件。
- * 旧属性迁移不会自动执行，必须用户手动点击“手动迁移旧数据”。
  */
 export async function ensureFavoritesIndexInitialized(
     plugin: any,
@@ -2371,11 +2218,6 @@ export async function updateFavoriteIndex(
     // 使用严格收藏存储层进行写操作
     if (!active) {
         await removeFavoriteItem(docId);
-        try {
-            await setBlockAttrsChecked(docId, { "custom-homepage-favorites": "" });
-        } catch {
-            // 清理旧收藏属性失败不影响本地索引状态。
-        }
         return;
     }
     let info: any = {};
@@ -2421,7 +2263,7 @@ export async function getReviewIndexResult<T = any>(
     if (existing.length > 0) {
         return okResult(existing as T[], "index");
     }
-    return disabledResult("复习索引为空；可新增复习计划，或到主页设置 > 检索管理中迁移旧属性。", "index");
+    return disabledResult("复习索引为空；新增复习计划后会写入索引。", "index");
 }
 
 export async function updateReviewIndexItem<T extends { id: string }>(item: T): Promise<void> {
@@ -2440,22 +2282,6 @@ export async function getReviewIndexItem<T extends { id: string } = any>(id: str
     if (!id) return null;
     const rows = await readJsonIndex<T>(REVIEW_INDEX_PATH);
     return rows.find((row) => row?.id === id) || null;
-}
-
-export async function mergeReviewIndexItems<T extends { id: string }>(items: T[]): Promise<number> {
-    const mergedIds = new Set<string>();
-    await withReviewIndexMutationLock(async () => {
-        const rows = await readReviewIndexItemsForMutation<T>();
-        const map = new Map(rows.map((row) => [row.id, row]));
-        for (const [index, item] of items.entries()) {
-            const id = checkedReviewIndexItemId(item, `待合并第 ${index + 1} 项`);
-            map.set(id, { ...map.get(id), ...item });
-            mergedIds.add(id);
-        }
-        await writeAndVerifyReviewIndexItems(Array.from(map.values()));
-    });
-    requestMobilePlanRefresh("review-data-changed");
-    return mergedIds.size;
 }
 
 export async function removeReviewIndexItem(id: string): Promise<void> {
@@ -2636,7 +2462,7 @@ export async function loadReviewIndexItemsChecked(): Promise<ReviewItem[]> {
 
 /**
  * 复习索引前台自动初始化：仅在 review-index.json 不存在时创建一个空索引文件。
- * 旧属性迁移不会自动执行，必须用户手动点击“手动迁移旧数据”。
+ * 当前索引不存在时创建空文件，后续由新增复习计划写入。
  */
 export async function ensureReviewIndexInitialized(
     plugin: any,

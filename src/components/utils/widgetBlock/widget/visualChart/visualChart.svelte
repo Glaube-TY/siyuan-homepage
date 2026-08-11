@@ -346,7 +346,7 @@
     }
 
     async function saveConfig() {
-        await saveWidgetContentPreservingSize(plugin, parsedContent.instanceId ?? parsedContent.blockId, {
+        await saveWidgetContentPreservingSize(plugin, parsedContent.instanceId, {
             ...parsedContent,
             data: {
                 ...parsedContent.data,
@@ -509,7 +509,7 @@
     onMount(async () => {
         isDestroyed = false;
         const savedConfig = runtimeContext.deviceViewContext
-            ? await loadWidgetInstanceConfig(runtimeContext.deviceViewContext, parsedContent.instanceId ?? parsedContent.blockId)
+            ? await loadWidgetInstanceConfig(runtimeContext.deviceViewContext, parsedContent.instanceId)
             : null;
         if (isDestroyed) return;
 

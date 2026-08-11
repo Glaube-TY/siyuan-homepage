@@ -3,7 +3,6 @@ import type { DeleteBlocksInput, DeleteBlocksOutput, PreparedDeleteBlocksConfirm
 import { assessDocContentEditRisk } from "../../../../doc-content-edit/doc-content-edit-risk";
 import { createDocContentEditConfirmation } from "../../../../doc-content-edit/doc-content-edit-confirmation-service";
 import { requestDocContentEditConfirmation } from "../../../../doc-content-edit/doc-content-edit-confirmation-bridge";
-import { shouldRequireDocContentEditConfirmation } from "../../../../doc-content-edit/doc-content-edit-confirmation-policy";
 import { executeConfirmedDeleteBlocks } from "../../../../doc-content-edit/doc-content-edit-delete-blocks-executor";
 import { removeDocContentEditConfirmation } from "../../../../doc-content-edit/doc-content-edit-confirmation-store";
 import type { SiyuanToolDeps } from "../siyuan-tool-deps";
@@ -261,10 +260,7 @@ export async function executeDeleteBlocks(
   const target = prepareResult.target;
 
   // 3. 请求用户确认
-  const requireConfirmation = shouldRequireDocContentEditConfirmation(
-    deps.getSettings?.(),
-    "delete_blocks",
-  );
+  const requireConfirmation = true;
 
   if (requireConfirmation) {
     const confirmationRes = await requestDocContentEditConfirmation({

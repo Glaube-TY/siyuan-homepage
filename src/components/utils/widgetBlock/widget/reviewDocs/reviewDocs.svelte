@@ -59,7 +59,7 @@
     let logStatusMessage = $state("");
     let todayReviewed = $state<number | null>(null);
     let reviewIndexStatus = $state<"ok" | "empty" | "limited" | "disabled" | "unsupported" | "error">("empty");
-    let reviewIndexMessage = $state("复习索引为空；可新增复习计划，或到主页设置 > 检索管理中迁移旧属性。");
+    let reviewIndexMessage = $state("复习索引为空；新增复习计划后会写入索引。");
     let currentView = $state<ReviewView>("due");
     let currentSortBy = $state<ReviewSortBy>("dueAsc");
     let selectedCategory = $state("");
@@ -525,9 +525,9 @@
                 {#if reviewIndexStatus === "disabled"}
                     <LocalIndexEmptyState
                         title="本地索引为空"
-                        message="复习本地索引为空，请迁移或重建索引。"
+                        message="复习本地索引为空，请新增复习计划或刷新索引。"
                         {plugin}
-                        hint="新增复习计划会进入本地索引；旧复习属性请到主页设置 > 检索管理中迁移。"
+                        hint="新增复习计划会进入本地索引；也可到主页设置 > 检索管理中刷新索引。"
                     />
                 {:else}
                     <div class="empty-state">

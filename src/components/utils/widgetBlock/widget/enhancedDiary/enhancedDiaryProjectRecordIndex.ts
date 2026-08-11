@@ -148,14 +148,6 @@ function queueMaintenance(
     return promise;
 }
 
-function isLegacyDiaryWithoutQuickRecords(detailed: {
-    structureComplete: boolean;
-    records: EnhancedDiaryWorkspaceRecord[];
-    reason?: string;
-}): boolean {
-    return !detailed.structureComplete && detailed.reason === "quick_record_heading_unavailable" && detailed.records.length === 0;
-}
-
 export function projectRecordToIndexItem(record: EnhancedDiaryWorkspaceRecord): EnhancedDiaryProjectRecordIndexItem | null {
     if (!record.headingBlockId || !record.projectTargetId) return null;
     return {
@@ -204,25 +196,18 @@ async function rebuild(config: EnhancedDiaryConfig): Promise<ComponentMigrationS
             Object.entries(current.items).filter(([, item]) => activeDiaryDocIds.has(item.diaryDocId)),
         );
         let skippedCount = 0;
-        let legacyEmptyCount = 0;
         for (const [compactDate, entry] of Object.entries(diaryEntries)) {
             try {
                 const markdown = await readDiaryMarkdown(entry.id);
                 const date = `${compactDate.slice(0, 4)}-${compactDate.slice(4, 6)}-${compactDate.slice(6, 8)}`;
                 const detailed = await queryTodayQuickRecordsDetailed(entry.id, markdown, date, config.headingStructure, config.templateFieldMapping, config);
-                if (isLegacyDiaryWithoutQuickRecords(detailed)) {
-                    items = Object.fromEntries(Object.entries(items).filter(([, item]) => item.diaryDocId !== entry.id));
-                    legacyEmptyCount += 1;
-                    continue;
-                }
                 if (!detailed.structureComplete) { skippedCount += 1; continue; }
                 items = Object.fromEntries(Object.entries(items).filter(([, item]) => item.diaryDocId !== entry.id));
                 detailed.records.forEach((record) => { const item = projectRecordToIndexItem(record); if (item) items[item.id] = item; });
             } catch { skippedCount += 1; }
         }
         await writeDirect({ version: INDEX_VERSION, updatedAt: now, notebookId: config.dailyNotebookId, complete: skippedCount === 0, items });
-        const legacyMessage = legacyEmptyCount > 0 ? `兼容处理 ${legacyEmptyCount} 篇无快速记录内容的旧日记。` : "";
-        return { lastRunAt: now, lastStatus: "success", lastMessage: `项目记录索引重建完成：${Object.keys(items).length} 条关系，${skippedCount} 篇日记暂未完成结构解析。${legacyMessage}`, migratedCount: Object.keys(items).length, skippedCount };
+        return { lastRunAt: now, lastStatus: "success", lastMessage: `项目记录索引重建完成：${Object.keys(items).length} 条关系，${skippedCount} 篇日记暂未完成结构解析。`, migratedCount: Object.keys(items).length, skippedCount };
     } catch (error) {
         return { lastRunAt: now, lastStatus: "error", lastMessage: error instanceof Error ? error.message : "项目记录索引重建失败" };
     }
@@ -244,26 +229,19 @@ async function refresh(config: EnhancedDiaryConfig): Promise<ComponentMigrationS
         const changed = prepared.changedDocs.filter((doc) => byDocId.has(doc.id));
         let items = { ...current.items };
         let skippedCount = 0;
-        let legacyEmptyCount = 0;
         for (const doc of changed) {
             const metadata = byDocId.get(doc.id)!;
             const compactDate = metadata.date;
             const date = `${compactDate.slice(0, 4)}-${compactDate.slice(4, 6)}-${compactDate.slice(6, 8)}`;
             const markdown = await readDiaryMarkdown(doc.id);
             const detailed = await queryTodayQuickRecordsDetailed(doc.id, markdown, date, config.headingStructure, config.templateFieldMapping, config);
-            if (isLegacyDiaryWithoutQuickRecords(detailed)) {
-                items = Object.fromEntries(Object.entries(items).filter(([, item]) => item.diaryDocId !== doc.id));
-                legacyEmptyCount += 1;
-                continue;
-            }
             if (!detailed.structureComplete) { skippedCount += 1; continue; }
             items = Object.fromEntries(Object.entries(items).filter(([, item]) => item.diaryDocId !== doc.id));
             detailed.records.forEach((record) => { const item = projectRecordToIndexItem(record); if (item) items[item.id] = item; });
         }
         await writeDirect({ ...current, complete: current.complete && skippedCount === 0, items });
         await prepared.commit();
-        const legacyMessage = legacyEmptyCount > 0 ? `兼容处理 ${legacyEmptyCount} 篇无快速记录内容的旧日记。` : "";
-        return { lastRunAt: now, lastStatus: "success", lastMessage: `项目记录索引增量刷新完成：${changed.length - skippedCount} 篇完成，${skippedCount} 篇暂未完成结构解析。${legacyMessage}`, refreshedCount: changed.length - skippedCount, skippedCount };
+        return { lastRunAt: now, lastStatus: "success", lastMessage: `项目记录索引增量刷新完成：${changed.length - skippedCount} 篇完成，${skippedCount} 篇暂未完成结构解析。`, refreshedCount: changed.length - skippedCount, skippedCount };
     } catch (error) {
         return { lastRunAt: now, lastStatus: "error", lastMessage: error instanceof Error ? error.message : "项目记录索引增量刷新失败" };
     }

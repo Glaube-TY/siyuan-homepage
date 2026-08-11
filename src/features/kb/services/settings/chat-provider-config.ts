@@ -8,8 +8,6 @@ import type { ProviderNativeAgentCompatibility } from "../../types/settings";
 import type { DiscoverModelsResult } from "../qa/model-list-discovery";
 import { isKimiProviderType } from "../qa/model-list-discovery";
 
-const LEGACY_COMPATIBILITY_KEY = ["provider", "Request", "Compatibility"].join("");
-
 /**
  * 校验和清洗 ProviderNativeAgentCompatibility，只保留合法枚举和值
  */
@@ -91,14 +89,13 @@ export function normalizeId(value: unknown): string {
  * 只允许已知类型，非法值回退到 "openai-compatible"
  */
 export function normalizeProviderType(type: unknown): KbChatProviderType {
-  const knownTypes: KbChatProviderType[] = ["kimi", "kimi-api", "kimi-coding", "mimo", "mimo-api", "mimo-coding-plan", "deepseek", "deepseek-api", "openai-compatible"];
+  const knownTypes: KbChatProviderType[] = ["kimi-api", "kimi-coding", "mimo-api", "mimo-coding-plan", "deepseek-api", "openai-compatible"];
   const normalized = String(type || "").trim().toLowerCase() as KbChatProviderType;
   return knownTypes.includes(normalized) ? normalized : "openai-compatible";
 }
 
 /**
- * 通过已知预设的 presetId/id/name 推断 provider type
- * 用于归一化旧数据中 type 字段可能不正确的情况
+ * 通过已知预设的 presetId/id/name 归一化 provider type
  * 大小写不敏感
  */
 function normalizeProviderTypeByKnownPreset(provider: Partial<KbChatProviderConfig>): KbChatProviderType {
@@ -123,9 +120,7 @@ function normalizeProviderTypeByKnownPreset(provider: Partial<KbChatProviderConf
   if (combined.indexOf("deepseek-api") >= 0) return "deepseek-api";
   if (combined.indexOf("deepseek") >= 0) return "deepseek-api";
 
-  // 历史遗留的第三方 OpenAI-compatible 供应商 ID，映射到 openai-compatible
-  const legacyOpenaiCompatibleIds = ["hunyuan", "volcengine", "zhipu", "siliconflow", "minimax", "baidu-qianfan", "openrouter", "volcano"];
-  if (id === "openai-compatible" || id.startsWith("openai-compatible-") || legacyOpenaiCompatibleIds.includes(id) || legacyOpenaiCompatibleIds.some((prefix) => id.startsWith(prefix + "-"))) {
+  if (id === "openai-compatible" || id.startsWith("openai-compatible-")) {
     return "openai-compatible";
   }
 
@@ -280,9 +275,8 @@ function normalizeProviderModels(
 
     const modelName = String(rawModel.name ?? "").trim() || modelId;
 
-    const rawModelRecord = rawModel as Record<string, unknown>;
     const providerNativeAgentCompatibility = sanitizeProviderNativeAgentCompatibility(
-      rawModel.providerNativeAgentCompatibility ?? rawModelRecord[LEGACY_COMPATIBILITY_KEY],
+      rawModel.providerNativeAgentCompatibility,
     );
 
     existingMap.set(modelId, {
@@ -368,16 +362,6 @@ export function sanitizeChatProviders(
     const type = normalizeProviderType(correctedType);
 
     let baseUrl = String(provider.baseUrl ?? "").trim();
-    if (type === "deepseek" && baseUrl === "https://api.deepseek.com/v1") {
-      baseUrl = "";
-    }
-
-    // 迁移旧内置 Kimi 默认地址：把已保存的 .ai 地址清空，
-    // 由 resolveOpenAICompatibleBaseUrlForProvider 使用新的 .cn 默认值
-    if ((type === "kimi" || type === "kimi-api") && (baseUrl === "" || baseUrl === "https://api.moonshot.ai/v1" || baseUrl === "https://api.moonshot.ai/v1/")) {
-      baseUrl = "";
-    }
-
     let id = String(provider.id || "").trim();
     if (!id) {
       id = `${type}-${index + 1}`;
@@ -404,9 +388,8 @@ export function sanitizeChatProviders(
 
     // 不自动补模型，保持空数组
     const presetId = String(provider.presetId ?? "").trim() || undefined;
-    const rawProviderRecord = provider as Record<string, unknown>;
     const providerNativeAgentCompatibility = sanitizeProviderNativeAgentCompatibility(
-      provider.providerNativeAgentCompatibility ?? rawProviderRecord[LEGACY_COMPATIBILITY_KEY],
+      provider.providerNativeAgentCompatibility,
     );
 
     const sanitizedProvider: KbChatProviderConfig = {
@@ -554,23 +537,6 @@ export function mergeDiscoveredChatModels(
       if ((dm as any).isLegacy !== undefined) {
         (existing as any).isLegacy = (dm as any).isLegacy;
         modelUpdated = true;
-      }
-      // 迁移已有 Kimi K2 模型：使用服务商默认温度
-      if (isKimiProviderType(provider.type) && /^kimi-k2/.test(existing.id)) {
-        const oldTemp = existing.temperature;
-        if (oldTemp === 0.3 || oldTemp === 0 || oldTemp === undefined) {
-          existing.temperature = 1;
-          modelUpdated = true;
-        }
-        // 迁移到 omit 策略（不再固定发送 temperature）
-        if (!existing.providerNativeAgentCompatibility?.temperatureParamStrategy || existing.providerNativeAgentCompatibility?.temperatureParamStrategy === "fixed") {
-          existing.providerNativeAgentCompatibility = {
-            ...existing.providerNativeAgentCompatibility,
-            temperatureParamStrategy: "omit",
-            fixedTemperature: undefined,
-          };
-          modelUpdated = true;
-        }
       }
       if (modelUpdated) {
         updatedCount++;

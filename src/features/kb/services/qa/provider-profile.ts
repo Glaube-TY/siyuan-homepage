@@ -230,12 +230,6 @@ const PROVIDER_PROFILE_DEFAULTS: Record<string, ProviderProfileDefaults> = {
   },
 };
 
-const LEGACY_PROVIDER_MAP: Record<string, string> = {
-  mimo: "mimo-api",
-  kimi: "kimi-api",
-  deepseek: "deepseek-api",
-};
-
 /**
  * 合并两个 ProviderNativeAgentCompatibility，model 覆盖 provider。
  */
@@ -261,7 +255,7 @@ function mergeProviderNativeAgentCompatibility(
 
 /**
  * 规范化 providerRequestTimeoutMs：最小 30000，最大 300000。
- * 用于清理旧配置中遗留的 8000/10000 等历史默认值。
+ * 防止请求超时配置低于 Agent 完整工具循环所需的安全下限。
  */
 function normalizeProviderRequestTimeoutMs(value: unknown, defaultMs = 30000): number {
   if (typeof value !== "number" || isNaN(value) || value <= 0) return defaultMs;
@@ -280,8 +274,7 @@ export function resolveProviderProfile(
     modelNativeAgentCompatibility?: ProviderNativeAgentCompatibility;
   },
 ): ProviderProfile {
-  const resolvedType = LEGACY_PROVIDER_MAP[providerType] ?? providerType;
-  const defaults = PROVIDER_PROFILE_DEFAULTS[resolvedType] ?? PROVIDER_PROFILE_DEFAULTS["openai-compatible"];
+  const defaults = PROVIDER_PROFILE_DEFAULTS[providerType] ?? PROVIDER_PROFILE_DEFAULTS["openai-compatible"];
 
   const composeModeDefault = modelOverrides?.finalComposeMode ?? defaults.composeModeDefault;
 
@@ -295,7 +288,7 @@ export function resolveProviderProfile(
   );
 
   const profile: ProviderProfile = {
-    providerType: resolvedType,
+    providerType,
     providerFamily: defaults.providerFamily,
     endpointKind: defaults.endpointKind,
     supportsStructuredOutputs: defaults.supportsStructuredOutputs,

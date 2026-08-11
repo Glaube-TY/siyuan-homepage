@@ -10,17 +10,11 @@ function kvKey(prefix: string, key: string): string {
 
 /** Kernel session store：按 provider/account/chat/sender key 存 JSON。 */
 export class KernelRobotSessionStore {
-  private static readonly LEGACY_INDEX_KEY = "robot-session-index-v1";
   private static readonly INDEX_KEY = "robot-conversation-index-v2";
   private static readonly BINDINGS_KEY = "robot-conversation-bindings-v2";
   private mutationQueue: Promise<void> = Promise.resolve();
-  private migrationPromise: Promise<void> | null = null;
 
   constructor(private readonly host: RobotKernelHost) {}
-
-  private legacyKeyOf(sessionKey: RobotSessionKey): string {
-    return kvKey("robot-session-", `${sessionKey.provider}_${sessionKey.accountId}_${sessionKey.chatId}_${sessionKey.senderId ?? "_"}`);
-  }
 
   private conversationKey(conversationId: string): string {
     return kvKey("robot-conversation-", conversationId);
@@ -36,7 +30,6 @@ export class KernelRobotSessionStore {
   }
 
   async get(sessionKey: RobotSessionKey): Promise<RobotSessionState | null> {
-    await this.ensureMigrated();
     const bindings = await this.readBindings();
     const conversationId = bindings[this.routeKey(sessionKey)];
     if (!conversationId) return null;
@@ -45,7 +38,6 @@ export class KernelRobotSessionStore {
   }
 
   async put(state: RobotSessionState): Promise<void> {
-    await this.ensureMigrated();
     await this.enqueueMutation(async () => {
       await this.host.storage.set(this.conversationKey(state.conversationId), JSON.stringify(state));
       const ids = await this.readIndex();
@@ -62,7 +54,6 @@ export class KernelRobotSessionStore {
   }
 
   async create(state: RobotSessionState): Promise<void> {
-    await this.ensureMigrated();
     await this.enqueueMutation(async () => {
       await this.host.storage.set(this.conversationKey(state.conversationId), JSON.stringify(state));
       const ids = await this.readIndex();
@@ -76,7 +67,6 @@ export class KernelRobotSessionStore {
   }
 
   async activate(sessionKey: RobotSessionKey, conversationId: string): Promise<boolean> {
-    await this.ensureMigrated();
     const state = await this.readConversation(conversationId);
     if (!state || this.routeKey(state.key) !== this.routeKey(sessionKey)) return false;
     await this.enqueueMutation(async () => {
@@ -88,7 +78,6 @@ export class KernelRobotSessionStore {
   }
 
   async rename(conversationId: string, title: string): Promise<boolean> {
-    await this.ensureMigrated();
     const state = await this.readConversation(conversationId);
     if (!state) return false;
     await this.enqueueMutation(() => this.host.storage.set(
@@ -99,7 +88,6 @@ export class KernelRobotSessionStore {
   }
 
   async delete(conversationId: string): Promise<boolean> {
-    await this.ensureMigrated();
     const state = await this.readConversation(conversationId);
     if (!state) return false;
     await this.enqueueMutation(async () => {
@@ -124,7 +112,6 @@ export class KernelRobotSessionStore {
   }
 
   async reset(sessionKey: RobotSessionKey): Promise<void> {
-    await this.ensureMigrated();
     const route = this.routeKey(sessionKey);
     await this.enqueueMutation(async () => {
       const ids = await this.readIndex();
@@ -142,7 +129,6 @@ export class KernelRobotSessionStore {
   }
 
   async list(): Promise<RobotSessionState[]> {
-    await this.ensureMigrated();
     const ids = await this.readIndex();
     const states: RobotSessionState[] = [];
     for (const id of ids) {
@@ -153,7 +139,6 @@ export class KernelRobotSessionStore {
   }
 
   async activeConversationIds(): Promise<Record<string, string>> {
-    await this.ensureMigrated();
     return this.readBindings();
   }
 
@@ -208,63 +193,6 @@ export class KernelRobotSessionStore {
     const next = this.mutationQueue.catch(() => undefined).then(task);
     this.mutationQueue = next;
     return next;
-  }
-
-  private ensureMigrated(): Promise<void> {
-    if (this.migrationPromise) return this.migrationPromise;
-    this.migrationPromise = this.enqueueMutation(async () => {
-      const legacyRaw = await this.host.storage.get(KernelRobotSessionStore.LEGACY_INDEX_KEY);
-      if (!legacyRaw) return;
-      let serializedKeys: string[] = [];
-      try {
-        const parsed = JSON.parse(legacyRaw) as unknown;
-        if (Array.isArray(parsed)) serializedKeys = parsed.filter((value): value is string => typeof value === "string");
-      } catch {
-        return;
-      }
-      const ids = await this.readIndex();
-      const bindings = await this.readBindings();
-      let changed = false;
-      for (const serialized of serializedKeys) {
-        try {
-          const key = JSON.parse(serialized) as RobotSessionKey;
-          const raw = await this.host.storage.get(this.legacyKeyOf(key));
-          if (!raw) continue;
-          const legacy = JSON.parse(raw) as RobotSessionState;
-          if (!legacy?.conversationId) continue;
-          const migrated: RobotSessionState = {
-            ...legacy,
-            key,
-            title: typeof legacy.title === "string" && legacy.title.trim()
-              ? legacy.title
-              : this.deriveTitle(legacy.recentMessages),
-            agentMessages: Array.isArray(legacy.agentMessages) ? legacy.agentMessages : [],
-          };
-          await this.host.storage.set(this.conversationKey(migrated.conversationId), JSON.stringify(migrated));
-          if (!ids.includes(migrated.conversationId)) ids.push(migrated.conversationId);
-          const route = this.routeKey(key);
-          if (!bindings[route]) bindings[route] = migrated.conversationId;
-          changed = true;
-        } catch {
-          // 忽略单个损坏的旧会话，不影响其他会话迁移。
-        }
-      }
-      if (changed) {
-        await this.host.storage.set(KernelRobotSessionStore.INDEX_KEY, JSON.stringify(ids));
-        await this.writeBindings(bindings);
-        // v2 会话与绑定均已落盘后再清理旧索引/文件，避免下次启动用旧快照覆盖新对话。
-        for (const serialized of serializedKeys) {
-          try {
-            const key = JSON.parse(serialized) as RobotSessionKey;
-            await this.host.storage.remove(this.legacyKeyOf(key));
-          } catch {
-            // 损坏的旧索引项没有可解析路径，只清空索引即可。
-          }
-        }
-        await this.host.storage.set(KernelRobotSessionStore.LEGACY_INDEX_KEY, "[]");
-      }
-    });
-    return this.migrationPromise;
   }
 
   private deriveTitle(messages: RobotSessionState["recentMessages"]): string {
@@ -393,7 +321,7 @@ export class KernelRobotHistoryStore {
   }
 }
 
-/** Kernel pairing store：单一配对捕获状态（provider-independent，v1 迁移后通用服务）。 */
+/** Kernel pairing store：单一、provider-independent 的配对捕获状态。 */
 export class KernelRobotPairingStore {
   private static readonly KEY = "robot-pairing-v1";
 

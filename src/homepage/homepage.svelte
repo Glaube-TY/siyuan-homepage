@@ -3631,7 +3631,7 @@
 
         let result = template;
 
-        // 兼容旧写法：统一替换为当前支持的变量名
+        // 这两种写法仍存在于当前版本已保存的主页配置中，先统一到现行统计键再加载数据。
         result = result
             .replace(/\{\{notesCount\}\}/g, "{{blocksCount}}")
             .replace(/\{\{DocsCount\}\}/g, "{{docsCount}}");

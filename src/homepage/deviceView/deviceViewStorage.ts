@@ -230,8 +230,19 @@ function validateManifest(value: unknown, context: DeviceViewContext, path: stri
         ||
         !isPlainJsonObject(value.migration)
         || value.migration.state !== "complete"
-        || (value.migration.source !== "legacy-root" && value.migration.source !== "fresh" && value.migration.source !== "recovered-target")
+        || (
+            value.migration.source !== "legacy-root"
+            && value.migration.source !== "fresh"
+            && value.migration.source !== "recovered-target"
+        )
         || typeof value.migration.completedAt !== "string"
+        || (
+            value.migration.unresolvedLegacyWidgetIds !== undefined
+            && (
+                !Array.isArray(value.migration.unresolvedLegacyWidgetIds)
+                || value.migration.unresolvedLegacyWidgetIds.some((id) => typeof id !== "string" || !id.trim())
+            )
+        )
     ) throw new Error(`设备视图清单 ${path} 未完成`);
     return value as unknown as DeviceViewManifest;
 }
@@ -249,10 +260,11 @@ function validateDeviceDescriptor(value: unknown, context: DeviceViewContext, pa
     if (!isPlainJsonObject(value)) throw new Error(`设备描述文件 ${path} 不是普通对象`);
     if (value.schema !== "siyuan-homepage-device" || value.version !== DEVICE_VIEW_SCHEMA_VERSION) throw new Error(`设备描述文件 ${path} schema/version 无效`);
     if (!Number.isInteger(value.revision) || Number(value.revision) < 1) throw new Error(`设备描述文件 ${path} revision 无效`);
-    const descriptorId = typeof value.physicalDeviceId === "string"
-        ? value.physicalDeviceId
-        : value.deviceId;
-    if (typeof value.updatedAt !== "string" || !value.updatedAt || descriptorId !== context.physicalDeviceId) {
+    if (
+        typeof value.updatedAt !== "string"
+        || !value.updatedAt
+        || value.physicalDeviceId !== context.physicalDeviceId
+    ) {
         throw new Error(`设备描述文件 ${path} 身份无效`);
     }
     if (
@@ -262,10 +274,7 @@ function validateDeviceDescriptor(value: unknown, context: DeviceViewContext, pa
         || typeof value.hostname !== "string"
         || typeof value.isMobile !== "boolean"
     ) throw new Error(`设备描述文件 ${path} 设备信息无效`);
-    return {
-        ...(value as unknown as DeviceDescriptor),
-        physicalDeviceId: descriptorId as string,
-    };
+    return value as unknown as DeviceDescriptor;
 }
 
 async function readDocument<T>(path: string, validate: (value: unknown) => T): Promise<T | null> {
@@ -351,45 +360,6 @@ export async function readDeviceViewManifest(context: DeviceViewContext): Promis
     assertStorageContext(context);
     const path = getSurfaceManifestPath(context);
     return readDocument(path, (value) => validateManifest(value, context, path));
-}
-
-/**
- * 在写队列内原子更新 manifest。
- * 仅允许在显式、确认过的写链路中使用（例如 Agent 清理旧布局残留后移除已清理 ID），
- * 不允许普通迁移流程静默重写 manifest。
- */
-export async function updateDeviceViewManifest(
-    context: DeviceViewContext,
-    mutate: (manifest: DeviceViewManifest) => DeviceViewManifest,
-    options: { expectedRevision?: number } = {},
-): Promise<DeviceViewManifest> {
-    assertStorageContext(context);
-    const path = getSurfaceManifestPath(context);
-    return inWriteQueue(path, async () => {
-        const latest = await readDeviceViewManifest(context);
-        if (!latest) throw new Error(`设备视图清单 ${path} 缺失，拒绝更新`);
-        if (options.expectedRevision !== undefined && latest.revision !== options.expectedRevision) {
-            throw new Error(`设备视图清单 ${path} 已被并发更新，拒绝覆盖最新 revision`);
-        }
-        const mutated = cloneJsonSafe(
-            mutate(cloneJsonSafe(latest, "设备视图清单 mutator 输入")),
-            "设备视图清单 mutator 结果",
-        );
-        validateManifest(mutated, context, path);
-        if (hasSameDocumentContent(latest, mutated)) return latest;
-        const document: DeviceViewManifest = {
-            ...mutated,
-            ...metadata(context, latest.revision + 1),
-        };
-        const normalized = validateManifest(document, context, path);
-        await writeJson(path, normalized);
-        const verified = await readDeviceViewManifest(context);
-        if (!verified || verified.revision !== normalized.revision || !hasSameJsonSemantic(verified, normalized)) {
-            throw new Error(`设备视图清单 ${path} 写入后校验失败`);
-        }
-        dispatchDeviceViewChanged(context, "migration");
-        return verified;
-    });
 }
 
 export async function readDeviceWidget(context: DeviceViewContext, instanceId: string): Promise<DeviceWidgetDocument | null> {
@@ -593,9 +563,6 @@ export async function writeInitialDeviceViewFiles(
         layout: DeviceViewLayout;
         settings?: DeviceViewSettings;
         widgets: DeviceWidgetDocument[];
-        unresolvedLegacyWidgetIds?: string[];
-        source: "legacy-root" | "fresh" | "recovered-target";
-        manifest?: DeviceViewManifest;
     },
 ): Promise<void> {
     assertStorageContext(context);
@@ -608,7 +575,7 @@ export async function writeInitialDeviceViewFiles(
     );
     const widgetIds = new Set<string>();
     for (const widget of normalizedWidgets) {
-        if (widgetIds.has(widget.instanceId)) throw new Error(`迁移组件 ID 重复：${widget.instanceId}`);
+        if (widgetIds.has(widget.instanceId)) throw new Error(`初始化组件 ID 重复：${widget.instanceId}`);
         widgetIds.add(widget.instanceId);
     }
     const manifestPath = getSurfaceManifestPath(context);
@@ -616,14 +583,14 @@ export async function writeInitialDeviceViewFiles(
         if (await readDeviceViewManifest(context)) return;
         const existingLayout = await readDeviceViewLayout(context);
         if (existingLayout) {
-            if (!hasSameDocumentContent(existingLayout, normalizedLayout)) throw new Error("迁移目标 layout.json 已存在冲突内容");
+            if (!hasSameDocumentContent(existingLayout, normalizedLayout)) throw new Error("初始化目标 layout.json 已存在冲突内容");
         } else {
             await writeJson(getSurfaceLayoutPath(context), normalizedLayout);
         }
         if (normalizedSettings) {
             const existingSettings = await readDeviceViewSettings(context);
             if (existingSettings) {
-                if (!hasSameDocumentContent(existingSettings, normalizedSettings)) throw new Error("迁移目标 view.json 已存在冲突内容");
+                if (!hasSameDocumentContent(existingSettings, normalizedSettings)) throw new Error("初始化目标 view.json 已存在冲突内容");
             } else {
                 await writeJson(getSurfaceViewPath(context), normalizedSettings);
             }
@@ -631,43 +598,34 @@ export async function writeInitialDeviceViewFiles(
         for (const widget of normalizedWidgets) {
             const existingWidget = await readDeviceWidget(context, widget.instanceId);
             if (existingWidget) {
-                if (!hasSameDocumentContent(existingWidget, widget)) throw new Error(`迁移目标组件 ${widget.instanceId} 已存在冲突内容`);
+                if (!hasSameDocumentContent(existingWidget, widget)) throw new Error(`初始化目标组件 ${widget.instanceId} 已存在冲突内容`);
             } else {
                 await writeJson(getWidgetPath(context, widget.instanceId), widget);
             }
         }
         const verifiedLayout = await readDeviceViewLayout(context);
-        if (!verifiedLayout || !hasSameDocumentContent(verifiedLayout, normalizedLayout)) throw new Error("迁移布局写入校验失败");
+        if (!verifiedLayout || !hasSameDocumentContent(verifiedLayout, normalizedLayout)) throw new Error("初始化布局写入校验失败");
         if (normalizedSettings) {
             const verifiedSettings = await readDeviceViewSettings(context);
-            if (!verifiedSettings || !hasSameDocumentContent(verifiedSettings, normalizedSettings)) throw new Error("迁移视图配置写入校验失败");
+            if (!verifiedSettings || !hasSameDocumentContent(verifiedSettings, normalizedSettings)) throw new Error("初始化视图配置写入校验失败");
         }
         for (const widget of normalizedWidgets) {
             const verifiedWidget = await readDeviceWidget(context, widget.instanceId);
-            if (!verifiedWidget || !hasSameDocumentContent(verifiedWidget, widget)) throw new Error(`迁移组件 ${widget.instanceId} 写入校验失败`);
+            if (!verifiedWidget || !hasSameDocumentContent(verifiedWidget, widget)) throw new Error(`初始化组件 ${widget.instanceId} 写入校验失败`);
         }
-        const manifest: DeviceViewManifest = input.manifest
-            ? validateManifest(
-                { ...cloneJsonSafe(input.manifest, "别名迁移 manifest"), deviceId: context.scopeId, surface: context.surface },
-                context,
-                manifestPath,
-            )
-            : {
-                ...metadata(context, 1),
-                status: "complete",
-                migration: {
-                    state: "complete",
-                    source: input.source,
-                    completedAt: new Date().toISOString(),
-                    ...(input.unresolvedLegacyWidgetIds?.length
-                        ? { unresolvedLegacyWidgetIds: [...input.unresolvedLegacyWidgetIds] }
-                        : {}),
-                },
-            };
+        const manifest: DeviceViewManifest = {
+            ...metadata(context, 1),
+            status: "complete",
+            migration: {
+                state: "complete",
+                source: "fresh",
+                completedAt: new Date().toISOString(),
+            },
+        };
         await writeJson(manifestPath, manifest);
         const verifiedManifest = await readDeviceViewManifest(context);
-        if (!verifiedManifest || !hasSameJsonSemantic(verifiedManifest, manifest)) throw new Error("迁移清单写入校验失败");
-        dispatchDeviceViewChanged(context, "migration");
+        if (!verifiedManifest || !hasSameJsonSemantic(verifiedManifest, manifest)) throw new Error("初始化清单写入校验失败");
+        dispatchDeviceViewChanged(context, "initialization");
     });
 }
 
@@ -682,10 +640,7 @@ export async function writeDeviceDescriptor(context: DeviceViewContext, descript
             const existing = validateDeviceDescriptor(existingValue, context, path);
             const unchanged = ["deviceName", "platform", "arch", "hostname", "isMobile"]
                 .every((key) => existing[key] === (descriptor as unknown as Record<string, unknown>)[key]);
-            const usesCanonicalIdentityField = isPlainJsonObject(existingValue)
-                && existingValue.physicalDeviceId === context.physicalDeviceId
-                && !("deviceId" in existingValue);
-            if (unchanged && usesCanonicalIdentityField) return;
+            if (unchanged) return;
             revision = Number(existing.revision) + 1;
         }
         const next = { ...descriptor, revision, updatedAt: new Date().toISOString() };

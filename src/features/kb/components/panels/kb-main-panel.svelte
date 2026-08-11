@@ -211,16 +211,12 @@
     : ["总结当前文档", "提炼核心观点", "查找相关资料", "基于资料生成大纲"];
 
   /**
-   * 规范化 send payload，兼容旧版 string 和新版对象格式
-   * 使用和 selectedMode 一致的校验逻辑
+   * 规范化当前 send payload，并使用和 selectedMode 一致的校验逻辑。
    */
   function normalizeSendPayload(
-    detail: string | { question: string; mode?: ChatMode; thinkingMode?: import("../../types/session").ThinkingMode; attachedDocIds?: string[]; attachedDocs?: import("../../types/chat").AttachedKbDoc[]; webAccessMode?: "off" | "smart" | "required" }
+    detail: { question: string; mode?: ChatMode; thinkingMode?: import("../../types/session").ThinkingMode; attachedDocIds?: string[]; attachedDocs?: import("../../types/chat").AttachedKbDoc[]; webAccessMode?: "off" | "smart" | "required" }
   ): { question: string; mode: ChatMode; thinkingMode: import("../../types/session").ThinkingMode; attachedDocIds?: string[]; attachedDocs?: import("../../types/chat").AttachedKbDoc[]; webAccessMode?: "off" | "smart" | "required" } {
     const storeThinkingMode = $kbSessionStore.thinkingMode ?? "off";
-    if (typeof detail === "string") {
-      return { question: detail, mode: selectedMode, thinkingMode: storeThinkingMode, webAccessMode: effectiveWebAccessMode };
-    }
     const question = detail.question;
     const payloadMode = detail.mode;
     const payloadThinkingMode = detail.thinkingMode ?? storeThinkingMode;
@@ -235,7 +231,7 @@
     return { question, mode: selectedMode, thinkingMode: payloadThinkingMode, attachedDocIds, attachedDocs, webAccessMode: submittedWebAccessMode };
   }
 
-  async function handleSend(e: CustomEvent<string | { question: string; mode?: ChatMode; thinkingMode?: import("../../types/session").ThinkingMode; attachedDocIds?: string[]; attachedDocs?: import("../../types/chat").AttachedKbDoc[]; webAccessMode?: "off" | "smart" | "required" }>) {
+  async function handleSend(e: CustomEvent<{ question: string; mode?: ChatMode; thinkingMode?: import("../../types/session").ThinkingMode; attachedDocIds?: string[]; attachedDocs?: import("../../types/chat").AttachedKbDoc[]; webAccessMode?: "off" | "smart" | "required" }>) {
     if (!sessionHydrationReady) return;
     if (asking) return;
     const payload = normalizeSendPayload(e.detail);
@@ -268,7 +264,7 @@
       console.debug("[KbMainPanel] send payload mode resolved", {
         storedSelectedMode,
         selectedMode,
-        payloadMode: typeof e.detail === "object" ? e.detail.mode : "string",
+        payloadMode: e.detail.mode,
         effectiveMode,
         placement,
         availableModes,

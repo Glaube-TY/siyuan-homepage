@@ -66,23 +66,12 @@ function strings(value: unknown): string[] {
       ]
     : [];
 }
-function migrateChannelIds(
-  value: unknown,
-): NotificationDeliveryTarget[] | undefined {
-  const ids = strings(value);
-  return ids.length
-    ? ids.map((channelId) => ({ kind: "external", channelId }))
-    : Array.isArray(value)
-      ? [{ kind: "external-default" }]
-      : undefined;
-}
 function targets(
   value: unknown,
-  channelIds?: unknown,
 ): NotificationDeliveryTarget[] {
   return Array.isArray(value)
     ? normalizeNotificationDeliveryTargets(value)
-    : (migrateChannelIds(channelIds) ?? [{ kind: "external-default" }]);
+    : [{ kind: "external-default" }];
 }
 function scope(value: unknown): CountdownNotifyRuleScope {
   const raw =
@@ -139,7 +128,7 @@ function normalizeRule(raw: unknown): CountdownNotifyRule | null {
       value.upcomingDays == null
         ? undefined
         : clamp(value.upcomingDays, 7, 1, 365),
-    deliveryTargets: targets(value.deliveryTargets, value.channelIds),
+    deliveryTargets: targets(value.deliveryTargets),
     scope: scope(value.scope),
   };
 }
@@ -328,19 +317,15 @@ export function parseCountdownNotifySettingsBackup(
   raw: unknown,
 ): CountdownNotifySettings {
   if (!isRecord(raw)) throw new Error("通知备份根结构无效");
-  if (raw.version !== 3 && raw.version !== 4)
+  if (raw.version !== 4)
     throw new Error("通知备份 version 不受支持");
-  const sourceVersion = raw.version;
   if (typeof raw.enabled !== "boolean")
     throw new Error("通知备份字段 enabled 必须是布尔值");
   assertCompatibleNumber(raw, "scanIntervalMs", 10000, 3600000, true);
   assertCompatibleNumber(raw, "catchUpWindowMinutes", 1, 1440, true);
   assertCompatibleNumber(raw, "maxEventsPerMessage", 1, 100, true);
   if (!Array.isArray(raw.rules)) throw new Error("通知备份 rules 必须是数组");
-  if (
-    (sourceVersion === 4 || raw.eventOverrides !== undefined) &&
-    !Array.isArray(raw.eventOverrides)
-  )
+  if (!Array.isArray(raw.eventOverrides))
     throw new Error("通知备份 eventOverrides 必须是数组");
   const ruleIds = new Set<string>();
   let todayRuleCount = 0;
@@ -366,15 +351,7 @@ export function parseCountdownNotifySettingsBackup(
       item.deliveryTargets,
       `通知备份第 ${index + 1} 条规则 deliveryTargets`,
     );
-    if (item.channelIds !== undefined)
-      assertStringArray(
-        item.channelIds,
-        `通知备份第 ${index + 1} 条规则 channelIds`,
-      );
-    if (
-      (sourceVersion === 4 || item.scope !== undefined) &&
-      !isRecord(item.scope)
-    )
+    if (!isRecord(item.scope))
       throw new Error(`通知备份第 ${index + 1} 条规则 scope 无效`);
     if (isRecord(item.scope))
       for (const key of [
@@ -384,11 +361,10 @@ export function parseCountdownNotifySettingsBackup(
         "priorities",
         "eventIds",
       ])
-        if (sourceVersion === 4 || item.scope[key] !== undefined)
-          assertStringArray(
-            item.scope[key],
-            `通知备份第 ${index + 1} 条规则 scope.${key}`,
-          );
+        assertStringArray(
+          item.scope[key],
+          `通知备份第 ${index + 1} 条规则 scope.${key}`,
+        );
     if (
       isRecord(item.scope) &&
       Array.isArray(item.scope.kinds) &&
@@ -423,9 +399,7 @@ export function parseCountdownNotifySettingsBackup(
       throw new Error(`通知备份第 ${index + 1} 条规则 upcomingDays 无效`);
   });
   if (todayRuleCount > 1) throw new Error("今日事件规则只能存在一条");
-  const rawOverrides = Array.isArray(raw.eventOverrides)
-    ? raw.eventOverrides
-    : [];
+  const rawOverrides = raw.eventOverrides;
   const overrideIds = new Set<string>();
   rawOverrides.forEach((item, index) => {
     if (!isRecord(item))
@@ -453,24 +427,8 @@ export function parseCountdownNotifySettingsBackup(
     if (!isCompatibleTime(item.time))
       throw new Error(`通知备份第 ${index + 1} 条事件覆盖 time 无效`);
   });
-  const migrationInput = {
-    ...raw,
-    version: 4,
-    rules: raw.rules.map((item) => ({
-      ...(item as Record<string, unknown>),
-      scope:
-        (item as Record<string, unknown>).scope ?? {
-          categoryIds: [],
-          tags: [],
-          kinds: [],
-          priorities: [],
-          eventIds: [],
-        },
-    })),
-    eventOverrides: rawOverrides,
-  };
   const normalized = settingsSchema.parse(
-    normalizeCountdownNotifySettings(migrationInput),
+    normalizeCountdownNotifySettings(raw),
   );
   if (
     normalized.rules.length !== raw.rules.length ||
@@ -537,13 +495,6 @@ export async function saveCountdownNotifySettings(
   settings: CountdownNotifySettings,
 ): Promise<CountdownNotifySettings> {
   assertNotificationCenterFeatureAvailable();
-  return withNotificationLock(COUNTDOWN_NOTIFY_SETTINGS_LOCK, () =>
-    saveCheckedUnlocked(settings),
-  );
-}
-export async function saveCountdownNotifySettingsForMigration(
-  settings: CountdownNotifySettings,
-): Promise<CountdownNotifySettings> {
   return withNotificationLock(COUNTDOWN_NOTIFY_SETTINGS_LOCK, () =>
     saveCheckedUnlocked(settings),
   );

@@ -4,7 +4,7 @@ import type { ComponentMigrationStatus } from "@/components/utils/widgetBlock/wi
 
 const INDEX_DIR = "/data/storage/petal/siyuan-homepage";
 const INDEX_PATH = `${INDEX_DIR}/enhanced-diary-index.json`;
-const INDEX_VERSION = 3;
+const INDEX_VERSION = 4;
 const REBUILD_MAX_PATHS = 50000;
 const REBUILD_MAX_DOCS = 50000;
 const SQL_BATCH_SIZE = 64;
@@ -21,7 +21,6 @@ export interface DiaryIndexEntry {
     title?: string;
     content?: string;
     updated?: string;
-    source: "official_attr" | "legacy_path";
 }
 
 export interface EnhancedDiaryIndexPayload {
@@ -147,75 +146,15 @@ export function resolveEnhancedDiaryDateFromMetadata(metadata: {
     title?: string;
     hpath?: string;
     path?: string;
-}): { date: string; source: "official_attr" | "legacy_path" } | null {
+}): { date: string } | null {
     const attrDate = officialDate(metadata.ial);
-    const date = attrDate || legacyDate(String(metadata.title || ""), String(metadata.hpath || "")) || legacyDate("", String(metadata.path || ""));
-    if (!isDate(date)) return null;
-    return { date, source: attrDate ? "official_attr" : "legacy_path" };
+    if (!isDate(attrDate)) return null;
+    return { date: attrDate };
 }
 
 function officialDate(ial: unknown): string | null {
     const match = /custom-dailynote-(\d{8})(?=[\s=\}"]|$)/i.exec(String(ial || ""));
     return match?.[1] || null;
-}
-
-function legacyDate(title: string, path: string): string | null {
-    // 1) 文档自身标题的第一行
-    const firstLine = title.split('\n')[0]?.trim() || '';
-    if (firstLine) {
-        const d = extractStrictDate(firstLine);
-        if (d) return d;
-    }
-
-    // 2) path 的最后一个非空段
-    const segments = path.split('/').filter(s => s.length > 0);
-    const lastSeg = segments[segments.length - 1] || '';
-    if (lastSeg) {
-        const d = extractStrictDate(lastSeg);
-        if (d) return d;
-    }
-
-    // 3) path 的最后三段为 YYYY / MM / DD
-    if (segments.length >= 3) {
-        const lastThree = segments.slice(-3);
-        const y = Number(lastThree[0]), m = Number(lastThree[1]), d = Number(lastThree[2]);
-        if (isValidYMD(y, m, d)) {
-            return `${y}${String(m).padStart(2, '0')}${String(d).padStart(2, '0')}`;
-        }
-    }
-
-    return null;
-}
-
-/** 从文本开头提取严格 8 位日期候选（ISO、中文、纯数字） */
-function extractStrictDate(text: string): string | null {
-    const trimmed = text.trim();
-    // YYYY-MM-DD 或 YYYY/MM/DD（要求字符串开头）
-    const iso = /^(\d{4})[-/]([01]?\d)[-/]([0-3]?\d)$/.exec(trimmed);
-    if (iso) {
-        const y = Number(iso[1]), m = Number(iso[2]), d = Number(iso[3]);
-        if (isValidYMD(y, m, d)) return `${y}${String(m).padStart(2, '0')}${String(d).padStart(2, '0')}`;
-    }
-    // YYYY年MM月DD日
-    const cn = /^(\d{4})\u5e74([01]?\d)\u6708([0-3]?\d)\u65e5?$/.exec(trimmed);
-    if (cn) {
-        const y = Number(cn[1]), m = Number(cn[2]), d = Number(cn[3]);
-        if (isValidYMD(y, m, d)) return `${y}${String(m).padStart(2, '0')}${String(d).padStart(2, '0')}`;
-    }
-    // 纯 YYYYMMDD
-    const plain = /^(\d{8})$/.exec(trimmed);
-    if (plain) {
-        const y = Number(plain[1].slice(0, 4)), m = Number(plain[1].slice(4, 6)), d = Number(plain[1].slice(6, 8));
-        if (isValidYMD(y, m, d)) return plain[1];
-    }
-    return null;
-}
-
-function isValidYMD(year: number, month: number, day: number): boolean {
-    if (year < 1900 || year > 2100) return false;
-    if (month < 1 || month > 12 || day < 1 || day > 31) return false;
-    const d = new Date(Date.UTC(year, month - 1, day));
-    return d.getUTCFullYear() === year && d.getUTCMonth() === month - 1 && d.getUTCDate() === day;
 }
 
 function rowToEntry(row: DiaryMetadataRow | undefined, notebookId: string): DiaryIndexEntry | null {
@@ -228,12 +167,11 @@ function rowToEntry(row: DiaryMetadataRow | undefined, notebookId: string): Diar
         path: String(row.path || ""),
     });
     if (!resolved) return null;
-    return { id: String(row.id), date: resolved.date, box: notebookId, path: row.path || "", hpath: row.hpath || "", title, content: title, updated: row.updated || "", source: resolved.source };
+    return { id: String(row.id), date: resolved.date, box: notebookId, path: row.path || "", hpath: row.hpath || "", title, content: title, updated: row.updated || "" };
 }
 
 function prefers(candidate: DiaryIndexEntry, current: DiaryIndexEntry | undefined): boolean {
     if (!current) return true;
-    if (candidate.source !== current.source) return candidate.source === "official_attr";
     return String(candidate.updated || "").localeCompare(String(current.updated || "")) > 0;
 }
 
@@ -367,9 +305,9 @@ async function refreshInternal(notebookId: string, force: boolean, allowRebuild:
         const rows = await queryRowsByIds(ids);
         const index = { ...loaded.index, docs: { ...loaded.index.docs } };
         for (const id of ids) {
-            const previous = removeEntriesById(index.docs, id);
+            removeEntriesById(index.docs, id);
             const entry = rowToEntry(rows.get(id), notebookId);
-            if (entry && !(previous?.source === "official_attr" && entry.source !== "official_attr") && prefers(entry, index.docs[entry.date])) {
+            if (entry && prefers(entry, index.docs[entry.date])) {
                 index.docs[entry.date] = entry;
             }
         }

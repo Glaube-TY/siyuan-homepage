@@ -110,11 +110,6 @@ function deriveKey(masterSecretHex: string, label: string): CryptoJS.lib.WordArr
   return CryptoJS.HmacSHA256(label, hexToBytes(masterSecretHex));
 }
 
-/** 兼容早期开发包中参数顺序写反的 envelope，成功读取后会在下次保存时升级。 */
-function deriveLegacyKey(masterSecretHex: string, label: string): CryptoJS.lib.WordArray {
-  return CryptoJS.HmacSHA256(masterSecretHex, label);
-}
-
 export interface RobotSecretEnvelopeResult {
   ok: true;
   envelope: string;
@@ -155,22 +150,20 @@ export function decryptRobotSecret(masterSecretHex: string, envelope: string): R
   const [ivHex, cipherHex, macHex] = parts;
   if (!ivHex || !cipherHex || !macHex) return { ok: false, reason: "invalid_format" };
   const ciphertext = hexToBytes(cipherHex);
-  for (const legacy of [false, true]) {
-    const encKey = legacy ? deriveLegacyKey(masterSecretHex, ENC_LABEL) : deriveKey(masterSecretHex, ENC_LABEL);
-    const macKey = legacy ? deriveLegacyKey(masterSecretHex, MAC_LABEL) : deriveKey(masterSecretHex, MAC_LABEL);
-    const expectedMac = CryptoJS.HmacSHA256(ciphertext, macKey);
-    if (bytesToHex(expectedMac) !== macHex.toLowerCase()) continue;
-    try {
-      const decrypted = CryptoJS.AES.decrypt(
-        { ciphertext, salt: undefined as never } as unknown as CryptoJS.lib.CipherParams,
-        encKey,
-        { iv: hexToBytes(ivHex), mode: CryptoJS.mode.CBC, padding: CryptoJS.pad.Pkcs7 },
-      );
-      const plaintext = decrypted.toString(CryptoJS.enc.Utf8);
-      if (plaintext) return { ok: true, plaintext };
-    } catch {
-      // 尝试另一种派生方式
-    }
+  const encKey = deriveKey(masterSecretHex, ENC_LABEL);
+  const macKey = deriveKey(masterSecretHex, MAC_LABEL);
+  const expectedMac = CryptoJS.HmacSHA256(ciphertext, macKey);
+  if (bytesToHex(expectedMac) !== macHex.toLowerCase()) return { ok: false, reason: "mac_mismatch" };
+  try {
+    const decrypted = CryptoJS.AES.decrypt(
+      { ciphertext, salt: undefined as never } as unknown as CryptoJS.lib.CipherParams,
+      encKey,
+      { iv: hexToBytes(ivHex), mode: CryptoJS.mode.CBC, padding: CryptoJS.pad.Pkcs7 },
+    );
+    const plaintext = decrypted.toString(CryptoJS.enc.Utf8);
+    if (plaintext) return { ok: true, plaintext };
+  } catch {
+    return { ok: false, reason: "mac_mismatch" };
   }
   return { ok: false, reason: "mac_mismatch" };
 }

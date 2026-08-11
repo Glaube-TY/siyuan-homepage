@@ -15,7 +15,6 @@ export function getCurrentDeviceViewContext(plugin: any, surface: DeviceViewSurf
     return {
         plugin,
         physicalDeviceId,
-        legacyProfileCandidateIds: info.legacyProfileCandidateIds,
         scopeId,
         surface,
         isMobileShared: scopeId === "mobile-shared",

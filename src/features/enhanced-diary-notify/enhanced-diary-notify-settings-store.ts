@@ -12,7 +12,6 @@ let pluginInstance: any = null;
 export function setEnhancedDiaryNotifyPlugin(plugin: any): void {
   pluginInstance = plugin;
 }
-
 function getPlugin(): any {
   if (!pluginInstance) {
     throw new Error("Enhanced Diary Notify 尚未初始化。");
@@ -31,12 +30,6 @@ function normalizeTime(value: unknown): string | undefined {
   const match = value.trim().match(/^([01]?\d|2[0-3]):([0-5]\d)$/);
   if (!match) return undefined;
   return `${match[1].padStart(2, "0")}:${match[2]}`;
-}
-
-function migrateChannelIds(value: unknown): NotificationDeliveryTarget[] | undefined {
-  if (!Array.isArray(value)) return undefined;
-  const ids = [...new Set(value.filter((item): item is string => typeof item === "string").map((item) => item.trim()).filter(Boolean))];
-  return ids.length > 0 ? ids.map((channelId) => ({ kind: "external", channelId })) : [{ kind: "external-default" }];
 }
 
 function normalizeRuleType(value: unknown): EnhancedDiaryNotifyRuleType | null {
@@ -75,7 +68,7 @@ function normalizeRule(raw: unknown): EnhancedDiaryNotifyRule | null {
         : undefined,
     deliveryTargets: Array.isArray(value.deliveryTargets)
       ? normalizeNotificationDeliveryTargets(value.deliveryTargets)
-      : (migrateChannelIds(value.channelIds) ?? [{ kind: "external-default" }]),
+      : [{ kind: "external-default" }],
   };
 }
 
@@ -216,9 +209,5 @@ async function saveEnhancedDiaryNotifySettingsChecked(settings: EnhancedDiaryNot
 
 export function saveEnhancedDiaryNotifySettings(settings: EnhancedDiaryNotifySettings): Promise<EnhancedDiaryNotifySettings> {
   assertNotificationCenterFeatureAvailable();
-  return saveEnhancedDiaryNotifySettingsChecked(settings);
-}
-
-export function saveEnhancedDiaryNotifySettingsForMigration(settings: EnhancedDiaryNotifySettings): Promise<EnhancedDiaryNotifySettings> {
   return saveEnhancedDiaryNotifySettingsChecked(settings);
 }

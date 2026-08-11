@@ -18,7 +18,6 @@ const HOMEPAGE_SHARED_SETTINGS_FILE = "homepageSharedSettings.json";
  * 桌面/移动主页的布局、横幅、组件排列和悬浮按钮位置仍保留在各自 device-view 中。
  */
 export const HOMEPAGE_SHARED_SETTING_KEYS = [
-    "autoOpenMobileHomepage",
     "mobileAutoOpenEnabled",
     "mobileAutoOpenTarget",
     "mobileQuickActionsEnabled",
@@ -41,17 +40,6 @@ export const HOMEPAGE_SHARED_SETTING_KEYS = [
     "statIndexStatus",
     "enhancedDiaryIndexStatus",
 ] as const;
-
-export type HomepageSharedSettingsLegacySource = "desktop" | "mobile";
-
-const MOBILE_LEGACY_SETTING_KEYS = new Set<(typeof HOMEPAGE_SHARED_SETTING_KEYS)[number]>([
-    "autoOpenMobileHomepage",
-    "mobileAutoOpenEnabled",
-    "mobileAutoOpenTarget",
-    "mobileQuickActionsEnabled",
-    "mobileQuickActionsButtonSize",
-    "mobileQuickActionItems",
-]);
 
 interface HomepageSharedSettingsDocument {
     schema: typeof HOMEPAGE_SHARED_SETTINGS_SCHEMA;
@@ -182,76 +170,23 @@ export function pickHomepageSharedSettings(
     return cloneJsonSafeOmittingUndefinedObjectProperties(selected, "共享主页设置字段");
 }
 
-function pickLegacyHomepageSharedSettings(
+export function omitHomepageSharedSettings(
     config: Record<string, unknown>,
-    source: HomepageSharedSettingsLegacySource,
 ): Record<string, unknown> {
-    const selected = pickHomepageSharedSettings(config);
-    return Object.fromEntries(
-        Object.entries(selected).filter(([key]) => {
-            const isMobileOwned = MOBILE_LEGACY_SETTING_KEYS.has(
-                key as (typeof HOMEPAGE_SHARED_SETTING_KEYS)[number],
-            );
-            return source === "mobile" ? isMobileOwned : !isMobileOwned;
-        }),
+    const result = { ...config };
+    for (const key of HOMEPAGE_SHARED_SETTING_KEYS) delete result[key];
+    return cloneJsonSafeOmittingUndefinedObjectProperties(
+        result,
+        "设备视图主页设置字段",
     );
-}
-
-async function ensureSharedSettings(
-    plugin: any,
-    legacyConfig: Record<string, unknown>,
-    legacySource: HomepageSharedSettingsLegacySource,
-): Promise<Record<string, unknown>> {
-    const path = getSharedSettingsPath(plugin);
-    const legacyShared = pickLegacyHomepageSharedSettings(legacyConfig, legacySource);
-    return inWriteQueue(path, async () => {
-        const existing = await readDocument(plugin);
-        if (!existing) {
-            if (Object.keys(legacyShared).length === 0) return {};
-            const created: HomepageSharedSettingsDocument = {
-                schema: HOMEPAGE_SHARED_SETTINGS_SCHEMA,
-                version: HOMEPAGE_SHARED_SETTINGS_VERSION,
-                revision: 1,
-                updatedAt: new Date().toISOString(),
-                legacySources: { [legacySource]: true },
-                config: legacyShared,
-            };
-            return (await writeDocument(plugin, created)).config;
-        }
-
-        const legacySources = isPlainJsonObject(existing.legacySources)
-            ? existing.legacySources
-            : {};
-        if (legacySources[legacySource] === true) {
-            return cloneJsonSafe(existing.config, "共享主页设置");
-        }
-
-        // 旧版共享文件没有记录字段归属，可能由错误的“首次读取者”创建。
-        // 每个来源首次接入时，用其负责的旧字段修复一次，之后共享文件保持权威。
-        const updated: HomepageSharedSettingsDocument = {
-            ...existing,
-            revision: existing.revision + 1,
-            updatedAt: new Date().toISOString(),
-            legacySources: {
-                ...legacySources,
-                [legacySource]: true,
-            },
-            config: {
-                ...existing.config,
-                ...legacyShared,
-            },
-        };
-        return (await writeDocument(plugin, updated)).config;
-    });
 }
 
 export async function mergeHomepageSharedSettings(
     plugin: any,
     viewConfig: Record<string, unknown>,
-    legacySource: HomepageSharedSettingsLegacySource,
 ): Promise<Record<string, unknown>> {
     const safeViewConfig = cloneJsonSafe(viewConfig, "设备视图主页设置");
-    const sharedConfig = await ensureSharedSettings(plugin, safeViewConfig, legacySource);
+    const sharedConfig = (await readDocument(plugin))?.config ?? {};
     return cloneJsonSafe({
         ...safeViewConfig,
         ...pickHomepageSharedSettings(sharedConfig),
@@ -285,7 +220,6 @@ export async function saveHomepageSharedSettings(
         };
         if (existing && hasSameJsonSemantic(existing.config, nextConfig)) return;
         await writeDocument(plugin, {
-            ...(existing ?? {}),
             schema: HOMEPAGE_SHARED_SETTINGS_SCHEMA,
             version: HOMEPAGE_SHARED_SETTINGS_VERSION,
             revision: (existing?.revision ?? 0) + 1,

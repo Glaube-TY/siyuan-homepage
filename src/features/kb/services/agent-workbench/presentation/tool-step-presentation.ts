@@ -3,24 +3,6 @@ import {
   findAggregateToolMeta,
 } from "../tools/aggregate/aggregate-tool-metadata";
 
-const LEGACY_TOOL_DISPLAY_NAMES: Record<string, string> = {
-  list_knowledge_map: "查看知识库结构",
-  search_scope: "搜索知识库",
-  read_docs: "读取文档正文",
-  read_doc_blocks: "读取文档块",
-  web_search: "联网搜索",
-  web_read_page: "读取网页",
-  edit_global_memory: "编辑全局记忆",
-  create_doc: "创建文档",
-  rename_doc: "重命名文档",
-  delete_doc: "删除文档",
-  replace_doc_content: "替换文档正文",
-  update_block: "更新内容块",
-  insert_block: "插入内容块",
-  delete_blocks: "删除内容块",
-  move_block: "移动内容块",
-};
-
 const AGGREGATE_TOOL_DISPLAY_NAMES: Record<string, string> = {
   siyuan_kb: "使用知识库",
   diary_task: "处理日记任务",
@@ -137,9 +119,6 @@ export function formatToolDisplayName(
       return chineseOnlyTitle(actionMeta.title, familyFallback);
     }
   }
-
-  const legacyName = LEGACY_TOOL_DISPLAY_NAMES[toolName];
-  if (legacyName) return legacyName;
 
   const aggregateFallback = AGGREGATE_TOOL_DISPLAY_NAMES[toolName];
   if (aggregateFallback) return aggregateFallback;

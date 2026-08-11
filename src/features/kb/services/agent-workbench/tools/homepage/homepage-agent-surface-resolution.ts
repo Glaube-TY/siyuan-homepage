@@ -8,14 +8,6 @@ import type { HomepageAgentSurface, HomepageWidgetResolutionStatus } from "./hom
  * 可在 Node 测试环境中直接验证。HomepageAgentService 是这些决策的薄封装。
  */
 
-/** 配置文档缺失时，根据 manifest.unresolvedLegacyWidgetIds 判定真实状态。 */
-export function resolveMissingWidgetStatus(
-  widgetId: string,
-  manifestUnresolvedWidgetIds: readonly string[] | undefined,
-): Exclude<HomepageWidgetResolutionStatus, "resolved"> {
-  return (manifestUnresolvedWidgetIds ?? []).includes(widgetId) ? "legacy_unresolved" : "missing_config";
-}
-
 export interface OverviewWidgetRow {
   status: HomepageWidgetResolutionStatus;
   /** resolved 时才参与 type 计数。 */
@@ -24,7 +16,6 @@ export interface OverviewWidgetRow {
 
 export interface OverviewCounts {
   resolvedWidgetCount: number;
-  unresolvedWidgetCount: number;
   missingConfigWidgetCount: number;
   widgetTypeCounts: Record<string, number>;
 }
@@ -32,7 +23,6 @@ export interface OverviewCounts {
 export function computeOverviewCounts(rows: readonly OverviewWidgetRow[]): OverviewCounts {
   const counts: OverviewCounts = {
     resolvedWidgetCount: 0,
-    unresolvedWidgetCount: 0,
     missingConfigWidgetCount: 0,
     widgetTypeCounts: {},
   };
@@ -41,17 +31,11 @@ export function computeOverviewCounts(rows: readonly OverviewWidgetRow[]): Overv
       counts.resolvedWidgetCount += 1;
       const type = (row.type && row.type.trim()) || "unknown";
       counts.widgetTypeCounts[type] = (counts.widgetTypeCounts[type] ?? 0) + 1;
-    } else if (row.status === "legacy_unresolved") {
-      counts.unresolvedWidgetCount += 1;
     } else {
       counts.missingConfigWidgetCount += 1;
     }
   }
   return counts;
-}
-
-export function unresolvedLegacyWarningText(count: number): string {
-  return `当前布局包含 ${count} 个没有组件配置的旧布局引用，它们无法识别类型，也无法正常渲染。`;
 }
 
 export function missingConfigWarningText(count: number): string {

@@ -1,5 +1,4 @@
 import {
-    ENHANCED_DIARY_COMPLETION_MARKERS_LEGACY,
     ENHANCED_DIARY_PERIODS,
     ENHANCED_DIARY_SKIP_MARKERS,
     type EnhancedDiaryConfig,
@@ -32,29 +31,6 @@ export function formatDiaryDate(date: Date): string {
     return `${yyyy}-${mm}-${dd}`;
 }
 
-/**
- * 新版完成标记已取消，此函数保留签名但返回空字符串，
- * 用于兼容仍引用该函数的代码；旧模板中的 {{完成标记}} 会被渲染为空。
- */
-export function getCompletionMarker(
-    _period: EnhancedDiaryPeriod,
-    _completed?: boolean
-): string {
-    return "";
-}
-
-/** 旧版任务列表式完成标记，仅用于兼容历史日记。 */
-export function getLegacyCompletionMarker(
-    period: EnhancedDiaryPeriod,
-    completed?: boolean
-): string {
-    const base = ENHANCED_DIARY_COMPLETION_MARKERS_LEGACY[period];
-    if (completed) {
-        return base.replace("- [ ]", "- [x]");
-    }
-    return base;
-}
-
 export function getSkipMarker(period: EnhancedDiaryPeriod): string {
     return ENHANCED_DIARY_SKIP_MARKERS[period];
 }
@@ -63,20 +39,14 @@ function firstTaskLine(markdown: string): string {
     return (markdown || "").split("\n\n")[0]?.split("\n")[0]?.trim() || "";
 }
 
-/** 判断一行 Markdown 是否为强化日记系统标记（旧完成标记/跳过标记），避免被任务中心当作普通任务。 */
+/** 判断一行 Markdown 是否为强化日记系统跳过标记，避免被任务中心当作普通任务。 */
 export function isEnhancedDiarySystemTaskMarkdown(markdown: string): boolean {
     const text = firstTaskLine(markdown);
     if (!text) return false;
     for (const period of ENHANCED_DIARY_PERIODS) {
-        const legacyUnchecked = getLegacyCompletionMarker(period, false);
-        const legacyChecked = getLegacyCompletionMarker(period, true);
-        const legacyCheckedUpper = legacyChecked.replace("[x]", "[X]");
         const skip = getSkipMarker(period);
         const skipUpper = skip.replace("[x]", "[X]");
         if (
-            text === legacyUnchecked ||
-            text === legacyChecked ||
-            text === legacyCheckedUpper ||
             text === skip ||
             text === skipUpper
         ) {
@@ -97,8 +67,6 @@ export function renderEnhancedDiaryTemplate(
     result = result.replace(/\{\{month\}\}/g, context.month ?? "");
     result = result.replace(/\{\{year\}\}/g, context.year ?? "");
     result = result.replace(/\{\{周期范围\}\}/g, context.周期范围 ?? "");
-    // 新版完成标记已取消，旧模板中的变量渲染为空，避免继续产生标记行。
-    result = result.replace(/\{\{完成标记\}\}/g, context.完成标记 ?? "");
     result = result.replace(/\{\{开始日期\}\}/g, context.开始日期 ?? "");
     result = result.replace(/\{\{结束日期\}\}/g, context.结束日期 ?? "");
     return result;
@@ -235,7 +203,6 @@ export function getPeriodContext(
         周期范围: `${range.start} 至 ${range.end}`,
         开始日期: range.start,
         结束日期: range.end,
-        完成标记: getCompletionMarker(period, false),
     };
 
     return {
@@ -353,40 +320,24 @@ export function scanDiaryContentForPeriod(
 
     const rootFound = hasRootHeading(content, period, mapping);
 
-    // 旧版任务列表式完成标记，保留兼容
-    const legacyUnchecked = getLegacyCompletionMarker(period, false);
-    const legacyCheckedX = getLegacyCompletionMarker(period, true);
-    const legacyCheckedXUpper = legacyCheckedX.replace("[x]", "[X]");
-
     const skipMarker = ENHANCED_DIARY_SKIP_MARKERS[period];
     const checkedSkipX = skipMarker;
     const checkedSkipXUpper = skipMarker.replace("- [x]", "- [X]");
 
-    const hasLegacyUnchecked = content.includes(legacyUnchecked);
-    const isLegacyCompletedX = content.includes(legacyCheckedX);
-    const isLegacyCompletedXUpper = content.includes(legacyCheckedXUpper);
     const isSkippedX = content.includes(checkedSkipX);
     const isSkippedXUpper = content.includes(checkedSkipXUpper);
 
     const skipped = isSkippedX || isSkippedXUpper;
     const headingCompleted = isHeadingWithCompletedSuffix(content, period, mapping);
-    const legacyCompleted = isLegacyCompletedX || isLegacyCompletedXUpper;
-    const completed = headingCompleted || legacyCompleted;
+    const completed = headingCompleted;
 
     // 只要存在可识别的顶级标题，就认为存在可判断状态的结构。
-    // 旧版完成/未完成标记也视为可判断状态的结构，用于兼容旧数据。
-    const hasCompletionMarker = rootFound || hasLegacyUnchecked || legacyCompleted;
+    const hasCompletionMarker = rootFound;
     const hasSkipMarker = skipped;
 
     let markerText: string | undefined;
     if (skipped) {
         markerText = isSkippedX ? checkedSkipX : checkedSkipXUpper;
-    } else if (isLegacyCompletedX) {
-        markerText = legacyCheckedX;
-    } else if (isLegacyCompletedXUpper) {
-        markerText = legacyCheckedXUpper;
-    } else if (hasLegacyUnchecked) {
-        markerText = legacyUnchecked;
     }
 
     return {

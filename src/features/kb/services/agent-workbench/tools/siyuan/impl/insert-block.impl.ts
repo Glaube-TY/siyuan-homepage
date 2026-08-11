@@ -5,7 +5,6 @@ import { buildEditDiffPreview } from "../../../../doc-content-edit/diff/edit-dif
 import { previewInsertedBlockInDocument, withDocumentTitle } from "../../../../doc-content-edit/doc-content-edit-document-preview";
 import { createDocContentEditConfirmation } from "../../../../doc-content-edit/doc-content-edit-confirmation-service";
 import { requestDocContentEditConfirmation } from "../../../../doc-content-edit/doc-content-edit-confirmation-bridge";
-import { shouldRequireDocContentEditConfirmation } from "../../../../doc-content-edit/doc-content-edit-confirmation-policy";
 import { executeConfirmedInsertBlock } from "../../../../doc-content-edit/doc-content-edit-insert-block-executor";
 import { removeDocContentEditConfirmation } from "../../../../doc-content-edit/doc-content-edit-confirmation-store";
 import type { SiyuanToolDeps } from "../siyuan-tool-deps";
@@ -190,10 +189,7 @@ export async function executeInsertBlock(
   const confirmationId = prepareResult.confirmationId;
   const target = prepareResult.target;
 
-  const requireConfirmation = shouldRequireDocContentEditConfirmation(
-    deps.getSettings?.(),
-    "insert_block",
-  );
+  const requireConfirmation = true;
 
   if (requireConfirmation) {
     const confirmationRes = await requestDocContentEditConfirmation({

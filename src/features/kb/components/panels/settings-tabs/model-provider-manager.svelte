@@ -568,7 +568,7 @@
   }
 
   function requiresApiKeyForDiscovery(provider: KbChatProviderConfig): boolean {
-    return ["kimi", "kimi-api", "kimi-coding", "mimo", "mimo-api", "mimo-coding-plan", "deepseek", "deepseek-api"].includes(provider.type);
+    return ["kimi-api", "kimi-coding", "mimo-api", "mimo-coding-plan", "deepseek-api"].includes(provider.type);
   }
 
   function requiresBaseUrlForDiscovery(provider: KbChatProviderConfig): boolean {
@@ -663,17 +663,14 @@
   // 获取 Base URL 提示
   function getBaseUrlHint(type: string): string {
     switch (type) {
-      case "kimi":
       case "kimi-api":
         return "默认 https://api.moonshot.cn/v1，不要填 /chat/completions 完整路径";
       case "kimi-coding":
         return "默认 https://api.kimi.com/coding/v1，不要填 /chat/completions 完整路径";
-      case "mimo":
       case "mimo-api":
         return "默认 https://api.xiaomimimo.com/v1，不要填 /chat/completions 完整路径";
       case "mimo-coding-plan":
         return "默认 https://token-plan-cn.xiaomimimo.com/v1，不要填 /chat/completions 完整路径";
-      case "deepseek":
       case "deepseek-api":
         return "默认 https://api.deepseek.com/v1，不要填 /chat/completions 完整路径";
       case "openai-compatible":
@@ -691,17 +688,14 @@
   // 获取 API Key placeholder
   function getApiKeyPlaceholder(type: string): string {
     switch (type) {
-      case "kimi":
       case "kimi-api":
         return "Moonshot API Key";
       case "kimi-coding":
         return "Kimi Coding API Key";
-      case "mimo":
       case "mimo-api":
         return "MiMo API Key";
       case "mimo-coding-plan":
         return "MiMo Coding Plan API Key";
-      case "deepseek":
       case "deepseek-api":
         return "DeepSeek API Key";
       case "openai-compatible":

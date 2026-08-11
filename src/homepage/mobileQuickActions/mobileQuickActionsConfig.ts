@@ -152,23 +152,11 @@ export function normalizeMobileAutoOpenTarget(value: unknown): MobileAutoOpenTar
 export function resolveMobileAutoOpenConfig(config: {
     mobileAutoOpenEnabled?: boolean;
     mobileAutoOpenTarget?: unknown;
-    autoOpenMobileHomepage?: boolean;
 }): { enabled: boolean; target: MobileAutoOpenTargetId } {
-    // 1. mobileAutoOpenEnabled 是 boolean 时，以它为准
-    if (typeof config.mobileAutoOpenEnabled === "boolean") {
-        return {
-            enabled: config.mobileAutoOpenEnabled,
-            target: normalizeMobileAutoOpenTarget(config.mobileAutoOpenTarget),
-        };
-    }
-
-    // 2. 新字段不存在时：旧字段为 true → 自动打开移动主页
-    if (config.autoOpenMobileHomepage === true) {
-        return { enabled: true, target: DEFAULT_MOBILE_AUTO_OPEN_TARGET };
-    }
-
-    // 3. 旧字段不存在或为 false 时，不自动开启
-    return { enabled: false, target: DEFAULT_MOBILE_AUTO_OPEN_TARGET };
+    return {
+        enabled: config.mobileAutoOpenEnabled === true,
+        target: normalizeMobileAutoOpenTarget(config.mobileAutoOpenTarget),
+    };
 }
 
 // ---------------------------------------------------------------------------

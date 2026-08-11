@@ -7,7 +7,7 @@ import type {
     NotebookOption,
 } from '@/components/utils/widgetBlock/widget/common/componentMigrationTypes';
 import { getCurrentDeviceViewContext } from '@/homepage/deviceView/deviceViewContext';
-import { ensureCurrentDeviceViewMigrated } from '@/homepage/deviceView/deviceViewMigration';
+import { ensureCurrentDeviceViewReady } from '@/homepage/deviceView/deviceViewReadiness';
 import { readDeviceViewSettings, updateDeviceViewSettings } from '@/homepage/deviceView/deviceViewStorage';
 import type { DeviceViewSurface } from '@/homepage/deviceView/deviceViewTypes';
 import type { HomepageAppearanceConfig } from '@/homepage/theme/runtime/appearanceConfig';
@@ -15,6 +15,7 @@ import { cloneJsonSafeOmittingUndefinedObjectProperties } from '@/homepage/devic
 import {
     mergeHomepageSharedSettings,
     saveHomepageSharedSettings,
+    omitHomepageSharedSettings,
 } from '@/homepage/sharedSettings/homepageSharedSettings';
 export type { ComponentMigrationStatus, NotebookOption };
 
@@ -42,10 +43,6 @@ export const DEFAULT_BANNER_GLASS_BLUR = 12;
 export const DEFAULT_BACKGROUND_IMAGE_TYPE: BackgroundImageType = "local";
 export const DEFAULT_BACKGROUND_IMAGE_OPACITY = 35;
 export const DEFAULT_BACKGROUND_IMAGE_BLUR = 0;
-// 历史常量：仅用于识别旧数据中的 overview/总览分栏。
-// 最终 Schema 中 overview 与普通分栏完全平等，新代码不得再赋予其特殊行为。
-export const DEFAULT_COMPONENT_SECTION_ID = "overview";
-export const DEFAULT_COMPONENT_SECTION_NAME = "总览";
 export const DEFAULT_COMPONENT_SECTIONS_NAV_ALIGN: ComponentSectionsNavAlign = "left";
 
 export function normalizeHomepageTitleAlign(value: unknown): HomepageTitleAlign {
@@ -202,7 +199,6 @@ export interface HomepageSettingConfig {
     homepageAppearance?: HomepageAppearanceConfig;
     autoOpenHomepage: boolean;
     sidebarEnabled: boolean;
-    autoOpenMobileHomepage: boolean;
     mobileAutoOpenEnabled?: boolean;
     mobileAutoOpenTarget?: string;
     mobileQuickActionsEnabled?: boolean;
@@ -279,7 +275,7 @@ export interface HomepageSettingConfig {
     tasksPlusSelectedNotebookIds?: NotebookOption[];
     reviewDocsSelectedNotebookIds?: NotebookOption[];
 
-    // 迁移状态
+    // 索引状态
     favoritesMigrationStatus?: ComponentMigrationStatus;
     reviewDocsMigrationStatus?: ComponentMigrationStatus;
     taskIndexMigrationStatus?: ComponentMigrationStatus;
@@ -293,13 +289,12 @@ export async function loadHomepageSettingConfig(
     surface: DeviceViewSurface = "desktop-homepage",
 ): Promise<HomepageSettingConfig | null> {
     const context = getCurrentDeviceViewContext(plugin, surface);
-    await ensureCurrentDeviceViewMigrated(context);
+    await ensureCurrentDeviceViewReady(context);
     const settings = await readDeviceViewSettings(context);
     if (!settings) return null;
     return await mergeHomepageSharedSettings(
         plugin,
         settings.config,
-        surface === "mobile-homepage" ? "mobile" : "desktop",
     ) as unknown as HomepageSettingConfig;
 }
 
@@ -309,19 +304,18 @@ export async function saveHomepageSettingConfig(
     surface: DeviceViewSurface = "desktop-homepage",
 ): Promise<void> {
     const context = getCurrentDeviceViewContext(plugin, surface);
-    await ensureCurrentDeviceViewMigrated(context);
+    await ensureCurrentDeviceViewReady(context);
     const current = await readDeviceViewSettings(context);
     if (!current) throw new Error(`当前设备 ${surface} 的 view.json 缺失`);
     const safeConfig = cloneJsonSafeOmittingUndefinedObjectProperties(
         config as unknown as Record<string, unknown>,
         "主页设置配置",
     );
-    // 公共能力先写入跨设备共享文件；旧 view.json 中的同名字段继续保留，
-    // 作为向后兼容和可回退副本，但读取时始终以共享文件为准。
+    // 公共能力只写入跨设备共享文件，设备视图仅保存本设备字段。
     await saveHomepageSharedSettings(plugin, safeConfig);
     await updateDeviceViewSettings(
         context,
-        () => safeConfig,
+        () => omitHomepageSharedSettings(safeConfig),
         { expectedRevision: current.revision },
     );
 }

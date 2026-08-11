@@ -17,9 +17,6 @@ import {
 import {
     hasEnhancedDiaryProjectNodeAttrs,
     parseEnhancedDiaryBatchBlockAttrs,
-    ENHANCED_DIARY_PROJECT_ARCHIVED_AT_ATTR,
-    ENHANCED_DIARY_PROJECT_NODE_ATTR,
-    ENHANCED_DIARY_PROJECT_STATUS_ATTR,
     type EnhancedDiaryProjectIndexPayload,
     type EnhancedDiaryProjectNode,
     type EnhancedDiaryProjectTarget,
@@ -295,77 +292,6 @@ async function restoreAndVerifyOriginalStructure(
         rebuilt.nodes[id]?.parentTargetId === prepared.descendantParentIds[id]);
 }
 
-async function repairInterruptedProjectMetadata(
-    storage: EnhancedDiaryProjectStorageConfig,
-    sourceTargetId: string,
-): Promise<{ currentParentTargetId: string } | null> {
-    const previousIndex = await readEnhancedDiaryProjectIndex(storage);
-    const previousSource = previousIndex.nodes[sourceTargetId];
-    if (!previousSource) return null;
-    const blocks = await getChildBlocksChecked(previousSource.rootProjectId);
-    const sourceIndex = blocks.findIndex((block) => block.id === sourceTargetId && block.type === "h");
-    if (sourceIndex < 0) return null;
-    const currentSourceLevel = getEnhancedDiaryHeadingLevel(blocks[sourceIndex]);
-    if (!currentSourceLevel) return null;
-    const delta = currentSourceLevel - previousSource.level;
-    // 旧版本只会在层级确实发生变化时丢失标题属性；delta=0 不进行推断修复。
-    if (delta === 0) return null;
-
-    const previousDescendants = Object.values(previousIndex.nodes).filter((node) =>
-        node.rootProjectId === previousSource.rootProjectId && node.ancestorTargetIds.includes(sourceTargetId));
-    const previousMovedNodes = [previousSource, ...previousDescendants];
-    const sourceEnd = findRangeEnd(blocks, sourceIndex, currentSourceLevel);
-    const sourceRange = blocks.slice(sourceIndex, sourceEnd);
-    const sourceRangeIds = new Set(sourceRange.map((block) => String(block.id)));
-    if (previousMovedNodes.some((node) => !sourceRangeIds.has(node.id))) return null;
-    for (const node of previousMovedNodes) {
-        const block = sourceRange.find((item) => item.id === node.id && item.type === "h");
-        const level = block ? getEnhancedDiaryHeadingLevel(block) : null;
-        if (!level || level !== node.level + delta || level < 1 || level > 6) return null;
-    }
-
-    const attrs = parseEnhancedDiaryBatchBlockAttrs(await batchGetBlockAttrs(
-        previousMovedNodes.map((node) => node.id),
-    ));
-    if (hasEnhancedDiaryProjectNodeAttrs(attrs[sourceTargetId])) return null;
-
-    for (const node of previousMovedNodes) {
-        if (hasEnhancedDiaryProjectNodeAttrs(attrs[node.id])) continue;
-        const restoredAttrs: Record<string, string> = {
-            [ENHANCED_DIARY_PROJECT_NODE_ATTR]: "true",
-        };
-        if (node.status === "archived") {
-            restoredAttrs[ENHANCED_DIARY_PROJECT_STATUS_ATTR] = "archived";
-            restoredAttrs[ENHANCED_DIARY_PROJECT_ARCHIVED_AT_ATTR] = node.archivedAt;
-        }
-        await setBlockAttrsChecked(node.id, restoredAttrs);
-    }
-
-    const verifiedAttrs = parseEnhancedDiaryBatchBlockAttrs(await batchGetBlockAttrs(
-        previousMovedNodes.map((node) => node.id),
-    ));
-    if (previousMovedNodes.some((node) => !hasEnhancedDiaryProjectNodeAttrs(verifiedAttrs[node.id]))) {
-        throw new Error("中断项目的节点属性恢复后校验失败。");
-    }
-    const rebuild = await rebuildEnhancedDiaryProjectIndex(storage);
-    if (rebuild.lastStatus !== "success") {
-        throw new Error(rebuild.lastMessage || "中断项目恢复后索引重建失败。");
-    }
-    const rebuilt = await readEnhancedDiaryProjectIndex(storage);
-    const currentSource = rebuilt.nodes[sourceTargetId];
-    if (!currentSource || currentSource.rootProjectId !== previousSource.rootProjectId) {
-        throw new Error("中断项目恢复后索引仍未识别源项目。");
-    }
-    for (const descendant of previousDescendants) {
-        const current = rebuilt.nodes[descendant.id];
-        if (!current || current.rootProjectId !== previousSource.rootProjectId ||
-            current.parentTargetId !== descendant.parentTargetId) {
-            throw new Error("中断项目恢复后，后代项目关系校验失败。");
-        }
-    }
-    return { currentParentTargetId: currentSource.parentTargetId };
-}
-
 async function verifyMovedDocument(prepared: PreparedMove): Promise<void> {
     const { snapshot, destination, movedProjectIds } = prepared;
     let lastError: unknown;
@@ -465,20 +391,6 @@ export async function moveEnhancedDiarySubproject(params: {
     sourceTargetId: string;
     destinationParentTargetId: string;
 }): Promise<EnhancedDiarySubprojectMoveResult> {
-    try {
-        const repaired = await repairInterruptedProjectMetadata(params.storage, params.sourceTargetId);
-        if (repaired?.currentParentTargetId === params.destinationParentTargetId) {
-            return {
-                status: "success",
-                sourceTargetId: params.sourceTargetId,
-                destinationParentTargetId: params.destinationParentTargetId,
-            };
-        }
-    } catch (error) {
-        console.error("[enhancedDiaryWorkspaceProjectMove] interrupted move repair failed", error);
-        return { status: "partial", message: PARTIAL_MESSAGE };
-    }
-
     let prepared: PreparedMove;
     try {
         prepared = await prepareMove(params.storage, params.sourceTargetId, params.destinationParentTargetId);

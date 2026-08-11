@@ -10,7 +10,6 @@
         updateUserLayoutTemplateFromCurrentDevice,
         buildUserLayoutTemplatePreview,
         buildUserLayoutTemplateItemStyle,
-        isLegacyUserLayoutTemplate,
         resolveCurrentLayoutTarget,
         type UserLayoutTemplate,
         type UserLayoutTemplateAvailability,
@@ -18,7 +17,6 @@
         type UserLayoutTemplatePreviewItem,
     } from "@/homepage/templates/userLayoutTemplates";
     import { getCurrentDeviceViewContext } from "@/homepage/deviceView/deviceViewContext";
-    import type { DeviceViewContext } from "@/homepage/deviceView/deviceViewTypes";
 
     interface Props {
         plugin: any;
@@ -49,7 +47,7 @@
     let updatingLayoutTemplate = $state(false);
     let showUpdateConfirm = $state(false);
 
-    async function refreshSelectedPreview(template = selectedTemplate, fixedContext?: DeviceViewContext) {
+    async function refreshSelectedPreview(template = selectedTemplate) {
         previewError = null;
         if (!template) {
             selectedPreview = null;
@@ -57,7 +55,7 @@
         }
         loadingPreview = true;
         try {
-            selectedPreview = await buildUserLayoutTemplatePreview(plugin, template, fixedContext);
+            selectedPreview = await buildUserLayoutTemplatePreview(template);
         } catch (error) {
             previewError = error instanceof Error ? error.message : "加载布局模板预览失败";
             selectedPreview = null;
@@ -89,7 +87,7 @@
             }
             selectedTemplate = userLayoutTemplates[0] ?? null;
             if (selectedTemplate) {
-                await refreshSelectedPreview(selectedTemplate, context);
+                await refreshSelectedPreview(selectedTemplate);
             }
         } catch (error: any) {
             loadError = error?.message || "加载失败";
@@ -119,7 +117,7 @@
         }
 
         if (selectedTemplate) {
-            await refreshSelectedPreview(selectedTemplate, context);
+            await refreshSelectedPreview(selectedTemplate);
         } else {
             selectedPreview = null;
             previewError = "";
@@ -384,11 +382,7 @@
                             >
                                 <div class="template-list-header">
                                     <span class="template-list-name">{t.name}</span>
-                                    {#if isLegacyUserLayoutTemplate(t)}
-                                        <span class="custom-badge legacy-badge">旧公开模板</span>
-                                    {:else}
-                                        <span class="custom-badge">自定义</span>
-                                    {/if}
+                                    <span class="custom-badge">自定义</span>
                                 </div>
                                 {#if t.description}
                                     <div class="template-list-desc">{t.description}</div>
@@ -479,11 +473,7 @@
                     <div class="detail-header">
                         <div class="detail-title-row">
                             <h3 class="detail-title">{t.name}</h3>
-                            {#if isLegacyUserLayoutTemplate(t)}
-                                <span class="custom-badge legacy-badge">旧公开模板</span>
-                            {:else}
-                                <span class="custom-badge">自定义</span>
-                            {/if}
+                            <span class="custom-badge">自定义</span>
                         </div>
                         {#if t.description}
                             <p class="detail-desc">{t.description}</p>
@@ -494,7 +484,7 @@
                         <div class="detail-info-row">
                             <span class="detail-info-label">模板类型：</span>
                             <span class="detail-info-value">
-                                {isLegacyUserLayoutTemplate(t) ? "旧公开模板" : "自定义布局模板"}
+                                自定义布局模板
                             </span>
                         </div>
                         <div class="detail-info-row">

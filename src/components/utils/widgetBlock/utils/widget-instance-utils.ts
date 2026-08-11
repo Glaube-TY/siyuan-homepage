@@ -15,21 +15,9 @@ const SIYUAN_BLOCK_ID_RE = /^\d{14}-[a-z0-9]{7}$/;
 export function isValidSiyuanBlockId(value: unknown): value is string {
     return typeof value === "string" && SIYUAN_BLOCK_ID_RE.test(value);
 }
-
-/** 别名，与 isValidSiyuanBlockId 相同 */
-export const isValidSiyuanNodeId = isValidSiyuanBlockId;
-
 /** 断言值为合法的思源块 ID，非法时抛出含字段名的错误 */
 export function assertValidSiyuanBlockId(value: unknown, fieldName: string): asserts value is string {
     if (!isValidSiyuanBlockId(value)) {
         throw new Error(`${fieldName} 不是合法的思源块ID`);
     }
-}
-
-/**
- * 从组件配置中读取 WidgetInstanceId。
- * 新配置优先 instanceId，旧兼容顶层 blockId。
- */
-export function readWidgetInstanceId(config: Record<string, unknown>): string | undefined {
-    return (config.instanceId as string | undefined) ?? (config.blockId as string | undefined);
 }

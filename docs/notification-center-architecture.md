@@ -233,7 +233,7 @@ VIP 校验同时存在于配置保存边界和实际通知调用边界。仅隐�
 
 | 数据域 | 文件 | 说明 |
 | --- | --- | --- |
-| 通知中心设置 | `notification-center/settings.json` | 桌面、移动、Webhook、飞书及迁移状态等统一设置 |
+| 通知中心设置 | `notification-center/settings.json` | 桌面、移动、Webhook 和飞书统一设置 |
 | 通知历史索引 | `notification-center/history-index.json` | 年度历史文件索引 |
 | 通知历史 | `notification-center/history-YYYY.json` | 按年份保存统一投递历史 |
 | 移动计划 | `notification-center/mobile-plans/<device-id>.json` | 当前设备的本地通知计划和 `notificationId` |
@@ -243,4 +243,4 @@ VIP 校验同时存在于配置保存边界和实际通知调用边界。仅隐�
 | 复习通知 | `reviewNotifySettings.json` | 复习文档通知配置 |
 | 番茄钟通知 | `focusNotifySettings.json` | 番茄钟通知配置 |
 
-上述文件的 Schema 和 Version 不得随意修改。新增字段必须提供向后兼容的 normalize，并保留旧用户设置；任何迁移都必须先安全读取、确认目标文件确实不存在或版本允许迁移，不能以读取异常作为覆盖依据。
+上述文件只接受当前 Schema 和 Version。版本升级通过当前数据重新配置或重建，不再读取旧格式；读取异常不得解释为空数据，也不得触发静默覆盖。

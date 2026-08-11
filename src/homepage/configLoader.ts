@@ -1,11 +1,10 @@
 import { getImage } from "@/components/tools/getImage";
 import { getCurrentDeviceViewContext } from "./deviceView/deviceViewContext";
-import { ensureCurrentDeviceViewMigrated } from "./deviceView/deviceViewMigration";
+import { ensureCurrentDeviceViewReady } from "./deviceView/deviceViewReadiness";
 import { readDeviceViewSettings, updateDeviceViewSettings } from "./deviceView/deviceViewStorage";
 import {
-    DeviceViewMigrationBlockedError,
+    DeviceViewAccessBlockedError,
     DeviceViewTemporarilyIncompleteError,
-    recordDeviceViewBlockedState,
 } from "./deviceView/deviceViewErrors";
 import type { DeviceViewSurface } from "./deviceView/deviceViewTypes";
 import {
@@ -142,10 +141,9 @@ export async function loadHomepageConfigDataStrict(
 ): Promise<StrictHomepageConfigRead> {
     const context = getCurrentDeviceViewContext(plugin, surface);
     try {
-        await ensureCurrentDeviceViewMigrated(context);
+        await ensureCurrentDeviceViewReady(context);
     } catch (error) {
-        if (error instanceof DeviceViewMigrationBlockedError) {
-            recordDeviceViewBlockedState(error);
+        if (error instanceof DeviceViewAccessBlockedError) {
             throw error;
         }
         throw error;
@@ -154,8 +152,7 @@ export async function loadHomepageConfigDataStrict(
     try {
         settings = await readDeviceViewSettings(context);
     } catch (error) {
-        if (error instanceof DeviceViewMigrationBlockedError) {
-            recordDeviceViewBlockedState(error);
+        if (error instanceof DeviceViewAccessBlockedError) {
             throw error;
         }
         throw new DeviceViewTemporarilyIncompleteError({
@@ -176,7 +173,6 @@ export async function loadHomepageConfigDataStrict(
             data: await mergeHomepageSharedSettings(
                 plugin,
                 settings.config,
-                surface === "mobile-homepage" ? "mobile" : "desktop",
             ),
             fileExists: true,
         };
@@ -293,9 +289,6 @@ function normalizeEnum<T extends string>(value: unknown, validValues: T[], defau
 function normalizeButtonsList(rawList: unknown): HomepageButtonItem[] {
     return normalizeButtonsListFromRegistry(rawList);
 }
-
-// 注意：getDeviceLayout 已废弃，请使用当前设备视图布局读取接口。
-// 保留此函数仅为兼容旧代码，新代码不应再使用
 
 export function normalizeHomepageConfigData(config: any): HomepageConfig {
     return {

@@ -7,7 +7,7 @@
  * 3. 每次写入前重新严格读取最新 payload
  * 4. 保留所有未知根字段和 item 未知字段
  * 5. 写后读回验证，失败不得宣称成功
- * 6. 旧 v1 格式只读兼容，只有真实写操作发生时才升级到 v2
+ * 6. 只接受当前 version:2 schema，异常数据只报告、不覆盖
  */
 
 import { getFileOrNullChecked, putFileChecked } from "@/api";
@@ -86,33 +86,33 @@ export async function readFavoritesIndexStrict(): Promise<StrictReadResult> {
         return { kind: "corrupt", reason: "收藏索引文件内容为空或不是有效 JSON 对象" };
     }
 
-    const obj = parsed as Record<string, unknown>;
-
-    // 兼容旧格式：根数组（无 wrapper 对象）
-    let items: unknown;
     if (Array.isArray(parsed)) {
-        items = parsed;
-    } else {
-        items = obj.items;
+        return { kind: "corrupt", reason: "收藏索引不是当前 version:2 对象" };
     }
-
-    if (!Array.isArray(items)) {
+    const obj = parsed as Record<string, unknown>;
+    if (obj.version !== 2) {
+        return { kind: "corrupt", reason: "收藏索引 version 不是当前版本 2" };
+    }
+    if (!Array.isArray(obj.items)) {
         return { kind: "corrupt", reason: "收藏索引 items 不是数组" };
     }
-
-    // 构建 v2 payload
-    const groups: FavoriteGroupRecord[] = Array.isArray(obj.groups) ? obj.groups as FavoriteGroupRecord[] : [];
+    if (!Array.isArray(obj.groups)) {
+        return { kind: "corrupt", reason: "收藏索引 groups 不是数组" };
+    }
+    if (typeof obj.updatedAt !== "string" || !obj.updatedAt) {
+        return { kind: "corrupt", reason: "收藏索引 updatedAt 无效" };
+    }
 
     const payload: FavoritesIndexPayloadV2 = {
         version: 2,
-        updatedAt: typeof obj.updatedAt === "string" ? obj.updatedAt : new Date().toISOString(),
-        items: items.filter(Boolean) as FavoriteItemRecord[],
-        groups,
+        updatedAt: obj.updatedAt,
+        items: obj.items.filter(Boolean) as FavoriteItemRecord[],
+        groups: obj.groups as FavoriteGroupRecord[],
     };
 
-    // 保留未知根字段（跳过数字索引键，旧根数组兼容）
+    // 保留当前 schema 的未知扩展字段。
     for (const key of Object.keys(obj)) {
-        if (!(key in payload) && !/^\d+$/.test(key)) {
+        if (!(key in payload)) {
             (payload as Record<string, unknown>)[key] = obj[key];
         }
     }

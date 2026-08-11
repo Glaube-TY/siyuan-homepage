@@ -477,15 +477,8 @@
         : normalizeString(ySource, next.databaseChartLineYAxisSourceText);
     }
 
-    if (type === "weather") {
-      // 4.8.4 兼容：旧 data.city 映射到 cityName 表单字段
-      if (!next.cityName && source?.city) {
-        next.cityName = normalizeString(source.city);
-      }
-    }
-
     if (type === "custom-protyle") {
-      next.customBlockId = source?.customBlockId || source?.customBlockID || "";
+      next.customBlockId = source?.customBlockId || "";
       const hasSavedConfig = Boolean(source && typeof source === "object" && Object.keys(source).length > 0);
       Object.assign(next, normalizeProtyleDisplayConfig(source, hasSavedConfig ? "standard" : "compact"));
     }
@@ -535,13 +528,8 @@
         matchingData?.countdownDisplaySystem === "classic" ||
         matchingData?.countdownDisplaySystem === "center"
           ? matchingData.countdownDisplaySystem
-          : matchingData?.countdownView
-            ? "center"
-            : "classic";
-      form.countdownView = normalizeCountdownWidgetView(
-        form.countdownView,
-        form.countdownStyle,
-      );
+          : "center";
+      form.countdownView = normalizeCountdownWidgetView(form.countdownView);
       if (plugin?.ADVANCED) {
         try {
           const countdownData = await loadCountdownCenterData();
@@ -791,10 +779,7 @@
               form.countdownDisplaySystem === "classic"
                 ? "classic"
                 : "center",
-            countdownView: normalizeCountdownWidgetView(
-              form.countdownView,
-              form.countdownStyle,
-            ),
+            countdownView: normalizeCountdownWidgetView(form.countdownView),
             countdownCard1BgSelect: normalizeString(
               form.countdownCard1BgSelect,
               "remote",
@@ -1788,7 +1773,7 @@
               option("tasksCount", "任务数"),
               option("doneTasksCount", "已完成任务"),
               option("undoneTasksCount", "未完成任务"),
-              option("dailynotesCount", "日记数"),
+              option("dailyNotesCount", "日记数"),
               option("tagsCount", "标签数"),
               option("citationCount", "引用块数量"),
               option("codeBlocksCount", "代码数"),

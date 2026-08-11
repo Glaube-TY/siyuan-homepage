@@ -3,7 +3,7 @@
  */
 
 /** 聊天模型提供商类型 */
-export type KbChatProviderType = "kimi" | "kimi-api" | "kimi-coding" | "mimo" | "mimo-api" | "mimo-coding-plan" | "deepseek" | "deepseek-api" | "openai-compatible";
+export type KbChatProviderType = "kimi-api" | "kimi-coding" | "mimo-api" | "mimo-coding-plan" | "deepseek-api" | "openai-compatible";
 
 /** Provider/native Agent 请求兼容性配置 */
 export type ProviderNativeAgentCompatibility = {
@@ -134,13 +134,6 @@ export type WebSearchSettings = {
   anySearchLanguage: string;
 };
 
-export type KbSkillSettings = {
-  /** 被禁用的内置 Skill 名称列表 */
-  disabledBuiltinSkillNames: string[];
-  /** 已初始化默认禁用状态的内置 Skill 名称列表（用于一次性迁移） */
-  initializedDefaultDisabledBuiltinSkillNames?: string[];
-};
-
 /** Provider-visible aggregate Agent tool names. */
 export type KbGlobalToolName =
   | "siyuan_kb"
@@ -167,28 +160,13 @@ export type KbGlobalToolName =
   | "edit_global_memory"
   | "agent_tool_help";
 
-/** 内置危险写工具名称 */
-export type KbDangerousSkillToolName =
-  | "create_doc"
-  | "update_block"
-  | "insert_block"
-  | "delete_blocks"
-  | "move_block"
-  | "rename_doc"
-  | "delete_doc"
-  | "replace_doc_content";
-
 /** 全局工具设置 */
 export type KbToolSettings = {
   /** 被禁用的全局工具名称列表。agent_tool_help 永远不在此列表中（系统必需，固定启用）。 */
   disabledGlobalToolNames: KbGlobalToolName[];
-  /** 保留旧设置迁移用；已合并到 disabledWriteToolConfirmationNames */
-  disabledDangerousSkillToolConfirmationNames?: KbDangerousSkillToolName[];
   /**
-   * 旧字段：工具级"可信免确认"写工具名称列表。
-   * 仅对无 action 的直接工具（如 edit_global_memory）继续生效。
+   * 无 action 的直接写工具（如 edit_global_memory）的可信免确认名单。
    * 有 action 的聚合工具应使用 toolActionConfirmOverrides 进行 action 级覆盖。
-   * 历史值会在归一化时迁移到 toolActionConfirmOverrides。
    */
   disabledWriteToolConfirmationNames?: string[];
   /**
@@ -255,7 +233,6 @@ export type ExternalSkillSettings = {
   maxSkillReadChars: number;
   autoInstallEnabled: boolean;
   disabledSkillIds: string[];
-  legacyUserSkillDirectInject?: boolean;
 };
 
 export type McpSettings = {
@@ -325,10 +302,6 @@ export type KbSettings = {
    * 网页搜索设置
    */
   webSearch: WebSearchSettings;
-  /**
-   * Skill 设置
-   */
-  skillSettings: KbSkillSettings;
   /**
    * 全局工具设置
    */

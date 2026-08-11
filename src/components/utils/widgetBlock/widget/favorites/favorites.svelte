@@ -42,7 +42,7 @@
 
     let favoritesNotes: ComponentDocInfo[] = $state([]);
     let favoritesDataStatus = $state<"ok" | "empty" | "limited" | "disabled" | "unsupported" | "error">("empty");
-    let favoritesStatusMessage = $state("收藏索引为空，可重新收藏文档，或到主页设置 > 检索管理中迁移旧收藏属性。");
+    let favoritesStatusMessage = $state("收藏索引为空，可从文档树重新收藏文档。");
 
     // 分组加载状态机
     type GroupLoadState = { kind: "idle" } | { kind: "loading" } | { kind: "ready" } | { kind: "error"; message: string };
@@ -443,9 +443,9 @@
                 {#if favoritesDataStatus === "disabled"}
                     <LocalIndexEmptyState
                         title="本地索引为空"
-                        message="收藏本地索引为空，请迁移或重建索引。"
+                        message="收藏本地索引为空，请重新收藏文档或刷新索引。"
                         {plugin}
-                        hint="从文档树右键重新收藏，或到主页设置 > 检索管理中迁移旧收藏属性。"
+                        hint="从文档树右键重新收藏，或到主页设置 > 检索管理中刷新收藏索引。"
                     />
                 {:else}
                     <div class="mobile-favorites-empty">{favoritesStatusMessage}</div>
@@ -609,8 +609,8 @@
                 {/if}
             {:else}
                 {#if favoritesDataStatus === "disabled"}
-                    <LocalIndexEmptyState title="本地索引为空" message="收藏本地索引为空，请迁移或重建索引。" {plugin}
-                        hint="从文档树右键重新收藏，或到主页设置 > 检索管理中迁移旧收藏属性。" />
+                    <LocalIndexEmptyState title="本地索引为空" message="收藏本地索引为空，请重新收藏文档或刷新索引。" {plugin}
+                        hint="从文档树右键重新收藏，或到主页设置 > 检索管理中刷新收藏索引。" />
                 {:else}
                     <div class="favorites-empty-state" data-widget-part="empty"><strong>收藏索引为空</strong><span>{favoritesStatusMessage}</span></div>
                 {/if}

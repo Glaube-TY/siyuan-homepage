@@ -5,7 +5,7 @@ export const DEVICE_VIEW_CHANGED_EVENT = "siyuan-homepage-device-view-changed";
 export interface DeviceViewChangedDetail {
     deviceId: string;
     surface: DeviceViewSurface;
-    reason: "layout" | "widget" | "settings" | "migration";
+    reason: "layout" | "widget" | "settings" | "initialization";
 }
 
 export function dispatchDeviceViewChanged(context: DeviceViewContext, reason: DeviceViewChangedDetail["reason"]): void {

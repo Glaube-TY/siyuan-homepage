@@ -43,13 +43,6 @@ export function registerDocContentEditConfirmationHandler(
   };
 }
 
-/** @deprecated 请使用 registerDocContentEditConfirmationHandler。 */
-export function setDocContentEditConfirmationHandler(
-  handler: DocContentEditConfirmationHandler,
-): () => void {
-  return registerDocContentEditConfirmationHandler("legacy-unrouted", handler);
-}
-
 export async function requestDocContentEditConfirmation(
   request: DocContentEditConfirmationRequest,
 ): Promise<DocContentEditConfirmationResponse> {

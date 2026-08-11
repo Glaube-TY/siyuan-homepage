@@ -1,7 +1,7 @@
 import type { Plugin } from "siyuan";
 import { WidgetBlock } from "./mobileWidgetBlock";
 import { getCurrentDeviceViewContext } from "@/homepage/deviceView/deviceViewContext";
-import { ensureCurrentDeviceViewMigrated } from "@/homepage/deviceView/deviceViewMigration";
+import { ensureCurrentDeviceViewReady } from "@/homepage/deviceView/deviceViewReadiness";
 import { readDeviceViewLayout, updateDeviceViewLayout } from "@/homepage/deviceView/deviceViewStorage";
 import { loadWidgetInstanceConfig } from "@/homepage/deviceView/widgetInstanceRepository";
 import { stringifyWidgetConfigForMount, type LayoutItem } from "../../components/utils/widgetBlock/utils/layout-shared";
@@ -48,7 +48,7 @@ function readCurrentOrder(container: Element): LayoutItem[] {
 
 async function getReadyContext(plugin: Plugin): Promise<DeviceViewContext> {
     const context = getCurrentDeviceViewContext(plugin, MOBILE_LAYOUT_SURFACE);
-    await ensureCurrentDeviceViewMigrated(context);
+    await ensureCurrentDeviceViewReady(context);
     return context;
 }
 

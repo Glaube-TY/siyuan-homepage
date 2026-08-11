@@ -98,7 +98,6 @@ function homepageWriteActionMetadata(): AggregateActionMeta[] {
     { name: "remove_section", title: "删除主页分栏", description: "删除分栏结构并按现有邻接规则合并组件。", readOnly: false, required: ["sectionId", "expectedSectionName", "expectedWidgetCount", "expectedLayoutRevision", "expectedViewRevision"], argsSchema: homepageObjectSchema({ sectionId: { type: "string" }, expectedSectionName: { type: "string" }, expectedWidgetCount: { type: "integer", minimum: 0 }, expectedReceivingSectionId: { type: ["string", "null"] }, expectedLayoutRevision: { type: "integer", minimum: 1 }, expectedViewRevision: { type: "integer", minimum: 1 } }, ["sectionId", "expectedSectionName", "expectedWidgetCount", "expectedLayoutRevision", "expectedViewRevision"]), boundary: "高风险；不会删除分栏中的组件或业务数据。", notes: ["expectedWidgetCount 来自 list_sections；可同时传 expectedReceivingSectionId 锁定接收分栏。", ...revisionNotes] },
     { name: "set_section_mode", title: "切换分栏模式", description: "开启或关闭桌面主页分栏模式，不删除分栏配置。", readOnly: false, required: ["enabled", "expectedLayoutRevision", "expectedViewRevision"], argsSchema: homepageObjectSchema({ enabled: { type: "boolean" }, expectedLayoutRevision: { type: "integer", minimum: 1 }, expectedViewRevision: { type: "integer", minimum: 1 } }, ["enabled", "expectedLayoutRevision", "expectedViewRevision"]), notes: revisionNotes },
     { name: "set_active_section", title: "设置活动分栏", description: "设置当前桌面主页活动分栏。", readOnly: false, required: ["sectionId", "expectedLayoutRevision"], argsSchema: homepageObjectSchema({ sectionId: { type: "string" }, expectedLayoutRevision: { type: "integer", minimum: 1 } }, ["sectionId", "expectedLayoutRevision"]), notes: revisionNotes },
-    { name: "cleanup_unresolved_widgets", title: "清理旧布局残留", description: "清理旧版迁移遗留、已无组件配置的无效布局引用。", readOnly: false, required: ["expectedLayoutRevision", "items"], argsSchema: homepageObjectSchema({ expectedLayoutRevision: { type: "integer", minimum: 1 }, items: { type: "array", minItems: 1, items: { type: "object", additionalProperties: false, properties: { widgetId: { type: "string" }, expectedIndex: { type: "integer", minimum: 0 }, expectedSectionId: { type: ["string", "null"] }, expectedResolutionStatus: { type: "string", const: "legacy_unresolved" } }, required: ["widgetId", "expectedIndex", "expectedSectionId", "expectedResolutionStatus"] } } }, ["expectedLayoutRevision", "items"]), boundary: "高风险；只清理当前设备主页中配置缺失且 manifest 声明为 legacy unresolved 的布局引用，不删除共享业务数据，不跨设备处理，不得自动执行。", notes: ["只允许处理 list_widgets 中 resolutionStatus=legacy_unresolved 的引用。", "expectedIndex/expectedSectionId 必须来自 list_widgets。", ...revisionNotes] },
   ];
 }
 
@@ -1222,7 +1221,7 @@ export const AGGREGATE_TOOL_CATALOG: AggregateToolMeta[] = [
           "list_tree 需要 notebook，可选 path；不传 path 时读取根路径。",
           "move 使用 fromPaths + toNotebook + toPath；fromPaths 必须是真实文档 path。",
           "move_by_id 使用 ids + targetID；ids 是要移动的文档 ID 数组，targetID 是目标父文档 ID 或目标 notebook ID。",
-          "duplicate 只使用源文档 id；为兼容旧调用也允许 ids，但只取 ids[0]。",
+          "duplicate 只使用单个源文档 id。",
           "duplicate 只复制单个文档，批量复制暂不保证。",
           "sort 使用 notebook（笔记本 ID）+ fromPaths（.sy 存储路径数组），不接受文档 ID 或 targetID；只允许 disposable 文档。",
           "不要把 docId 当 path；需要路径时先用 doc_path 解析。",
@@ -1290,9 +1289,6 @@ export const AGGREGATE_TOOL_CATALOG: AggregateToolMeta[] = [
             oldBookmark: { type: "string", description: "rename 的旧书签名，优先使用。" },
             newBookmark: { type: "string", description: "rename 的新书签名，优先使用。" },
             bookmark: { type: "string", description: "remove 的书签名，优先使用。" },
-            oldLabel: { type: "string", description: "rename 的旧字段兼容别名；新调用优先使用 oldBookmark。" },
-            newLabel: { type: "string", description: "rename 的旧字段兼容别名；新调用优先使用 newBookmark。" },
-            label: { type: "string", description: "remove 的旧字段兼容别名；新调用优先使用 bookmark。" },
             blockIds: { type: "array", items: { type: "string", minLength: 1, maxLength: 256 }, minItems: 1, maxItems: 50, description: "rename/remove 必须提供的 block ID 列表；通过 setBlockAttrs 按块操作，不调用全局 renameBookmark/removeBookmark。" },
           },
           required: ["action"],
@@ -1309,7 +1305,6 @@ export const AGGREGATE_TOOL_CATALOG: AggregateToolMeta[] = [
           "rename/remove 通过 blockIds + setBlockAttrs 按块修改/清空 bookmark 属性；Agent 不直接调用 /api/bookmark/renameBookmark/removeBookmark。",
           "直接全局 rename/remove 可能触发思源前端重载，不作为 Agent 默认行为。",
           "只能操作本轮 disposable 测试文档或明确临时书签块；不要 rename/remove 用户真实书签。",
-          "oldLabel/newLabel/label 仅为兼容旧字段，新调用优先使用 oldBookmark/newBookmark/bookmark。",
           "list_blocks 输出包含 id、bookmark、contentPreview、created/updated；bookmark 字段应反映真实书签名。",
           "list_blocks 的 keyword 匹配 bookmark 元数据；正文辅助匹配只能使用 FTS，不得使用 blocks.content/markdown/fcontent LIKE。",
         ],

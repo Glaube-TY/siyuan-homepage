@@ -2,7 +2,7 @@ import type { RobotKernelHost } from "./kernel-host";
 import type { RobotSecretStoragePort } from "../features/robot-assistant/security/robot-secret-vault-store";
 import type { RobotAssistantSettings } from "../features/robot-assistant/settings/robot-settings-types";
 import type { RobotModelConfigStore, RobotAgentRuntimeConfigSnapshot } from "../features/robot-assistant/runtime/robot-model-config";
-import { normalizeV2Settings, migrateV1IfNeeded } from "../features/robot-assistant/settings/robot-settings-migration";
+import { normalizeV2Settings } from "../features/robot-assistant/settings/robot-settings-migration";
 
 export const KERNEL_STORAGE_SETTINGS_KEY = "robot-assistant-v2";
 export const KERNEL_STORAGE_MODEL_CONFIG_KEY = "robot-runtime-model-config";
@@ -15,7 +15,7 @@ export function createKernelSecretStoragePort(host: RobotKernelHost): RobotSecre
   };
 }
 
-/** Robot 设置 Kernel 存储：读取时做 v1→v2 一次性迁移。 */
+/** Robot 设置 Kernel 存储。 */
 export interface RobotSettingsKernelStore {
   load(): Promise<RobotAssistantSettings>;
   save(settings: RobotAssistantSettings): Promise<void>;
@@ -28,19 +28,6 @@ export function createRobotSettingsKernelStore(host: RobotKernelHost): RobotSett
       if (raw) {
         try {
           return normalizeV2Settings(JSON.parse(raw));
-        } catch {
-          return normalizeV2Settings(null);
-        }
-      }
-      // v1 迁移：chat-action-bridge 设置文件与 v2 同一 storage root。
-      const v1Raw = await host.storage.get("chatActionBridgeSettings.json");
-      if (v1Raw) {
-        try {
-          const migrated = migrateV1IfNeeded(JSON.parse(v1Raw));
-          if (migrated.needsWrite) {
-            await host.storage.set(KERNEL_STORAGE_SETTINGS_KEY, JSON.stringify(migrated.settings));
-          }
-          return migrated.settings;
         } catch {
           return normalizeV2Settings(null);
         }

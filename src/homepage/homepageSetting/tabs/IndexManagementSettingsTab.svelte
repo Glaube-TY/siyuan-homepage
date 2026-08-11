@@ -10,7 +10,6 @@
         type RefreshAllResult,
     } from "@/components/tools/homepageIndexManagement";
     import {
-        migrateFavoritesIndexFromGlobalSql,
         rebuildTaskIndexFromGlobalSql,
         rebuildHeatmapDailyIndexFromGlobalSql,
         refreshFavoritesIndex,
@@ -18,7 +17,6 @@
         refreshTaskIndexFromRecentDocuments,
         refreshHeatmapIndexFromRecentDocuments,
     } from "@/components/tools/siyuanComponentDataApi";
-    import { migrateReviewIndexFromGlobalSql } from "@/components/utils/widgetBlock/widget/reviewDocs/reviewDocs";
     import {
         rebuildStatIndexFromGlobalSql,
         refreshStatIndexFromRecentDocuments,
@@ -44,9 +42,9 @@
 
     interface Props {
         plugin: any;
-        favoritesMigrationStatus?: ComponentMigrationStatus;
-        reviewDocsMigrationStatus?: ComponentMigrationStatus;
-        taskIndexMigrationStatus?: ComponentMigrationStatus;
+        favoritesIndexStatus?: ComponentMigrationStatus;
+        reviewDocsIndexStatus?: ComponentMigrationStatus;
+        taskIndexStatus?: ComponentMigrationStatus;
         heatmapIndexStatus?: ComponentMigrationStatus;
         statIndexStatus?: ComponentMigrationStatus;
         enhancedDiaryIndexStatus?: ComponentMigrationStatus;
@@ -60,9 +58,9 @@
 
     let {
         plugin,
-        favoritesMigrationStatus = $bindable<ComponentMigrationStatus>({ lastStatus: "idle" }),
-        reviewDocsMigrationStatus = $bindable<ComponentMigrationStatus>({ lastStatus: "idle" }),
-        taskIndexMigrationStatus = $bindable<ComponentMigrationStatus>({ lastStatus: "idle" }),
+        favoritesIndexStatus = $bindable<ComponentMigrationStatus>({ lastStatus: "idle" }),
+        reviewDocsIndexStatus = $bindable<ComponentMigrationStatus>({ lastStatus: "idle" }),
+        taskIndexStatus = $bindable<ComponentMigrationStatus>({ lastStatus: "idle" }),
         heatmapIndexStatus = $bindable<ComponentMigrationStatus>({ lastStatus: "idle" }),
         statIndexStatus = $bindable<ComponentMigrationStatus>({ lastStatus: "idle" }),
         enhancedDiaryIndexStatus = $bindable<ComponentMigrationStatus>({ lastStatus: "idle" }),
@@ -77,8 +75,8 @@
     let isRebuildingAll = $state(false);
     let isRefreshingAll = $state(false);
 
-    let isFavoritesMigrating = $state(false);
-    let isReviewMigrating = $state(false);
+    let isFavoritesRefreshing = $state(false);
+    let isReviewRefreshing = $state(false);
     let isTaskRebuilding = $state(false);
     let isTaskRefreshing = $state(false);
     let isHeatmapRebuilding = $state(false);
@@ -179,11 +177,11 @@
     }
 
     async function applyResults(results: RebuildAllResult) {
-        favoritesMigrationStatus = results.favorites;
+        favoritesIndexStatus = results.favorites;
         await onFavoritesStatusChange?.(results.favorites);
-        reviewDocsMigrationStatus = results.review;
+        reviewDocsIndexStatus = results.review;
         await onReviewDocsStatusChange?.(results.review);
-        taskIndexMigrationStatus = results.task;
+        taskIndexStatus = results.task;
         await onTaskIndexStatusChange?.(results.task);
         heatmapIndexStatus = results.heatmap;
         await onHeatmapIndexStatusChange?.(results.heatmap);
@@ -199,11 +197,11 @@
     }
 
     async function applyRefreshResults(results: RefreshAllResult) {
-        favoritesMigrationStatus = results.favorites;
+        favoritesIndexStatus = results.favorites;
         await onFavoritesStatusChange?.(results.favorites);
-        reviewDocsMigrationStatus = results.review;
+        reviewDocsIndexStatus = results.review;
         await onReviewDocsStatusChange?.(results.review);
-        taskIndexMigrationStatus = results.task;
+        taskIndexStatus = results.task;
         await onTaskIndexStatusChange?.(results.task);
         heatmapIndexStatus = results.heatmap;
         await onHeatmapIndexStatusChange?.(results.heatmap);
@@ -218,27 +216,27 @@
         }
     }
 
-    async function handleFavoritesMigrate() {
-        if (!plugin || isFavoritesMigrating) return;
-        isFavoritesMigrating = true;
+    async function handleFavoritesRefresh() {
+        if (!plugin || isFavoritesRefreshing) return;
+        isFavoritesRefreshing = true;
         try {
-            const status = await migrateFavoritesIndexFromGlobalSql(plugin);
-            favoritesMigrationStatus = status;
+            const status = await refreshFavoritesIndex(plugin);
+            favoritesIndexStatus = status;
             await onFavoritesStatusChange?.(status);
         } finally {
-            isFavoritesMigrating = false;
+            isFavoritesRefreshing = false;
         }
     }
 
-    async function handleReviewMigrate() {
-        if (!plugin || isReviewMigrating) return;
-        isReviewMigrating = true;
+    async function handleReviewRefresh() {
+        if (!plugin || isReviewRefreshing) return;
+        isReviewRefreshing = true;
         try {
-            const status = await migrateReviewIndexFromGlobalSql(plugin);
-            reviewDocsMigrationStatus = status;
+            const status = await refreshReviewIndex(plugin);
+            reviewDocsIndexStatus = status;
             await onReviewDocsStatusChange?.(status);
         } finally {
-            isReviewMigrating = false;
+            isReviewRefreshing = false;
         }
     }
 
@@ -247,7 +245,7 @@
         isTaskRebuilding = true;
         try {
             const status = await rebuildTaskIndexFromGlobalSql(plugin);
-            taskIndexMigrationStatus = status;
+            taskIndexStatus = status;
             await onTaskIndexStatusChange?.(status);
         } finally {
             isTaskRebuilding = false;
@@ -259,7 +257,7 @@
         isTaskRefreshing = true;
         try {
             const status = await refreshTaskIndexFromRecentDocuments(plugin, { force: true });
-            taskIndexMigrationStatus = status;
+            taskIndexStatus = status;
             await onTaskIndexStatusChange?.(status);
         } finally {
             isTaskRefreshing = false;
@@ -405,48 +403,48 @@
 
 <SettingSection title="收藏文档索引">
     <SettingRow
-        title="迁移旧收藏属性到索引"
-        description="扫描使用旧版属性的文档，将其迁移到本地收藏索引。只在你点击时执行，用于建立或重建本地索引。"
+        title="刷新收藏索引"
+        description="检查收藏索引中的文档是否仍然存在，并移除已失效的记录。"
     >
         <button
             type="button"
             class="index-action-btn"
-            onclick={handleFavoritesMigrate}
-            disabled={!plugin || isFavoritesMigrating}
+            onclick={handleFavoritesRefresh}
+            disabled={!plugin || isFavoritesRefreshing}
         >
-            {isFavoritesMigrating ? "迁移中..." : "迁移旧收藏属性"}
+            {isFavoritesRefreshing ? "刷新中..." : "刷新收藏索引"}
         </button>
     </SettingRow>
     <SettingRow title="最近状态">
-        <span class="index-status-text">{formatStatus(favoritesMigrationStatus)}</span>
+        <span class="index-status-text">{formatStatus(favoritesIndexStatus)}</span>
     </SettingRow>
-    {#if favoritesMigrationStatus.lastMessage}
+    {#if favoritesIndexStatus.lastMessage}
         <SettingRow title="最近消息">
-            <span class="index-status-text">{favoritesMigrationStatus.lastMessage}</span>
+            <span class="index-status-text">{favoritesIndexStatus.lastMessage}</span>
         </SettingRow>
     {/if}
 </SettingSection>
 
 <SettingSection title="复习文档索引">
     <SettingRow
-        title="迁移旧复习属性到索引"
-        description="扫描使用旧版属性的文档，将其迁移到本地复习索引。只在你点击时执行，用于建立或重建本地索引。"
+        title="刷新复习索引"
+        description="检查复习索引中的文档和内容块是否仍然存在，并移除已失效的记录。"
     >
         <button
             type="button"
             class="index-action-btn"
-            onclick={handleReviewMigrate}
-            disabled={!plugin || isReviewMigrating}
+            onclick={handleReviewRefresh}
+            disabled={!plugin || isReviewRefreshing}
         >
-            {isReviewMigrating ? "迁移中..." : "迁移旧复习属性"}
+            {isReviewRefreshing ? "刷新中..." : "刷新复习索引"}
         </button>
     </SettingRow>
     <SettingRow title="最近状态">
-        <span class="index-status-text">{formatStatus(reviewDocsMigrationStatus)}</span>
+        <span class="index-status-text">{formatStatus(reviewDocsIndexStatus)}</span>
     </SettingRow>
-    {#if reviewDocsMigrationStatus.lastMessage}
+    {#if reviewDocsIndexStatus.lastMessage}
         <SettingRow title="最近消息">
-            <span class="index-status-text">{reviewDocsMigrationStatus.lastMessage}</span>
+            <span class="index-status-text">{reviewDocsIndexStatus.lastMessage}</span>
         </SettingRow>
     {/if}
 </SettingSection>
@@ -479,11 +477,11 @@
         </button>
     </SettingRow>
     <SettingRow title="最近状态">
-        <span class="index-status-text">{formatStatus(taskIndexMigrationStatus)}</span>
+        <span class="index-status-text">{formatStatus(taskIndexStatus)}</span>
     </SettingRow>
-    {#if taskIndexMigrationStatus.lastMessage}
+    {#if taskIndexStatus.lastMessage}
         <SettingRow title="最近消息">
-            <span class="index-status-text">{taskIndexMigrationStatus.lastMessage}</span>
+            <span class="index-status-text">{taskIndexStatus.lastMessage}</span>
         </SettingRow>
     {/if}
 </SettingSection>

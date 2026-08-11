@@ -1,13 +1,11 @@
 import {
     assertSharedWidgetYearFilesComplete,
-    hasValidatedSharedWidgetMigration,
     loadSharedJson,
     mutateSharedJson,
     readSharedWidgetDirectoryChecked,
     REVIEW_DOCS_STORE_TRANSACTION_LOCK,
     runSharedWidgetExclusive,
     type SharedRevisionedFile,
-    type SharedWidgetMigrationMetadata,
 } from "../sharedLocalStorage/sharedLocalStorage";
 import {
     getReviewLogsFile,
@@ -16,7 +14,6 @@ import {
     REVIEW_LOGS_SCHEMA,
     SHARED_WIDGET_DATA_VERSION,
 } from "../sharedLocalStorage/sharedWidgetStoragePaths";
-import { assertSharedWidgetMigrationReady } from "../sharedLocalStorage/sharedWidgetMigration";
 import { toLocalDateString } from "./reviewDocsSchedule";
 import type { ReviewLogEntry, ReviewLogStats } from "./reviewDocsTypes";
 
@@ -24,7 +21,6 @@ export interface ReviewLogIndexFile extends SharedRevisionedFile {
     years: number[];
     totalLogs: number;
     yearCounts: Record<string, number>;
-    migration?: SharedWidgetMigrationMetadata;
 }
 
 export interface ReviewLogsYearFile extends SharedRevisionedFile {
@@ -141,7 +137,6 @@ export function normalizeReviewLogIndexFile(raw: unknown): ReviewLogIndexFile {
         years,
         totalLogs: finiteCount(value.totalLogs),
         yearCounts,
-        migration: value.migration as SharedWidgetMigrationMetadata | undefined,
     };
 }
 
@@ -288,24 +283,16 @@ async function loadOrRepairIndex(): Promise<ReviewLogIndexFile> {
 }
 
 async function loadReviewLogIndexForRead(): Promise<ReviewLogIndexFile> {
-    const existing = await loadSharedJson(REVIEW_LOG_INDEX_FILE, normalizeReviewLogIndexFile);
-    if (hasValidatedSharedWidgetMigration(existing)) return existing;
-
-    await assertSharedWidgetMigrationReady("review-docs");
-    const migrated = await runSharedWidgetExclusive(REVIEW_DOCS_STORE_TRANSACTION_LOCK, loadOrRepairIndex);
-    if (!hasValidatedSharedWidgetMigration(migrated)) {
-        throw new Error("复习日志历史迁移尚未完成");
-    }
-    return migrated;
+    return runSharedWidgetExclusive(REVIEW_DOCS_STORE_TRANSACTION_LOCK, loadOrRepairIndex);
 }
 
 export async function getReviewLogStoreStatus(): Promise<ReviewLogStoreStatus> {
     try {
-        const index = await loadReviewLogIndexForRead();
+        await loadReviewLogIndexForRead();
         return {
             ok: true,
             missingFields: [],
-            message: index.migration?.cleanupStatus === "pending" ? "旧数据库清理待重试" : "本地数据已就绪",
+            message: "本地数据已就绪",
         };
     } catch (error) {
         return { ok: false, missingFields: [], message: error instanceof Error ? error.message : "本地存储不可用" };
@@ -313,7 +300,6 @@ export async function getReviewLogStoreStatus(): Promise<ReviewLogStoreStatus> {
 }
 
 export async function appendReviewLog(entry: ReviewLogEntry): Promise<ReviewLogWriteResult> {
-    await assertSharedWidgetMigrationReady("review-docs");
     const normalized = normalizeReviewLogEntry(entry);
     const year = getReviewLogYear(normalized);
     return runSharedWidgetExclusive(REVIEW_DOCS_STORE_TRANSACTION_LOCK, async () => {

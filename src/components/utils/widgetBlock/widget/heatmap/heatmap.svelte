@@ -617,7 +617,7 @@
             {#if heatmapDataStatus === "disabled"}
                 <LocalIndexEmptyState
                     title="本地索引为空"
-                    message="热力图本地索引为空，请迁移或重建索引。"
+                    message="热力图本地索引为空，请到检索管理中重建索引。"
                     {plugin}
                     hint="请到主页设置 > 检索管理中刷新最近文档增量索引，或手动重建本地索引。"
                 />

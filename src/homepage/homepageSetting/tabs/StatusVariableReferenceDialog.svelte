@@ -27,9 +27,9 @@
         task_index: "任务索引",
     };
     const groups: HomepageStatusStatGroup[] = ["time_notes", "structure", "tasks"];
-    const compatibilityVariables = [
-        { key: "notesCount", target: "blocksCount", description: "旧版本兼容变量，建议新配置使用 blocksCount。" },
-        { key: "DocsCount", target: "docsCount", description: "旧版本大小写兼容，建议新配置使用 docsCount。" },
+    const savedTemplateAliases = [
+        { key: "notesCount", target: "blocksCount", description: "当前已保存主页模板仍在使用此变量。" },
+        { key: "DocsCount", target: "docsCount", description: "当前已保存主页模板仍在使用此大小写形式。" },
     ];
     const normalizedQuery = $derived(query.trim().toLocaleLowerCase());
     const filteredDefinitions = $derived.by(() => {
@@ -43,13 +43,13 @@
             sourceLabels[item.source],
         ].some((value) => value.toLocaleLowerCase().includes(keyword)));
     });
-    const filteredCompatibilityVariables = $derived(compatibilityVariables.filter((item) => !normalizedQuery || [
-        item.key, `{{${item.key}}}`, item.target, `{{${item.target}}}`, item.description, "兼容变量",
+    const filteredSavedTemplateAliases = $derived(savedTemplateAliases.filter((item) => !normalizedQuery || [
+        item.key, `{{${item.key}}}`, item.target, `{{${item.target}}}`, item.description, "已保存模板变量",
     ].some((value) => value.toLocaleLowerCase().includes(normalizedQuery))));
     const showDateHelp = $derived(!normalizedQuery || [
         "日期计算", "nowDate", "startDate", "时间差", "运算符", "格式", "已经记录", "今年已经过去",
     ].some((value) => value.toLocaleLowerCase().includes(normalizedQuery)));
-    const hasSearchResults = $derived(filteredDefinitions.length > 0 || filteredCompatibilityVariables.length > 0 || showDateHelp);
+    const hasSearchResults = $derived(filteredDefinitions.length > 0 || filteredSavedTemplateAliases.length > 0 || showDateHelp);
 
     onMount(() => {
         searchInput?.focus();
@@ -126,12 +126,12 @@
                 {/if}
             {/each}
 
-            {#if filteredCompatibilityVariables.length > 0}
+            {#if filteredSavedTemplateAliases.length > 0}
                 <section class="shp-status-vars-section">
-                    <h3>兼容变量</h3>
-                    <div class="shp-status-vars-compat">
-                        {#each filteredCompatibilityVariables as item (item.key)}
-                            <div><code>{`{{${item.key}}}`}</code><span>等价于 <code>{`{{${item.target}}}`}</code>。{item.description}</span></div>
+                    <h3>已保存模板变量</h3>
+                    <div class="shp-status-vars-aliases">
+                        {#each filteredSavedTemplateAliases as item (item.key)}
+                            <div><code>{`{{${item.key}}}`}</code><span>读取为 <code>{`{{${item.target}}}`}</code>。{item.description}</span></div>
                         {/each}
                     </div>
                 </section>
@@ -182,8 +182,8 @@
     .shp-status-vars-table-wrap td span { margin-top: 0.15rem; color: var(--b3-theme-on-surface-light); line-height: 1.45; }
     .shp-status-vars-dialog code { padding: 0.1rem 0.3rem; border-radius: 3px; background: var(--b3-theme-surface-light); color: var(--b3-theme-primary); font-family: var(--b3-font-family-code); font-size: 11px; white-space: nowrap; }
     .shp-status-vars-source { display: inline-block !important; margin: 0 !important; padding: 0.15rem 0.4rem; border-radius: 999px; background: var(--b3-theme-surface-light); white-space: nowrap; }
-    .shp-status-vars-compat, .shp-status-vars-date-help { display: flex; flex-direction: column; gap: 0.55rem; padding: 0.7rem; border: 1px solid var(--b3-border-color); border-radius: 7px; font-size: 12px; line-height: 1.6; }
-    .shp-status-vars-compat > div, .shp-status-vars-date-help > div { display: flex; flex-wrap: wrap; align-items: center; gap: 0.45rem; }
+    .shp-status-vars-aliases, .shp-status-vars-date-help { display: flex; flex-direction: column; gap: 0.55rem; padding: 0.7rem; border: 1px solid var(--b3-border-color); border-radius: 7px; font-size: 12px; line-height: 1.6; }
+    .shp-status-vars-aliases > div, .shp-status-vars-date-help > div { display: flex; flex-wrap: wrap; align-items: center; gap: 0.45rem; }
     .shp-status-vars-date-help p { margin: 0; }
     .shp-status-vars-empty { padding: 2rem 1rem; text-align: center; color: var(--b3-theme-on-surface-light); }
     .shp-status-vars-footer { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: 0.7rem 1rem; border-top: 1px solid var(--b3-border-color); }

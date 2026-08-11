@@ -12,7 +12,6 @@
     NOTIFICATION_CENTER_HISTORY_CHANGED_EVENT,
     NOTIFICATION_CENTER_MOBILE_PLANS_CHANGED_EVENT,
     getMobilePlanRuntimeStatus,
-    getNotificationCenterMigrationError,
     isMobileNotificationRuntime,
     loadNotificationCenterSettings,
     loadCurrentDeviceMobilePlans,
@@ -133,10 +132,9 @@
     </SettingSection>
   {:else}
   <div class="shp-notification-page-header"><div><h2>通知中心</h2><p>统一管理桌面端、移动端和外联通知链路。具体内容、时间和规则在任务、纪念日、强化日记等对应功能中设置。</p></div><button type="button" class="b3-button b3-button--text" {disabled} onclick={save}>{saving ? "保存中…" : "保存设置"}</button></div>
-  {#if settingsLoadError || getNotificationCenterMigrationError()}
+  {#if settingsLoadError}
     <SettingSection title="通知中心状态">
       {#if settingsLoadError}<SettingRow title="设置加载失败" description="通知中心设置未被覆盖"><span class="shp-notification-error">{settingsLoadError}</span></SettingRow>{/if}
-      {#if getNotificationCenterMigrationError()}<SettingRow title="迁移失败" description="旧设置未被自动覆盖"><span class="shp-notification-error">{getNotificationCenterMigrationError()}</span></SettingRow>{/if}
     </SettingSection>
   {/if}
   {#if activeSubTab === "desktop"}

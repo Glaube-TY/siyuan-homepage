@@ -10,7 +10,6 @@ import type {
 } from "../../contracts/tool-contract";
 import type { AggregateToolName } from "./aggregate-tool-metadata";
 import { findAggregateToolMeta } from "./aggregate-tool-metadata";
-import { OLD_TOOL_TO_AGGREGATE_ACTION } from "./aggregate-tool-migration";
 
 export interface AggregateActionBinding {
   action: string;
@@ -78,17 +77,9 @@ function buildSafety(actions: readonly AggregateActionBinding[]): ToolSafetyInfo
 
 const TOOL_NAME_LEAK_KEYS = new Set(["toolName", "oldToolName", "sourceToolName"]);
 
-function replaceOldToolNameInString(text: string): string {
-  let out = text;
-  for (const [oldName, mapping] of Object.entries(OLD_TOOL_TO_AGGREGATE_ACTION)) {
-    out = out.split(oldName).join(`${mapping.tool}.${mapping.action}`);
-  }
-  return out;
-}
-
 function sanitizeProviderVisibleValue(value: unknown): unknown {
   if (value === null || value === undefined) return value;
-  if (typeof value === "string") return replaceOldToolNameInString(value);
+  if (typeof value === "string") return value;
   if (Array.isArray(value)) {
     return value.map((item) => sanitizeProviderVisibleValue(item));
   }
@@ -101,10 +92,6 @@ function sanitizeProviderVisibleValue(value: unknown): unknown {
     return out;
   }
   return value;
-}
-
-function sanitizeErrorString(value: string | undefined): string | undefined {
-  return typeof value === "string" ? replaceOldToolNameInString(value) : value;
 }
 
 function resolveActionArgsSchema(contract: ToolContract): unknown | undefined {
@@ -129,8 +116,8 @@ function buildInvalidActionArgsDetails(params: {
     required: params.required,
     notes: params.notes,
     argsSchema: sanitizeProviderVisibleValue(resolveActionArgsSchema(params.binding.tool)),
-    inputHint: sanitizeErrorString(params.binding.tool.inputHint),
-    boundary: sanitizeErrorString(params.binding.tool.boundary),
+    inputHint: params.binding.tool.inputHint,
+    boundary: params.binding.tool.boundary,
   };
 }
 
@@ -143,8 +130,8 @@ function buildAggregateActionHelp(
     help[binding.action] = {
       action: binding.action,
       argsSchema: sanitizeProviderVisibleValue(resolveActionArgsSchema(contract)),
-      inputHint: sanitizeErrorString(contract.inputHint),
-      boundary: sanitizeErrorString(contract.boundary),
+      inputHint: contract.inputHint,
+      boundary: contract.boundary,
       readOnly: contract.readOnly,
       requiresConfirmation: contract.safety.requiresConfirmation ?? !contract.readOnly,
     };
@@ -328,12 +315,12 @@ export function createAggregateTool(options: AggregateToolFactoryOptions): ToolC
           data: null,
           error: {
             code: result.error?.code ?? "action_failed",
-            message: sanitizeErrorString(result.error?.message) ?? `action ${parsed.data.action} 执行失败。`,
+            message: result.error?.message ?? `action ${parsed.data.action} 执行失败。`,
             recoverable: result.error?.recoverable,
             field: result.error?.field,
-            expected: sanitizeErrorString(result.error?.expected),
-            received: sanitizeErrorString(result.error?.received),
-            hint: sanitizeErrorString(result.error?.hint),
+            expected: result.error?.expected,
+            received: result.error?.received,
+            hint: result.error?.hint,
             details: {
               action: parsed.data.action,
               details: sanitizeProviderVisibleValue(result.error?.details),

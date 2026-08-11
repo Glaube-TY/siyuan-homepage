@@ -1,7 +1,6 @@
 /**
  * 收藏文档分组数据模型
  * 在 favorites-index.json 内增量扩展，不新增第二个分组文件。
- * 旧 version:1 格式只读兼容为 groups=[]，不自动升级写盘。
  */
 
 /** 虚拟未分组保留 ID，仅用于组件配置和运行时，绝不能写入 item.favoriteGroupId 或 groups */
@@ -42,15 +41,7 @@ export interface FavoritesIndexPayloadV2 {
     [key: string]: unknown; // 保留未知根字段
 }
 
-/** version:1 旧格式兼容 */
-export interface FavoritesIndexPayloadV1 {
-    version?: 1;
-    updatedAt?: string;
-    items: FavoriteItemRecord[];
-    [key: string]: unknown;
-}
-
-export type FavoritesIndexPayload = FavoritesIndexPayloadV2 | FavoritesIndexPayloadV1;
+export type FavoritesIndexPayload = FavoritesIndexPayloadV2;
 
 /** 严格读取结果 */
 export type StrictReadResult =

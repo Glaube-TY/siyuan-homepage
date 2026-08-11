@@ -1,7 +1,6 @@
 import {
     assertSharedWidgetYearFilesComplete,
     CYBMOK_STORE_TRANSACTION_LOCK,
-    hasValidatedSharedWidgetMigration,
     loadSharedJson,
     mutateSharedJson,
     readSharedWidgetDirectoryChecked,
@@ -9,7 +8,6 @@ import {
     registerSharedWidgetFlusher,
     runSharedWidgetExclusive,
     type SharedRevisionedFile,
-    type SharedWidgetMigrationMetadata,
 } from "../sharedLocalStorage/sharedLocalStorage";
 import {
     CYBMOK_BATCH_VERSION,
@@ -17,23 +15,8 @@ import {
     CYBMOK_INDEX_FILE,
     CYBMOK_INDEX_SCHEMA,
     CYBMOK_INDEX_VERSION,
-    CYBMOK_RECORDS_SCHEMA,
     getCYBMOKBatchesFile,
-    SHARED_WIDGET_DATA_VERSION,
 } from "../sharedLocalStorage/sharedWidgetStoragePaths";
-import { assertSharedWidgetMigrationReady } from "../sharedLocalStorage/sharedWidgetMigration";
-
-export interface CYBMOKRecord {
-    date: string;
-    count: number;
-    createdAt: string;
-    updatedAt: string;
-}
-
-export interface CYBMOKRecordsFile extends SharedRevisionedFile {
-    records: CYBMOKRecord[];
-    migration?: SharedWidgetMigrationMetadata;
-}
 
 export interface CYBMOKRuntimeBatch {
     id: string;
@@ -45,17 +28,7 @@ export interface CYBMOKRuntimeBatch {
     source: "runtime";
 }
 
-export interface CYBMOKLegacyDailyBatch {
-    id: string;
-    kind: "legacy-daily";
-    localDate: string;
-    startedAt: "";
-    endedAt: "";
-    count: number;
-    source: "legacy-daily";
-}
-
-export type CYBMOKBatchRecord = CYBMOKRuntimeBatch | CYBMOKLegacyDailyBatch;
+export type CYBMOKBatchRecord = CYBMOKRuntimeBatch;
 
 export interface CYBMOKBatchesYearFile extends SharedRevisionedFile {
     year: number;
@@ -75,7 +48,6 @@ export interface CYBMOKIndexFile extends SharedRevisionedFile {
     totalKnocks: number;
     totalBatches: number;
     maxDay: CYBMOKMaxDay;
-    migration?: SharedWidgetMigrationMetadata;
 }
 
 export interface CYBMOKStats {
@@ -130,45 +102,6 @@ export function toCYBMOKSecondTimestamp(value: Date | number = new Date()): stri
     const date = value instanceof Date ? value : new Date(value);
     if (!Number.isFinite(date.getTime())) throw new Error("木鱼批次时间无效");
     return date.toISOString().replace(/\.\d{3}Z$/, "Z");
-}
-
-export function createEmptyCYBMOKRecordsFile(): CYBMOKRecordsFile {
-    return {
-        schema: CYBMOK_RECORDS_SCHEMA,
-        version: SHARED_WIDGET_DATA_VERSION,
-        revision: 0,
-        updatedAt: new Date().toISOString(),
-        records: [],
-    };
-}
-
-export function normalizeCYBMOKRecordsFile(raw: unknown): CYBMOKRecordsFile {
-    if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new Error("木鱼旧记录结构无效");
-    const value = raw as Record<string, unknown>;
-    if (value.schema !== CYBMOK_RECORDS_SCHEMA || value.version !== SHARED_WIDGET_DATA_VERSION) {
-        throw new Error("木鱼旧记录 schema 或 version 不受支持");
-    }
-    if (!Array.isArray(value.records)) throw new Error("木鱼旧记录列表无效");
-    const records = value.records.map((item) => {
-        if (!item || typeof item !== "object" || Array.isArray(item)) throw new Error("木鱼旧记录项无效");
-        const row = item as Record<string, unknown>;
-        const date = toLocalCYBMOKDate(row.date);
-        if (!date) throw new Error("木鱼旧记录日期无效");
-        return {
-            date,
-            count: finiteCount(row.count),
-            createdAt: typeof row.createdAt === "string" ? row.createdAt : "",
-            updatedAt: typeof row.updatedAt === "string" ? row.updatedAt : "",
-        };
-    });
-    return {
-        schema: CYBMOK_RECORDS_SCHEMA,
-        version: SHARED_WIDGET_DATA_VERSION,
-        revision: finiteCount(value.revision),
-        updatedAt: typeof value.updatedAt === "string" ? value.updatedAt : "",
-        records,
-        migration: value.migration as SharedWidgetMigrationMetadata | undefined,
-    };
 }
 
 export function createEmptyCYBMOKIndexFile(): CYBMOKIndexFile {
@@ -233,7 +166,6 @@ export function normalizeCYBMOKIndexFile(raw: unknown): CYBMOKIndexFile {
         totalKnocks: finiteCount(value.totalKnocks),
         totalBatches: finiteCount(value.totalBatches),
         maxDay: { localDate: toLocalCYBMOKDate(rawMax.localDate), count: finiteCount(rawMax.count) },
-        migration: value.migration as SharedWidgetMigrationMetadata | undefined,
     };
 }
 
@@ -246,10 +178,6 @@ function normalizeCYBMOKBatch(raw: unknown, expectedYear: number): CYBMOKBatchRe
     const count = finiteCount(value.count);
     if (!id || !localDate || Number(localDate.slice(0, 4)) !== expectedYear || count <= 0) {
         throw new Error("木鱼批次关键字段无效");
-    }
-    if (value.kind === "legacy-daily" && value.source === "legacy-daily") {
-        if (text("startedAt") || text("endedAt")) throw new Error("木鱼旧每日记录不得伪造时间");
-        return { id, kind: "legacy-daily", localDate, startedAt: "", endedAt: "", count, source: "legacy-daily" };
     }
     const startedAt = text("startedAt");
     const endedAt = text("endedAt");
@@ -307,20 +235,6 @@ export function validateCYBMOKIndex(actual: CYBMOKIndexFile, expected: CYBMOKInd
     }
 }
 
-export function createLegacyCYBMOKBatch(localDate: string, count: number): CYBMOKLegacyDailyBatch {
-    const date = toLocalCYBMOKDate(localDate);
-    if (!date || finiteCount(count) <= 0) throw new Error("木鱼旧每日数据无效");
-    return {
-        id: `cybmok-legacy-daily-${date}`,
-        kind: "legacy-daily",
-        localDate: date,
-        startedAt: "",
-        endedAt: "",
-        count: finiteCount(count),
-        source: "legacy-daily",
-    };
-}
-
 export async function listCYBMOKBatchYears(): Promise<number[]> {
     const years: number[] = [];
     for (const entry of await readSharedWidgetDirectoryChecked("cybmok")) {
@@ -357,7 +271,6 @@ function isCYBMOKIndexConsistent(index: CYBMOKIndexFile): boolean {
 }
 
 export async function rebuildCYBMOKIndexFromFiles(options: {
-    migration?: SharedWidgetMigrationMetadata;
     dispatch?: boolean;
 } = {}): Promise<CYBMOKIndexFile> {
     const existing = await loadSharedJson(CYBMOK_INDEX_FILE, normalizeCYBMOKIndexFile);
@@ -392,7 +305,6 @@ export async function rebuildCYBMOKIndexFromFiles(options: {
             index.totalKnocks = totalKnocks;
             index.totalBatches = totalBatches;
             index.maxDay = maxDay;
-            index.migration = options.migration || existing?.migration;
         },
         validate: validateCYBMOKIndex,
         dispatch: options.dispatch !== false,
@@ -400,27 +312,19 @@ export async function rebuildCYBMOKIndexFromFiles(options: {
 }
 
 async function loadCYBMOKIndexForRead(): Promise<CYBMOKIndexFile> {
-    const existing = await loadSharedJson(CYBMOK_INDEX_FILE, normalizeCYBMOKIndexFile);
-    if (hasValidatedSharedWidgetMigration(existing)) return existing;
-
-    await assertSharedWidgetMigrationReady("cybmok");
-    const migrated = await runSharedWidgetExclusive(
+    return runSharedWidgetExclusive(
         CYBMOK_STORE_TRANSACTION_LOCK,
         () => loadOrRepairCYBMOKIndex({ dispatch: false }),
     );
-    if (!hasValidatedSharedWidgetMigration(migrated)) {
-        throw new Error("敲木鱼历史迁移尚未完成");
-    }
-    return migrated;
 }
 
 export async function getCYBMOKStoreStatus(): Promise<CYBMOKStoreStatus> {
     try {
-        const index = await loadCYBMOKIndexForRead();
+        await loadCYBMOKIndexForRead();
         return {
             ok: true,
             missingFields: [],
-            message: index.migration?.cleanupStatus === "pending" ? "旧数据清理待重试" : "本地数据已就绪",
+            message: "本地数据已就绪",
         };
     } catch (error) {
         return { ok: false, missingFields: [], message: error instanceof Error ? error.message : "本地存储不可用" };
@@ -442,7 +346,7 @@ async function loadOrRepairCYBMOKIndex(options: { dispatch?: boolean } = {}): Pr
     const years = await listCYBMOKBatchYears();
     assertSharedWidgetYearFilesComplete(index.years, years);
     if (!isCYBMOKIndexConsistent(index) || years.some((year) => !index.years.includes(year))) {
-        return rebuildCYBMOKIndexFromFiles({ migration: index.migration, dispatch: options.dispatch });
+        return rebuildCYBMOKIndexFromFiles({ dispatch: options.dispatch });
     }
     const currentYear = new Date().getFullYear();
     for (const year of [currentYear - 1, currentYear]) {
@@ -458,7 +362,7 @@ async function loadOrRepairCYBMOKIndex(options: { dispatch?: boolean } = {}): Pr
         if (batches.length !== (index.yearBatchCounts[String(year)] || 0)
             || knockCount !== (index.yearKnockCounts[String(year)] || 0)
             || Boolean(file) !== index.years.includes(year)) {
-            return rebuildCYBMOKIndexFromFiles({ migration: index.migration, dispatch: options.dispatch });
+            return rebuildCYBMOKIndexFromFiles({ dispatch: options.dispatch });
         }
     }
     return index;
@@ -504,7 +408,7 @@ async function appendCYBMOKBatches(batches: CYBMOKRuntimeBatch[]): Promise<void>
             }
         }
         if (indexWasInconsistent) {
-            await rebuildCYBMOKIndexFromFiles({ migration: index.migration });
+            await rebuildCYBMOKIndexFromFiles();
             return;
         }
         if (addedBatches.length === 0) return;
@@ -533,7 +437,7 @@ async function appendCYBMOKBatches(batches: CYBMOKRuntimeBatch[]): Promise<void>
             });
         } catch (incrementalError) {
             try {
-                await rebuildCYBMOKIndexFromFiles({ migration: index.migration });
+                await rebuildCYBMOKIndexFromFiles();
             } catch (rebuildError) {
                 throw new Error(`木鱼批次已保存，但索引增量更新和完整重建均失败：${String(incrementalError)}；${String(rebuildError)}`);
             }
@@ -568,7 +472,6 @@ async function persistPendingBatches(): Promise<void> {
     if (snapshot.length === 0) return;
     const snapshotIds = new Set(snapshot.map((batch) => batch.id));
     flushPromise = (async () => {
-        await assertSharedWidgetMigrationReady("cybmok");
         await appendCYBMOKBatches(snapshot);
         for (let index = pendingBatches.length - 1; index >= 0; index -= 1) {
             if (snapshotIds.has(pendingBatches[index].id)) pendingBatches.splice(index, 1);

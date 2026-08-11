@@ -6,7 +6,7 @@ function getFrontend(): string {
     return getSiyuanRuntimePort().getFrontend?.() ?? "kernel";
 }
 
-// 四个前端专属键 + 一个只读旧通用键（仅兼容 4.8.4 正式发布版）。
+// 四个前端专属设备身份键。
 // - desktop/desktop-window → syhomepage-device-id-desktop
 // - browser-desktop       → syhomepage-device-id-browser-desktop
 // - mobile (原生)          → syhomepage-device-id-native-mobile
@@ -15,8 +15,6 @@ const STORAGE_KEY_DESKTOP = "syhomepage-device-id-desktop";
 const STORAGE_KEY_BROWSER_DESKTOP = "syhomepage-device-id-browser-desktop";
 const STORAGE_KEY_NATIVE_MOBILE = "syhomepage-device-id-native-mobile";
 const STORAGE_KEY_BROWSER_MOBILE = "syhomepage-device-id-browser-mobile";
-/** 4.8.4 旧通用键，只读兼容，永不被覆盖或删除。 */
-const LEGACY_STORAGE_KEY = "syhomepage-device-id";
 
 function storageKey(frontend: string): string {
     if (frontend === "desktop" || frontend === "desktop-window") return STORAGE_KEY_DESKTOP;
@@ -46,8 +44,6 @@ function validateNewDeviceIdPrefix(value: string, frontend: string): boolean {
 export interface DeviceInfo {
     /** 当前设备物理身份。desktop: desktop-{hash(system.id)}; browser-desktop: browser-{uuid}; native-mobile: mobile-{hash}; browser-mobile: browser-mobile-{uuid} */
     physicalDeviceId: string;
-    /** 仅用于匹配 4.8.4 root profile 的旧设备 ID 候选。 */
-    legacyProfileCandidateIds: string[];
     /** 设备名称，来自 system.name */
     deviceName: string;
     /** 操作系统，来自 system.os */
@@ -158,32 +154,19 @@ export function readStoredDeviceId(
 
 interface StoredPhysicalDeviceIds {
     currentFrontendStoredId: string | null;
-    legacy484StoredId: string | null;
-    legacyProfileCandidateIds: string[];
 }
 
-/** 分别读取当前最终版身份与 4.8.4 root profile 精确候选。 */
+/** 读取当前前端专属设备身份。 */
 function collectStoredPhysicalDeviceIds(frontend: string): StoredPhysicalDeviceIds {
     const currentKey = storageKey(frontend);
     const currentResult = readStoredDeviceId(
         currentKey,
         (value) => validateNewDeviceIdPrefix(value, frontend) && value !== "mobile-shared",
     );
-    const legacyResult = readStoredDeviceId(LEGACY_STORAGE_KEY);
-    for (const [key, result] of [
-        [currentKey, currentResult],
-        [LEGACY_STORAGE_KEY, legacyResult],
-    ] as const) {
-        if (result.status === "invalid") throw new DeviceIdentityStoredValueError(key);
-        if (result.status === "read-error") throw result.error;
-    }
+    if (currentResult.status === "invalid") throw new DeviceIdentityStoredValueError(currentKey);
+    if (currentResult.status === "read-error") throw currentResult.error;
     const currentFrontendStoredId = currentResult.status === "valid" ? currentResult.value : null;
-    const legacy484StoredId = legacyResult.status === "valid" ? legacyResult.value : null;
-    return {
-        currentFrontendStoredId,
-        legacy484StoredId,
-        legacyProfileCandidateIds: legacy484StoredId ? [legacy484StoredId] : [],
-    };
+    return { currentFrontendStoredId };
 }
 
 function persistDeviceId(deviceId: string, frontend: string): void {
@@ -207,7 +190,6 @@ function persistDeviceId(deviceId: string, frontend: string): void {
  * - mobile (原生):               physical = mobile-{hash}，scope = mobile-shared
  * - browser-mobile:             physical = browser-mobile-{uuid}，scope = mobile-shared
  *
- * 4.8.4 旧通用键只读，仅作为 root profile 匹配候选。
  */
 async function initializeDeviceIdentity(): Promise<DeviceInfo> {
     const frontend = getFrontend();
@@ -220,11 +202,7 @@ async function initializeDeviceIdentity(): Promise<DeviceInfo> {
         systemConfig = await getSiyuanSystemConfig();
     }
 
-    const {
-        currentFrontendStoredId,
-        legacy484StoredId,
-        legacyProfileCandidateIds,
-    } = collectStoredPhysicalDeviceIds(frontend);
+    const { currentFrontendStoredId } = collectStoredPhysicalDeviceIds(frontend);
 
     let physicalDeviceId: string;
     let deviceName: string;
@@ -298,9 +276,6 @@ async function initializeDeviceIdentity(): Promise<DeviceInfo> {
 
     cachedDeviceInfo = {
         physicalDeviceId,
-        legacyProfileCandidateIds: legacyProfileCandidateIds.filter(
-            (id) => id !== physicalDeviceId && id === legacy484StoredId,
-        ),
         deviceName,
         os,
         osPlatform,

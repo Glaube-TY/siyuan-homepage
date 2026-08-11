@@ -1,4 +1,4 @@
-import { createAgentWorkbenchRuntime, refreshUserSkills } from "./create-agent-workbench";
+import { createAgentWorkbenchRuntime } from "./create-agent-workbench";
 import { buildAgentContextInstructions } from "./agent-context-instruction-builder";
 import { runNativeAgentLoop } from "./native-agent-runner";
 import { SiyuanToolRuntimeState } from "../tools/siyuan/siyuan-tool-runtime";
@@ -281,16 +281,6 @@ export async function runAgentTurn(
       hasNodeRequire: runtimeEnv.hasNodeRequire,
       unsupportedCapabilities: runtimeEnv.unsupportedCapabilities,
     }, "info");
-
-    if (settings.externalSkills?.legacyUserSkillDirectInject === true) {
-      try {
-        await refreshUserSkills(wb.skillRegistry);
-      } catch (err) {
-        pushAgentDebugEvent("USER_SKILL_LOAD_FAILED", {
-          error: err instanceof Error ? err.message.slice(0, 80) : String(err),
-        }, "warn");
-      }
-    }
 
     let externalSkillIndexPrompt = "";
     if (settings.externalSkills?.enabled !== false) {

@@ -186,8 +186,8 @@ export async function executeSiyuanBookmarkManage(args: SiyuanBookmarkManageInpu
       break;
     }
     case "rename": {
-      const oldBookmark = args.oldBookmark ?? args.oldLabel;
-      const newBookmark = args.newBookmark ?? args.newLabel;
+      const oldBookmark = args.oldBookmark;
+      const newBookmark = args.newBookmark;
       const blockIds = args.blockIds;
       if (!blockIds || blockIds.length === 0) {
         throw new Error("[invalid_args] bookmark.rename 必须提供 blockIds；请先调用 list_blocks 定位真实块 ID。");
@@ -210,7 +210,7 @@ export async function executeSiyuanBookmarkManage(args: SiyuanBookmarkManageInpu
       break;
     }
     case "remove": {
-      const bookmark = args.bookmark ?? args.label;
+      const bookmark = args.bookmark;
       const blockIds = args.blockIds;
       if (!blockIds || blockIds.length === 0) {
         throw new Error("[invalid_args] bookmark.remove 必须提供 blockIds；请先调用 list_blocks 定位真实块 ID。");

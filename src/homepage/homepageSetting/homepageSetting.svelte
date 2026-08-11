@@ -642,7 +642,6 @@
         if (
             typeof config.mobileAutoOpenEnabled === "boolean"
             || typeof config.mobileAutoOpenTarget === "string"
-            || typeof config.autoOpenMobileHomepage === "boolean"
         ) {
             const resolved = resolveMobileAutoOpenConfig(config);
             mobileAutoOpenEnabled = resolved.enabled;
@@ -818,48 +817,20 @@
                         : savedConfig.mobileQuickActionItems,
                 );
 
-                // --- 自动打开设置：mobile 新字段 > mobile 旧字段 > desktop 旧字段 > 默认值 ---
-                const hasNewMobileAutoOpenConfig =
-                    typeof (mobileConfig as any).mobileAutoOpenEnabled === "boolean"
-                    || typeof (mobileConfig as any).mobileAutoOpenTarget === "string";
-
-                const hasOldMobileAutoOpenConfig =
-                    typeof (mobileConfig as any).autoOpenMobileHomepage === "boolean";
-
-                if (hasNewMobileAutoOpenConfig) {
-                    // 1. 新字段存在，以 mobile 配置为准
-                    const resolved = resolveMobileAutoOpenConfig(mobileConfig);
-                    mobileAutoOpenEnabled = resolved.enabled;
-                    mobileAutoOpenTarget = resolved.target;
-                } else if (hasOldMobileAutoOpenConfig) {
-                    // 2. 旧字段在 mobile 中存在，仍以 mobile 为准（优先于 desktop 旧副本）
-                    const resolved = resolveMobileAutoOpenConfig(mobileConfig);
-                    mobileAutoOpenEnabled = resolved.enabled;
-                    mobileAutoOpenTarget = resolved.target;
-                } else if (savedConfig && typeof savedConfig.autoOpenMobileHomepage === "boolean") {
-                    // 3. mobile 中无任何自动打开配置，回退 desktop 旧字段（仅 UI 回退，不自动写盘）
-                    mobileAutoOpenEnabled = savedConfig.autoOpenMobileHomepage === true;
-                    mobileAutoOpenTarget = "mobile-homepage";
-                } else {
-                    // 4. 两边都没有，默认值
-                    mobileAutoOpenEnabled = false;
-                    mobileAutoOpenTarget = "mobile-homepage";
-                }
+                const resolved = resolveMobileAutoOpenConfig(mobileConfig);
+                mobileAutoOpenEnabled = resolved.enabled;
+                mobileAutoOpenTarget = resolved.target;
             } catch {
-                // mobile 配置读取失败：使用 desktop 旧字段作为 UI 回退
+                // mobile 配置读取失败：共享设置仍可从当前桌面配置恢复。
                 mobileQuickActionsEnabled = savedConfig.mobileQuickActionsEnabled ?? true;
                 mobileQuickActionsButtonSize = normalizeMobileQuickActionButtonSize(
                     savedConfig.mobileQuickActionsButtonSize,
                 );
                 mobileQuickActionItems = normalizeMobileQuickActionItems(savedConfig.mobileQuickActionItems);
 
-                if (savedConfig && typeof savedConfig.autoOpenMobileHomepage === "boolean") {
-                    mobileAutoOpenEnabled = savedConfig.autoOpenMobileHomepage === true;
-                    mobileAutoOpenTarget = "mobile-homepage";
-                } else {
-                    mobileAutoOpenEnabled = false;
-                    mobileAutoOpenTarget = "mobile-homepage";
-                }
+                const resolved = resolveMobileAutoOpenConfig(savedConfig);
+                mobileAutoOpenEnabled = resolved.enabled;
+                mobileAutoOpenTarget = resolved.target;
             }
             // 横幅配置
             bannerEnabled = savedConfig.bannerEnabled ?? true;
@@ -1234,13 +1205,13 @@
         ActivationCode = value;
     }
 
-    function handleFavoritesMigrationStatusChange(status: ComponentMigrationStatus) {
+    function handleFavoritesIndexStatusChange(status: ComponentMigrationStatus) {
         favoritesMigrationStatus = status;
     }
-    function handleReviewDocsMigrationStatusChange(status: ComponentMigrationStatus) {
+    function handleReviewDocsIndexStatusChange(status: ComponentMigrationStatus) {
         reviewDocsMigrationStatus = status;
     }
-    function handleTaskIndexMigrationStatusChange(status: ComponentMigrationStatus) {
+    function handleTaskIndexStatusChange(status: ComponentMigrationStatus) {
         taskIndexMigrationStatus = status;
     }
     function handleHeatmapIndexStatusChange(status: ComponentMigrationStatus) {
@@ -1280,8 +1251,6 @@
             sidebarEnabled: sidebarEnabled,
             mobileAutoOpenEnabled,
             mobileAutoOpenTarget: normalizeMobileAutoOpenTarget(mobileAutoOpenTarget),
-            autoOpenMobileHomepage:
-                mobileAutoOpenEnabled && normalizeMobileAutoOpenTarget(mobileAutoOpenTarget) === "mobile-homepage",
             mobileQuickActionsEnabled: mobileQuickActionsEnabled,
             mobileQuickActionsButtonSize: normalizeMobileQuickActionButtonSize(mobileQuickActionsButtonSize),
             ...(existingConfig.mobileQuickActionsPosition !== undefined
@@ -1442,12 +1411,10 @@
             try {
                 const mobileConfig = (await loadHomepageSettingConfig(plugin, "mobile-homepage")) || {} as HomepageSettingConfig;
                 const target = normalizeMobileAutoOpenTarget(mobileAutoOpenTarget);
-                const compatAutoOpenMobileHomepage = mobileAutoOpenEnabled && target === "mobile-homepage";
                 await saveHomepageSettingConfig(plugin, {
                     ...mobileConfig,
                     mobileAutoOpenEnabled,
                     mobileAutoOpenTarget: target,
-                    autoOpenMobileHomepage: compatAutoOpenMobileHomepage,
                     mobileQuickActionsEnabled,
                     mobileQuickActionsButtonSize: normalizeMobileQuickActionButtonSize(mobileQuickActionsButtonSize),
                     mobileQuickActionItems: normalizeMobileQuickActionItems(mobileQuickActionItems),
@@ -1684,15 +1651,15 @@
                     {#if settingsActiveTab === "indexing"}
                         <IndexManagementSettingsTab
                             {plugin}
-                            bind:favoritesMigrationStatus
-                            bind:reviewDocsMigrationStatus
-                            bind:taskIndexMigrationStatus
+                            bind:favoritesIndexStatus={favoritesMigrationStatus}
+                            bind:reviewDocsIndexStatus={reviewDocsMigrationStatus}
+                            bind:taskIndexStatus={taskIndexMigrationStatus}
                             bind:heatmapIndexStatus
                             bind:statIndexStatus
                             bind:enhancedDiaryIndexStatus
-                            onFavoritesStatusChange={handleFavoritesMigrationStatusChange}
-                            onReviewDocsStatusChange={handleReviewDocsMigrationStatusChange}
-                            onTaskIndexStatusChange={handleTaskIndexMigrationStatusChange}
+                            onFavoritesStatusChange={handleFavoritesIndexStatusChange}
+                            onReviewDocsStatusChange={handleReviewDocsIndexStatusChange}
+                            onTaskIndexStatusChange={handleTaskIndexStatusChange}
                             onHeatmapIndexStatusChange={handleHeatmapIndexStatusChange}
                             onStatIndexStatusChange={handleStatIndexStatusChange}
                             onEnhancedDiaryIndexStatusChange={handleEnhancedDiaryIndexStatusChange}

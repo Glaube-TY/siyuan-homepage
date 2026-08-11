@@ -18,9 +18,6 @@ export interface VIPIdentity {
     IDENTITY_SOURCE: string;
 }
 
-const LEGACY_AES_SECRET_KEY = "tWMV80B17zb91Sps8nXc330yiJGNxDgR";
-const LEGACY_COMPAT_END = new Date(2026, 7, 31, 23, 59, 59, 999).getTime();
-
 // 所有 license.syhomepage 的写入共用同一条队列，避免旧快照覆盖新 SH。
 let licenseMutationTail: Promise<void> = Promise.resolve();
 
@@ -34,149 +31,11 @@ function runLicenseMutation<T>(task: () => Promise<T>): Promise<T> {
     return result;
 }
 
-function isLegacyAesCompatActive(now = Date.now()): boolean {
-    return now <= LEGACY_COMPAT_END;
-}
-
-/**
- * 解析激活码 payload（支持用户名包含横杠）
- * 格式：userName-userId-planOrReserved-dueDateStr-glaflagty
- * 其中 userName 可以包含多个横杠
- */
-function parseLicensePayload(decryptedCode: string): {
-    userName: string;
-    userId: string;
-    planOrReserved: string;
-    dueDateStr: string;
-    flag: string;
-} | null {
-    const parts = decryptedCode.split('-');
-
-    // 至少要有 5 段：userName(可能多段)-userId-planOrReserved-dueDateStr-flag
-    if (parts.length < 5) {
-        return null;
-    }
-
-    // 最后一段必须是 glaflagty
-    const flag = parts[parts.length - 1];
-    if (flag !== 'glaflagty') {
-        return null;
-    }
-
-    // 从右往左取固定字段
-    const dueDateStr = parts[parts.length - 2];
-    const planOrReserved = parts[parts.length - 3];
-    const userId = parts[parts.length - 4];
-
-    // 用户名是剩下的所有部分（可能包含横杠）
-    const userName = parts.slice(0, parts.length - 4).join('-');
-
-    // 用户名为空视为非法
-    if (!userName) {
-        return null;
-    }
-
-    return {
-        userName,
-        userId,
-        planOrReserved,
-        dueDateStr,
-        flag
-    };
-}
-
 function makeVerifyCode(): string {
     const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
     return "homepage" + Array(10).fill(0).map(() => {
         return chars[Math.floor(Math.random() * chars.length)];
     }).join("");
-}
-
-function parseLegacyDueDate(dateStr: string): Date | null {
-    if (!/^\d{8}$/.test(dateStr)) {
-        return null;
-    }
-
-    const year = Number(dateStr.substring(0, 4));
-    const month = Number(dateStr.substring(4, 6));
-    const day = Number(dateStr.substring(6, 8));
-    const date = new Date(year, month - 1, day);
-
-    if (
-        date.getFullYear() !== year ||
-        date.getMonth() !== month - 1 ||
-        date.getDate() !== day
-    ) {
-        return null;
-    }
-
-    return date;
-}
-
-function verifyLegacyAesLicenseV1(
-    ActivationCode: string,
-    USER_NAME: string,
-    USER_ID: string
-): LicenseVerifyResult {
-    // 兼容期结束后直接返回，不再尝试解密或校验旧 AES 激活码。
-    if (!isLegacyAesCompatActive()) {
-        return invalid(
-            40,
-            "❌ 旧版激活方式兼容期已结束，请使用会员兑换码迁移新版授权。"
-        );
-    }
-
-    try {
-        const bytes = CryptoJS.AES.decrypt(ActivationCode, LEGACY_AES_SECRET_KEY);
-        const decryptedCode = bytes.toString(CryptoJS.enc.Utf8);
-        const parsed = parseLicensePayload(decryptedCode);
-
-        if (!parsed) {
-            return invalid(41, "❌ 激活码无效！");
-        }
-
-        if (parsed.userName !== USER_NAME || parsed.userId !== USER_ID) {
-            return invalid(42, "❌ 账户不匹配！");
-        }
-
-        const dueDate = parseLegacyDueDate(parsed.dueDateStr);
-        if (!dueDate) {
-            return invalid(43, "❌ 激活码已过期！");
-        }
-
-        // 到期日期当天 23:59:59.999 前仍可用
-        const dueDateEnd = new Date(
-            dueDate.getFullYear(),
-            dueDate.getMonth(),
-            dueDate.getDate(),
-            23, 59, 59, 999
-        );
-
-        if (Date.now() > dueDateEnd.getTime()) {
-            return invalid(43, "❌ 激活码已过期！");
-        }
-
-        const remainingDays = Math.ceil((dueDateEnd.getTime() - Date.now()) / (1000 * 3600 * 24));
-
-        return {
-            valid: true,
-            code: 0,
-            licenseVersion: 1,
-            legacy: true,
-            legacyDeprecated: true,
-            userInfo: {
-                name: parsed.userName,
-                userId: parsed.userId,
-                due: `${parsed.dueDateStr.substring(0, 4)}年${parseInt(parsed.dueDateStr.substring(4, 6))}月${parseInt(parsed.dueDateStr.substring(6, 8))}日`,
-                remainingDays,
-                isExpired: false,
-                isLifetime: remainingDays > 100000
-            }
-        };
-    } catch (error) {
-        console.error("[Homepage] 旧版本 AES 激活码校验失败:", error);
-        return invalid(44, "❌ 旧版激活码无效！");
-    }
 }
 
 export async function updateVIP(): Promise<VIPIdentity> {
@@ -206,20 +65,6 @@ export async function updateVIP(): Promise<VIPIdentity> {
     };
 
     return VIPconf;
-}
-
-/**
- * 只读读取本地保存的 ActivationCode。
- * 不修改 verifyLicense / activateLicense / SH 验签核心。
- */
-export async function getSavedActivationCode(plugin: any): Promise<string> {
-    try {
-        const data = await plugin.loadData("license.syhomepage");
-        const code = data?.ActivationCode;
-        return typeof code === "string" ? code.trim() : "";
-    } catch {
-        return "";
-    }
 }
 
 /**
@@ -339,7 +184,6 @@ function isApiErrorResponse(data: unknown): boolean {
 
 /**
  * 严格读取本地授权，供会员恢复和自动登记等关键流程使用。
- * 与兼容的 getSavedActivationCode 不同，读取失败不会伪装成"没有授权"。
  * 处理 plugin.loadData() 抛出的异常和返回的结构化 API 错误响应。
  */
 export async function readSavedActivationCodeState(plugin: any): Promise<SavedActivationCodeState> {
@@ -375,7 +219,6 @@ export async function readSavedActivationCodeState(plugin: any): Promise<SavedAc
 
 /**
  * 只读验证已保存的新版 SH：不会写入 license.syhomepage 或展示元数据。
- * 旧 AES 兼容验证仍保留在 verifyLicense 中。
  */
 export async function verifySavedSignedLicenseReadOnly(
     plugin: any,
@@ -503,18 +346,17 @@ export async function verifyLicense(
         const code = String(ActivationCode).trim();
         if (!code) return invalid(2, "❌ 请输入激活码！");
 
-        const result = isSignedLicense(code)
-            ? verifySignedLicense(code, USER_NAME, USER_ID)
-            : verifyLegacyAesLicenseV1(code, USER_NAME, USER_ID);
+        if (!isSignedLicense(code)) {
+            return invalid(50, "❌ 当前本地授权不是新版 SH 激活码，请使用会员兑换码重新激活。");
+        }
+        const result = verifySignedLicense(code, USER_NAME, USER_ID);
         if (!result.valid || !result.userInfo) return result;
 
         const saveData = {
             ...data,
             ActivationCode: code,
-            licenseFormat: result.licenseVersion === 2 ? "SH" : "AES",
-            licenseVersion: result.licenseVersion,
-            legacy: result.legacy === true,
-            legacyDeprecated: result.legacyDeprecated === true,
+            licenseFormat: "SH",
+            licenseVersion: 2,
             verifyCode: makeVerifyCode(),
             name: result.userInfo.name,
             userId: result.userInfo.userId,
@@ -554,7 +396,7 @@ export async function activateLicense(
     if (!isSignedLicense(code)) {
         return invalid(
             50,
-            "❌ 请使用新版激活码。旧版激活码只能继续用于本地已保存的兼容数据，不能再手动输入激活。"
+            "❌ 请使用会员兑换码获取新版 SH 激活码。"
         );
     }
 
@@ -577,8 +419,6 @@ export async function activateLicense(
                 ActivationCode: code,
                 licenseFormat: "SH",
                 licenseVersion: 2,
-                legacy: false,
-                legacyDeprecated: false,
                 verifyCode: makeVerifyCode(),
                 name: result.userInfo!.name,
                 userId: result.userInfo!.userId,

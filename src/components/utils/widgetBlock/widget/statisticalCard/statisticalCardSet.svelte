@@ -59,7 +59,7 @@
                 <option value="tasksCount">任务数</option>
                 <option value="doneTasksCount">已完成任务数</option>
                 <option value="undoneTasksCount">未完成任务数</option>
-                <option value="dailynotesCount">日记数</option>
+                <option value="dailyNotesCount">日记数</option>
                 <option value="tagsCount">标签数</option>
                 <option value="citationCount">引用块数量</option>
                 <option value="codeBlocksCount">代码数</option>

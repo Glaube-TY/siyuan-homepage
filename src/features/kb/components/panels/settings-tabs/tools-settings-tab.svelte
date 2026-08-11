@@ -134,7 +134,6 @@
       "delete",
       "remove_widget",
       "remove_section",
-      "cleanup_unresolved_widgets",
       "archive_record",
       "archive_account",
       "delete_permanently",

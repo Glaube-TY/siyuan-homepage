@@ -172,7 +172,6 @@ export interface EnhancedDiaryTemplateContext {
     month?: string;
     year?: string;
     周期范围?: string;
-    完成标记?: string;
     开始日期?: string;
     结束日期?: string;
 }
@@ -200,14 +199,6 @@ export interface EnhancedDiaryScanResult {
 export const ENHANCED_DIARY_CONFIG_FILE = "enhancedDiaryConfig.json";
 
 export const ENHANCED_DIARY_PERIODS: readonly EnhancedDiaryPeriod[] = ["day", "week", "month", "year"];
-
-// 旧版任务列表式完成标记，保留兼容识别，不删除历史块。
-export const ENHANCED_DIARY_COMPLETION_MARKERS_LEGACY: Record<EnhancedDiaryPeriod, string> = {
-    day: "- [ ] 已完成今日记录🌞",
-    week: "- [ ] 已完成本周复盘📅",
-    month: "- [ ] 已完成本月总结🌙",
-    year: "- [ ] 已完成年度总结🎇",
-};
 
 export const ENHANCED_DIARY_SKIP_MARKERS: Record<EnhancedDiaryPeriod, string> = {
     day: "- [x] 已跳过今日记录⏭️",

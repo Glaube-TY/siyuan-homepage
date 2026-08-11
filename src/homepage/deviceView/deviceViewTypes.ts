@@ -13,8 +13,6 @@ export interface DeviceViewContext {
     plugin: any;
     /** 物理设备 ID（用于设备管理、日志和同步来源追踪）。 */
     physicalDeviceId: string;
-    /** 仅用于 4.8.4 root profile 精确匹配，不得作为 device-view scope。 */
-    legacyProfileCandidateIds: string[];
     /** 视图存储作用域 ID：PC 用物理 deviceId，移动端固定为 "mobile-shared" */
     scopeId: string;
     surface: DeviceViewSurface;
@@ -67,8 +65,10 @@ export interface DeviceViewManifest extends DeviceViewMetadata {
     status: "complete";
     migration: {
         state: "complete";
+        /** 仅记录当前设备视图最初如何生成，不会触发任何迁移流程。 */
         source: "legacy-root" | "fresh" | "recovered-target";
         completedAt: string;
+        /** 已生成清单中的来源诊断信息；当前运行不再据此启动迁移。 */
         unresolvedLegacyWidgetIds?: string[];
     };
 }

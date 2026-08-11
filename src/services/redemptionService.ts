@@ -17,7 +17,6 @@ import {
     membershipMessage,
     safeParseJson,
     unwrapSuccessData,
-    type MembershipServiceErrorCode,
 } from "./membershipService";
 
 export { DEFAULT_BASE_URL, DEFAULT_TIMEOUT_MS };
@@ -54,36 +53,6 @@ export interface RedeemResponse {
     issuedDate: string;
     /** 兑换时间 ISO 字符串 */
     redeemedAt: string;
-}
-
-/** @deprecated 请改用 MembershipServiceErrorCode（兼容旧引用，不新增使用） */
-export type RedeemErrorCode = Exclude<
-    MembershipServiceErrorCode,
-    | "INVALID_USER_CODE"
-    | "SIGNING_KEY_UNAVAILABLE"
-    | "SERVER_PROTOCOL_ERROR"
-    | "RATE_LIMITED"
-    | "TIMEOUT"
->;
-
-/** @deprecated 请改用 MembershipServiceError */
-export class RedeemError extends Error {
-    readonly code: RedeemErrorCode;
-    readonly httpStatus?: number;
-    readonly businessCode?: string;
-
-    constructor(details: {
-        code: RedeemErrorCode;
-        message: string;
-        httpStatus?: number;
-        businessCode?: string;
-    }) {
-        super(details.message);
-        this.name = "RedeemError";
-        this.code = details.code;
-        this.httpStatus = details.httpStatus;
-        this.businessCode = details.businessCode;
-    }
 }
 
 const ALLOWED_PLAN_KEYS = new Set(["month", "year", "lifetime", "custom"]);

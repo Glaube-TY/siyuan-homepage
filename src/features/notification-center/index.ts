@@ -26,7 +26,6 @@ export {
   settleMobilePlanReconcile,
 } from "./notification-center-mobile-plan-manager";
 export * from "./notification-center-mobile-plan-store";
-export * from "./notification-center-migration";
 export * from "./notification-center-runtime";
 export * from "./notification-center-device";
 export * from "./notification-center-redact";

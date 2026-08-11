@@ -53,10 +53,10 @@ export const siyuanDocTreeInputSchema = z.preprocess(normalizeSiyuanDocTreeInput
     }
   }
   if (value.action === "duplicate") {
-    if (!value.id && (!value.ids || value.ids.length === 0)) {
+    if (!value.id) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: "duplicate 需要源文档 docId（字段 id，或 ids[0]）。",
+        message: "duplicate 需要源文档 docId（字段 id）。",
         path: ["id"],
       });
     }

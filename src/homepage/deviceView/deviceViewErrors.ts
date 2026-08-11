@@ -1,14 +1,13 @@
 import { getDeviceRoot } from "./deviceViewPaths";
 import type { DeviceViewContext, DeviceViewSurface } from "./deviceViewTypes";
 
-export type DeviceViewMigrationBlockedCode =
+export type DeviceViewAccessBlockedCode =
     | "device_view_schema_unrecognized"
     | "device_view_version_mismatch"
-    | "device_view_manifest_unreadable"
-    | "legacy_profile_ambiguous";
+    | "device_view_manifest_unreadable";
 
-export interface DeviceViewMigrationBlockedDetails {
-    code: DeviceViewMigrationBlockedCode;
+export interface DeviceViewAccessBlockedDetails {
+    code: DeviceViewAccessBlockedCode;
     deviceId: string;
     surface: DeviceViewSurface;
     deviceRootPath: string;
@@ -16,16 +15,16 @@ export interface DeviceViewMigrationBlockedDetails {
     safeMessage: string;
 }
 
-export class DeviceViewMigrationBlockedError extends Error {
-    public readonly code: DeviceViewMigrationBlockedCode;
+export class DeviceViewAccessBlockedError extends Error {
+    public readonly code: DeviceViewAccessBlockedCode;
     public readonly deviceId: string;
     public readonly surface: DeviceViewSurface;
     public readonly deviceRootPath: string;
     public readonly safeMessage: string;
 
-    constructor(details: DeviceViewMigrationBlockedDetails) {
+    constructor(details: DeviceViewAccessBlockedDetails) {
         super(details.reason);
-        this.name = "DeviceViewMigrationBlockedError";
+        this.name = "DeviceViewAccessBlockedError";
         this.code = details.code;
         this.deviceId = details.deviceId;
         this.surface = details.surface;
@@ -34,33 +33,10 @@ export class DeviceViewMigrationBlockedError extends Error {
     }
 }
 
-const blockedStates = new Map<string, DeviceViewMigrationBlockedError>();
 const notifiedKeys = new Set<string>();
 
 function stateKey(deviceId: string, surface: DeviceViewSurface): string {
     return `${deviceId}:${surface}`;
-}
-
-export function recordDeviceViewBlockedState(error: DeviceViewMigrationBlockedError): void {
-    blockedStates.set(stateKey(error.deviceId, error.surface), error);
-}
-
-export function getDeviceViewBlockedState(
-    deviceId: string,
-    surface: DeviceViewSurface,
-): DeviceViewMigrationBlockedError | undefined {
-    return blockedStates.get(stateKey(deviceId, surface));
-}
-
-export function isDeviceViewMigrationBlocked(
-    deviceId: string,
-    surface: DeviceViewSurface,
-): boolean {
-    return blockedStates.has(stateKey(deviceId, surface));
-}
-
-export function isDeviceViewMigrationBlockedForContext(context: DeviceViewContext): boolean {
-    return isDeviceViewMigrationBlocked(context.scopeId, context.surface);
 }
 
 export function markDeviceViewBlockedNotified(
@@ -79,16 +55,16 @@ export function hasDeviceViewBlockedNotified(deviceId: string, surface: DeviceVi
 
 export function createDeviceViewBlockedError(
     context: DeviceViewContext,
-    code: DeviceViewMigrationBlockedCode,
+    code: DeviceViewAccessBlockedCode,
     reason: string,
-): DeviceViewMigrationBlockedError {
+): DeviceViewAccessBlockedError {
     const deviceRootPath = getDeviceRoot(context.plugin, context.scopeId);
     const safeMessage = [
-        "设备视图迁移被阻断，插件已停止自动转换，防止覆盖旧数据。",
+        "设备视图访问被阻断，插件已停止自动写入，防止覆盖无法识别的数据。",
         `当前设备目录：${deviceRootPath}`,
-        "请手动检查该目录中的文件；插件不会自动删除、覆盖或借用其他设备目录。",
+        "请手动检查该目录中的文件；插件不会自动删除或覆盖不兼容的数据。",
     ].join("\n");
-    return new DeviceViewMigrationBlockedError({
+    return new DeviceViewAccessBlockedError({
         code,
         deviceId: context.scopeId,
         surface: context.surface,
@@ -98,7 +74,7 @@ export function createDeviceViewBlockedError(
     });
 }
 
-export function formatDeviceViewBlockedUserMessage(error: DeviceViewMigrationBlockedError): string {
+export function formatDeviceViewBlockedUserMessage(error: DeviceViewAccessBlockedError): string {
     return error.safeMessage;
 }
 

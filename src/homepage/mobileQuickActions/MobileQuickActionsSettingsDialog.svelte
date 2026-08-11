@@ -137,13 +137,10 @@
         try {
             const existingConfig = (await loadHomepageSettingConfig(plugin, "mobile-homepage")) || {} as HomepageSettingConfig;
             const target = normalizeMobileAutoOpenTarget(mobileAutoOpenTarget);
-            // 兼容字段：只有自动打开且目标是 mobile-homepage 时旧字段才为 true
-            const compatAutoOpenMobileHomepage = mobileAutoOpenEnabled && target === "mobile-homepage";
             await saveHomepageSettingConfig(plugin, {
                 ...existingConfig,
                 mobileAutoOpenEnabled,
                 mobileAutoOpenTarget: target,
-                autoOpenMobileHomepage: compatAutoOpenMobileHomepage,
                 mobileQuickActionsEnabled,
                 mobileQuickActionsButtonSize: normalizeMobileQuickActionButtonSize(mobileQuickActionsButtonSize),
                 mobileQuickActionItems: normalizeMobileQuickActionItems(mobileQuickActionItems),

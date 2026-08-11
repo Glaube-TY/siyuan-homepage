@@ -2,7 +2,7 @@
  * 知识库默认设置
  */
 
-import type { KbSettings, WebSearchSettings, KbSkillSettings, KbToolSettings, GlobalMemorySettings, QuickPromptsSettings, KbProcessDisplayMode, NotebrainAgentWorkspaceSettings, ExternalSkillSettings, McpSettings, RuntimeToolsSettings, KbChatAppearanceSettings } from "../types/settings";
+import type { KbSettings, WebSearchSettings, KbToolSettings, GlobalMemorySettings, QuickPromptsSettings, KbProcessDisplayMode, NotebrainAgentWorkspaceSettings, ExternalSkillSettings, McpSettings, RuntimeToolsSettings, KbChatAppearanceSettings } from "../types/settings";
 
 /** 默认温度参数 */
 export const DEFAULT_TEMPERATURE = 0.3;
@@ -62,7 +62,6 @@ export const DEFAULT_EXTERNAL_SKILL_SETTINGS: ExternalSkillSettings = {
   maxSkillReadChars: 20000,
   autoInstallEnabled: true,
   disabledSkillIds: [],
-  legacyUserSkillDirectInject: false,
 };
 
 export const DEFAULT_MCP_SETTINGS: McpSettings = {
@@ -97,11 +96,6 @@ export const DEFAULT_WEB_SEARCH_SETTINGS: WebSearchSettings = {
   anySearchLanguage: "zh-CN",
 };
 
-export const DEFAULT_SKILL_SETTINGS: KbSkillSettings = {
-  disabledBuiltinSkillNames: [],
-  initializedDefaultDisabledBuiltinSkillNames: [],
-};
-
 export const DEFAULT_KB_SETTINGS: KbSettings = {
   chatAppearance: DEFAULT_CHAT_APPEARANCE_SETTINGS,
   assistantActionAlignment: "left",
@@ -121,8 +115,6 @@ export const DEFAULT_KB_SETTINGS: KbSettings = {
   selectedChatModelId: "",
   /** 网页搜索设置 */
   webSearch: DEFAULT_WEB_SEARCH_SETTINGS,
-  /** Skill 设置 */
-  skillSettings: DEFAULT_SKILL_SETTINGS,
   /** 全局工具设置 */
   toolSettings: DEFAULT_TOOL_SETTINGS,
   /** 全局记忆设置 */
