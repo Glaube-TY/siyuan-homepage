@@ -12,7 +12,6 @@
   import AgentWorkspaceSettingsTab from "./settings-tabs/agent-workspace-settings-tab.svelte";
   import McpSettingsTab from "./settings-tabs/mcp-settings-tab.svelte";
   import WebSearchSettingsTab from "./settings-tabs/web-search-settings-tab.svelte";
-  import MemorySettingsTab from "./settings-tabs/memory-settings-tab.svelte";
   import QuickPromptsSettingsTab from "./settings-tabs/quick-prompts-settings-tab.svelte";
   import SiyuanIcon from "@/components/utils/shared/SiyuanIcon.svelte";
 
@@ -30,7 +29,6 @@
     { id: "agentWorkspace", label: "沙箱环境", icon: "iconFolder" },
     { id: "mcp", label: "MCP", icon: "iconCloud" },
     { id: "webSearch", label: "联网搜索", icon: "iconLanguage" },
-    { id: "memory", label: "记忆", icon: "iconHistory" },
     { id: "quickPrompts", label: "快捷提示语", icon: "iconQuote" },
   ] as const;
 
@@ -108,8 +106,6 @@
         return "移动端支持 HTTP/SSE，stdio 仅桌面端可用。";
       case "webSearch":
         return "联网搜索供应商和搜索策略。";
-      case "memory":
-        return "全局记忆文档和 AI 更新权限。";
       case "quickPrompts":
         return "快捷提示语文档和输入栏入口。";
       default:
@@ -211,8 +207,6 @@
               <McpSettingsTab bind:settings mobile={mobile} />
             {:else if activeTab === "webSearch"}
               <WebSearchSettingsTab bind:settings />
-            {:else if activeTab === "memory"}
-              <MemorySettingsTab bind:settings />
             {:else if activeTab === "quickPrompts"}
               <QuickPromptsSettingsTab bind:settings />
             {/if}

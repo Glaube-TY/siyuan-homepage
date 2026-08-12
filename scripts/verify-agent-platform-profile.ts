@@ -1,4 +1,7 @@
 import assert from "node:assert/strict";
+import { hasTemporaryWorkbenchLayout } from "../src/features/kb/services/agent-workbench/tools/homepage/temporary-workbench-contract";
+import { normalizeStorageRead } from "../src/features/kb/services/agent-workbench/storage/notebrain-plugin-storage";
+import { createMemoryManageTool } from "../src/features/kb/services/agent-workbench/tools/system/memory-manage.tool";
 import { existsSync, readFileSync } from "node:fs";
 import { z } from "zod";
 import {
@@ -30,6 +33,7 @@ import {
   isSafeSiyuanWorkbenchTarget,
   normalizeTemporaryWorkbench,
   normalizeTemporaryWorkbenchClassNames,
+  toTemporaryWorkbenchReference,
 } from "../src/features/kb/services/agent-workbench/tools/homepage/homepage-workbench.tool";
 
 const profile = getAgentProfile(KNOWLEDGE_CHAT_AGENT_PROFILE_ID);
@@ -103,22 +107,25 @@ assert.throws(() => createAgentSurfaceCapabilitySnapshot({
 }), /not a registered read action/);
 
 const robot = getAgentProfile(ROBOT_AGENT_PROFILE_ID);
-assert.deepEqual(robot.permissions.contextSources, ["conversation", "runtime-tools"]);
+assert.deepEqual(robot.permissions.contextSources, ["conversation", "runtime-tools", "global-memory"]);
 assert.deepEqual(robot.permissions.tools.names, ROBOT_AGENT_TOOL_NAMES);
 assert.equal(agentProfileAllowsTool(robot, "siyuan_kb"), true);
 assert.equal(agentProfileAllowsTool(robot, "homepage_manage"), false);
 assert.equal(agentProfileAllowsTool(robot, "homepage_music"), false);
 assert.equal(agentProfileAllowsTool(robot, "notebrain_file"), false);
-assert.equal(agentProfileAllowsMemory(robot, "read"), false);
+assert.equal(agentProfileAllowsMemory(robot, "read"), true);
+assert.equal(agentProfileAllowsMemory(robot, "write"), true);
+assert.equal(agentProfileAllowsTool(robot, "memory_manage"), true);
 assert.equal(agentProfileHasCapability(robot, "mcp"), false);
 assert.equal(agentProfileHasCapability(robot, "external-skills"), false);
 
 const homepageStatus = getAgentProfile(HOMEPAGE_STATUS_AGENT_PROFILE_ID);
-assert.deepEqual(homepageStatus.permissions.contextSources, ["homepage-statistics"]);
+assert.deepEqual(homepageStatus.permissions.contextSources, ["homepage-statistics", "global-memory"]);
 assert.equal(homepageStatus.execution.defaultMaxToolCalls, 0);
 assert.equal(agentProfileAllowsTool(homepageStatus, "siyuan_kb"), false);
 assert.equal(agentProfileAllowsContext(homepageStatus, "conversation"), false);
 assert.equal(agentProfileAllowsMemory(homepageStatus, "write"), false);
+assert.equal(agentProfileAllowsMemory(homepageStatus, "read"), true);
 
 const editorSelection = getAgentProfile(EDITOR_SELECTION_AGENT_PROFILE_ID);
 assert.deepEqual(editorSelection.permissions.contextSources, ["editor-selection", "editor-document"]);
@@ -220,6 +227,10 @@ const workbenchCompositionSource = readFileSync(
   new URL("../src/features/kb/services/agent-workbench/runtime/create-agent-workbench.ts", import.meta.url),
   "utf8",
 );
+const workbenchToolAdapterSource = readFileSync(
+  new URL("../src/features/kb/services/agent-core/tools/workbench-tool-adapter.ts", import.meta.url),
+  "utf8",
+);
 const homepageCapabilitySource = readFileSync(
   new URL("../src/features/kb/services/agent-workbench/composition/register-homepage-tools.ts", import.meta.url),
   "utf8",
@@ -250,7 +261,7 @@ for (const platformAssembly of [
   "createProviderAdapterForKbModel",
   "createAgentWorkbenchRuntime",
   "NativeToolAgentLoop",
-  "readGlobalMemory",
+  "buildGlobalMemoryContext",
   "setMcpRuntimeSettings",
 ]) {
   assert.equal(turnAdapterSource.includes(platformAssembly), false);
@@ -290,6 +301,31 @@ assert.match(chatSessionStorageSource, /normalizeTemporaryWorkbench/);
 assert.equal(normalizeTemporaryWorkbenchClassNames("wb-card evil wb-accent"), "wb-card wb-accent");
 assert.equal(isSafeSiyuanWorkbenchTarget("20260812123456-abcdefg"), true);
 assert.equal(isSafeSiyuanWorkbenchTarget("javascript:alert(1)"), false);
+assert.equal(hasTemporaryWorkbenchLayout('<section><h2>只有文章</h2><p>几段文字</p></section>'), false);
+assert.equal(hasTemporaryWorkbenchLayout('<div class="wb-grid wb-grid-2"><article class="wb-card">A</article><article class="wb-stat">B</article></div>'), true);
+assert.deepEqual(normalizeStorageRead(""), { status: "missing" });
+assert.deepEqual(normalizeStorageRead({ ok: true }), { status: "ok", data: { ok: true } });
+const automaticMemoryTool = createMemoryManageTool({
+  read: true,
+  write: true,
+  source: { profileId: "verify", surface: "verify" },
+  writeRequiresConfirmation: false,
+});
+assert.equal(automaticMemoryTool.resolveCallSafety?.({ action: "remember", args: {} }).requiresConfirmation, false);
+assert.equal(automaticMemoryTool.resolveCallSafety?.({ action: "update", args: {} }).requiresConfirmation, false);
+assert.equal(automaticMemoryTool.resolveCallSafety?.({ action: "forget", args: {} }).requiresConfirmation, false);
+assert.match(workbenchToolAdapterSource, /callSafety\.requiresConfirmation === false[\s\S]*permissionAction: "allow"/);
+assert.deepEqual(toTemporaryWorkbenchReference({
+  schemaVersion: 1,
+  id: "workbench-1-verify",
+  title: "验证工作台",
+  html: '<section class="wb-card">内容</section>',
+  createdAt: 1,
+}), {
+  id: "workbench-1-verify",
+  title: "验证工作台",
+  createdAt: 1,
+});
 assert.equal(normalizeTemporaryWorkbench({ schemaVersion: 2 }), undefined);
 assert.equal(findAggregateToolMeta(HOMEPAGE_WORKBENCH_TOOL_NAME)?.actions.length, 0);
 assert.deepEqual(collectTemporaryWorkbenches([{

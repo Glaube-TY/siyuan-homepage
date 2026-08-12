@@ -3,6 +3,7 @@ import type { ToolContract } from "../../contracts/tool-contract";
 import type { ToolResultEntry } from "../../runtime/tool-result-log";
 import { saveTemporaryWorkbench } from "./temporary-workbench-store";
 import {
+  hasTemporaryWorkbenchLayout,
   sanitizeTemporaryWorkbenchHtml,
   temporaryWorkbenchManifestSchema,
   type AgentTemporaryWorkbench,
@@ -11,6 +12,7 @@ import {
 
 export {
   isSafeSiyuanWorkbenchTarget,
+  hasTemporaryWorkbenchLayout,
   normalizeTemporaryWorkbench,
   normalizeTemporaryWorkbenchClassNames,
   normalizeTemporaryWorkbenchReference,
@@ -28,7 +30,7 @@ export const HOMEPAGE_WORKBENCH_TOOL_NAME = "homepage_workbench";
 const inputSchema = z.object({
   title: z.string().trim().min(1).max(80).describe("工作台标题。"),
   html: z.string().trim().min(1).max(12000).describe(
-    "受控 HTML。只用 section/article/div/header/h2/h3/p/span/strong/em/ul/ol/li/button/time，内置 wb-* 类，以及 data-siyuan-doc-id/data-siyuan-block-id 跳转属性。",
+    "受控 HTML。必须包含 wb-grid/wb-grid-2/wb-grid-3 布局及至少两个 wb-card/wb-stat/wb-item/wb-button 内容单元；只用允许的标签、内置 wb-* 类和思源跳转属性。",
   ),
 }).strict();
 
@@ -57,7 +59,7 @@ export function createHomepageWorkbenchTool(
     source: "builtin",
     providerVisible: true,
     boundary: "只渲染统一仓库中的临时界面；禁止脚本、样式、外链、表单和写操作。仅 button 上的 data-siyuan-doc-id/data-siyuan-block-id 可导航到思源内容。",
-    inputHint: "直接传 title 与 html，不要包 action/args。已有真实 docId 时可直接生成文档跳转按钮，不需要先读取块 ID。布局类可用 wb-grid/wb-grid-2/wb-grid-3/wb-card/wb-stat/wb-value/wb-label/wb-list/wb-item/wb-badge/wb-muted/wb-accent/wb-warning/wb-success/wb-danger/wb-button/wb-compact。",
+    inputHint: "直接传 title 与 html，不要包 action/args。工作台不是文章：先用 wb-grid-* 排版，再把数据做成至少两个 wb-card/wb-stat/wb-item/wb-button。已有真实 docId 时可生成跳转按钮。",
     availability: () => ({ available: true }),
     async execute(_ctx, args) {
       const html = sanitizeTemporaryWorkbenchHtml(args.html);
@@ -66,6 +68,17 @@ export function createHomepageWorkbenchTool(
           ok: false,
           data: null,
           error: { code: "workbench_html_empty", message: "工作台 HTML 清理后为空。", recoverable: true },
+        };
+      }
+      if (!hasTemporaryWorkbenchLayout(html)) {
+        return {
+          ok: false,
+          data: null,
+          error: {
+            code: "workbench_layout_missing",
+            message: "临时工作台不能只是文章；请使用 wb-grid-*，并生成至少两个卡片、统计、列表项或操作按钮。",
+            recoverable: true,
+          },
         };
       }
       const now = Date.now();

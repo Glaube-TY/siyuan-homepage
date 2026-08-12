@@ -36,6 +36,12 @@ export function isSafeSiyuanWorkbenchTarget(value: string): boolean {
   return SIYUAN_ID_PATTERN.test(value);
 }
 
+export function hasTemporaryWorkbenchLayout(html: string): boolean {
+  const hasGrid = /\bwb-grid(?:-[23])?\b/.test(html);
+  const units = html.match(/\bwb-(?:card|stat|item|button)\b/g) ?? [];
+  return hasGrid && units.length >= 2;
+}
+
 export function sanitizeTemporaryWorkbenchHtml(rawHtml: string): string {
   const safeHtml = DOMPurify.sanitize(rawHtml, {
     ALLOWED_TAGS: ["section", "article", "div", "header", "h2", "h3", "p", "span", "strong", "em", "ul", "ol", "li", "button", "time"],
@@ -72,5 +78,9 @@ export function normalizeTemporaryWorkbenchReference(value: unknown): AgentTempo
 }
 
 export function toTemporaryWorkbenchReference(workbench: AgentTemporaryWorkbench): AgentTemporaryWorkbenchReference {
-  return referenceSchema.parse(workbench);
+  return referenceSchema.parse({
+    id: workbench.id,
+    title: workbench.title,
+    createdAt: workbench.createdAt,
+  });
 }

@@ -21,7 +21,7 @@ export type AggregateToolName =
   | "mcp_manage"
   | "notebrain_file"
   | "web_fetch"
-  | "edit_global_memory"
+  | "memory_manage"
   | "agent_tool_help";
 
 export interface AggregateActionMeta {
@@ -29,6 +29,7 @@ export interface AggregateActionMeta {
   title: string;
   description: string;
   readOnly: boolean;
+  requiresConfirmation?: boolean;
   required?: string[];
   boundary?: string;
   /** 帮助信息：该 action 的 args JSON Schema，仅用于 agent_tool_help.describe_action。 */
@@ -1786,35 +1787,18 @@ export const AGGREGATE_TOOL_CATALOG: AggregateToolMeta[] = [
     ],
   },
   {
-    name: "edit_global_memory",
-    title: "编辑全局记忆",
-    description: "用 memory 提供的完整文本全量替换当前全局记忆；memory 不是增量补丁，不允许空字符串或纯空白清空。",
+    name: "memory_manage",
+    title: "全局记忆中枢",
+    description: "检索并维护跨 Agent 入口共享、会随用户使用而进化的长期记忆。",
     readOnly: false,
     requiresConfirmation: true,
-    boundary: "会完全覆盖当前所有全局记忆；不接受 docId/item_id/operation；只能替换配置好的全局记忆文档；未读取到完整当前记忆时不要调用；不允许清空。",
-    argsSchema: {
-      type: "object",
-      properties: {
-        memory: {
-          type: "string",
-          minLength: 1,
-          description: "修改后的完整全局记忆全文。每行/段代表一条记忆，不是增量补丁；不允许空字符串或纯空白。",
-        },
-      },
-      additionalProperties: false,
-      required: ["memory"],
-    },
-    inputHint: "必须传入完整全局记忆全文。不要只传新增条目、摘要、测试内容或空字符串。",
-    examples: [
-      { args: { memory: "- 用户偏好深色主题\n- 项目目标：历史地图沙盘可视化" } },
+    boundary: "只处理用户长期记忆；不暴露存储位置；不保存秘密、临时请求、工具结果或未经用户确认的推断。",
+    actions: [
+      { name: "search", title: "检索记忆", description: "按语义线索检索长期记忆。", readOnly: true },
+      { name: "remember", title: "形成记忆", description: "保存一条稳定、长期有用的用户事实。", readOnly: false, requiresConfirmation: false },
+      { name: "update", title: "更新记忆", description: "修正一条已有记忆。", readOnly: false, requiresConfirmation: false },
+      { name: "forget", title: "遗忘记忆", description: "永久删除一条记忆。", readOnly: false, requiresConfirmation: true },
     ],
-    notes: [
-      "memory 是完整替换，不是追加/补丁。",
-      "空字符串和纯空白会被拒绝，返回 memory_empty_not_allowed。",
-      "超过设置中 maxMemoryChars 上限会被拒绝，返回 memory_too_long。",
-      "测试时不要在同一轮内反复覆盖后再恢复原文，避免 duplicate_write_call_blocked 导致无法恢复。",
-    ],
-    actions: [],
   },
   {
     name: "agent_tool_help",

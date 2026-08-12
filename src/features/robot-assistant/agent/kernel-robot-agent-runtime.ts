@@ -13,10 +13,12 @@ import { RobotConfirmationBridge } from "./robot-confirmation-bridge";
 import type { RobotConfirmationOutcome } from "../core/robot-core";
 import {
   agentProfileAllowsTool,
+  agentProfileAllowsMemory,
   getAgentProfile,
   ROBOT_AGENT_PROFILE_ID,
   type AgentProfile,
 } from "../../../features/agent-platform/agent-profile";
+import { buildGlobalMemoryContext } from "../../../features/kb/services/agent-workbench/memory/global-memory-store";
 
 export interface KernelRobotAgentRuntimeDeps {
   /** Kernel HTTP transport（siyuan.client.fetch → forwardProxy），stream:false。 */
@@ -80,6 +82,9 @@ export class KernelRobotAgentRuntime implements RobotAgentRuntime {
     });
 
     const turnRegistry = this.createTurnRegistry(input.toolPolicy, profile);
+    const memoryContext = agentProfileAllowsMemory(profile, "read")
+      ? await buildGlobalMemoryContext(input.userText, { limit: 8, maxChars: 4000 })
+      : undefined;
 
     const abort = new AbortController();
     let timedOut = false;
@@ -94,6 +99,9 @@ export class KernelRobotAgentRuntime implements RobotAgentRuntime {
       session,
       conversationId: input.conversationId,
       systemPrompt: input.systemPrompt,
+      contextInstructions: memoryContext
+        ? `# User Long-term Memory\nUse these user facts silently. Current user input wins on conflicts. Never expose memory IDs or storage implementation.\n${memoryContext}`
+        : undefined,
       bridge,
       maxToolCalls: this.deps.maxToolCalls ?? profile.execution.defaultMaxToolCalls,
       abortSignal: abort.signal,

@@ -25,7 +25,7 @@ const AGGREGATE_TOOL_DISPLAY_NAMES: Record<string, string> = {
   mcp_manage: "管理扩展工具",
   notebrain_file: "处理工作文件",
   web_fetch: "访问网页",
-  edit_global_memory: "编辑全局记忆",
+  memory_manage: "记忆中枢",
   agent_tool_help: "查看工具说明",
 };
 

@@ -187,7 +187,7 @@ export async function deleteTemporaryWorkbench(id: string): Promise<void> {
   pendingItems.delete(id);
   await removeData(toItemKey(id));
   const removed = await loadDataStrict(toItemKey(id));
-  if (removed.status === "error" || (removed.status === "ok" && (removed.data as unknown) !== "")) {
+  if (removed.status !== "missing") {
     throw new Error(`临时工作台删除校验失败：${id}`);
   }
   await mutateIndex((index) => {

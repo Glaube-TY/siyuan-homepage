@@ -30,10 +30,12 @@
 </div>
 
 <style>
-  .temporary-workbench-html { box-sizing: border-box; height: 100%; padding: 16px; overflow: auto; line-height: 1.5; }
+  .temporary-workbench-html { box-sizing: border-box; flex: 1; width: 100%; min-width: 0; height: 100%; padding: 20px; overflow: auto; line-height: 1.5; }
+  .temporary-workbench-html > :global(*) { margin-block: 0 14px; }
+  .temporary-workbench-html > :global(*:last-child) { margin-bottom: 0; }
   .temporary-workbench-html :global(.wb-grid),
   .temporary-workbench-html :global(.wb-grid-2),
-  .temporary-workbench-html :global(.wb-grid-3) { display: grid; gap: 10px; }
+  .temporary-workbench-html :global(.wb-grid-3) { display: grid; gap: 12px; }
   .temporary-workbench-html :global(.wb-grid) { grid-template-columns: repeat(auto-fit, minmax(min(180px, 100%), 1fr)); }
   .temporary-workbench-html :global(.wb-grid-2) { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .temporary-workbench-html :global(.wb-grid-3) { grid-template-columns: repeat(3, minmax(0, 1fr)); }
@@ -84,6 +86,7 @@
   }
   .temporary-workbench-html :global(.wb-compact) { padding: 6px; }
   @media (max-width: 620px) {
+    .temporary-workbench-html { padding: 14px; }
     .temporary-workbench-html :global(.wb-grid-2),
     .temporary-workbench-html :global(.wb-grid-3) { grid-template-columns: 1fr; }
   }

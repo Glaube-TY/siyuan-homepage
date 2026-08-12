@@ -184,12 +184,11 @@ export class NativeToolAgentLoop {
       this.emitCheckpoint("before_model", steps);
       const messages = this.buildProviderMessages();
       const tools = this.options.toolRegistry.listProviderVisible();
-      const toolChoice = requireToolCallForNextTurn ? "required" as const : "auto" as const;
+      const toolChoice = requireToolCallForNextTurn && this.options.provider.capabilities.requiredToolChoice
+        ? "required" as const
+        : "auto" as const;
       if (tools.length > 0 && !this.options.provider.capabilities.nativeToolCalls) {
         return this.finishWithUnsupportedProviderCapability("provider_native_tools_unsupported", steps);
-      }
-      if (toolChoice === "required" && !this.options.provider.capabilities.requiredToolChoice) {
-        return this.finishWithUnsupportedProviderCapability("provider_required_tool_choice_unsupported", steps);
       }
       requireToolCallForNextTurn = false;
       let answer = "";

@@ -161,9 +161,10 @@ export class OpenAICompatibleAdapter implements ProviderAdapter {
   }
 
   async *streamChat(request: AgentChatRequest): AsyncGenerator<AgentProviderEvent> {
-    const body = this.buildRequestBody(request);
+    let body = this.buildRequestBody(request);
 
     let response;
+    let responseErrorText: string | undefined;
     try {
       response = await this.transport.post({
         url: this.options.chatCompletionsUrl,
@@ -172,6 +173,21 @@ export class OpenAICompatibleAdapter implements ProviderAdapter {
         stream: this.stream,
         signal: request.abortSignal,
       });
+      if (response.status === 400 && request.toolChoice === "required") {
+        const text = await response.text().catch(() => "");
+        if (/tool_choice/i.test(text) && /(?:not support|unsupported|invalid)/i.test(text)) {
+          body = this.buildRequestBody({ ...request, toolChoice: "auto" });
+          response = await this.transport.post({
+            url: this.options.chatCompletionsUrl,
+            headers: this.buildHeaders(),
+            body: JSON.stringify(body),
+            stream: this.stream,
+            signal: request.abortSignal,
+          });
+        } else {
+          responseErrorText = text;
+        }
+      }
     } catch (err) {
       if (err instanceof AgentProviderError) throw err;
       if (err instanceof DOMException && err.name === "AbortError") {
@@ -202,7 +218,7 @@ export class OpenAICompatibleAdapter implements ProviderAdapter {
       } else {
         code = "provider_http_error";
       }
-      const text = await response.text().catch(() => "");
+      const text = responseErrorText ?? await response.text().catch(() => "");
       throw new AgentProviderError(
         `Provider request failed: HTTP ${status}${text ? ` ${text.slice(0, 500)}` : ""}`,
         {

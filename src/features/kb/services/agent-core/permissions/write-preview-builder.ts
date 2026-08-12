@@ -14,7 +14,7 @@ const HIGH_RISK_NAMES = new Set([
   "delete_doc",
   "delete_blocks",
   "replace_doc_content",
-  "edit_global_memory",
+  "memory_manage",
 ]);
 
 const SAFE_ARG_KEYS = new Set([
@@ -182,58 +182,6 @@ function makePreview(params: {
     missingPreviewReason: params.missingPreviewReason,
     sections: params.sections,
   };
-}
-
-function buildEditGlobalMemoryPreview(tool: NativeTool, args: Record<string, unknown>): ToolPermissionPreview {
-  const memory = typeof args.memory === "string" ? args.memory : "";
-  const normalized = memory.replace(/\r\n/g, "\n").replace(/\r/g, "\n").trim();
-  const memoryChars = normalized.length;
-  const memoryLineCount = normalized ? normalized.split("\n").filter((l) => l.trim()).length : 0;
-
-  // The provider-visible JSON schema carries the current maxMemoryChars as maxLength.
-  const memorySchema = tool.parameters && typeof tool.parameters === "object"
-    ? (tool.parameters as Record<string, unknown>).properties
-    : undefined;
-  const memoryFieldSchema = memorySchema && typeof memorySchema === "object"
-    ? (memorySchema as Record<string, unknown>).memory
-    : undefined;
-  const maxMemoryChars = typeof memoryFieldSchema === "object" && memoryFieldSchema !== null
-    ? Number((memoryFieldSchema as Record<string, unknown>).maxLength)
-    : NaN;
-  const maxMemoryCharsDisplay = Number.isFinite(maxMemoryChars) ? maxMemoryChars : "当前设置";
-
-  const previewParts: string[] = [];
-  if (!normalized) {
-    previewParts.push("将清空全局记忆（此操作会被 Agent 拒绝）");
-  } else {
-    previewParts.push("将完整替换全局记忆（不是追加/补丁）");
-    previewParts.push(`新记忆：${memoryChars} 字符 / 上限 ${maxMemoryCharsDisplay} 字符，${memoryLineCount} 条`);
-    const preview = sanitizePreviewText(normalized, 400);
-    previewParts.push(`预览：${preview}`);
-  }
-
-  const warnings: string[] = [
-    "此操作会用新内容完全覆盖当前全局记忆，不是增量更新。",
-    `当前写入上限为 ${maxMemoryCharsDisplay} 字符；超过上限的内容会在确认前被拒绝。`,
-  ];
-  if (memoryLineCount <= 1 && memoryChars > 0) {
-    warnings.push("新内容条目数很少，可能导致原有记忆大量丢失，请确认这是完整原文。");
-  }
-  if (Number.isFinite(maxMemoryChars) && memoryChars > maxMemoryChars) {
-    warnings.push(`新内容 ${memoryChars} 字符已超过当前上限 ${maxMemoryChars} 字符，确认前会被拒绝。`);
-  }
-
-  return makePreview({
-    tool,
-    risk: "high",
-    argsPreview: { memory: memoryChars > 0 ? `(${memoryChars} 字符 / 上限 ${maxMemoryCharsDisplay}，${memoryLineCount} 条)` : "(清空/将被拒绝)" },
-    operationLabel: normalized ? "完整替换全局记忆" : "清空全局记忆（将被拒绝）",
-    targetSummary: "Notebrain 全局记忆",
-    impactSummary: normalized ? `${memoryChars} 字符 / 上限 ${maxMemoryCharsDisplay}，约 ${memoryLineCount} 条` : "全局记忆会被清空（此操作会被拒绝）",
-    riskReason: "会覆盖全局记忆内容，后续回答可能受影响。",
-    warnings,
-    summary: previewParts.join("\n"),
-  });
 }
 
 function buildUpdateAttributeViewCellPreview(tool: NativeTool, args: Record<string, unknown>): ToolPermissionPreview {
@@ -1547,8 +1495,18 @@ export function buildToolPermissionPreview(tool: NativeTool, args: Record<string
     return buildMcpToolPreview(tool, args);
   }
 
-  if (tool.name === "edit_global_memory") {
-    return buildEditGlobalMemoryPreview(tool, args);
+  if (tool.name === "memory_manage" && action === "forget") {
+    const id = typeof nestedArgs.id === "string" ? nestedArgs.id : "";
+    return makePreview({
+      tool,
+      risk: "high",
+      argsPreview: { action, id },
+      operationLabel: "永久遗忘一条记忆",
+      targetSummary: id ? `记忆 ${id}` : "未识别的记忆",
+      impactSummary: "删除后所有 Agent 入口都不再使用这条记忆。",
+      riskReason: "这是不可恢复的全局删除操作。",
+      summary: `将从记忆中枢永久删除 ${id || "一条记忆"}。`,
+    });
   }
 
   if (tool.name === "update_attribute_view_cell") {

@@ -227,6 +227,7 @@ export const ROBOT_AGENT_TOOL_NAMES = [
   "homepage_anniversary",
   "homepage_favorites",
   "homepage_review",
+  "memory_manage",
 ] as const;
 
 registerAgentProfile({
@@ -251,14 +252,14 @@ registerAgentProfile({
   schemaVersion: AGENT_PROFILE_SCHEMA_VERSION,
   id: ROBOT_AGENT_PROFILE_ID,
   label: "远程机器人对话",
-  capabilities: ["conversation", "tools", "siyuan", "homepage"],
+  capabilities: ["conversation", "tools", "siyuan", "homepage", "global-memory"],
   permissions: {
-    contextSources: ["conversation", "runtime-tools"],
+    contextSources: ["conversation", "runtime-tools", "global-memory"],
     tools: {
       names: ROBOT_AGENT_TOOL_NAMES,
       actions: Object.fromEntries(ROBOT_AGENT_TOOL_NAMES.map((name) => [name, "*" as const])),
     },
-    memory: { read: false, write: false },
+    memory: { read: true, write: true },
     externalSkillIds: [],
     mcpServerIds: [],
     mcpToolNames: [],
@@ -270,11 +271,11 @@ registerAgentProfile({
   schemaVersion: AGENT_PROFILE_SCHEMA_VERSION,
   id: HOMEPAGE_STATUS_AGENT_PROFILE_ID,
   label: "主页状态语",
-  capabilities: ["homepage"],
+  capabilities: ["homepage", "global-memory"],
   permissions: {
-    contextSources: ["homepage-statistics"],
+    contextSources: ["homepage-statistics", "global-memory"],
     tools: { names: [], actions: {} },
-    memory: { read: false, write: false },
+    memory: { read: true, write: false },
     externalSkillIds: [],
     mcpServerIds: [],
     mcpToolNames: [],

@@ -15,6 +15,8 @@ import {
   setQuickNoteWritePlugin,
 } from "../../../features/quick-note/quick-note-write-service";
 import { registerDocContentEditConfirmationHandler } from "../../../features/kb/services/doc-content-edit/doc-content-edit-confirmation-bridge";
+import { registerSystemTools } from "../../../features/kb/services/agent-workbench/composition/register-system-tools";
+import { getGlobalMemoryProfile } from "../../../features/kb/services/agent-workbench/memory/global-memory-store";
 
 /**
  * 构建 Kernel-safe 工具注册表。
@@ -26,22 +28,22 @@ import { registerDocContentEditConfirmationHandler } from "../../../features/kb/
  *
  * host 存在时构建真实 Kernel-safe 工具；否则（测试 / 未接宿主）只注册注入的工具。
  */
-export function buildRobotKernelToolRegistry(options: {
+export async function buildRobotKernelToolRegistry(options: {
   host?: RobotKernelHost;
   kernelSafeTools?: readonly NativeTool[];
-} = {}): NativeToolRegistry {
+} = {}): Promise<NativeToolRegistry> {
   const registry = new NativeToolRegistry();
   for (const tool of options.kernelSafeTools ?? []) {
     if (tool.name) registry.register(tool);
   }
   if (options.host) {
-    registerKernelDataTools(registry, options.host);
+    await registerKernelDataTools(registry, options.host);
   }
   return registry;
 }
 
 /** 注册基于 PluginDataStore 的 Kernel-safe 主页业务工具。 */
-function registerKernelDataTools(registry: NativeToolRegistry, host: RobotKernelHost): void {
+async function registerKernelDataTools(registry: NativeToolRegistry, host: RobotKernelHost): Promise<void> {
   const storage = createKernelPluginLikeStorage(host);
   // Existing homepage and Agent services all receive the same plugin-scoped
   // data adapter. No Robot-only business JSON or duplicated service exists.
@@ -98,6 +100,14 @@ function registerKernelDataTools(registry: NativeToolRegistry, host: RobotKernel
     favorites: true,
     review: true,
     music: false,
+  });
+  registerSystemTools(toolRegistry, {
+    memory: {
+      read: true,
+      write: true,
+      source: { profileId: "remote-robot", surface: "远程机器人对话" },
+      writeRequiresConfirmation: !(await getGlobalMemoryProfile()).autoLearn,
+    },
   });
 
   const native = createNativeToolRegistryFromWorkbench({

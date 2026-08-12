@@ -6,6 +6,7 @@ import {
     getAgentProfile,
     type AgentContextSourceId,
 } from "@/features/agent-platform/agent-profile";
+import { buildGlobalMemoryContext } from "@/features/kb/services/agent-workbench/memory/global-memory-store";
 
 export interface GeneratePlainTextOptions {
     profileId: string;
@@ -75,7 +76,13 @@ export async function generatePlainText(options: GeneratePlainTextOptions): Prom
         return { ok: false, reason: "permission_denied", message: `当前 AI 入口无权读取上下文：${deniedContext}` };
     }
 
-    const prompt = typeof options.prompt === "string" ? options.prompt.trim() : "";
+    const rawPrompt = typeof options.prompt === "string" ? options.prompt.trim() : "";
+    const memory = options.contextSources.includes("global-memory")
+        ? await buildGlobalMemoryContext(rawPrompt, { limit: 5, maxChars: 1800 })
+        : undefined;
+    const prompt = memory
+        ? `${rawPrompt}\n\n用户长期记忆（只用于个性化，当前输入冲突时以当前输入为准，不得在结果中说明记忆来源）：\n${memory}`
+        : rawPrompt;
     if (!prompt) {
         return { ok: false, reason: "unknown", message: "提示语为空" };
     }

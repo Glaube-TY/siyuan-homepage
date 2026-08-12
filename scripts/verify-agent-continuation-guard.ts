@@ -128,6 +128,54 @@ assert.equal(
 );
 assert.equal(requestBodies[0]?.tool_choice, "required");
 
+const fallbackBodies: Array<Record<string, unknown>> = [];
+const fallbackAdapter = new OpenAICompatibleAdapter({
+  id: "required-tool-choice-fallback",
+  model: "thinking-model",
+  chatCompletionsUrl: "https://example.invalid/v1/chat/completions",
+  transport: {
+    async post(options) {
+      fallbackBodies.push(JSON.parse(options.body) as Record<string, unknown>);
+      if (fallbackBodies.length === 1) {
+        return {
+          ok: false,
+          status: 400,
+          statusText: "Bad Request",
+          headers: { get: () => "application/json" },
+          async json() { return {}; },
+          async text() {
+            return JSON.stringify({ error: { message: "Thinking mode does not support this tool_choice" } });
+          },
+          body: null,
+        };
+      }
+      return {
+        ok: true,
+        status: 200,
+        statusText: "OK",
+        headers: { get: () => "application/json" },
+        async json() {
+          return { choices: [{ message: { content: "fallback ok" }, finish_reason: "stop" }] };
+        },
+        async text() { return ""; },
+        body: null,
+      };
+    },
+  },
+});
+const fallbackEvents: AgentProviderEvent[] = [];
+for await (const event of fallbackAdapter.streamChat({
+  messages: [{ role: "user", content: "测试" }],
+  tools: registry.listProviderVisible(),
+  toolChoice: "required",
+})) {
+  fallbackEvents.push(event);
+}
+assert.equal(fallbackBodies.length, 2);
+assert.equal(fallbackBodies[0]?.tool_choice, "required");
+assert.equal(fallbackBodies[1]?.tool_choice, "auto");
+assert.ok(fallbackEvents.some((event) => event.type === "text_delta" && event.delta === "fallback ok"));
+
 const events: string[] = [];
 const result = await new NativeToolAgentLoop({
   provider,
@@ -140,7 +188,7 @@ assert.equal(result.status, "answer_ready");
 assert.equal(result.answer, "已通过真实工具调用确认，任务继续并完成。");
 assert.equal(provider.requests.length, 3);
 assert.equal(provider.requests[0]?.toolChoice, "auto");
-assert.equal(provider.requests[1]?.toolChoice, "required");
+assert.equal(provider.requests[1]?.toolChoice, "auto");
 assert.equal(provider.requests[2]?.toolChoice, "auto");
 assert.ok(events.includes("assistant_text_reset"));
 assert.ok(events.includes("notice"));

@@ -8,7 +8,7 @@
 
   export let settings: KbSettings;
 
-  const SYSTEM_REQUIRED_TOOL_NAMES = new Set<string>(["agent_tool_help"]);
+  const SYSTEM_REQUIRED_TOOL_NAMES = new Set<string>(["agent_tool_help", "memory_manage"]);
 
   type ToolEntry = AggregateToolMeta & {
     hasActions: boolean;
@@ -65,7 +65,7 @@
     };
   }
 
-  // ── direct-tool confirmation (no actions, e.g. edit_global_memory) ──
+  // ── direct-tool confirmation (no actions) ──
   function isDirectToolTrusted(toolName: string): boolean {
     return (settings.toolSettings?.disabledWriteToolConfirmationNames ?? []).includes(toolName);
   }
@@ -151,7 +151,7 @@
     <div class="tools-list">
       {#each tools as tool (tool.name)}
         {#if isSystemRequired(tool.name)}
-          <!-- A. agent_tool_help fixed card -->
+          <!-- A. system-required fixed card -->
           <div class="tool-card tool-card-fixed">
             <div class="tool-main">
               <div class="tool-info">
@@ -242,6 +242,8 @@
                     <div class="action-right">
                       {#if action.readOnly}
                         <span class="confirm-static">无需确认</span>
+                      {:else if action.requiresConfirmation === false}
+                        <span class="confirm-static">自动执行</span>
                       {:else}
                         <div class="toggle-item">
                           <span class="toggle-label">
@@ -264,7 +266,7 @@
             {/if}
           </div>
         {:else}
-          <!-- B. direct tool without actions (e.g. edit_global_memory): keep tool-level confirmation -->
+          <!-- B. direct tool without actions: keep tool-level confirmation -->
           <div class="tool-card">
             <div class="tool-main">
               <div class="tool-info">

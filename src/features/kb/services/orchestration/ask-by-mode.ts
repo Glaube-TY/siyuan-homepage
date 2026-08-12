@@ -61,7 +61,7 @@ async function askByModeInner(params: AskByModeParams): Promise<AskByModeResult>
   let userMessageId: string;
 
   if (existingUserMessageId) {
-    // 重新生成：复用已有 user message，不追加重复 user
+    // 重试或崩溃恢复：复用已有 user message，不追加重复 user
     // 合并/更新 requestContext，确保 thinkingMode / webAccessMode 不丢状态
     userMessageId = existingUserMessageId;
     const existingMsg = params.getState().messages.find(

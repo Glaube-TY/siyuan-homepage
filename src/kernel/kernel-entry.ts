@@ -30,7 +30,7 @@ export async function createRobotKernel(host: RobotKernelHost, options: RobotKer
   });
   const entitlement = new KernelEntitlementService(host);
   const runtime = new RobotKernelRuntime(host, {
-    toolRegistry: options.toolRegistry ?? buildRobotKernelToolRegistry({ host }),
+    toolRegistry: options.toolRegistry ?? await buildRobotKernelToolRegistry({ host }),
     ...(options.getModelApiKey ? { getModelApiKey: options.getModelApiKey } : {}),
     isEntitlementAvailable: options.isEntitlementAvailable ?? (() => entitlement.isAvailable()),
   });

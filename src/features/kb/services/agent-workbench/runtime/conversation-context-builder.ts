@@ -133,8 +133,6 @@ export interface ConversationContextSnapshot {
   recentTargetIndex?: AgentTurnTargetIndex[];
   activeWorkingTarget?: ActiveWorkingTarget;
   note: string;
-  /** 全局记忆内容（已截断处理） */
-  globalMemory?: string;
   /** 本轮实际注入的来源、层级、体积与压缩覆盖范围。 */
   manifest: AgentContextManifest;
 }
@@ -155,8 +153,6 @@ export interface BuildConversationContextParams {
   };
   /** Override webAccessMode for current turn. Takes priority over user message requestContext.webAccessMode. */
   webAccessModeOverride?: "off" | "smart" | "required";
-  /** 全局记忆内容（已截断处理） */
-  globalMemory?: string;
 }
 
 const SNAPSHOT_VERSION = 3;
@@ -725,14 +721,12 @@ export function buildConversationContext(
     ...(recentTargetIndex ? { recentTargetIndex } : {}),
     ...(activeWorkingTarget ? { activeWorkingTarget } : {}),
     note: SNAPSHOT_NOTE,
-    ...(params.globalMemory ? { globalMemory: params.globalMemory } : {}),
     manifest: buildAgentContextManifest({
       currentTurn,
       compressedHistory: compressed?.summary,
       compressedCoverage: compressed ? { startTurnIndex: 1, endTurnIndex: compressed.latestCompressedTurnIndex } : undefined,
       recentTurns,
       workingTarget: activeWorkingTarget ?? recentTargetIndex,
-      globalMemory: params.globalMemory,
       attachedDocuments: attachedDocs,
     }),
   };

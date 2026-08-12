@@ -17,7 +17,7 @@ const DEFAULT_SUMMARY_CHARS = 4000;
 const WRITE_TOOL_NAMES = new Set([
   "replace_doc_content", "update_block", "insert_block",
   "delete_blocks", "move_block", "create_doc", "rename_doc", "delete_doc",
-  "edit_global_memory",
+  "memory_manage",
 ]);
 
 /** Tool names with named content compaction strategies. */

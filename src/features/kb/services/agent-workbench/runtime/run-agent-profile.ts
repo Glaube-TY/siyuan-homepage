@@ -23,7 +23,7 @@ import {
   type AgentTurnDisplayError,
 } from "./user-facing-agent-error";
 import { hydrateAttachedDocsForTurn } from "../adapters/siyuan/attached-doc-hydration";
-import { digestGlobalMemoryText, readGlobalMemory, validateGlobalMemoryDocId } from "../memory/global-memory-doc";
+import { buildGlobalMemoryContext, getGlobalMemoryProfile } from "../memory/global-memory-store";
 import { setMcpRuntimeSettings } from "../mcp/mcp-client-manager";
 import { buildAgentSystemPrompt } from "../../agent-core/prompts/system-prefix";
 import { createProviderAdapterForKbModel } from "../../agent-core/providers/agent-provider-factory";
@@ -69,8 +69,6 @@ export interface RunAgentProfileParams<TResult> {
   onAnswerChunk?: (event: { chunk: string; fullContent: string }) => void;
   onAnswerFinish?: (fullContent: string) => void;
   onReasoningDelta?: (event: { type: "reasoning-start" | "reasoning-delta" | "reasoning-end" | "reasoning-reset"; delta?: string }) => void;
-  globalMemory?: string;
-  globalMemoryBaseDigest?: string;
   conversationId?: string;
   panelInstanceId?: string;
   turnId?: string;
@@ -279,7 +277,6 @@ export async function runAgentProfile<TResult>(
 
     const disabledGlobalTools = new Set(settings.toolSettings?.disabledGlobalToolNames ?? []);
     const globalToolAccess = {
-      editGlobalMemory: !disabledGlobalTools.has("edit_global_memory"),
       // agent_tool_help 是系统必需工具，不受用户 disabledGlobalToolNames 影响，始终启用。
       agentToolHelp: true,
       webFetch: !disabledGlobalTools.has("web_fetch"),
@@ -294,43 +291,12 @@ export async function runAgentProfile<TResult>(
       };
     }
 
-    const memoryDocId = settings.globalMemory?.docId?.trim() ?? "";
     const canReadGlobalMemory = agentProfileAllowsMemory(agentProfile, "read")
       && agentProfileAllowsContext(agentProfile, "global-memory");
-    const canWriteGlobalMemory = agentProfileAllowsMemory(agentProfile, "write");
-    let memoryDocIdValid = false;
-    if (memoryDocId && (canReadGlobalMemory || canWriteGlobalMemory)) {
-      const validation = await validateGlobalMemoryDocId(memoryDocId);
-      memoryDocIdValid = validation.valid;
-    }
-
-    let globalMemoryText: string | undefined = canReadGlobalMemory ? params.globalMemory : undefined;
-    let globalMemoryBaseDigest = params.globalMemoryBaseDigest;
-    if (canReadGlobalMemory && globalMemoryText === undefined && settings.globalMemory?.enabled && memoryDocIdValid) {
-      const mem = await readGlobalMemory(memoryDocId, settings.globalMemory.maxChars);
-      if (!mem.readOk) {
-        globalMemoryText = "全局记忆读取失败，本轮不使用全局记忆。";
-      } else if (mem.truncated) {
-        globalMemoryText = `${mem.content}\n（记忆内容已截断）`;
-      } else {
-        globalMemoryText = mem.content;
-        globalMemoryBaseDigest = digestGlobalMemoryText(mem.content);
-      }
-    }
-
-    const globalMemoryToolDeps: AgentWorkbenchRuntimeOptions["globalMemoryToolDeps"] | undefined =
-      settings.globalMemory?.enabled === true
-        && settings.globalMemory.allowAiUpdate === true
-        && canWriteGlobalMemory
-        && memoryDocIdValid
-        && globalToolAccess.editGlobalMemory
-        && !!globalMemoryBaseDigest
-        ? {
-            docId: memoryDocId,
-            maxMemoryChars: settings.globalMemory?.maxChars ?? 8000,
-            baseDigest: globalMemoryBaseDigest,
-          }
-        : undefined;
+    const memoryProfile = await getGlobalMemoryProfile();
+    const globalMemoryText = canReadGlobalMemory && memoryProfile.enabled
+      ? await buildGlobalMemoryContext(params.question)
+      : undefined;
 
     const builtinCapabilityAccess = {
       knowledgeBase: !disabledGlobalTools.has("siyuan_kb"),
@@ -359,9 +325,9 @@ export async function runAgentProfile<TResult>(
       webReadPageToolDeps,
       builtinCapabilityAccess,
       globalToolAccess,
-      globalMemoryToolDeps,
       conversationId,
       turnId: params.turnId,
+      memoryProfile,
       confirmationRoute: params.panelInstanceId && params.turnId
         ? { panelInstanceId: params.panelInstanceId, conversationId, turnId: params.turnId }
         : undefined,
@@ -511,9 +477,7 @@ export async function runAgentProfile<TResult>(
     });
 
     const profileConversationContext = agentProfileAllowsContext(agentProfile, "conversation")
-      ? canReadGlobalMemory || !params.conversationContext
-        ? params.conversationContext
-        : { ...params.conversationContext, globalMemory: undefined }
+      ? params.conversationContext
       : undefined;
     const context = buildAgentContextInstructions({
       toolRegistry: wb.toolRegistry,

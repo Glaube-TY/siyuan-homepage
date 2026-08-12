@@ -128,6 +128,8 @@ export function createNativeToolRegistryFromWorkbench(params: {
             const callSafety = contract.resolveCallSafety?.(args) ?? contract.safety;
             return callSafety.readOnly
               ? { permissionAction: "allow" }
+              : callSafety.requiresConfirmation === false
+                ? { permissionAction: "allow" }
               : callSafety.internallyConfirmed === true && params.trustInternallyConfirmed !== false
                 ? { permissionAction: "allow" }
                 : contract.name === "notebrain_file" && args.action === "run_command"

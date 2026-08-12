@@ -157,7 +157,8 @@ export function buildAgentContextInstructions(params: BuildAgentContextInstructi
     skillSections,
     contextInstructions,
     manifest: mergeAgentContextManifestEntries([
-      ...(params.conversationContext?.manifest.entries ?? []),
+      ...(params.conversationContext?.manifest.entries.filter((entry) => entry.source !== "global-memory") ?? []),
+      createAgentContextManifestEntry("global-memory", "summary", params.globalMemory, { reason: "本轮未授权或没有匹配的长期记忆" }),
       createAgentContextManifestEntry("knowledge-guidance", "constraints", knowledgeGuidance, { reason: "Profile 未授权知识上下文" }),
       createAgentContextManifestEntry("attached-document-content", "recent-verbatim", attachedDocumentContent, { reason: "没有已加载的附加文档正文" }),
       createAgentContextManifestEntry("external-skills", "retrieval-index", externalSkills, { reason: "外部 Skills 未启用或没有索引" }),

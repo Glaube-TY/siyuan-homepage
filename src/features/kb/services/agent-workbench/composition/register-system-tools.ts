@@ -1,21 +1,15 @@
 /**
- * Composition: register system tools (edit_global_memory).
+ * Composition: register system tools.
  */
 
 import { ToolRegistry } from "../registries/tool-registry";
-import { createEditGlobalMemoryTool } from "../tools/system/edit-global-memory.tool";
+import { createMemoryManageTool, type MemoryManageToolOptions } from "../tools/system/memory-manage.tool";
 import { createAgentToolHelpTool, type AvailableToolSnapshot } from "../tools/aggregate/agent-tool-help.tool";
 import type { ExternalSkillSettings } from "../../../types/settings";
 
 export interface SystemToolOptions {
-  /** When present and not disabled, registers edit_global_memory. */
-  globalMemoryToolDeps?: {
-    docId: string;
-    maxMemoryChars: number;
-    baseDigest?: string;
-  };
+  memory?: MemoryManageToolOptions;
   globalToolAccess?: {
-    editGlobalMemory: boolean;
     agentToolHelp?: boolean;
   };
   externalSkillSettings?: ExternalSkillSettings;
@@ -26,13 +20,8 @@ export function registerSystemTools(
   toolRegistry: ToolRegistry,
   options: SystemToolOptions = {},
 ): void {
-  // Global memory edit tool
-  if (options.globalMemoryToolDeps && options.globalToolAccess?.editGlobalMemory !== false) {
-    toolRegistry.ensureTool(createEditGlobalMemoryTool({
-      docId: options.globalMemoryToolDeps.docId,
-      maxMemoryChars: options.globalMemoryToolDeps.maxMemoryChars,
-      baseDigest: options.globalMemoryToolDeps.baseDigest,
-    }));
+  if (options.memory && (options.memory.read || options.memory.write)) {
+    toolRegistry.ensureTool(createMemoryManageTool(options.memory));
   }
 
   if (

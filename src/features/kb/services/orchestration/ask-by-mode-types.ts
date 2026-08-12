@@ -30,7 +30,7 @@ export interface AskByModeParams {
   abortSignal?: AbortSignal;
   /** 本轮对话使用的模型选择（优先于 settings 中的默认模型） */
   chatModelSelection?: ChatModelSelection | null;
-  /** 重新生成时复用已有 user message，不追加重复 user */
+  /** 重试或崩溃恢复时复用已有 user message。 */
   existingUserMessageId?: string;
   /** 从崩溃恢复产生的安全检查点继续，不重放已完成工具。 */
   resumeCheckpoint?: import("../agent-core/session/agent-run-checkpoint").AgentRunCheckpoint;

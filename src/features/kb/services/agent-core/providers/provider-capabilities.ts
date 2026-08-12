@@ -12,7 +12,8 @@ export const OPENAI_COMPATIBLE_CAPABILITIES: ProviderCapabilities = {
   streaming: true,
   reasoningDeltas: true,
   parallelToolCalls: true,
-  requiredToolChoice: true,
+  // OpenAI-compatible 只保证协议外形，不保证思考模型支持 tool_choice=required。
+  requiredToolChoice: false,
   usageReporting: true,
 };
 

@@ -20,7 +20,7 @@ export interface ToolPermissionGate {
  *
  * `autoAllowedToolNames`: trusted entries that skip the confirmation dialog.
  * Each entry may be either:
- *   - A bare tool name (e.g. "edit_global_memory"): trusted at tool level.
+ *   - A bare tool name: trusted at tool level.
  *     Used for direct tools without action and for backwards compatibility.
  *   - A "toolName:actionName" pair (e.g. "siyuan_doc_edit:delete_blocks"):
  *     trusted at action level. Only matched when args.action === actionName.

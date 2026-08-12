@@ -197,7 +197,7 @@ export async function generateHomepageStatusText(params: {
 
     const result = await generatePlainText({
         profileId: HOMEPAGE_STATUS_AGENT_PROFILE_ID,
-        contextSources: ["homepage-statistics"],
+        contextSources: ["homepage-statistics", "global-memory"],
         prompt,
         modelSelection: selection,
         thinkingMode,

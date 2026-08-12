@@ -3,13 +3,12 @@
  * 负责读取/合并/保存 KB 设置
  */
 
-import type { KbSettings, KbChatProviderConfig, KbChatModelConfig, WebSearchSettings, KbToolSettings, GlobalMemorySettings, QuickPromptsSettings, KbProcessDisplayMode, NotebrainAgentWorkspaceSettings, ExternalSkillSettings, McpSettings, NotebrainPermissionAction, RuntimeToolsSettings, KbChatAppearanceSettings, KbChatAppearanceStyle, KbChatAvatarSettings } from "../../types/settings";
+import type { KbSettings, KbChatProviderConfig, KbChatModelConfig, WebSearchSettings, KbToolSettings, QuickPromptsSettings, KbProcessDisplayMode, NotebrainAgentWorkspaceSettings, ExternalSkillSettings, McpSettings, NotebrainPermissionAction, RuntimeToolsSettings, KbChatAppearanceSettings, KbChatAppearanceStyle, KbChatAvatarSettings } from "../../types/settings";
 import {
   DEFAULT_KB_SETTINGS,
   DEFAULT_TEMPERATURE,
   DEFAULT_WEB_SEARCH_SETTINGS,
   DEFAULT_TOOL_SETTINGS,
-  DEFAULT_GLOBAL_MEMORY_SETTINGS,
   DEFAULT_QUICK_PROMPTS_SETTINGS,
   DEFAULT_NOTEBRAIN_WORKSPACE_SETTINGS,
   DEFAULT_EXTERNAL_SKILL_SETTINGS,
@@ -180,7 +179,7 @@ function toAggregateGlobalToolName(rawName: unknown): KbToolSettings["disabledGl
  * 系统必需、固定启用、用户不可关闭的内置工具。
  * 这些工具不会进入 disabledGlobalToolNames；设置页应展示为只读固定卡片。
  */
-const SYSTEM_REQUIRED_TOOL_NAMES = new Set<string>(["agent_tool_help"]);
+const SYSTEM_REQUIRED_TOOL_NAMES = new Set<string>(["agent_tool_help", "memory_manage"]);
 
 /** 无 action 的直接写工具：仍使用 disabledWriteToolConfirmationNames（工具级确认开关）。 */
 const DIRECT_WRITE_TOOL_NAMES = new Set<string>(
@@ -232,7 +231,7 @@ function normalizeToolActionConfirmOverrides(
 /**
  * 归一化全局工具设置
  * - 只保留合法聚合工具名
- * - 系统必需工具（agent_tool_help）永远不进入 disabledGlobalToolNames
+ * - 系统必需工具永远不进入 disabledGlobalToolNames
  * - 去重
  * - 设置缺失时回退默认值
  */
@@ -267,7 +266,7 @@ function normalizeToolSettings(raw: unknown): KbToolSettings {
   const rawOverrides = s.toolActionConfirmOverrides;
   const overrides = normalizeToolActionConfirmOverrides(rawOverrides);
 
-  // writeConfirmationNames 仅保留无 action 的直接工具（如 edit_global_memory）
+  // writeConfirmationNames 仅保留无 action 的直接工具。
   // 聚合工具的可信状态由 action 级配置单独管理。
   const directWriteConfirmationNames = writeConfirmationNames.filter((n) => DIRECT_WRITE_TOOL_NAMES.has(n));
 
@@ -301,41 +300,6 @@ function normalizeQuickPromptsSettings(raw: unknown): QuickPromptsSettings {
   return {
     enabled,
     docId,
-    ...(updatedAt !== undefined ? { updatedAt } : {}),
-  };
-}
-
-/**
- * 归一化全局记忆设置
- * - 非对象 → 回退默认值
- * - docId 只保留 string
- * - maxChars clamp 到 [500, 30000]
- */
-function normalizeGlobalMemorySettings(raw: unknown): GlobalMemorySettings {
-  if (!raw || typeof raw !== "object") {
-    return { ...DEFAULT_GLOBAL_MEMORY_SETTINGS };
-  }
-  const s = raw as Record<string, unknown>;
-
-  const enabled = typeof s.enabled === "boolean" ? s.enabled : DEFAULT_GLOBAL_MEMORY_SETTINGS.enabled;
-  const docId = typeof s.docId === "string" ? s.docId : DEFAULT_GLOBAL_MEMORY_SETTINGS.docId;
-
-  const rawMaxChars = s.maxChars;
-  let maxChars = DEFAULT_GLOBAL_MEMORY_SETTINGS.maxChars;
-  if (typeof rawMaxChars === "number" && Number.isFinite(rawMaxChars)) {
-    maxChars = clampNumber(Math.round(rawMaxChars), 500, 30000);
-  }
-
-  const allowAiUpdate = typeof s.allowAiUpdate === "boolean" ? s.allowAiUpdate : DEFAULT_GLOBAL_MEMORY_SETTINGS.allowAiUpdate;
-
-  const rawUpdatedAt = s.updatedAt;
-  const updatedAt = typeof rawUpdatedAt === "number" && Number.isFinite(rawUpdatedAt) ? rawUpdatedAt : undefined;
-
-  return {
-    enabled,
-    docId,
-    maxChars,
-    allowAiUpdate,
     ...(updatedAt !== undefined ? { updatedAt } : {}),
   };
 }
@@ -982,7 +946,6 @@ export function mergeKbSettings(userSettings: Partial<KbSettings>): KbSettings {
     selectedChatModelId: finalSelectedModelId,
     webSearch: normalizeWebSearchSettings(normalized.webSearch),
     toolSettings: normalizeToolSettings(normalized.toolSettings),
-    globalMemory: normalizeGlobalMemorySettings(normalized.globalMemory),
     quickPrompts: normalizeQuickPromptsSettings(normalized.quickPrompts),
     notebrainWorkspace: normalizeNotebrainWorkspaceSettings(normalized.notebrainWorkspace),
     externalSkills: normalizeExternalSkillSettings(normalized.externalSkills),

@@ -287,6 +287,14 @@ const SETTINGS_SEARCH_REGISTRY: readonly SettingSearchEntry[] = [
         ],
     ),
     ...defineSettings(
+        { mainTab: "aiKnowledgeBase", subTab: "memory", section: "记忆中枢", scope: "all-devices" },
+        [
+            { id: "ai.memory.enabled", title: "使用记忆中枢", description: "让所有授权 Agent 入口共享长期用户记忆", keywords: ["全局记忆", "个人偏好", "长期记忆"] },
+            { id: "ai.memory.learn", title: "允许 AI 自动学习", description: "从稳定、重要且明确的用户事实中形成和更新记忆", keywords: ["自动学习", "进化", "越用越懂"] },
+            { id: "ai.memory.manage", title: "管理长期记忆", description: "搜索、编辑、置顶和删除 Agent 形成的用户记忆", keywords: ["编辑记忆", "遗忘", "删除"], target: "section" },
+        ],
+    ),
+    ...defineSettings(
         { mainTab: "notifyBridge", subTab: "desktop", section: "桌面系统通知", scope: "current-device" },
         [
             { id: "notify.desktop.enabled", title: "开启桌面系统通知", description: "通过操作系统通知中心显示提醒" },

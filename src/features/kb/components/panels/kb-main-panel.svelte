@@ -582,6 +582,13 @@
       return;
     }
 
+    const requestContext = precedingUserMessage.requestContext;
+    const rawMode = requestContext?.originalMode as ChatMode | undefined;
+    const effectiveMode = rawMode && CHAT_MODES.some((m) => m.id === rawMode) ? rawMode : selectedMode;
+    if (!ensureCurrentDocumentModeAvailable(effectiveMode)) {
+      return;
+    }
+
     void detachTemporaryWorkbenchUsages({
       conversationId: activeConversationId,
       messageId: lastMessage.id,
@@ -589,6 +596,7 @@
 
     kbSessionStore.update((state) => {
       const removedAssistantId = lastMessage.id;
+      const removedMessageIds = new Set([precedingUserMessage.id, removedAssistantId]);
       const removedStageSummary = (state.stageSummaries ?? [])
         .find((summary) => summary.endAssistantMessageId === removedAssistantId);
       const stageSummaries = removedStageSummary
@@ -608,7 +616,7 @@
 
         return {
           ...state,
-          messages: unCompactedMessages.slice(0, -1),
+          messages: unCompactedMessages.filter((message) => !removedMessageIds.has(message.id)),
           stageSummaries,
           compressedContextSummary: undefined,
           compressionState: undefined,
@@ -618,14 +626,10 @@
 
       return {
         ...state,
-        messages: state.messages.slice(0, -1),
+        messages: state.messages.filter((message) => !removedMessageIds.has(message.id)),
         stageSummaries,
       };
     });
-
-    const requestContext = precedingUserMessage.requestContext;
-    const rawMode = requestContext?.originalMode as ChatMode | undefined;
-    const effectiveMode = rawMode && CHAT_MODES.some((m) => m.id === rawMode) ? rawMode : selectedMode;
 
     const reusedThinkingMode = requestContext?.thinkingMode as import("../../types/session").ThinkingMode | undefined;
     const hasThinkingMode = !!reusedThinkingMode;
@@ -667,15 +671,14 @@
       hasExplicitUserValue: !!$kbSessionStore.thinkingMode,
     }, "info");
 
-    await handleAskByModeWithExistingUser(
+    await handleAskByMode(
       effectiveMode,
       precedingUserMessage.content,
-      precedingUserMessage.id,
-      chatModelSelection,
+      effectiveThinkingMode,
       requestContext?.customDocIds,
       requestContext?.attachedDocs,
-      effectiveThinkingMode,
       reusedWebAccessMode,
+      chatModelSelection,
     );
   }
 
@@ -1078,7 +1081,7 @@
   /**
    * 统一提问入口：调用 orchestration 层
    */
-  async function handleAskByMode(mode: ChatMode, question: string, submittedThinkingMode?: import("../../types/session").ThinkingMode, customDocIds?: string[], attachedDocs?: import("../../types/chat").AttachedKbDoc[], submittedWebAccessMode?: "off" | "smart" | "required") {
+  async function handleAskByMode(mode: ChatMode, question: string, submittedThinkingMode?: import("../../types/session").ThinkingMode, customDocIds?: string[], attachedDocs?: import("../../types/chat").AttachedKbDoc[], submittedWebAccessMode?: "off" | "smart" | "required", prevalidatedChatModelSelection?: ChatModelSelection) {
     if (import.meta.env.DEV) {
       console.debug("[KbMainPanel] askByMode called", {
         mode,
@@ -1092,7 +1095,7 @@
       return;
     }
 
-    const chatModelSelection = await ensureValidChatModelSelection();
+    const chatModelSelection = prevalidatedChatModelSelection || await ensureValidChatModelSelection();
     if (!chatModelSelection) {
       appendChatModelUnavailableError();
       return;
@@ -1186,9 +1189,7 @@
     }
   }
 
-  /**
-   * 重新生成专用提问入口：复用已有 user message，不追加重复 user
-   */
+  /** 重试与崩溃恢复入口：复用已有 user message。 */
   async function handleAskByModeWithExistingUser(
     mode: ChatMode,
     question: string,
@@ -1289,7 +1290,7 @@
     }
 
     if (!result.success && result.error) {
-      console.error(`[KbMainPanel] Regenerate failed: ${result.error}`);
+      console.error(`[KbMainPanel] Existing turn retry failed: ${result.error}`);
     }
   }
 

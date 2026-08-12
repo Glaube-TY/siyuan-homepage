@@ -18,6 +18,7 @@
     import { confirmDialogBoolean } from "@/libs/dialog";
     import type { AiKnowledgeBaseSubTab } from "../aiKnowledgeBaseTabs";
     import TemporaryWorkbenchSettingsPanel from "./TemporaryWorkbenchSettingsPanel.svelte";
+    import MemoryCenterSettingsPanel from "./MemoryCenterSettingsPanel.svelte";
 
     interface Props {
         activeSubTab: AiKnowledgeBaseSubTab;
@@ -646,6 +647,8 @@
 </SettingSection>
 {:else if activeSubTab === "workbenches"}
     <TemporaryWorkbenchSettingsPanel />
+{:else if activeSubTab === "memory"}
+    <MemoryCenterSettingsPanel />
 {/if}
 
 {#if editorOpen}

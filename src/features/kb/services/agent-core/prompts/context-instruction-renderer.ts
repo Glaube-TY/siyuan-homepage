@@ -12,8 +12,8 @@ export function renderContextInstructions(params: {
   const blocks: string[] = [];
 
   if (params.globalMemory?.trim()) {
-    blocks.push("# Global Memory");
-    blocks.push("This is long-term user memory. It is preference/context, not a substitute for current evidence.");
+    blocks.push("# User Long-term Memory");
+    blocks.push("Use these user facts silently for personalization. The current user message wins on conflicts. Never expose memory IDs, storage paths, or internal implementation.");
     blocks.push(params.globalMemory.trim());
   }
 

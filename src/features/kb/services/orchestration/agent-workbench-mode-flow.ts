@@ -39,7 +39,6 @@ import { maybeAutoCompressContext, emergencyCompressContext } from "../context-c
 import type { MaybeAutoCompressResult } from "../context-compression";
 import { getKbSettings } from "../settings/kb-settings-service";
 import { estimateContextUsage } from "../../types/context-usage";
-import { digestGlobalMemoryText, readGlobalMemory, validateGlobalMemoryDocId } from "../agent-workbench/memory/global-memory-doc";
 import { buildConversationContext } from "../agent-workbench/runtime/conversation-context-builder";
 import type { BuildConversationContextParams } from "../agent-workbench/runtime/conversation-context-builder";
 import { findCompleteConversationTurn, getCompleteConversationTurns } from "../agent-workbench/runtime/conversation-turns";
@@ -641,10 +640,8 @@ export async function runAgentWorkbenchModeFlow(
       contextWindowTokens,
     });
 
-    // Fetch web search settings and global memory for conversation context
+    // Fetch web search settings for conversation context. Global memory is injected by the Agent profile.
     let webSearchSettings: BuildConversationContextParams["webSearchSettings"];
-    let globalMemoryText: string | undefined;
-    let globalMemoryBaseDigest: string | undefined;
     let kbSettings: Awaited<ReturnType<typeof getKbSettings>> | undefined;
     try {
       kbSettings = await getKbSettings();
@@ -655,22 +652,6 @@ export async function runAgentWorkbenchModeFlow(
           maxResults: kbSettings.webSearch.maxResults,
           readPageMaxChars: kbSettings.webSearch.readPageMaxChars,
         };
-      }
-      if (kbSettings?.globalMemory?.enabled && kbSettings.globalMemory.docId) {
-        const validation = await validateGlobalMemoryDocId(kbSettings.globalMemory.docId);
-        if (validation.valid) {
-          const mem = await readGlobalMemory(kbSettings.globalMemory.docId, kbSettings.globalMemory.maxChars);
-          if (!mem.readOk) {
-            globalMemoryText = "全局记忆读取失败，本轮不使用全局记忆。";
-          } else {
-            globalMemoryText = mem.content;
-            if (mem.truncated) {
-              globalMemoryText += "\n（记忆内容已截断）";
-            } else {
-              globalMemoryBaseDigest = digestGlobalMemoryText(mem.content);
-            }
-          }
-        }
       }
     } catch { /* ignore */ }
 
@@ -705,7 +686,6 @@ export async function runAgentWorkbenchModeFlow(
       usageRatio: usageSnapshotForContext.usageRatio,
       webSearchSettings,
       webAccessModeOverride: effectiveWebAccessMode,
-      globalMemory: globalMemoryText,
     });
 
     // Extract attachedDocs from current user message for reference grounding
@@ -846,8 +826,6 @@ export async function runAgentWorkbenchModeFlow(
       abortSignal,
       chatModelSelection,
       thinkingMode: userThinkingMode,
-      globalMemory: globalMemoryText,
-      globalMemoryBaseDigest,
       conversationId: params.conversationId ?? actualUserMessageId,
       panelInstanceId: params.panelInstanceId,
       turnId: assistantMessageId,

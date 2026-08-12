@@ -37,6 +37,12 @@ export type StorageReadResult<T> =
   | { status: "missing" }
   | { status: "error"; error: string };
 
+export function normalizeStorageRead<T>(data: T | null | undefined | ""): StorageReadResult<T> {
+  return data === null || data === undefined || data === ""
+    ? { status: "missing" }
+    : { status: "ok", data: data as T };
+}
+
 /**
  * 严格读取：调用方可以区分“文件不存在”和“读取失败”。
  * 会话事务不得把读取失败当成空数据继续覆盖。
@@ -45,8 +51,7 @@ export async function loadDataStrict<T>(key: string): Promise<StorageReadResult<
   const plugin = getNotebrainPlugin();
   try {
     const data = await plugin.loadData(key);
-    if (data === null || data === undefined) return { status: "missing" };
-    return { status: "ok", data: data as T };
+    return normalizeStorageRead(data as T | null | undefined | "");
   } catch (error) {
     return {
       status: "error",

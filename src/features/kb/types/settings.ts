@@ -158,7 +158,7 @@ export type KbGlobalToolName =
   | "mcp_manage"
   | "notebrain_file"
   | "web_fetch"
-  | "edit_global_memory"
+  | "memory_manage"
   | "agent_tool_help";
 
 /** 全局工具设置 */
@@ -166,7 +166,7 @@ export type KbToolSettings = {
   /** 被禁用的全局工具名称列表。agent_tool_help 永远不在此列表中（系统必需，固定启用）。 */
   disabledGlobalToolNames: KbGlobalToolName[];
   /**
-   * 无 action 的直接写工具（如 edit_global_memory）的可信免确认名单。
+   * 无 action 的直接写工具的可信免确认名单。
    * 有 action 的聚合工具应使用 toolActionConfirmOverrides 进行 action 级覆盖。
    */
   disabledWriteToolConfirmationNames?: string[];
@@ -187,20 +187,6 @@ export type QuickPromptsSettings = {
   enabled: boolean;
   /** 提示语文档 ID */
   docId: string;
-  /** 最后更新时间 */
-  updatedAt?: number;
-};
-
-/** 全局记忆设置 */
-export type GlobalMemorySettings = {
-  /** 是否启用全局记忆 */
-  enabled: boolean;
-  /** 记忆文档 ID */
-  docId: string;
-  /** 最大读取字符数 */
-  maxChars: number;
-  /** 是否允许 AI 更新记忆 */
-  allowAiUpdate: boolean;
   /** 最后更新时间 */
   updatedAt?: number;
 };
@@ -312,10 +298,6 @@ export type KbSettings = {
    * 全局工具设置
    */
   toolSettings: KbToolSettings;
-  /**
-   * 全局记忆设置
-   */
-  globalMemory: GlobalMemorySettings;
   /**
    * 快捷提示语设置
    */

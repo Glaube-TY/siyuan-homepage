@@ -32,6 +32,7 @@ import {
   type AgentProfile,
 } from "../../../../agent-platform/agent-profile";
 import type { AgentSurfaceCapabilitySnapshot } from "../../../../agent-platform/agent-surface-capability";
+import type { GlobalMemoryProfile } from "../memory/global-memory-store";
 
 // User skill loader (uses new agent-workbench contracts directly)
 import { MarkdownSkillLoader } from "../skills/user/markdown-skill-loader";
@@ -88,18 +89,12 @@ export interface AgentWorkbenchRuntimeOptions {
   /** Global tool visibility from settings. Controls aggregate and system tool registration. */
   globalToolAccess?: {
     webFetch: boolean;
-    editGlobalMemory: boolean;
     agentToolHelp: boolean;
-  };
-  /** Optional: global memory tool deps. When present, registers edit_global_memory. */
-  globalMemoryToolDeps?: {
-    docId: string;
-    maxMemoryChars: number;
-    baseDigest?: string;
   };
   /** 当前对话标识，用于 confirmation store 等需要关联 conversation 的场景。 */
   conversationId?: string;
   turnId?: string;
+  memoryProfile?: GlobalMemoryProfile;
   confirmationRoute?: ConfirmationRoute;
   externalSkillSettings?: ExternalSkillSettings;
   mcpSettings?: McpSettings;
@@ -119,12 +114,19 @@ export function createAgentWorkbenchRuntime(
   const externalSkillSettings = options.externalSkillSettings ?? DEFAULT_EXTERNAL_SKILL_SETTINGS;
   let surfaceCapabilities: AgentSurfaceCapabilitySnapshot = { contexts: [], actions: [] };
 
-  // Register system tools (edit_global_memory)
   if (agentProfileHasCapability(options.profile, "global-memory")) {
     registerSystemTools(toolRegistry, {
-      globalMemoryToolDeps: agentProfileAllowsMemory(options.profile, "write")
-        ? options.globalMemoryToolDeps
-        : undefined,
+      memory: {
+        read: agentProfileAllowsMemory(options.profile, "read"),
+        write: agentProfileAllowsMemory(options.profile, "write"),
+        source: {
+          profileId: options.profile.id,
+          surface: options.profile.label,
+          conversationId: options.conversationId,
+          messageId: options.turnId,
+        },
+        writeRequiresConfirmation: options.memoryProfile?.autoLearn !== true,
+      },
       globalToolAccess: options.globalToolAccess,
     });
   }

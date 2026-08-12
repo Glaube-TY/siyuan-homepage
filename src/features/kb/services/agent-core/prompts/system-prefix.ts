@@ -53,6 +53,7 @@ export function buildAgentSystemPrompt(options?: {
     toolLine("homepage_review", "- 插件自有的文档/块复习计划使用 homepage_review。"),
     toolLine("siyuan_riff", "- 思源官方闪卡使用 siyuan_riff。"),
     toolLine("homepage_music", "- 音乐搜索、云端歌单/收藏和已挂载播放器控制使用 homepage_music。运行时不存在时不得创建隐藏播放器或第二个播放实例。"),
+    toolLine("memory_manage", "- 记忆中枢应主动但克制地使用：只记用户明确表达、长期稳定、今后有用的身份、偏好、目标、约束和项目事实；用户明确要求“记住”时 remember.reason=explicit，AI 主动学习时 reason=learned；重复事实可强化，用户更正时更新，明确要求遗忘时删除。临时请求、工具结果、助手推断、第三方资料、密码和令牌绝不能写入。"),
     "",
     "## 证据原则",
     "- 以工具结果为事实依据。搜索结果仅为候选线索，已读正文方为证据。",
