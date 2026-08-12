@@ -25,6 +25,10 @@ import {
 import type { ExternalSkillSettings, McpSettings, NotebrainAgentWorkspaceSettings, RuntimeToolsSettings } from "../../../types/settings";
 import type { ConfirmationRoute } from "../../agent-core/permissions/confirmation-bridge";
 import type { AvailableToolSnapshot } from "../tools/aggregate/agent-tool-help.tool";
+import {
+  agentProfileHasCapability,
+  type AgentProfile,
+} from "../../../../agent-platform/agent-profile";
 
 // User skill loader (uses new agent-workbench contracts directly)
 import { MarkdownSkillLoader } from "../skills/user/markdown-skill-loader";
@@ -66,6 +70,7 @@ export interface BuiltinCapabilityAccess {
 }
 
 export interface AgentWorkbenchRuntimeOptions {
+  profile: AgentProfile;
   kbRetrievalToolDeps?: SiyuanToolDeps;
   /** Optional: web read page runtime deps. When present, registers web_fetch.read_page. */
   webReadPageToolDeps?: {
@@ -97,7 +102,7 @@ export interface AgentWorkbenchRuntimeOptions {
 }
 
 export function createAgentWorkbenchRuntime(
-  options: AgentWorkbenchRuntimeOptions = {},
+  options: AgentWorkbenchRuntimeOptions,
 ): AgentWorkbenchRuntime {
   // Per-turn registries, no global state.
   const skillRegistry = new SkillRegistry();
@@ -105,13 +110,15 @@ export function createAgentWorkbenchRuntime(
   const externalSkillSettings = options.externalSkillSettings ?? DEFAULT_EXTERNAL_SKILL_SETTINGS;
 
   // Register system tools (edit_global_memory)
-  registerSystemTools(toolRegistry, {
-    globalMemoryToolDeps: options.globalMemoryToolDeps,
-    globalToolAccess: options.globalToolAccess,
-  });
+  if (agentProfileHasCapability(options.profile, "global-memory")) {
+    registerSystemTools(toolRegistry, {
+      globalMemoryToolDeps: options.globalMemoryToolDeps,
+      globalToolAccess: options.globalToolAccess,
+    });
+  }
 
   // Register Siyuan tools (knowledge base, diary, doc editing)
-  if (options.kbRetrievalToolDeps) {
+  if (agentProfileHasCapability(options.profile, "siyuan") && options.kbRetrievalToolDeps) {
     registerSiyuanTools(toolRegistry, {
       kbRetrievalToolDeps: options.kbRetrievalToolDeps,
       conversationId: options.conversationId,
@@ -121,38 +128,43 @@ export function createAgentWorkbenchRuntime(
     });
   }
 
-  registerHomepageTools(toolRegistry, {
-    enabled: options.builtinCapabilityAccess?.homepageManagement === true,
-  });
-  registerHomepageComponentTools(toolRegistry, {
-    quickNote: options.builtinCapabilityAccess?.homepageQuickNote === true,
-    focus: options.builtinCapabilityAccess?.homepageFocus === true,
-    accounting: options.builtinCapabilityAccess?.homepageAccounting === true,
-    fixedAssets: options.builtinCapabilityAccess?.homepageFixedAssets === true,
-    anniversary: options.builtinCapabilityAccess?.homepageAnniversary === true,
-    favorites: options.builtinCapabilityAccess?.homepageFavorites === true,
-    review: options.builtinCapabilityAccess?.homepageReview === true,
-    music: options.builtinCapabilityAccess?.homepageMusic === true,
-  });
+  if (agentProfileHasCapability(options.profile, "homepage")) {
+    registerHomepageTools(toolRegistry, {
+      enabled: options.builtinCapabilityAccess?.homepageManagement === true,
+    });
+    registerHomepageComponentTools(toolRegistry, {
+      quickNote: options.builtinCapabilityAccess?.homepageQuickNote === true,
+      focus: options.builtinCapabilityAccess?.homepageFocus === true,
+      accounting: options.builtinCapabilityAccess?.homepageAccounting === true,
+      fixedAssets: options.builtinCapabilityAccess?.homepageFixedAssets === true,
+      anniversary: options.builtinCapabilityAccess?.homepageAnniversary === true,
+      favorites: options.builtinCapabilityAccess?.homepageFavorites === true,
+      review: options.builtinCapabilityAccess?.homepageReview === true,
+      music: options.builtinCapabilityAccess?.homepageMusic === true,
+    });
+  }
 
   // Register web_fetch aggregate tool.
-  registerWebTools(toolRegistry, {
-    webReadPageToolDeps: options.webReadPageToolDeps,
-    globalToolAccess: options.globalToolAccess,
-  });
+  if (agentProfileHasCapability(options.profile, "web")) {
+    registerWebTools(toolRegistry, {
+      webReadPageToolDeps: options.webReadPageToolDeps,
+      globalToolAccess: options.globalToolAccess,
+    });
+  }
 
-  registerLocalTools(toolRegistry, options.notebrainWorkspaceSettings, options.runtimeToolsSettings);
-  registerExternalSkillTools(
-    toolRegistry,
-    externalSkillSettings,
-  );
+  if (agentProfileHasCapability(options.profile, "local-workspace")) {
+    registerLocalTools(toolRegistry, options.notebrainWorkspaceSettings, options.runtimeToolsSettings);
+  }
+  if (agentProfileHasCapability(options.profile, "external-skills")) {
+    registerExternalSkillTools(toolRegistry, externalSkillSettings);
+  }
   // ponytail: MCP management tools only registered when mcp.enabled=true
   const effectiveMcpSettings = options.mcpSettings ?? DEFAULT_MCP_SETTINGS;
-  if (effectiveMcpSettings.enabled) {
+  if (agentProfileHasCapability(options.profile, "mcp") && effectiveMcpSettings.enabled) {
     registerMcpManagementTools(toolRegistry, effectiveMcpSettings, options.runtimeToolsSettings);
   }
 
-  if (options.globalToolAccess?.agentToolHelp !== false) {
+  if (agentProfileHasCapability(options.profile, "tools") && options.globalToolAccess?.agentToolHelp !== false) {
     const helpSnapshotCtx = { question: "", callCounts: {} };
     const currentProviderVisibleTools: AvailableToolSnapshot[] = toolRegistry.getToolManifest(helpSnapshotCtx)
       .filter((manifest) => manifest.availability.available === true)

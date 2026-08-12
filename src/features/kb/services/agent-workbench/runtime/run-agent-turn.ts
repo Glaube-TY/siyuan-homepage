@@ -44,6 +44,10 @@ import type { AgentMessage } from "../../agent-core/messages/agent-message";
 import { compactAgentSessionMessagesForStorage } from "../../agent-core/messages/message-compactor";
 import { sanitizeMessageForStorage } from "../../agent-core/session/session-store";
 import { buildSafeTurnStageSummary } from "../memory/build-safe-turn-stage-summary";
+import {
+  getAgentProfile,
+  KNOWLEDGE_CHAT_AGENT_PROFILE_ID,
+} from "../../../../agent-platform/agent-profile";
 
 export interface RunAgentTurnParams {
   question: string;
@@ -144,6 +148,7 @@ function buildFailureOutcome(params: {
 export async function runAgentTurn(
   params: RunAgentTurnParams,
 ): Promise<AgentTurnOutcome> {
+  const agentProfile = getAgentProfile(KNOWLEDGE_CHAT_AGENT_PROFILE_ID);
   const localEvents: AgentWorkbenchEvent[] = [];
   const conversationId = params.conversationId ?? `conv-${Date.now()}`;
 
@@ -250,6 +255,7 @@ export async function runAgentTurn(
     };
 
     const wb = createAgentWorkbenchRuntime({
+      profile: agentProfile,
       kbRetrievalToolDeps: deps,
       webReadPageToolDeps,
       builtinCapabilityAccess,
@@ -264,6 +270,12 @@ export async function runAgentTurn(
       notebrainWorkspaceSettings: settings.notebrainWorkspace,
       runtimeToolsSettings: settings.runtimeTools,
     });
+
+    pushAgentDebugEvent("AGENT_PROFILE_RESOLVED", {
+      profileId: agentProfile.id,
+      schemaVersion: agentProfile.schemaVersion,
+      capabilities: agentProfile.capabilities,
+    }, "info");
 
     pushAgentDebugEvent("WEB_TOOL_REGISTRATION_SAFE", {
       webReadPageRegistered: !!webReadPageToolDeps,
@@ -479,7 +491,7 @@ export async function runAgentTurn(
       autoAllowedToolNames,
       abortSignal: params.abortSignal,
       question: params.question,
-      maxToolCalls: settings.agentMaxToolCallsPerTurn ?? 20,
+      maxToolCalls: settings.agentMaxToolCallsPerTurn ?? agentProfile.execution.defaultMaxToolCalls,
       validateFinalAnswer: (answer) => buildMissingCitationRetryInstruction(
         answer,
         collectObservationReferences(wb.observationLog.all()),
