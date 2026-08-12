@@ -48,7 +48,6 @@ import { sanitizePersistedSummaryText } from "../session/persisted-summary-sanit
 import { showMessage } from "siyuan";
 import type { KbSessionState } from "../../types/session";
 import type { ContextUsageSnapshot } from "../../types/context-usage";
-import type { AgentMessage } from "../agent-core/messages/agent-message";
 import {
   createTurnJournal,
   checkpointTurnJournal,
@@ -348,69 +347,6 @@ function mergeWorkbenchEvents(a: AgentWorkbenchEvent[], b: AgentWorkbenchEvent[]
     out.push(event);
   }
   return out;
-}
-
-function getPersistedAgentSessionMessages(state: KbSessionState): AgentMessage[] | undefined {
-  const extended = state as KbSessionState & {
-    activeConversationId?: string;
-    conversations?: Array<{ id: string; agentSession?: { messages?: AgentMessage[] } }>;
-  };
-  const conversation = extended.conversations?.find((item) => item.id === extended.activeConversationId);
-  return conversation?.agentSession?.messages;
-}
-
-function pruneAgentSessionMessagesForExistingUser(
-  messages: AgentMessage[] | undefined,
-  question: string,
-): { messages: AgentMessage[] | undefined; pruned: boolean; beforeCount: number; afterCount: number } {
-  const beforeCount = messages?.length ?? 0;
-  if (!messages || messages.length === 0) {
-    return { messages, pruned: false, beforeCount, afterCount: beforeCount };
-  }
-
-  const normalizedQuestion = question.trim();
-  for (let index = messages.length - 1; index >= 0; index--) {
-    const message = messages[index];
-    if (message.role === "user" && message.content.trim() === normalizedQuestion) {
-      const prunedMessages = messages.slice(0, index);
-      return {
-        messages: prunedMessages,
-        pruned: true,
-        beforeCount,
-        afterCount: prunedMessages.length,
-      };
-    }
-  }
-
-  return { messages, pruned: false, beforeCount, afterCount: beforeCount };
-}
-
-function persistAgentSessionMessages(
-  state: KbSessionState,
-  conversationId: string | undefined,
-  messages: AgentMessage[] | undefined,
-): Partial<KbSessionState> {
-  if (!messages) return {};
-  const extended = state as KbSessionState & {
-    activeConversationId?: string;
-    conversations?: Array<Record<string, unknown> & { id: string }>;
-  };
-  const activeId = conversationId ?? extended.activeConversationId;
-  if (!activeId || !Array.isArray(extended.conversations)) return {};
-  return {
-    conversations: extended.conversations.map((conversation) =>
-      conversation.id === activeId
-        ? {
-            ...conversation,
-            agentSession: {
-              id: activeId,
-              messages,
-              updatedAt: Date.now(),
-            },
-          }
-        : conversation,
-    ),
-  } as Partial<KbSessionState>;
 }
 
 function appendAgentStageSummary(params: {
@@ -764,28 +700,6 @@ export async function runAgentWorkbenchModeFlow(
     let lastCheckpointAt = Date.now();
     let lastCheckpointChars = 0;
     const userThinkingMode = thinkingMode ?? "off";
-    const persistedAgentSessionMessages = getPersistedAgentSessionMessages(stateAfterCompression);
-    let agentSessionMessages = persistedAgentSessionMessages;
-    const isExistingUserTurn = !!params.existingUserMessageId;
-    if (isExistingUserTurn) {
-      const pruneResult = pruneAgentSessionMessagesForExistingUser(persistedAgentSessionMessages, trimmed);
-      agentSessionMessages = pruneResult.messages;
-      if (pruneResult.pruned) {
-        pushAgentDebugEvent("AGENT_SESSION_EXISTING_USER_PRUNED_SAFE", {
-          beforeCount: pruneResult.beforeCount,
-          afterCount: pruneResult.afterCount,
-          pruned: true,
-          reason: "existing_user_message",
-          existingUserMessageIdPresent: true,
-        }, "info");
-      } else if (pruneResult.beforeCount > 0) {
-        pushAgentDebugEvent("AGENT_SESSION_EXISTING_USER_PRUNE_SKIPPED_SAFE", {
-          beforeCount: pruneResult.beforeCount,
-          reason: "matching_user_not_found",
-        }, "info");
-      }
-    }
-
     const cancelAnswerFlush = (): void => {
       if (answerFlushTimer !== undefined) {
         clearTimeout(answerFlushTimer);
@@ -897,8 +811,12 @@ export async function runAgentWorkbenchModeFlow(
       conversationId: params.conversationId ?? actualUserMessageId,
       panelInstanceId: params.panelInstanceId,
       turnId: assistantMessageId,
-      agentSessionMessages,
       kbSettings,
+      onCheckpoint: (checkpoint) => checkpointTurnJournal({
+        eventType: `agent_checkpoint_${checkpoint.phase}`,
+        stepIndex: checkpoint.stepIndex,
+        agentRunCheckpoint: checkpoint,
+      }),
       onReasoningDelta: (event) => {
         // Only process reasoning when thinkingMode=on
         if (userThinkingMode !== "on") {
@@ -1075,16 +993,6 @@ export async function runAgentWorkbenchModeFlow(
         warnings: [],
         events: liveWorkbenchEvents,
       };
-    }
-
-    if (agentTurnOutcome.agentSessionMessages) {
-      updateState((state) =>
-        persistAgentSessionMessages(
-          state,
-          params.conversationId ?? actualUserMessageId,
-          agentTurnOutcome.agentSessionMessages,
-        )
-      );
     }
 
     if (isAgentWorkbenchDebugLogEnabled() && result) {

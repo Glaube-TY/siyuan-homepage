@@ -6,6 +6,7 @@ export class NativeToolExecutor {
     tool: NativeTool;
     args: Record<string, unknown>;
     ctx: ToolExecutionContext;
+    readOnly: boolean;
   }): Promise<ToolExecutionResult> {
     if (params.ctx.abortSignal?.aborted) {
       return createToolExecutionFailure({
@@ -19,12 +20,14 @@ export class NativeToolExecutor {
     try {
       return await params.tool.execute(params.args, params.ctx);
     } catch (err) {
-      return createToolExecutionFailure({
+      const failure = createToolExecutionFailure({
         toolName: params.tool.name,
-        code: "tool_execution_failed",
+        code: params.readOnly ? "tool_execution_failed" : "write_result_unknown",
         message: err instanceof Error ? err.message : "Tool execution failed.",
-        recoverable: true,
+        recoverable: params.readOnly,
       });
+      failure.sideEffectState = params.readOnly ? "not_started" : "unknown";
+      return failure;
     }
   }
 }

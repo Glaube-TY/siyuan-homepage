@@ -26,9 +26,10 @@ export function renderContextInstructions(params: {
   }
 
   if (params.conversationContext) {
+    const { manifest: _manifest, ...contextWithoutManifest } = params.conversationContext;
     const contextWithoutMemory = params.globalMemory
-      ? { ...params.conversationContext, globalMemory: undefined }
-      : params.conversationContext;
+      ? { ...contextWithoutManifest, globalMemory: undefined }
+      : contextWithoutManifest;
     blocks.push("# Conversation Context");
     blocks.push("This context is lightweight memory and history. It does not contain raw historical tool observations.");
     blocks.push(stringifyCompact(contextWithoutMemory));

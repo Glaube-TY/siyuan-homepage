@@ -35,7 +35,9 @@ import {
 } from "../skills/external/external-skill-index";
 import type { AgentStreamEvent } from "../../agent-core/loop/stream-event";
 import { AgentSession } from "../../agent-core/session/agent-session";
-import type { AgentMessage } from "../../agent-core/messages/agent-message";
+import { inspectAgentRunResume, type AgentRunCheckpoint } from "../../agent-core/session/agent-run-checkpoint";
+import type { AgentContextManifest } from "./agent-context-ledger";
+import type { AgentMessage, AgentToolCall } from "../../agent-core/messages/agent-message";
 import { compactAgentSessionMessagesForStorage } from "../../agent-core/messages/message-compactor";
 import { sanitizeMessageForStorage } from "../../agent-core/session/session-store";
 import type { ToolResultEntry } from "./tool-result-log";
@@ -72,7 +74,8 @@ export interface RunAgentProfileParams<TResult> {
   conversationId?: string;
   panelInstanceId?: string;
   turnId?: string;
-  agentSessionMessages?: readonly AgentMessage[];
+  onCheckpoint?: (checkpoint: AgentRunCheckpoint) => void;
+  resumeCheckpoint?: AgentRunCheckpoint;
   kbSettings?: Awaited<ReturnType<typeof getKbSettings>>;
   validateFinalAnswer?: (answer: string, observations: readonly ToolResultEntry[]) => string | undefined;
   finalize: (context: AgentProfileFinalizeContext) => Promise<{
@@ -99,7 +102,6 @@ export interface AgentProfileRunOutcome<TResult> {
   footerReferencesCount?: number;
   stopReasonCode?: string;
   displayError?: AgentTurnDisplayError;
-  agentSessionMessages?: AgentMessage[];
   identity: AgentRunIdentity;
   usage?: AgentTokenUsage;
 }
@@ -169,7 +171,6 @@ function buildFailureOutcome<TResult>(params: {
   message?: string;
   steps?: number;
   events: AgentWorkbenchEvent[];
-  agentSessionMessages?: AgentMessage[];
   identity: AgentRunIdentity;
   usage?: AgentTokenUsage;
 }): AgentProfileRunOutcome<TResult> {
@@ -187,10 +188,15 @@ function buildFailureOutcome<TResult>(params: {
       ...userFacing,
       completedStepsSummary: summary?.text,
     },
-    agentSessionMessages: params.agentSessionMessages,
     identity: params.identity,
     usage: params.usage,
   };
+}
+
+function sanitizePendingToolCalls(calls: readonly AgentToolCall[] | undefined): AgentToolCall[] | undefined {
+  if (!calls?.length) return undefined;
+  const message = sanitizeMessageForStorage({ role: "assistant", content: "", toolCalls: [...calls] });
+  return message.role === "assistant" ? message.toolCalls : undefined;
 }
 
 export async function runAgentProfile<TResult>(
@@ -199,12 +205,13 @@ export async function runAgentProfile<TResult>(
   const agentProfile = params.profile;
   const localEvents: AgentWorkbenchEvent[] = [];
   const conversationId = params.conversationId ?? `conv-${Date.now()}`;
-  const identity = createAgentRunIdentity({
+  const identity = params.resumeCheckpoint?.identity ?? createAgentRunIdentity({
     sessionId: conversationId,
     runId: params.turnId,
   });
   let eventOrdinal = 0;
   let activeProviderId: string | undefined;
+  let activeContextManifest: AgentContextManifest | undefined;
 
   const emitNativeEvent = (event: AgentStreamEvent): AgentWorkbenchEvent => {
     const workbenchEvent = toWorkbenchEvent(event, identity, ++eventOrdinal);
@@ -233,11 +240,10 @@ export async function runAgentProfile<TResult>(
       steps: trace.steps,
       providerRequestCount: trace.providerRequestCount,
       usage: trace.usage,
+      contextManifest: activeContextManifest ?? params.conversationContext?.manifest,
       events: toTraceEvents(localEvents),
     });
   };
-
-  let session: AgentSession | undefined;
 
   try {
     const resolvedScope = await resolveAgentScope({
@@ -530,19 +536,29 @@ export async function runAgentProfile<TResult>(
         mcpClientEnabled,
       },
     });
+    activeContextManifest = context.manifest;
 
-    const initialMessages = params.agentSessionMessages ?? [];
-    const safeInitialMessages = initialMessages.length > 0
-      ? compactAndSanitizeAgentMessages(initialMessages)
-      : initialMessages;
-    if (initialMessages.length > 0) {
-      pushAgentDebugEvent("AGENT_SESSION_INITIAL_STORAGE_SAFE_COMPACTED", {
-        beforeMessageCount: initialMessages.length,
-        afterMessageCount: safeInitialMessages.length,
-      }, "info");
+    if (params.resumeCheckpoint && params.resumeCheckpoint.identity.sessionId !== conversationId) {
+      return buildFailureOutcome({
+        code: "resume_session_mismatch",
+        message: "恢复检查点不属于当前会话，已阻止续跑。",
+        events: localEvents,
+        identity,
+      });
     }
-
-    session = new AgentSession(conversationId, safeInitialMessages);
+    const resumeDecision = params.resumeCheckpoint
+      ? inspectAgentRunResume(params.resumeCheckpoint)
+      : undefined;
+    if (params.resumeCheckpoint && !resumeDecision?.resumable) {
+      const code = `resume_${resumeDecision?.reason ?? "checkpoint_invalid"}`;
+      return buildFailureOutcome({
+        code,
+        message: "当前检查点不在可安全恢复的边界，已阻止续跑。",
+        events: localEvents,
+        identity,
+      });
+    }
+    const session = new AgentSession(conversationId, params.resumeCheckpoint?.messages ?? []);
     let reasoningStarted = false;
     let answerFinished = false;
 
@@ -564,7 +580,7 @@ export async function runAgentProfile<TResult>(
       }
     }
 
-    const loopResult = await new NativeToolAgentLoop({
+    const loop = new NativeToolAgentLoop({
       provider,
       toolRegistry: nativeToolRegistry,
       session,
@@ -586,6 +602,13 @@ export async function runAgentProfile<TResult>(
       maxToolCalls: settings.agentMaxToolCallsPerTurn ?? agentProfile.execution.defaultMaxToolCalls,
       validateFinalAnswer: params.validateFinalAnswer
         ? (answer) => params.validateFinalAnswer?.(answer, wb.observationLog.all())
+        : undefined,
+      onCheckpoint: params.onCheckpoint
+        ? (checkpoint) => params.onCheckpoint?.({
+            ...checkpoint,
+            messages: compactAndSanitizeAgentMessages(checkpoint.messages),
+            pendingToolCalls: sanitizePendingToolCalls(checkpoint.pendingToolCalls),
+          })
         : undefined,
       onEvent: (event) => {
         if (shouldStoreWorkbenchEvent(event)) {
@@ -616,14 +639,13 @@ export async function runAgentProfile<TResult>(
           reasoningStarted = false;
         }
       },
-    }).run(params.question);
+    });
+    const loopResult = params.resumeCheckpoint ? await loop.resume() : await loop.run(params.question);
     const loopOk = loopResult.status === "answer_ready";
 
     if (loopOk && !answerFinished) {
       params.onAnswerFinish?.(loopResult.answer);
     }
-
-    const compactedAndSanitizedMessages = compactAndSanitizeAgentMessages(loopResult.messages);
 
     saveCurrentTrace({
       status: loopResult.status,
@@ -631,7 +653,6 @@ export async function runAgentProfile<TResult>(
       providerRequestCount: loopResult.providerRequestCount,
       usage: loopResult.usage,
     });
-
     if (!loopOk) {
       const code = loopResult.errorCode ?? loopResult.status;
       pushAgentDebugEvent("TURN_FAILED", {
@@ -644,7 +665,6 @@ export async function runAgentProfile<TResult>(
         message: loopResult.errorMessage,
         steps: loopResult.steps,
         events: localEvents,
-        agentSessionMessages: compactedAndSanitizedMessages,
         identity,
         usage: loopResult.usage,
       });
@@ -662,7 +682,6 @@ export async function runAgentProfile<TResult>(
       steps: loopResult.steps,
       footerReferencesCount: finalized.footerReferencesCount,
       result: finalized.result,
-      agentSessionMessages: compactedAndSanitizedMessages,
       identity,
       usage: loopResult.usage,
     };
@@ -697,15 +716,10 @@ export async function runAgentProfile<TResult>(
         ? Math.max(...localEvents.map((event) => event.stepIndex ?? 0)) : 0,
     });
 
-    const exceptionSessionMessages = session
-      ? compactAndSanitizeAgentMessages(session.snapshot())
-      : undefined;
-
     return buildFailureOutcome({
       code,
       message,
       events: localEvents,
-      agentSessionMessages: exceptionSessionMessages,
       identity,
     });
   }

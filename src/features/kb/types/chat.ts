@@ -231,12 +231,6 @@ export type KbConversationSession = {
    * - 全局 webSearch 关闭时 UI 临时显示 off，但不覆盖会话保存值
    */
   webAccessMode?: WebAccessMode;
-  /** Provider-facing native Agent message log; UI messages remain separate. */
-  agentSession?: {
-    id: string;
-    messages: import("../services/agent-core/messages/agent-message").AgentMessage[];
-    updatedAt: number;
-  };
 };
 
 export type ConversationStageSummary = {

@@ -5,6 +5,7 @@ import type { ProviderAdapter } from "../providers/provider-adapter";
 import { classifyProviderFinishReason } from "../providers/provider-finish-reason";
 import type { NativeToolRegistry } from "../tools/native-tool-registry";
 import { AgentSession } from "../session/agent-session";
+import type { AgentRunCheckpoint, AgentRunCheckpointPhase } from "../session/agent-run-checkpoint";
 import { RegisteredConfirmationBridge, type ToolConfirmationBridge } from "../permissions/confirmation-bridge";
 import { dispatchToolCalls } from "./dispatch-tool-calls";
 import type { AgentStreamEvent } from "./stream-event";
@@ -51,6 +52,8 @@ export interface NativeToolAgentLoopOptions {
   onEvent?: (event: AgentStreamEvent) => void;
   /** 返回重写指令时丢弃当前草稿并重新生成一次最终回答。 */
   validateFinalAnswer?: (answer: string) => string | undefined;
+  /** 当前 run 的安全恢复边界；调用方负责最小化后持久化。 */
+  onCheckpoint?: (checkpoint: AgentRunCheckpoint) => void;
 }
 
 const SOFT_FINALIZATION_FATAL_CODES = new Set<string>([
@@ -111,13 +114,34 @@ export class NativeToolAgentLoop {
   }
 
   async run(question: string): Promise<NativeToolAgentLoopResult> {
+    return this.start(question, true);
+  }
+
+  async resume(): Promise<NativeToolAgentLoopResult> {
+    const question = [...this.session.snapshot()].reverse().find((message) => message.role === "user")?.content;
+    if (!question) {
+      return {
+        status: "failed",
+        answer: "",
+        steps: 0,
+        messages: this.session.snapshot(),
+        errorCode: "resume_checkpoint_invalid",
+        errorMessage: "恢复检查点中没有用户问题。",
+        identity: this.identity,
+        providerRequestCount: 0,
+      };
+    }
+    return this.start(question, false);
+  }
+
+  private async start(question: string, appendUser: boolean): Promise<NativeToolAgentLoopResult> {
     this.options.onEvent?.({
       type: "run_started",
       identity: this.identity,
       providerId: this.options.provider.id,
       requestTimeoutMs: this.options.provider.requestTimeoutMs,
     });
-    const result = await this.runInternal(question);
+    const result = await this.runInternal(question, appendUser);
     return {
       ...result,
       identity: this.identity,
@@ -126,7 +150,10 @@ export class NativeToolAgentLoop {
     };
   }
 
-  private async runInternal(question: string): Promise<Omit<NativeToolAgentLoopResult, "identity" | "usage" | "providerRequestCount">> {
+  private async runInternal(
+    question: string,
+    appendUser: boolean,
+  ): Promise<Omit<NativeToolAgentLoopResult, "identity" | "usage" | "providerRequestCount">> {
     const configuredMaxToolCalls = this.options.maxToolCalls ?? 20;
     const maxToolCalls = Number.isFinite(configuredMaxToolCalls) && configuredMaxToolCalls >= 0
       ? configuredMaxToolCalls
@@ -139,7 +166,7 @@ export class NativeToolAgentLoop {
     let unfinishedOutputRetryCount = 0;
     let requireToolCallForNextTurn = false;
 
-    this.session.append(createUserMessage(question));
+    if (appendUser) this.session.append(createUserMessage(question));
 
     while (true) {
       if (this.options.abortSignal?.aborted) {
@@ -154,6 +181,7 @@ export class NativeToolAgentLoop {
         };
       }
 
+      this.emitCheckpoint("before_model", steps);
       const messages = this.buildProviderMessages();
       const tools = this.options.toolRegistry.listProviderVisible();
       const toolChoice = requireToolCallForNextTurn ? "required" as const : "auto" as const;
@@ -387,6 +415,7 @@ export class NativeToolAgentLoop {
           toolCalls,
           ...(reasoning ? { reasoning } : {}),
         }));
+        this.emitCheckpoint("final", steps);
         if (finishKind === "truncated") {
           const message = "模型达到单次输出上限，回答正文可能未结束；本轮已经完成的工具操作不受影响。";
           this.options.onEvent?.({ type: "assistant_final", answer });
@@ -427,6 +456,7 @@ export class NativeToolAgentLoop {
 
       totalToolCalls += toolCalls.length;
 
+      this.emitCheckpoint("before_tool", steps, toolCalls);
       const dispatch = await dispatchToolCalls({
         calls: toolCalls,
         registry: this.options.toolRegistry,
@@ -439,10 +469,16 @@ export class NativeToolAgentLoop {
         bridge: this.bridge,
         autoAllowedToolNames: this.options.autoAllowedToolNames,
         stormBreaker: this.stormBreaker,
-        onEvent: this.options.onEvent,
+        onEvent: (event) => {
+          if (event.type === "permission_required") {
+            this.emitCheckpoint("waiting_confirmation", event.stepIndex, toolCalls);
+          }
+          this.options.onEvent?.(event);
+        },
       });
       steps += dispatch.stepCount;
       this.session.appendMany(dispatch.toolMessages);
+      this.emitCheckpoint("after_tool", steps, undefined, dispatch.sideEffectState ?? "committed");
 
       // Check for fatal errors that should stop the turn immediately
       // while preserving valid tool-call pairing.
@@ -458,6 +494,8 @@ export class NativeToolAgentLoop {
           type: "error",
           code: dispatch.fatalErrorCode,
           message: dispatch.fatalErrorMessage ?? "",
+          safeToReplay: dispatch.sideEffectState !== "unknown",
+          sideEffectState: dispatch.sideEffectState,
         });
         return {
           status: "failed",
@@ -719,6 +757,24 @@ export class NativeToolAgentLoop {
       modelStepIndex,
       stepUsage,
       cumulativeUsage: this.totalUsage,
+    });
+  }
+
+  private emitCheckpoint(
+    phase: AgentRunCheckpointPhase,
+    stepIndex: number,
+    pendingToolCalls?: AgentToolCall[],
+    sideEffectState: AgentRunCheckpoint["sideEffectState"] = phase === "after_tool" ? "committed" : "not_started",
+  ): void {
+    this.options.onCheckpoint?.({
+      schemaVersion: 1,
+      identity: this.identity,
+      phase,
+      stepIndex,
+      messages: this.session.snapshot(),
+      ...(pendingToolCalls?.length ? { pendingToolCalls } : {}),
+      sideEffectState,
+      createdAt: Date.now(),
     });
   }
 

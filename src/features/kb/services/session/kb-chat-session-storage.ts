@@ -9,10 +9,7 @@ import type {
 } from "../../types/chat";
 import type { AgentTurnMemory } from "../agent-workbench/memory/agent-turn-memory";
 import type { AgentWorkbenchEvent } from "../agent-workbench/contracts/turn-event";
-import type { AgentMessage } from "../agent-core/messages/agent-message";
-import { compactAgentSessionMessagesForStorage } from "../agent-core/messages/message-compactor";
 import type { ThinkingMode, WebAccessMode } from "../../types/session";
-import { sanitizeMessageForStorage } from "../agent-core/session/session-store";
 import { sanitizePersistedSummaryText } from "./persisted-summary-sanitizer";
 import {
   hasSettledWorkbenchTerminal,
@@ -129,11 +126,6 @@ export interface PersistedConversation {
   thinkingMode?: ThinkingMode;
   /** 会话级"联网搜索"按钮状态；旧文件缺字段时默认 "off" */
   webAccessMode?: WebAccessMode;
-  agentSession?: {
-    id: string;
-    messages: AgentMessage[];
-    updatedAt: number;
-  };
 }
 
 export function isTransientAssistantPlaceholder(message: ChatMessage): boolean {
@@ -614,15 +606,6 @@ export function toPersistedConversation(session: KbConversationSession): Persist
       session.compressedContextSummary,
     thinkingMode: session.thinkingMode,
     webAccessMode: session.webAccessMode,
-    agentSession: session.agentSession
-      ? {
-          id: session.agentSession.id,
-          messages: compactAgentSessionMessagesForStorage(session.agentSession.messages).map(
-            sanitizeMessageForStorage,
-          ),
-          updatedAt: session.agentSession.updatedAt,
-        }
-      : undefined,
   };
 }
 
@@ -644,7 +627,6 @@ export function fromPersistedConversation(
     // 旧 session 文件没有这两个字段时，归一化为 "off"，保持向前兼容
     thinkingMode: normalizeThinkingMode(persisted.thinkingMode),
     webAccessMode: normalizeWebAccessMode(persisted.webAccessMode),
-    agentSession: persisted.agentSession,
     ...defaults,
   };
 }

@@ -14,6 +14,8 @@ export interface ToolExecutionResult {
   code?: string;
   errorCode?: string;
   data?: unknown;
+  /** 写操作失败时必须说明是否已提交；未知状态禁止自动重放。 */
+  sideEffectState?: "not_started" | "committed" | "unknown";
   safeTargetPreview?: {
     targetDocIds?: string[];
     targetBlockIds?: string[];

@@ -5,7 +5,7 @@
  * - NativeToolAgentLoop is the primary Agent loop
  * - ProviderAdapter.streamChat returns standard tool_calls / functionCall / tool_use
  * - dispatchToolCalls handles permission gate, tool execution, role=tool backfill
- * - AgentSession is append-only, persisted per conversation
+ * - AgentSession is append-only and scoped to one run; durable history comes from the conversation ledger
  * - Tools are global independent capabilities (NativeTool)
  * - Skills are Chinese capability manuals (instruction only, no tool ownership)
  */
@@ -53,6 +53,19 @@ export type {
   ConversationReferenceContext,
   ConversationTurnContext,
 } from "./runtime/conversation-context-builder";
+export { buildAgentContextManifest } from "./runtime/agent-context-ledger";
+export type {
+  AgentContextLayer,
+  AgentContextManifest,
+  AgentContextManifestEntry,
+  AgentContextSourceId,
+} from "./runtime/agent-context-ledger";
+export { inspectAgentRunResume } from "../agent-core/session/agent-run-checkpoint";
+export type {
+  AgentRunCheckpoint,
+  AgentRunCheckpointPhase,
+  AgentRunResumeDecision,
+} from "../agent-core/session/agent-run-checkpoint";
 export { ToolExecutor } from "./runtime/tool-executor";
 export type { ToolCall, ExecutionOutcome } from "./runtime/tool-executor";
 export { saveTurnTrace, getLastTurnTrace, getRecentTurnTraces, clearTurnTraces } from "./runtime/turn-trace-store";

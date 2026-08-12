@@ -13,6 +13,7 @@ import type {
   UserChatMessage,
 } from "../../../types/chat";
 import type { ContextCompressionState } from "../../../types/context-usage";
+import { buildAgentContextManifest, type AgentContextManifest } from "./agent-context-ledger";
 import type { ActiveWorkingTarget, AgentTurnActionOutcome, AgentTurnTargetIndex } from "../memory/agent-turn-memory";
 import { outcomePriority } from "../memory/agent-turn-memory";
 import {
@@ -134,6 +135,8 @@ export interface ConversationContextSnapshot {
   note: string;
   /** 全局记忆内容（已截断处理） */
   globalMemory?: string;
+  /** 本轮实际注入的来源、层级、体积与压缩覆盖范围。 */
+  manifest: AgentContextManifest;
 }
 
 export interface BuildConversationContextParams {
@@ -704,22 +707,33 @@ export function buildConversationContext(
     }
   }
 
+  const currentTurn = {
+    userQuestion: truncateText(params.currentQuestion, MAX_USER_TEXT_CHARS),
+    ...(currentScope ? { scope: currentScope } : {}),
+    ...(attachedDocs ? { attachedDocs } : {}),
+    runtimeNow: buildRuntimeNow(),
+    ...(webSearchAccess ? { webAccess: webSearchAccess } : {}),
+    ...(webReadAccess ? { webReadAccess: webReadAccess } : {}),
+  };
+  const stageSummaryStatus = buildStageSummaryStatus(params.messages, stageSummaries, !!compressed, params.usageRatio ?? 0);
   return {
     version: SNAPSHOT_VERSION,
-    currentTurn: {
-      userQuestion: truncateText(params.currentQuestion, MAX_USER_TEXT_CHARS),
-      ...(currentScope ? { scope: currentScope } : {}),
-      ...(attachedDocs ? { attachedDocs } : {}),
-      runtimeNow: buildRuntimeNow(),
-      ...(webSearchAccess ? { webAccess: webSearchAccess } : {}),
-      ...(webReadAccess ? { webReadAccess: webReadAccess } : {}),
-    },
-    stageSummaryStatus: buildStageSummaryStatus(params.messages, stageSummaries, !!compressed, params.usageRatio ?? 0),
+    currentTurn,
+    stageSummaryStatus,
     ...(compressed ? { compressed } : {}),
     recentTurns,
     ...(recentTargetIndex ? { recentTargetIndex } : {}),
     ...(activeWorkingTarget ? { activeWorkingTarget } : {}),
     note: SNAPSHOT_NOTE,
     ...(params.globalMemory ? { globalMemory: params.globalMemory } : {}),
+    manifest: buildAgentContextManifest({
+      currentTurn,
+      compressedHistory: compressed?.summary,
+      compressedCoverage: compressed ? { startTurnIndex: 1, endTurnIndex: compressed.latestCompressedTurnIndex } : undefined,
+      recentTurns,
+      workingTarget: activeWorkingTarget ?? recentTargetIndex,
+      globalMemory: params.globalMemory,
+      attachedDocuments: attachedDocs,
+    }),
   };
 }

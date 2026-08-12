@@ -5,6 +5,7 @@
  */
 
 import type { AgentTokenUsage } from "../../../../agent-platform/agent-run-protocol";
+import type { AgentContextManifest } from "./agent-context-ledger";
 
 export interface TurnTrace {
   sessionId: string;
@@ -19,6 +20,8 @@ export interface TurnTrace {
   steps: number;
   providerRequestCount?: number;
   usage?: AgentTokenUsage;
+  /** 来源级估算；实际模型 token 以 usage 为准。 */
+  contextManifest?: AgentContextManifest;
   events: Array<{
     type: string;
     stepIndex?: number;

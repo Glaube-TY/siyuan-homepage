@@ -11,10 +11,13 @@ export interface AgentSessionRecord {
 const SENSITIVE_FIELD_KEYS = new Set([
   "beforeSnapshot", "afterSnapshot", "visualCompare", "confirmationId", "_confirmationId",
   "debug_trace", "api_key", "secret", "encryptedKey", "internalPath",
+  "token", "authorization", "cookie", "password", "credential", "privateKey",
   "realPath", "path", "snapshots", "toolInput", "markdown", "kramdown", "content", "blocks",
   "textPreview", "stdoutPreview", "stderrPreview", "stdout", "stderr",
   "result", "output", "raw", "rawContent", "responseText",
 ]);
+
+const SECRET_FIELD_PATTERN = /(token|apikey|secret|password|authorization|bearer|cookie|credential|privatekey)/i;
 
 function deepSanitizeObject(obj: unknown): unknown {
   if (Array.isArray(obj)) {
@@ -23,7 +26,7 @@ function deepSanitizeObject(obj: unknown): unknown {
   if (typeof obj === "object" && obj !== null) {
     const result: Record<string, unknown> = {};
     for (const [key, value] of Object.entries(obj)) {
-      if (SENSITIVE_FIELD_KEYS.has(key)) continue;
+      if (SENSITIVE_FIELD_KEYS.has(key) || SECRET_FIELD_PATTERN.test(key.replace(/[_-]/g, ""))) continue;
       result[key] = deepSanitizeObject(value);
     }
     return result;
@@ -39,11 +42,18 @@ function deepSanitizeObject(obj: unknown): unknown {
  */
 export function sanitizeMessageForStorage(message: AgentMessage): AgentMessage {
   if (message.role === "assistant") {
-    if (message.reasoning) {
-      const { reasoning: _reasoning, ...rest } = message;
-      return rest as AgentMessage;
-    }
-    return message;
+    const { reasoning: _reasoning, ...rest } = message;
+    if (!rest.toolCalls?.length) return rest as AgentMessage;
+    return {
+      ...rest,
+      toolCalls: rest.toolCalls.map((call) => {
+        try {
+          return { ...call, arguments: JSON.stringify(deepSanitizeObject(JSON.parse(call.arguments))) };
+        } catch {
+          return { ...call, arguments: "{}" };
+        }
+      }),
+    } as AgentMessage;
   }
   if (message.role !== "tool") return message;
   if (!message.content || message.content.length <= 4) return message;

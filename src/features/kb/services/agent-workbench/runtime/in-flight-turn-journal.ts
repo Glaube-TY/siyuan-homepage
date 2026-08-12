@@ -35,6 +35,9 @@
  */
 
 import { saveData, loadData, removeData } from "@/features/kb/services/agent-workbench/storage/notebrain-plugin-storage";
+import {
+  type AgentRunCheckpoint,
+} from "../../agent-core/session/agent-run-checkpoint";
 
 const LOCAL_STORAGE_KEY = "kbAgent.inFlightTurn.v1";
 const PLUGIN_DATA_KEY = "notebrain.agentInFlightTurnJournal.v1";
@@ -89,6 +92,7 @@ export interface InFlightTurnJournal {
   lastPermissionState?: "none" | "required" | "allowed" | "denied";
   answerPreview: string;
   workbenchEvents: SafeWorkbenchEvent[];
+  agentRunCheckpoint?: AgentRunCheckpoint;
   reason?: string;
 }
 
@@ -198,6 +202,9 @@ const KEY_EVENT_TYPES = new Set([
   "done",
   "error",
   "notice",
+  "agent_checkpoint_before_tool",
+  "agent_checkpoint_waiting_confirmation",
+  "agent_checkpoint_after_tool",
 ]);
 
 function isKeyEvent(eventType: string): boolean {
@@ -264,6 +271,7 @@ export function checkpointTurnJournal(params: {
   permissionState?: "none" | "required" | "allowed" | "denied";
   answerPreview?: string;
   safeWorkbenchEvent?: SafeWorkbenchEvent;
+  agentRunCheckpoint?: AgentRunCheckpoint;
 }): void {
   const journal = readJournalSync();
   if (!journal) return;
@@ -283,6 +291,14 @@ export function checkpointTurnJournal(params: {
   if (params.confirmationId !== undefined) journal.lastConfirmationId = params.confirmationId;
   if (params.errorCode !== undefined) journal.lastErrorCode = params.errorCode;
   if (params.permissionState !== undefined) journal.lastPermissionState = params.permissionState;
+  if (params.agentRunCheckpoint) journal.agentRunCheckpoint = structuredClone(params.agentRunCheckpoint);
+  if (
+    params.eventType === "permission_resolved"
+    && params.permissionState === "allowed"
+    && journal.agentRunCheckpoint
+  ) {
+    journal.agentRunCheckpoint.sideEffectState = "unknown";
+  }
   if (params.answerPreview !== undefined) {
     journal.answerPreview = previewText(params.answerPreview, ANSWER_PREVIEW_MAX_CHARS);
   }

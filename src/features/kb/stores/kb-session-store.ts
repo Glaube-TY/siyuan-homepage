@@ -9,7 +9,6 @@ import type { ChatMessage, KbConversationSession } from "../types/chat";
 import type { ChatMode } from "../constants/chat-modes";
 import type { ChatModelSelection } from "../types/chat-model-selection";
 import type { ThinkingMode, WebAccessMode } from "../types/session";
-import type { AgentMessage } from "../services/agent-core/messages/agent-message";
 import {
   restoreKbChatSessions,
   saveKbChatSessionStorage,
@@ -39,24 +38,14 @@ function generateConversationId(): string {
 /** 默认会话标题 */
 const DEFAULT_CONVERSATION_TITLE = "新对话";
 
-const AGENT_STORAGE_COMPACT_SUMMARY_MARKER = "Agent session storage compacted by runtime.";
-
 /** 截取字符串前 N 个字符 */
 function truncate(str: string, maxLength: number): string {
   if (str.length <= maxLength) return str;
   return str.slice(0, maxLength) + "...";
 }
 
-function countUserMessages(messages: readonly ChatMessage[]): number {
-  return messages.reduce((count, message) => count + (message.role === "user" ? 1 : 0), 0);
-}
-
 function getTurnDeleteTarget(messages: readonly ChatMessage[], assistantIndex: number): {
   startIndex: number;
-  turnOrdinal: number;
-  totalUserTurnCount: number;
-  userContent: string;
-  sameContentOccurrence: number;
 } | null {
   let startIndex = -1;
   for (let i = assistantIndex - 1; i >= 0; i--) {
@@ -67,119 +56,7 @@ function getTurnDeleteTarget(messages: readonly ChatMessage[], assistantIndex: n
   }
   if (startIndex < 0) return null;
 
-  const userMessage = messages[startIndex];
-  if (userMessage.role !== "user") return null;
-
-  const userContent = userMessage.content.trim();
-  let turnOrdinal = 0;
-  let sameContentOccurrence = 0;
-  for (let i = 0; i <= startIndex; i++) {
-    const message = messages[i];
-    if (message.role !== "user") continue;
-    turnOrdinal += 1;
-    if (message.content.trim() === userContent) {
-      sameContentOccurrence += 1;
-    }
-  }
-
-  return {
-    startIndex,
-    turnOrdinal,
-    totalUserTurnCount: countUserMessages(messages),
-    userContent,
-    sameContentOccurrence,
-  };
-}
-
-function findAgentTurnStartByUserContent(
-  messages: readonly AgentMessage[],
-  userContent: string,
-  sameContentOccurrence: number,
-): number {
-  if (!userContent) return -1;
-  let occurrence = 0;
-  for (let i = 0; i < messages.length; i++) {
-    const message = messages[i];
-    if (message.role !== "user" || message.content.trim() !== userContent) continue;
-    occurrence += 1;
-    if (occurrence === sameContentOccurrence) return i;
-  }
-  return -1;
-}
-
-function findAgentTurnStartByOrdinal(
-  messages: readonly AgentMessage[],
-  turnOrdinal: number,
-): number {
-  if (turnOrdinal < 1) return -1;
-  let current = 0;
-  for (let i = 0; i < messages.length; i++) {
-    if (messages[i].role !== "user") continue;
-    current += 1;
-    if (current === turnOrdinal) return i;
-  }
-  return -1;
-}
-
-function pruneAgentSessionTurn(params: {
-  messages: readonly AgentMessage[];
-  turnOrdinal: number;
-  totalUserTurnCount: number;
-  userContent: string;
-  sameContentOccurrence: number;
-}): { messages: AgentMessage[]; changed: boolean } {
-  const original = params.messages;
-  const withoutStorageSummaries = original.filter(
-    (message) =>
-      !(message.role === "system" && message.content.startsWith(AGENT_STORAGE_COMPACT_SUMMARY_MARKER)),
-  );
-  const removedStorageSummary = withoutStorageSummaries.length !== original.length;
-  const agentUserCount = withoutStorageSummaries.filter((message) => message.role === "user").length;
-  const skippedTurnCount = Math.max(0, params.totalUserTurnCount - agentUserCount);
-
-  let startIndex = -1;
-  if (removedStorageSummary) {
-    const retainedTurnOrdinal = params.turnOrdinal - skippedTurnCount;
-    if (retainedTurnOrdinal < 1) {
-      return {
-        messages: withoutStorageSummaries,
-        changed: true,
-      };
-    }
-    startIndex = findAgentTurnStartByOrdinal(withoutStorageSummaries, retainedTurnOrdinal);
-  } else {
-    startIndex = findAgentTurnStartByUserContent(
-      withoutStorageSummaries,
-      params.userContent,
-      params.sameContentOccurrence,
-    );
-    if (startIndex < 0) {
-      startIndex = findAgentTurnStartByOrdinal(withoutStorageSummaries, params.turnOrdinal - skippedTurnCount);
-    }
-  }
-
-  if (startIndex < 0) {
-    return {
-      messages: withoutStorageSummaries,
-      changed: removedStorageSummary,
-    };
-  }
-
-  let endIndex = withoutStorageSummaries.length;
-  for (let i = startIndex + 1; i < withoutStorageSummaries.length; i++) {
-    if (withoutStorageSummaries[i].role === "user") {
-      endIndex = i;
-      break;
-    }
-  }
-
-  return {
-    messages: [
-      ...withoutStorageSummaries.slice(0, startIndex),
-      ...withoutStorageSummaries.slice(endIndex),
-    ],
-    changed: true,
-  };
+  return { startIndex };
 }
 
 function removeCompactedFlag<T extends ChatMessage>(message: T): T {
@@ -379,7 +256,6 @@ export function createKbSessionStore(options: { persistDebounceDelay?: number } 
       webAccessMode: a.webAccessMode ?? "off",
       compressedContextSummary: a.compressedContextSummary,
       compressionState: a.compressionState,
-      agentSession: a.agentSession,
     }) === JSON.stringify({
       id: b.id,
       title: b.title,
@@ -390,7 +266,6 @@ export function createKbSessionStore(options: { persistDebounceDelay?: number } 
       webAccessMode: b.webAccessMode ?? "off",
       compressedContextSummary: b.compressedContextSummary,
       compressionState: b.compressionState,
-      agentSession: b.agentSession,
     });
   }
 
@@ -631,7 +506,6 @@ export function createKbSessionStore(options: { persistDebounceDelay?: number } 
       // 会话级按钮状态：写入快照使其随会话持久化
       thinkingMode: state.thinkingMode ?? "off",
       webAccessMode: state.webAccessMode ?? "off",
-      agentSession: conversation.agentSession,
       updatedAt: conversation.updatedAt,
     };
     return sameConversationContent(snapshot, conversation)
@@ -800,7 +674,6 @@ export function createKbSessionStore(options: { persistDebounceDelay?: number } 
                 stageSummaries: [],
                 compressedContextSummary: undefined,
                 compressionState: undefined,
-                agentSession: undefined,
                 updatedAt: Date.now(),
               }
             : c
@@ -1507,27 +1380,6 @@ export function createKbSessionStore(options: { persistDebounceDelay?: number } 
         }
 
         deleted = true;
-        const activeConversation = state.conversations.find((c) => c.id === state.activeConversationId);
-        const prunedAgentSession = activeConversation?.agentSession
-          ? pruneAgentSessionTurn({
-              messages: activeConversation.agentSession.messages,
-              turnOrdinal: deleteTarget.turnOrdinal,
-              totalUserTurnCount: deleteTarget.totalUserTurnCount,
-              userContent: deleteTarget.userContent,
-              sameContentOccurrence: deleteTarget.sameContentOccurrence,
-            })
-          : undefined;
-        const nextAgentSession =
-          prunedAgentSession?.changed
-            ? prunedAgentSession.messages.length > 0
-              ? {
-                  id: activeConversation!.agentSession!.id,
-                  messages: prunedAgentSession.messages,
-                  updatedAt: Date.now(),
-                }
-              : undefined
-            : activeConversation?.agentSession;
-
         return {
           ...state,
           messages: unCompactedMessages,
@@ -1544,7 +1396,6 @@ export function createKbSessionStore(options: { persistDebounceDelay?: number } 
                   compressedContextSummary: undefined,
                   compressionState: undefined,
                   title: newTitle,
-                  agentSession: nextAgentSession,
                   updatedAt: Date.now(),
                 }
               : c

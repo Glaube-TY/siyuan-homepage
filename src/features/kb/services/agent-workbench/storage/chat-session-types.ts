@@ -11,7 +11,6 @@
  */
 
 import type { ConversationStageSummary } from "../../../types/chat";
-import type { AgentMessage } from "../../agent-core/messages/agent-message";
 import type { ThinkingMode, WebAccessMode } from "../../../types/session";
 
 export interface ChatSessionIndexEntry {
@@ -78,10 +77,5 @@ export interface ChatSessionData {
    * 旧 session 文件缺字段时默认 "off"
    */
   webAccessMode?: WebAccessMode;
-  agentSession?: {
-    id: string;
-    messages: AgentMessage[];
-    updatedAt: number;
-  };
   [key: string]: unknown;
 }

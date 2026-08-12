@@ -15,6 +15,7 @@ export interface DispatchToolCallsResult {
   /** When set, the loop should stop immediately (e.g. repeated unknown tool). */
   fatalErrorCode?: string;
   fatalErrorMessage?: string;
+  sideEffectState?: "not_started" | "committed" | "unknown";
 }
 
 function buildUnknownToolHint(toolName: string): string {
@@ -607,7 +608,11 @@ async function executeOne(params: {
     tool,
     args: parsed.args,
     ctx: params.ctx,
+    readOnly: effectiveReadOnly,
   });
+  if (!effectiveReadOnly && !result.ok && !result.sideEffectState) {
+    result.sideEffectState = "unknown";
+  }
   const durationMs = Date.now() - startedAt;
 
   // Mark successful writes for duplicate guard
@@ -721,6 +726,15 @@ export async function dispatchToolCalls(params: {
   for (const msg of toolMessages) {
     if (!msg) continue;
     const content = parseToolResultContentEnvelope(msg.content);
+    if (content?.code === "write_result_unknown") {
+      return {
+        toolMessages,
+        stepCount: params.calls.length,
+        fatalErrorCode: "write_result_unknown",
+        fatalErrorMessage: "写操作返回前发生异常，无法确认是否已经生效。本轮已停止，必须先回读目标状态，禁止自动重放。",
+        sideEffectState: "unknown",
+      };
+    }
     if (content?.code === "repeated_unknown_tool") {
       return {
         toolMessages,

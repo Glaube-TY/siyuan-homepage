@@ -9,6 +9,11 @@ import { renderSkillInstructions } from "../../agent-core/prompts/skill-instruct
 import type { RuntimeToolsSettings } from "../../../types/settings";
 import { buildRuntimeToolContextInstructions } from "../runtime-tools/runtime-tool-context";
 import { pushAgentDebugEvent, setLastToolManifestCount } from "../debug/workbench-debug";
+import {
+  createAgentContextManifestEntry,
+  mergeAgentContextManifestEntries,
+  type AgentContextManifest,
+} from "./agent-context-ledger";
 
 export interface BuildAgentContextInstructionsParams {
   toolRegistry: ToolRegistry;
@@ -35,6 +40,7 @@ export interface AgentContextInstructions {
   toolManifest: readonly ToolManifest[];
   skillSections: readonly SkillPromptSection[];
   contextInstructions: string;
+  manifest: AgentContextManifest;
 }
 
 function renderAttachedDocObservationContext(
@@ -117,25 +123,31 @@ export function buildAgentContextInstructions(params: BuildAgentContextInstructi
   }, "info");
   setLastToolManifestCount(skillToolManifest.length);
 
-  const contextInstructions = [
-    params.includeKnowledgeGuidance !== false
-      ? [
+  const knowledgeGuidance = params.includeKnowledgeGuidance !== false
+    ? [
           "知识库证据规则：搜索结果只是候选，不能直接作为事实或引用。",
           "候选带有 blockId 时优先调用 siyuan_kb.read_evidence；只有全文总结、跨章节比较或证据不足时才调用 siyuan_kb.read_docs。",
           "只有成功读取正文的结果才可作为 grounded 引用，未读取的候选不得引用。",
         ].join("\n")
-      : "",
-    renderContextInstructions({
+    : "";
+  const conversationInstructions = renderContextInstructions({
       conversationContext: params.conversationContext,
       globalMemory: params.globalMemory,
       attachedDocs: params.attachedDocs,
-    }),
-    renderAttachedDocObservationContext(params.observationLog.getContextEvidence()),
-    params.externalSkillIndexPrompt ?? "",
-    includeSkillInstructions ? renderSkillInstructions(skillSections) : "",
-    params.runtimeToolsSettings
-      ? buildRuntimeToolContextInstructions(params.runtimeToolsSettings, params.runtimeToolCapabilities)
-      : "",
+    });
+  const attachedDocumentContent = renderAttachedDocObservationContext(params.observationLog.getContextEvidence());
+  const externalSkills = params.externalSkillIndexPrompt ?? "";
+  const skillInstructions = includeSkillInstructions ? renderSkillInstructions(skillSections) : "";
+  const runtimeTools = params.runtimeToolsSettings
+    ? buildRuntimeToolContextInstructions(params.runtimeToolsSettings, params.runtimeToolCapabilities)
+    : "";
+  const contextInstructions = [
+    knowledgeGuidance,
+    conversationInstructions,
+    attachedDocumentContent,
+    externalSkills,
+    skillInstructions,
+    runtimeTools,
   ]
     .filter((block) => block.trim().length > 0)
     .join("\n\n");
@@ -144,5 +156,14 @@ export function buildAgentContextInstructions(params: BuildAgentContextInstructi
     toolManifest: skillToolManifest,
     skillSections,
     contextInstructions,
+    manifest: mergeAgentContextManifestEntries([
+      ...(params.conversationContext?.manifest.entries ?? []),
+      createAgentContextManifestEntry("knowledge-guidance", "constraints", knowledgeGuidance, { reason: "Profile 未授权知识上下文" }),
+      createAgentContextManifestEntry("attached-document-content", "recent-verbatim", attachedDocumentContent, { reason: "没有已加载的附加文档正文" }),
+      createAgentContextManifestEntry("external-skills", "retrieval-index", externalSkills, { reason: "外部 Skills 未启用或没有索引" }),
+      createAgentContextManifestEntry("skill-instructions", "constraints", skillInstructions, { reason: "Skills 未授权或没有匹配项" }),
+      createAgentContextManifestEntry("runtime-tools", "constraints", runtimeTools, { reason: "运行时工具未授权或未配置" }),
+      createAgentContextManifestEntry("tool-manifest", "retrieval-index", skillToolManifest, { reason: "本轮没有可用工具" }),
+    ]),
   };
 }

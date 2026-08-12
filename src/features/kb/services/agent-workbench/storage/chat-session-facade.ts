@@ -97,7 +97,6 @@ function toSessionData(conv: KbConversationSession): ChatSessionData {
     compressedContextSummary: persisted.compressedContextSummary,
     thinkingMode: persisted.thinkingMode,
     webAccessMode: persisted.webAccessMode,
-    agentSession: persisted.agentSession,
   };
 }
 
