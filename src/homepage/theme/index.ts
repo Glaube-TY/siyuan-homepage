@@ -24,6 +24,7 @@ export {
 export type {
     WidgetDefinition,
     WidgetKind,
+    WidgetPresentationCategory,
     WidgetPlacement,
     WidgetPresentationScope,
     WidgetPresentationContext,

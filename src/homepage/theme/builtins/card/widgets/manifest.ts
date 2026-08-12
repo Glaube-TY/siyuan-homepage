@@ -9,7 +9,7 @@ export const cardWidgetPresentation: WidgetPresentationManifest = Object.freeze(
             presentationIds: Object.freeze([
                 "card.workspace.native.pic-caro",
             ]),
-            contentVariants: Object.freeze(["timedate.dial"]),
+            presentationVariants: Object.freeze(["timedate.dial"]),
         }),
         tokens: Object.freeze({
             background: "var(--hp-card-surface-raised)",
@@ -19,6 +19,17 @@ export const cardWidgetPresentation: WidgetPresentationManifest = Object.freeze(
         }),
     }),
     generic: Object.freeze({ id: "card.workspace.generic" }),
+    categories: Object.freeze({
+        collection: Object.freeze({ id: "card.workspace.list" }),
+        metrics: Object.freeze({ id: "card.workspace.stat" }),
+        visualization: Object.freeze({ id: "card.workspace.chart" }),
+        editorial: Object.freeze({ id: "card.workspace.note" }),
+        media: Object.freeze({ id: "card.workspace.media" }),
+        control: Object.freeze({ id: "card.workspace.utility" }),
+        embedded: Object.freeze({ id: "card.workspace.embed" }),
+        workspace: Object.freeze({ id: "card.workspace.complex" }),
+        intrinsic: Object.freeze({ id: "card.workspace.custom" }),
+    }),
     kinds: Object.freeze({
         list: Object.freeze({ id: "card.workspace.list" }),
         task: Object.freeze({ id: "card.workspace.task" }),

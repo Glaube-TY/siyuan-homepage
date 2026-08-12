@@ -34,9 +34,11 @@ function resolveShell(
     const exclude = shell.exclude;
     const excluded = Boolean(
         exclude?.widgetTypes?.includes(options.definition.type)
+        || exclude?.categories?.includes(options.definition.presentationCategory)
         || exclude?.kinds?.includes(options.definition.kind)
         || exclude?.presentationIds?.includes(presentationId)
         || exclude?.scopes?.includes(scope)
+        || exclude?.presentationVariants?.includes(options.contentVariant ?? "")
         || exclude?.contentVariants?.includes(options.contentVariant ?? ""),
     );
     return Object.freeze({
@@ -60,12 +62,14 @@ function resolved(
         themeId: options.themeId,
         widgetType: options.definition.type,
         widgetKind: options.definition.kind,
+        presentationCategory: options.definition.presentationCategory,
         presentationId: descriptor.id,
         scope,
         mode,
         level,
         semanticLabel: options.definition.semanticLabel,
         semanticIcon: options.definition.semanticIcon,
+        presentationVariant: options.contentVariant,
         contentVariant: options.contentVariant,
         resolvedIcon: resolveWidgetPresentationIcon(options.definition.semanticIcon, options.manifest),
         renderer: renderer?.component,
@@ -76,9 +80,19 @@ function resolved(
 
 export function resolveWidgetPresentation(options: ResolveWidgetPresentationOptions): ResolvedWidgetPresentation {
     const trail: WidgetPresentationLevel[] = [];
+    const variantPresentation = options.contentVariant
+        ? options.manifest?.variants?.[options.contentVariant]
+        : undefined;
+    if (variantPresentation) return resolved(options, variantPresentation, "theme-variant", variantPresentation.mode ?? "variant", trail);
+    trail.push("theme-variant");
+
     const widgetSpecific = options.manifest?.widgets?.[options.definition.type];
     if (widgetSpecific) return resolved(options, widgetSpecific, "theme-widget", widgetSpecific.mode ?? "specific", trail);
     trail.push("theme-widget");
+
+    const categoryPresentation = options.manifest?.categories?.[options.definition.presentationCategory];
+    if (categoryPresentation) return resolved(options, categoryPresentation, "theme-category", categoryPresentation.mode ?? "category", trail);
+    trail.push("theme-category");
 
     const kindPresentation = options.manifest?.kinds?.[options.definition.kind];
     if (kindPresentation) return resolved(options, kindPresentation, "theme-kind", kindPresentation.mode ?? "kind", trail);
@@ -94,7 +108,9 @@ export function resolveWidgetPresentation(options: ResolveWidgetPresentationOpti
     }
     trail.push("semantic");
 
-    const classicSpecific = options.classicManifest?.widgets?.[options.definition.type]
+    const classicSpecific = (options.contentVariant ? options.classicManifest?.variants?.[options.contentVariant] : undefined)
+        ?? options.classicManifest?.widgets?.[options.definition.type]
+        ?? options.classicManifest?.categories?.[options.definition.presentationCategory]
         ?? options.classicManifest?.kinds?.[options.definition.kind]
         ?? options.classicManifest?.generic;
     if (classicSpecific) return resolved(options, classicSpecific, "classic", "classic", trail);
@@ -112,12 +128,14 @@ export function resolveLegacyWidgetPresentation(
         themeId,
         widgetType: definition.type,
         widgetKind: definition.kind,
+        presentationCategory: definition.presentationCategory,
         presentationId: "compat.legacy",
         scope: definition.defaultPresentationScope,
         mode: "legacy",
         level: "legacy",
         semanticLabel: definition.semanticLabel,
         semanticIcon: definition.semanticIcon,
+        presentationVariant: contentVariant,
         contentVariant,
         resolvedIcon: resolveWidgetPresentationIcon(definition.semanticIcon),
         shell: undefined,

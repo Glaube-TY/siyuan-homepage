@@ -3,6 +3,17 @@ import { WIDGET_PRESENTATION_CONTRACT_VERSION, type WidgetPresentationManifest }
 export const simpleWorkspaceWidgetPresentation: WidgetPresentationManifest = Object.freeze({
     contractVersion: WIDGET_PRESENTATION_CONTRACT_VERSION,
     generic: Object.freeze({ id: "simple.workspace.generic" }),
+    categories: Object.freeze({
+        collection: Object.freeze({ id: "simple.workspace.list" }),
+        metrics: Object.freeze({ id: "simple.workspace.stat" }),
+        visualization: Object.freeze({ id: "simple.workspace.chart" }),
+        editorial: Object.freeze({ id: "simple.workspace.note" }),
+        media: Object.freeze({ id: "simple.workspace.media" }),
+        control: Object.freeze({ id: "simple.workspace.utility" }),
+        embedded: Object.freeze({ id: "simple.workspace.embed" }),
+        workspace: Object.freeze({ id: "simple.workspace.complex" }),
+        intrinsic: Object.freeze({ id: "simple.workspace.custom" }),
+    }),
     kinds: Object.freeze({
         list: Object.freeze({ id: "simple.workspace.list" }),
         task: Object.freeze({ id: "simple.workspace.task" }),

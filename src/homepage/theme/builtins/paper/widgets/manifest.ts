@@ -13,6 +13,17 @@ export const paperWorkspaceWidgetPresentation: WidgetPresentationManifest = Obje
         }),
     }),
     generic: Object.freeze({ id: "paper.workspace.generic" }),
+    categories: Object.freeze({
+        collection: Object.freeze({ id: "paper.workspace.list" }),
+        metrics: Object.freeze({ id: "paper.workspace.stat" }),
+        visualization: Object.freeze({ id: "paper.workspace.chart" }),
+        editorial: Object.freeze({ id: "paper.workspace.note" }),
+        media: Object.freeze({ id: "paper.workspace.media" }),
+        control: Object.freeze({ id: "paper.workspace.utility" }),
+        embedded: Object.freeze({ id: "paper.workspace.embed" }),
+        workspace: Object.freeze({ id: "paper.workspace.complex" }),
+        intrinsic: Object.freeze({ id: "paper.workspace.custom" }),
+    }),
     kinds: Object.freeze({
         list: Object.freeze({ id: "paper.workspace.list" }),
         task: Object.freeze({ id: "paper.workspace.task" }),

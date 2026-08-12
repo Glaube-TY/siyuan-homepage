@@ -55,13 +55,19 @@ function exposePresentation(element: HTMLElement, resolved: ResolvedWidgetPresen
     });
 
     element.dataset.widgetKind = resolved.widgetKind;
+    element.dataset.widgetPresentationCategory = resolved.presentationCategory;
     element.dataset.widgetPlacement = placement;
     element.dataset.widgetPresentation = resolved.presentationId;
     element.dataset.widgetPresentationScope = resolved.scope;
     element.dataset.widgetPresentationMode = resolved.mode;
     element.dataset.widgetPresentationLevel = resolved.level;
-    if (resolved.contentVariant) element.dataset.widgetContentVariant = resolved.contentVariant;
-    else delete element.dataset.widgetContentVariant;
+    if (resolved.presentationVariant) {
+        element.dataset.widgetPresentationVariant = resolved.presentationVariant;
+        element.dataset.widgetContentVariant = resolved.presentationVariant;
+    } else {
+        delete element.dataset.widgetPresentationVariant;
+        delete element.dataset.widgetContentVariant;
+    }
     if (resolved.resolvedIcon) element.dataset.widgetPresentationIcon = resolved.resolvedIcon;
     else delete element.dataset.widgetPresentationIcon;
     if (resolved.shell) {
@@ -103,6 +109,11 @@ export function applyWidgetPresentation(
                     console.warn("[WidgetPresentation] Widget content variant 非法，已忽略", {
                         widgetType: definition.type,
                         contentVariant: candidate,
+                    });
+                } else if (!definition.presentationVariants?.includes(candidate)) {
+                    console.warn("[WidgetPresentation] Widget 返回了未注册的 presentation variant，已忽略", {
+                        widgetType: definition.type,
+                        presentationVariant: candidate,
                     });
                 } else {
                     contentVariant = candidate;

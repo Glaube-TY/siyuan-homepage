@@ -11,6 +11,7 @@ const renderer = (() => undefined) as WidgetDefinition["component"];
 const semanticDefinition: WidgetDefinition = {
     type: "sample-list",
     kind: "list",
+    presentationCategory: "collection",
     component: renderer,
     requiresPlugin: false,
     semanticLabel: "示例列表",
@@ -81,6 +82,34 @@ const excludedShell = resolveWidgetPresentation({
 });
 assert.equal(excludedShell.shell?.state, "excluded", "主题必须能从统一外壳中排除指定 Widget");
 
+const category = resolveWidgetPresentation({
+    themeId: "test.theme",
+    definition: semanticDefinition,
+    manifest: {
+        contractVersion: WIDGET_PRESENTATION_CONTRACT_VERSION,
+        categories: { collection: { id: "test.collection" } },
+        kinds: { list: { id: "test.legacy-list" } },
+    },
+    classicManifest,
+});
+assert.equal(category.level, "theme-category", "主题呈现类别必须优先于旧版功能 kind");
+assert.equal(category.presentationId, "test.collection");
+assert.equal(category.presentationCategory, "collection");
+
+const variant = resolveWidgetPresentation({
+    themeId: "test.theme",
+    definition: semanticDefinition,
+    contentVariant: "sample-list.calendar",
+    manifest: {
+        contractVersion: WIDGET_PRESENTATION_CONTRACT_VERSION,
+        variants: { "sample-list.calendar": { id: "test.calendar-variant" } },
+        widgets: { "sample-list": { id: "test.sample" } },
+    },
+    classicManifest,
+});
+assert.equal(variant.level, "theme-variant", "展示变体必须优先于组件级呈现");
+assert.equal(variant.presentationVariant, "sample-list.calendar");
+
 const excludedContentVariantShell = resolveWidgetPresentation({
     themeId: "test.theme",
     definition: semanticDefinition,
@@ -88,7 +117,7 @@ const excludedContentVariantShell = resolveWidgetPresentation({
     manifest: {
         contractVersion: WIDGET_PRESENTATION_CONTRACT_VERSION,
         generic: { id: "test.generic" },
-        shell: { id: "test.sheet", exclude: { contentVariants: ["timedate.dial"] } },
+        shell: { id: "test.sheet", exclude: { presentationVariants: ["timedate.dial"] } },
     },
     classicManifest,
 });
@@ -103,7 +132,7 @@ const kind = resolveWidgetPresentation({
 });
 assert.equal(kind.level, "theme-kind");
 assert.equal(kind.scope, "full", "未覆盖时必须继承 Definition 默认 scope");
-assert.deepEqual(kind.fallbackTrail, ["theme-widget", "theme-kind"]);
+assert.deepEqual(kind.fallbackTrail, ["theme-variant", "theme-widget", "theme-category", "theme-kind"]);
 
 const generic = resolveWidgetPresentation({
     themeId: "test.theme",
@@ -123,7 +152,7 @@ assert.equal(classic.presentationId, "classic.legacy");
 
 const legacy = resolveWidgetPresentation({ themeId: "test.theme", definition: legacyDefinition });
 assert.equal(legacy.level, "legacy");
-assert.deepEqual(legacy.fallbackTrail, ["theme-widget", "theme-kind", "theme-generic", "semantic", "classic", "legacy"]);
+assert.deepEqual(legacy.fallbackTrail, ["theme-variant", "theme-widget", "theme-category", "theme-kind", "theme-generic", "semantic", "classic", "legacy"]);
 assert.equal(classifyWidgetTitle("latest-docs", "🕒最近文档"), "historical-default");
 assert.equal(classifyWidgetTitle("latest-docs", "我的文档"), "custom");
 assert.throws(
@@ -150,6 +179,18 @@ assert.throws(
     () => validateWidgetPresentationManifest({ contractVersion: 1, shell: { id: "valid.shell", exclude: { contentVariants: ["illegal variant"] } } }),
     /contentVariants/,
 );
+assert.throws(
+    () => validateWidgetPresentationManifest({ contractVersion: 1, shell: { id: "valid.shell", exclude: { presentationVariants: ["illegal variant"] } } }),
+    /presentationVariants/,
+);
+assert.throws(
+    () => validateWidgetPresentationManifest({ contractVersion: 1, categories: { task: { id: "valid.id" } } }),
+    /presentation category/,
+);
+assert.throws(
+    () => validateWidgetPresentationManifest({ contractVersion: 1, variants: { "illegal variant": { id: "valid.id" } } }),
+    /presentation variant/,
+);
 
 function collectSourceFiles(directory: string): string[] {
     return readdirSync(directory).flatMap((name) => {
@@ -165,11 +206,11 @@ assert.equal(new Set(registeredTypes).size, registeredTypes.length, "Widget Defi
 for (const type of ["latest-docs", "favorites", "recent-journals", "TaskMan", "notebrain"]) {
     assert.ok(registeredTypes.includes(type), `Definition Registry 缺少 ${type}`);
 }
-for (const capability of ["semanticLabel", "semanticIcon", "supportedPlacements", "capabilities", "responsiveProfile", "resolveContentVariant"]) {
+for (const capability of ["semanticLabel", "semanticIcon", "supportedPlacements", "capabilities", "responsiveProfile", "presentationCategory", "presentationVariants", "resolveContentVariant"]) {
     assert.match(definitionSource, new RegExp(capability), `Widget Definition 缺少 ${capability}`);
 }
 
-const registeredScopes = [...definitionSource.matchAll(/defineWidget\(\{ type: "([^"]+)", kind: "[^"]+", scope: "(full|chrome|native)"/g)]
+const registeredScopes = [...definitionSource.matchAll(/defineWidget\(\{ type: "([^"]+)", kind: "[^"]+", category: "[^"]+", scope: "(full|chrome|native)"/g)]
     .map((match) => [match[1], match[2]] as const);
 assert.equal(registeredScopes.length, 36, "全部 36 个 Widget 必须显式声明 Presentation Scope");
 const scopeByType = new Map(registeredScopes);
@@ -181,13 +222,21 @@ assert.equal([...scopeByType.values()].filter((scope) => scope === "native").len
 assert.match(definitionSource, /semanticParts: input\.scope !== "native"/, "full/chrome 必须启用 semanticParts，native 必须保持关闭");
 
 const mountSource = readFileSync("src/components/utils/widgetBlock/widgetMountRegistry.ts", "utf8");
-for (const attribute of ["widgetType", "widgetKind", "widgetPlacement", "widgetPresentation", "widgetPresentationMode", "widgetPresentationScope", "widgetContentVariant", "hpWidgetShellState", "hpWidgetShellVariant"]) {
+for (const attribute of ["widgetType", "widgetKind", "widgetPresentationCategory", "widgetPlacement", "widgetPresentation", "widgetPresentationMode", "widgetPresentationScope", "widgetPresentationVariant", "widgetContentVariant", "hpWidgetShellState", "hpWidgetShellVariant"]) {
     const combined = mountSource + readFileSync("src/homepage/theme/widgetPresentation/runtime.ts", "utf8");
     assert.match(combined, new RegExp(attribute), `挂载运行时缺少 ${attribute}`);
 }
 assert.match(mountSource, /getWidgetDefinition/, "Widget 挂载必须经过统一 Definition Registry");
 assert.match(mountSource, /applyWidgetPresentation\(target, definition, placement, contentData\)/, "Widget 挂载必须把实例配置交给 Presentation 内容形态解析器");
 assert.match(definitionSource, /timedate\.dial/, "时间日期 Widget 必须声明表盘内容形态语义");
+const registeredCategories = [...definitionSource.matchAll(/defineWidget\(\{ type: "([^"]+)", kind: "[^"]+", category: "([^"]+)"/g)];
+assert.equal(registeredCategories.length, 36, "全部 36 个 Widget 必须显式声明主题呈现类别");
+for (const categoryName of ["collection", "metrics", "visualization", "editorial", "media", "control", "embedded", "workspace", "intrinsic"]) {
+    assert.ok(registeredCategories.some((match) => match[2] === categoryName), `呈现类别 ${categoryName} 必须有组件注册`);
+}
+for (const variantName of ["recent-journals.calendar", "countdown.timeline", "custom-protyle.immersive", "timedate.dial", "visualchart.tag-cloud", "databasechart.pie", "historydays.image", "almanac.traditional"]) {
+    assert.ok(definitionSource.includes(variantName), `缺少主题展示变体 ${variantName}`);
+}
 
 const homepageSource = readFileSync("src/homepage/homepage.svelte", "utf8");
 const syncCall = homepageSource.slice(homepageSource.indexOf("syncHomepageWidgetPresentations") - 100, homepageSource.indexOf("syncHomepageWidgetPresentations") + 220);
@@ -314,7 +363,7 @@ assert.match(cardWidgetThemeStyles, /border-radius:\s*18px[\s\S]*box-shadow:\s*v
 assert.match(cardWidgetThemeStyles, /data-hp-widget-shell-variant="2"/, "纯卡片主题必须实现稳定外壳变体 2");
 assert.match(cardWidgetThemeStyles, /data-hp-widget-shell-variant="3"/, "纯卡片主题必须实现稳定外壳变体 3");
 assert.match(cardManifest, /exclude:[\s\S]*card\.workspace\.native\.pic-caro/, "纯卡片主题必须通过 Manifest 排除全出血图片轮播外壳");
-assert.match(cardManifest, /contentVariants:[\s\S]*timedate\.dial/, "纯卡片主题必须只按实例内容形态排除仿真表盘外壳");
+assert.match(cardManifest, /presentationVariants:[\s\S]*timedate\.dial/, "纯卡片主题必须只按注册展示变体排除仿真表盘外壳");
 for (const presentation of ["native.weather", "native.stikynot", "native.statistical-card", "native.almanac"]) {
     assert.doesNotMatch(
         cardManifest.slice(cardManifest.indexOf("exclude:"), cardManifest.indexOf("tokens:")),

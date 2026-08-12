@@ -1,6 +1,7 @@
 import {
     WIDGET_PRESENTATION_CONTRACT_VERSION,
     type WidgetKind,
+    type WidgetPresentationCategory,
     type WidgetPresentationDescriptor,
     type WidgetPresentationManifest,
     type WidgetPresentationScope,
@@ -11,8 +12,11 @@ import {
 const WIDGET_KINDS = new Set<WidgetKind>([
     "list", "task", "stat", "chart", "calendar", "note", "media", "utility", "embed", "complex", "custom",
 ]);
+const WIDGET_PRESENTATION_CATEGORIES = new Set<WidgetPresentationCategory>([
+    "collection", "metrics", "visualization", "editorial", "media", "control", "embedded", "workspace", "intrinsic",
+]);
 const PRESENTATION_ID_PATTERN = /^[a-z0-9][a-z0-9._-]{1,95}$/;
-const PRESENTATION_MODES = new Set(["specific", "kind", "generic", "semantic"]);
+const PRESENTATION_MODES = new Set(["specific", "variant", "category", "kind", "generic", "semantic"]);
 const PRESENTATION_SCOPES = new Set(["full", "chrome", "native"]);
 const SHELL_TOKEN_KEYS = new Set<keyof WidgetShellTokens>(["background", "border", "borderRadius", "boxShadow"]);
 const UNSAFE_SHELL_TOKEN_VALUE = /[;{}<>\r\n]/;
@@ -84,8 +88,14 @@ function validateShell(shell: unknown): asserts shell is WidgetShellDefinition {
         if (value.exclude.scopes !== undefined) {
             validateStringArray(value.exclude.scopes, "widgetPresentation.shell.exclude.scopes", (scope) => PRESENTATION_SCOPES.has(scope as WidgetPresentationScope));
         }
+        if (value.exclude.categories !== undefined) {
+            validateStringArray(value.exclude.categories, "widgetPresentation.shell.exclude.categories", (category) => WIDGET_PRESENTATION_CATEGORIES.has(category as WidgetPresentationCategory));
+        }
         if (value.exclude.contentVariants !== undefined) {
             validateStringArray(value.exclude.contentVariants, "widgetPresentation.shell.exclude.contentVariants", (variant) => PRESENTATION_ID_PATTERN.test(variant));
+        }
+        if (value.exclude.presentationVariants !== undefined) {
+            validateStringArray(value.exclude.presentationVariants, "widgetPresentation.shell.exclude.presentationVariants", (variant) => PRESENTATION_ID_PATTERN.test(variant));
         }
     }
 }
@@ -97,6 +107,18 @@ export function validateWidgetPresentationManifest(manifest: unknown): asserts m
         throw new Error(`不支持的 Widget Presentation Contract 版本: ${String(value.contractVersion)}`);
     }
     if (value.generic) validateDescriptor(value.generic, "widgetPresentation.generic");
+    if (value.categories) {
+        for (const [category, descriptor] of Object.entries(value.categories)) {
+            if (!WIDGET_PRESENTATION_CATEGORIES.has(category as WidgetPresentationCategory)) throw new Error(`未知 Widget presentation category: ${category}`);
+            validateDescriptor(descriptor, `widgetPresentation.categories.${category}`);
+        }
+    }
+    if (value.variants) {
+        for (const [variant, descriptor] of Object.entries(value.variants)) {
+            if (!PRESENTATION_ID_PATTERN.test(variant)) throw new Error(`非法 Widget presentation variant: ${variant}`);
+            validateDescriptor(descriptor, `widgetPresentation.variants.${variant}`);
+        }
+    }
     if (value.kinds) {
         for (const [kind, descriptor] of Object.entries(value.kinds)) {
             if (!WIDGET_KINDS.has(kind as WidgetKind)) throw new Error(`未知 Widget kind: ${kind}`);
@@ -127,6 +149,12 @@ function freezeManifest(manifest: WidgetPresentationManifest): WidgetPresentatio
     return Object.freeze({
         ...manifest,
         generic: manifest.generic ? freezeDescriptor(manifest.generic) : undefined,
+        categories: manifest.categories ? Object.freeze(Object.fromEntries(
+            Object.entries(manifest.categories).map(([key, value]) => [key, value ? freezeDescriptor(value) : value]),
+        )) : undefined,
+        variants: manifest.variants ? Object.freeze(Object.fromEntries(
+            Object.entries(manifest.variants).map(([key, value]) => [key, freezeDescriptor(value)]),
+        )) : undefined,
         kinds: manifest.kinds ? Object.freeze(Object.fromEntries(
             Object.entries(manifest.kinds).map(([key, value]) => [key, value ? freezeDescriptor(value) : value]),
         )) : undefined,
@@ -140,9 +168,11 @@ function freezeManifest(manifest: WidgetPresentationManifest): WidgetPresentatio
             exclude: manifest.shell.exclude ? Object.freeze({
                 ...manifest.shell.exclude,
                 widgetTypes: manifest.shell.exclude.widgetTypes ? Object.freeze([...manifest.shell.exclude.widgetTypes]) : undefined,
+                categories: manifest.shell.exclude.categories ? Object.freeze([...manifest.shell.exclude.categories]) : undefined,
                 kinds: manifest.shell.exclude.kinds ? Object.freeze([...manifest.shell.exclude.kinds]) : undefined,
                 presentationIds: manifest.shell.exclude.presentationIds ? Object.freeze([...manifest.shell.exclude.presentationIds]) : undefined,
                 scopes: manifest.shell.exclude.scopes ? Object.freeze([...manifest.shell.exclude.scopes]) : undefined,
+                presentationVariants: manifest.shell.exclude.presentationVariants ? Object.freeze([...manifest.shell.exclude.presentationVariants]) : undefined,
                 contentVariants: manifest.shell.exclude.contentVariants ? Object.freeze([...manifest.shell.exclude.contentVariants]) : undefined,
             }) : undefined,
         }) : undefined,

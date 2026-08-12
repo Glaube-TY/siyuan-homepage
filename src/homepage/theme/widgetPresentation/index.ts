@@ -2,6 +2,7 @@ export {
     WIDGET_PRESENTATION_CONTRACT_VERSION,
     type WidgetDefinition,
     type WidgetKind,
+    type WidgetPresentationCategory,
     type WidgetPlacement,
     type WidgetPresentationContext,
     type WidgetPresentationManifest,

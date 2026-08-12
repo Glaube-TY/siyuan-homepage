@@ -13,6 +13,17 @@ export const handDrawnWidgetPresentation: WidgetPresentationManifest = Object.fr
         }),
     }),
     generic: Object.freeze({ id: "hand-drawn.workspace.generic" }),
+    categories: Object.freeze({
+        collection: Object.freeze({ id: "hand-drawn.workspace.list" }),
+        metrics: Object.freeze({ id: "hand-drawn.workspace.stat" }),
+        visualization: Object.freeze({ id: "hand-drawn.workspace.chart" }),
+        editorial: Object.freeze({ id: "hand-drawn.workspace.note" }),
+        media: Object.freeze({ id: "hand-drawn.workspace.media" }),
+        control: Object.freeze({ id: "hand-drawn.workspace.utility" }),
+        embedded: Object.freeze({ id: "hand-drawn.workspace.embed" }),
+        workspace: Object.freeze({ id: "hand-drawn.workspace.complex" }),
+        intrinsic: Object.freeze({ id: "hand-drawn.workspace.custom" }),
+    }),
     kinds: Object.freeze({
         list: Object.freeze({ id: "hand-drawn.workspace.list" }),
         task: Object.freeze({ id: "hand-drawn.workspace.task" }),
