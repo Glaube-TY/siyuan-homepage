@@ -145,6 +145,7 @@ export type KbGlobalToolName =
   | "siyuan_asset"
   | "siyuan_riff"
   | "homepage_manage"
+  | "homepage_workbench"
   | "homepage_quick_note"
   | "homepage_focus"
   | "homepage_accounting"

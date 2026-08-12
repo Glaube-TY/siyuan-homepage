@@ -15,6 +15,10 @@ import {
   hasSettledWorkbenchTerminal,
   isProviderOutputTruncatedWorkbench,
 } from "../agent-workbench/runtime/workbench-terminal-state";
+import {
+  normalizeTemporaryWorkbench,
+  type AgentTemporaryWorkbench,
+} from "../agent-workbench/tools/homepage/homepage-workbench.tool";
 
 export interface PersistedReferenceItem {
   index: number;
@@ -109,6 +113,7 @@ export type PersistedChatMessage =
       isComplete?: boolean;
       agentMemory?: PersistedAgentTurnMemory;
       workbenchEvents?: PersistedWorkbenchEvent[];
+      temporaryWorkbenches?: AgentTemporaryWorkbench[];
       reasoning?: { content: string; chars: number; partCount: number };
       compacted?: boolean;
     };
@@ -135,7 +140,8 @@ export function isTransientAssistantPlaceholder(message: ChatMessage): boolean {
     message.isComplete === false &&
     !message.agentMemory &&
     !(message.citedReferences && message.citedReferences.length > 0) &&
-    !(message.workbenchEvents && message.workbenchEvents.length > 0)
+    !(message.workbenchEvents && message.workbenchEvents.length > 0) &&
+    !(message.temporaryWorkbenches && message.temporaryWorkbenches.length > 0)
   );
 }
 
@@ -499,6 +505,13 @@ function toPersistedMessage(message: ChatMessage): PersistedChatMessage | null {
           .filter((event): event is PersistedWorkbenchEvent => event !== null);
         if (persistedEvents.length > 0) persisted.workbenchEvents = persistedEvents;
       }
+      if (message.temporaryWorkbenches && message.temporaryWorkbenches.length > 0) {
+        const workbenches = message.temporaryWorkbenches
+          .map(normalizeTemporaryWorkbench)
+          .filter((item): item is AgentTemporaryWorkbench => item !== undefined)
+          .slice(-3);
+        if (workbenches.length > 0) persisted.temporaryWorkbenches = workbenches;
+      }
       if (message.reasoning?.status === "done" && message.reasoning.content.trim().length > 0) {
         persisted.reasoning = {
           content: message.reasoning.content,
@@ -567,6 +580,13 @@ function fromPersistedMessage(message: PersistedChatMessage): ChatMessage {
             assistantMsg.isComplete = true;
           }
         }
+      }
+      if (message.temporaryWorkbenches && message.temporaryWorkbenches.length > 0) {
+        const workbenches = message.temporaryWorkbenches
+          .map(normalizeTemporaryWorkbench)
+          .filter((item): item is AgentTemporaryWorkbench => item !== undefined)
+          .slice(-3);
+        if (workbenches.length > 0) assistantMsg.temporaryWorkbenches = workbenches;
       }
       if (message.reasoning && message.reasoning.content.trim().length > 0) {
         assistantMsg.reasoning = {

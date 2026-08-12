@@ -15,6 +15,7 @@ import {
   type AgentProfileRunOutcome,
   type RunAgentProfileParams,
 } from "./run-agent-profile";
+import { collectTemporaryWorkbenches } from "../tools/homepage/homepage-workbench.tool";
 
 export type RunAgentTurnParams = Omit<
   RunAgentProfileParams<AgentTurnResult>,
@@ -82,6 +83,7 @@ export async function runAgentTurn(params: RunAgentTurnParams): Promise<AgentTur
           citationSegments: citationResolution.citationSegments,
           warnings: [],
           events,
+          temporaryWorkbenches: collectTemporaryWorkbenches(observations),
           stageSummary,
         },
         footerReferencesCount: footerReferences.length,

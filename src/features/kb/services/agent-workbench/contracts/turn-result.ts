@@ -8,6 +8,7 @@
 import type { AgentScope, AgentScopeSummary } from "../scope/types";
 import type { CitationSegment, ReferenceItem } from "../../../types/chat";
 import type { AgentWorkbenchEvent } from "./turn-event";
+import type { AgentTemporaryWorkbench } from "../tools/homepage/homepage-workbench.tool";
 
 /** Agent turn result returned to orchestration. */
 export interface AgentTurnResult {
@@ -19,6 +20,8 @@ export interface AgentTurnResult {
   citationSegments?: CitationSegment[];
   warnings: string[];
   events: AgentWorkbenchEvent[];
+  /** 当前运行时临时呈现；不写入聊天会话文件。 */
+  temporaryWorkbenches?: AgentTemporaryWorkbench[];
   /** Agent-provided stage summary for current-session context compression. */
   stageSummary?: {
     summary: string;

@@ -139,6 +139,36 @@
     }, "info");
   }
 
+  function handleTemporaryWorkbenchClick(event: MouseEvent) {
+    const target = event.target instanceof Element
+      ? event.target.closest<HTMLElement>("[data-siyuan-doc-id], [data-siyuan-block-id]")
+      : null;
+    if (!target) return;
+    const title = target.title || "工作台内容";
+    if (target.dataset.siyuanDocId) {
+      void navigateToDocId(target.dataset.siyuanDocId, title);
+      return;
+    }
+    if (target.dataset.siyuanBlockId) {
+      void navigateToReference({
+        index: 0,
+        docTitle: title,
+        headingPathText: "",
+        sourceBlockIds: [target.dataset.siyuanBlockId],
+        sourceType: "siyuan_doc",
+      });
+    }
+  }
+
+  function temporaryWorkbenchNavigation(node: HTMLElement) {
+    node.addEventListener("click", handleTemporaryWorkbenchClick);
+    return {
+      destroy() {
+        node.removeEventListener("click", handleTemporaryWorkbenchClick);
+      },
+    };
+  }
+
   async function handleCopy(content: string, messageId: string) {
     try {
       await writeTextToClipboard(content);
@@ -231,6 +261,8 @@
 
   $: workbenchEvents =
     message.role === "assistant" ? message.workbenchEvents ?? [] : [];
+  $: temporaryWorkbenches =
+    message.role === "assistant" ? message.temporaryWorkbenches ?? [] : [];
   $: workbenchRun = getWorkbenchRunPresentation(workbenchEvents);
 
   // 标准运行事件是主状态源；asking 只覆盖首个 run_started 到达前的短暂准备期。
@@ -765,6 +797,19 @@
         {:else}
           <!-- 统一渲染 Markdown；结构化引用在对应语句后插入可点击来源 -->
           {@html assistantHtml}
+        {/if}
+
+        {#if temporaryWorkbenches.length}
+          <div class="temporary-workbenches">
+            {#each temporaryWorkbenches as workbench (workbench.id)}
+              <section class="temporary-workbench" aria-label={workbench.title}>
+                <header class="temporary-workbench-title">{workbench.title}</header>
+                <div class="temporary-workbench-html" use:temporaryWorkbenchNavigation>
+                  {@html workbench.html}
+                </div>
+              </section>
+            {/each}
+          </div>
         {/if}
 
         <!-- 旧会话没有 citationSegments 时保留 footer 兼容展示 -->
@@ -1840,6 +1885,136 @@
     cursor: pointer;
     appearance: none;
     transition: background 0.15s ease, border-color 0.15s ease;
+  }
+
+  .temporary-workbenches {
+    display: grid;
+    gap: 10px;
+    margin-top: 12px;
+  }
+
+  .temporary-workbench {
+    overflow: hidden;
+    border: 1px solid color-mix(in srgb, var(--b3-theme-primary) 18%, var(--b3-border-color));
+    border-radius: 10px;
+    background: color-mix(in srgb, var(--b3-theme-surface) 92%, var(--b3-theme-primary) 8%);
+  }
+
+  .temporary-workbench-title {
+    padding: 9px 12px;
+    border-bottom: 1px solid var(--b3-border-color);
+    color: var(--b3-theme-on-surface);
+    font-size: 13px;
+    font-weight: 600;
+  }
+
+  .temporary-workbench-html {
+    padding: 12px;
+    line-height: 1.5;
+  }
+
+  .temporary-workbench-html :global(.wb-grid),
+  .temporary-workbench-html :global(.wb-grid-2),
+  .temporary-workbench-html :global(.wb-grid-3) {
+    display: grid;
+    gap: 8px;
+  }
+
+  .temporary-workbench-html :global(.wb-grid) {
+    grid-template-columns: repeat(auto-fit, minmax(min(150px, 100%), 1fr));
+  }
+
+  .temporary-workbench-html :global(.wb-grid-2) {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .temporary-workbench-html :global(.wb-grid-3) {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .temporary-workbench-html :global(.wb-card),
+  .temporary-workbench-html :global(.wb-stat) {
+    min-width: 0;
+    padding: 10px;
+    border: 1px solid var(--b3-border-color);
+    border-radius: 8px;
+    background: var(--b3-theme-surface);
+  }
+
+  .temporary-workbench-html :global(.wb-stat),
+  .temporary-workbench-html :global(.wb-list) {
+    display: grid;
+    gap: 5px;
+  }
+
+  .temporary-workbench-html :global(.wb-list) {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .temporary-workbench-html :global(.wb-item) {
+    padding: 7px 0;
+    border-bottom: 1px solid var(--b3-border-color);
+  }
+
+  .temporary-workbench-html :global(.wb-item:last-child) {
+    border-bottom: 0;
+  }
+
+  .temporary-workbench-html :global(.wb-value) {
+    color: var(--b3-theme-on-surface);
+    font-size: 20px;
+    font-weight: 700;
+    line-height: 1.2;
+  }
+
+  .temporary-workbench-html :global(.wb-label),
+  .temporary-workbench-html :global(.wb-muted) {
+    color: var(--b3-theme-on-surface-light);
+    font-size: 12px;
+  }
+
+  .temporary-workbench-html :global(.wb-badge) {
+    display: inline-flex;
+    width: fit-content;
+    padding: 2px 7px;
+    border-radius: 999px;
+    background: var(--b3-theme-background-light);
+    font-size: 11px;
+  }
+
+  .temporary-workbench-html :global(.wb-accent) { color: var(--b3-theme-primary); }
+  .temporary-workbench-html :global(.wb-warning) { color: var(--b3-card-warning-color, #a66b00); }
+  .temporary-workbench-html :global(.wb-success) { color: var(--b3-card-success-color, #2f7d4f); }
+  .temporary-workbench-html :global(.wb-danger) { color: var(--b3-theme-error); }
+
+  .temporary-workbench-html :global(.wb-button) {
+    min-height: 44px;
+    padding: 7px 10px;
+    border: 1px solid color-mix(in srgb, var(--b3-theme-primary) 35%, var(--b3-border-color));
+    border-radius: 8px;
+    background: color-mix(in srgb, var(--b3-theme-primary) 8%, var(--b3-theme-surface));
+    color: var(--b3-theme-primary);
+    font: inherit;
+    cursor: pointer;
+  }
+
+  .temporary-workbench-html :global(.wb-button:hover),
+  .temporary-workbench-html :global(.wb-button:focus-visible) {
+    border-color: var(--b3-theme-primary);
+    background: color-mix(in srgb, var(--b3-theme-primary) 14%, var(--b3-theme-surface));
+    outline: 2px solid color-mix(in srgb, var(--b3-theme-primary) 35%, transparent);
+    outline-offset: 2px;
+  }
+
+  .temporary-workbench-html :global(.wb-compact) { padding: 6px; }
+
+  @media (max-width: 520px) {
+    .temporary-workbench-html :global(.wb-grid-2),
+    .temporary-workbench-html :global(.wb-grid-3) {
+      grid-template-columns: 1fr;
+    }
   }
 
   .assistant-bubble :global(.inline-citation-marker:hover),

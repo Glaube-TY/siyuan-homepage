@@ -342,6 +342,7 @@ export async function runAgentProfile<TResult>(
       assetManagement: !disabledGlobalTools.has("siyuan_asset"),
       riffReview: !disabledGlobalTools.has("siyuan_riff"),
       homepageManagement: !disabledGlobalTools.has("homepage_manage"),
+      homepageWorkbench: !disabledGlobalTools.has("homepage_workbench"),
       homepageQuickNote: !disabledGlobalTools.has("homepage_quick_note"),
       homepageFocus: !disabledGlobalTools.has("homepage_focus"),
       homepageAccounting: !disabledGlobalTools.has("homepage_accounting"),

@@ -1123,6 +1123,7 @@ export async function runAgentWorkbenchModeFlow(
                 citationSegments: result.citationSegments,
                 agentMemory,
                 workbenchEvents: finalWorkbenchEvents,
+                temporaryWorkbenches: result.temporaryWorkbenches,
                 isComplete: !isPartialProviderAnswer,
                 agentStatus: undefined,
                 agentRecovery: resumableFailureCheckpoint && actualUserMessageId

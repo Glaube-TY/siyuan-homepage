@@ -63,6 +63,7 @@ export interface BuiltinCapabilityAccess {
   assetManagement: boolean;
   riffReview: boolean;
   homepageManagement: boolean;
+  homepageWorkbench: boolean;
   homepageQuickNote: boolean;
   homepageFocus: boolean;
   homepageAccounting: boolean;
@@ -141,6 +142,7 @@ export function createAgentWorkbenchRuntime(
   if (agentProfileHasCapability(options.profile, "homepage")) {
     surfaceCapabilities = registerHomepageAgentCapabilities(toolRegistry, {
       enabled: options.builtinCapabilityAccess?.homepageManagement === true,
+      workbench: options.builtinCapabilityAccess?.homepageWorkbench !== false,
       components: {
         quickNote: options.builtinCapabilityAccess?.homepageQuickNote === true,
         focus: options.builtinCapabilityAccess?.homepageFocus === true,

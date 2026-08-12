@@ -23,6 +23,14 @@ import { ToolRegistry } from "../src/features/kb/services/agent-workbench/regist
 import type { ToolContract } from "../src/features/kb/services/agent-workbench/contracts/tool-contract";
 import { buildAgentSystemPrompt } from "../src/features/kb/services/agent-core/prompts/system-prefix";
 import { createAgentSurfaceCapabilitySnapshot } from "../src/features/agent-platform/agent-surface-capability";
+import { findAggregateToolMeta } from "../src/features/kb/services/agent-workbench/tools/aggregate/aggregate-tool-metadata";
+import {
+  collectTemporaryWorkbenches,
+  HOMEPAGE_WORKBENCH_TOOL_NAME,
+  isSafeSiyuanWorkbenchTarget,
+  normalizeTemporaryWorkbench,
+  normalizeTemporaryWorkbenchClassNames,
+} from "../src/features/kb/services/agent-workbench/tools/homepage/homepage-workbench.tool";
 
 const profile = getAgentProfile(KNOWLEDGE_CHAT_AGENT_PROFILE_ID);
 
@@ -216,6 +224,14 @@ const homepageCapabilitySource = readFileSync(
   new URL("../src/features/kb/services/agent-workbench/composition/register-homepage-tools.ts", import.meta.url),
   "utf8",
 );
+const temporaryWorkbenchSource = readFileSync(
+  new URL("../src/features/kb/services/agent-workbench/tools/homepage/homepage-workbench.tool.ts", import.meta.url),
+  "utf8",
+);
+const chatSessionStorageSource = readFileSync(
+  new URL("../src/features/kb/services/session/kb-chat-session-storage.ts", import.meta.url),
+  "utf8",
+);
 
 assert.match(turnAdapterSource, /runAgentProfile/);
 for (const platformAssembly of [
@@ -248,5 +264,29 @@ assert.match(workbenchCompositionSource, /registerHomepageAgentCapabilities/);
 assert.equal(workbenchCompositionSource.includes("registerHomepageComponentTools("), false);
 assert.match(homepageCapabilitySource, /HOMEPAGE_AGENT_WIDGET_CATALOG/);
 assert.match(homepageCapabilitySource, /createAgentSurfaceCapabilitySnapshot/);
+assert.match(homepageCapabilitySource, /createHomepageWorkbenchTool/);
+assert.match(temporaryWorkbenchSource, /DOMPurify\.sanitize/);
+assert.match(temporaryWorkbenchSource, /FORBID_TAGS:[\s\S]*"script"[\s\S]*"iframe"/);
+assert.match(temporaryWorkbenchSource, /FORBID_ATTR: \["style"\]/);
+assert.match(chatSessionStorageSource, /temporaryWorkbenches/);
+assert.match(chatSessionStorageSource, /normalizeTemporaryWorkbench/);
+assert.equal(normalizeTemporaryWorkbenchClassNames("wb-card evil wb-accent"), "wb-card wb-accent");
+assert.equal(isSafeSiyuanWorkbenchTarget("20260812123456-abcdefg"), true);
+assert.equal(isSafeSiyuanWorkbenchTarget("javascript:alert(1)"), false);
+assert.equal(normalizeTemporaryWorkbench({ schemaVersion: 2 }), undefined);
+assert.equal(findAggregateToolMeta(HOMEPAGE_WORKBENCH_TOOL_NAME)?.actions.length, 0);
+assert.deepEqual(collectTemporaryWorkbenches([{
+  id: 1,
+  timestamp: 1,
+  kind: "tool_executed",
+  toolName: HOMEPAGE_WORKBENCH_TOOL_NAME,
+  content: {
+    schemaVersion: 1,
+    id: "workbench-1",
+    title: "今日工作台",
+    html: '<section class="wb-card">内容</section>',
+    createdAt: 1,
+  },
+}]).map((item) => item.id), ["workbench-1"]);
 
-console.log("Agent Profile、多入口与主页能力注册边界校验通过。");
+console.log("Agent Profile、多入口、主页能力与临时工作台协议校验通过。");

@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { createAgentRunIdentity } from "../src/features/agent-platform/agent-run-protocol";
 import { NativeToolAgentLoop } from "../src/features/kb/services/agent-core/loop/native-tool-agent-loop";
 import type { AgentStreamEvent } from "../src/features/kb/services/agent-core/loop/stream-event";
@@ -8,6 +9,7 @@ import { AgentProviderError } from "../src/features/kb/services/agent-core/provi
 import { mergeLatestAgentTokenUsage, normalizeProviderUsage } from "../src/features/kb/services/agent-core/providers/provider-usage";
 import { TimedAgentHttpTransport, type AgentHttpTransport } from "../src/features/kb/services/agent-core/providers/agent-http-transport";
 import { NativeToolRegistry } from "../src/features/kb/services/agent-core/tools/native-tool-registry";
+import { StormBreaker } from "../src/features/kb/services/agent-core/loop/storm-breaker";
 
 class UsageProvider implements ProviderAdapter {
   readonly id = "verify:usage";
@@ -77,6 +79,21 @@ function verifyProviderUsageNormalization(): void {
   ).totalTokens, 9);
 }
 
+function verifyRepeatedInvalidActionState(): void {
+  const breaker = new StormBreaker();
+  const call = { id: "read", name: "siyuan_doc_edit", arguments: "{}", index: 0 };
+  breaker.recordFailedCall(call, { action: "read_blocks", args: { docId: "doc-a" } }, "invalid_action_args", 1);
+  breaker.recordFailedCall(call, { action: "read_blocks", args: { docId: "doc-b" } }, "invalid_action_args", 2);
+  assert.equal(breaker.shouldFatalAfterRepeatedInvalidActionArgs(), true);
+
+  const dispatchSource = readFileSync(
+    new URL("../src/features/kb/services/agent-core/loop/dispatch-tool-calls.ts", import.meta.url),
+    "utf8",
+  );
+  assert.match(dispatchSource, /repeatedInvalidArgsBeforeThisBatch/);
+  assert.match(dispatchSource, /repeatedInvalidArgsBeforeThisBatch\s*&&\s*stormBreaker\.shouldFatalAfterRepeatedInvalidActionArgs\(\)/);
+}
+
 async function verifyTerminalSemantics(): Promise<void> {
   const empty = await runTerminalProvider("", "stop");
   assert.equal(empty.status, "failed");
@@ -113,6 +130,7 @@ async function verifySharedTimeout(): Promise<void> {
 
 await verifyRunIdentityAndUsage();
 verifyProviderUsageNormalization();
+verifyRepeatedInvalidActionState();
 await verifyTerminalSemantics();
 await verifySharedTimeout();
 console.log("agent runtime protocol verification passed");

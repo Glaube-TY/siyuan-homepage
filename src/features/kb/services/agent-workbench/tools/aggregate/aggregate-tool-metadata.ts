@@ -8,6 +8,7 @@ export type AggregateToolName =
   | "siyuan_asset"
   | "siyuan_riff"
   | "homepage_manage"
+  | "homepage_workbench"
   | "homepage_quick_note"
   | "homepage_focus"
   | "homepage_accounting"
@@ -166,6 +167,35 @@ function reviewTargetArgsSchema(
 }
 
 export const AGGREGATE_TOOL_CATALOG: AggregateToolMeta[] = [
+  {
+    name: "homepage_workbench",
+    title: "临时工作台",
+    description: "把本轮已读取的真实数据排成会话内受控 HTML 工作台。",
+    readOnly: true,
+    boundary: "只允许白名单标签、内置 wb-* 视觉类和思源文档/块跳转；禁止脚本、样式、外链、表单与写操作。",
+    argsSchema: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        title: { type: "string", minLength: 1, maxLength: 80 },
+        html: { type: "string", minLength: 1, maxLength: 12000 },
+      },
+      required: ["title", "html"],
+    },
+    inputHint: "直接传 title 与 html，不要包 action/args；文档跳转使用 button data-siyuan-doc-id，块跳转使用 button data-siyuan-block-id。",
+    examples: [{
+      args: {
+        title: "最近文档",
+        html: '<section class="wb-grid"><button class="wb-card wb-button" data-siyuan-doc-id="真实docId">文档标题</button></section>',
+      },
+    }],
+    notes: [
+      "先调用现有只读工具取得真实数据和 ID，再生成工作台。",
+      "已有真实 docId 时直接生成文档跳转按钮，不需要为了跳转额外调用 read_blocks。",
+      "工作台会随当前聊天会话保存，但不会固定到主页或修改业务数据。",
+    ],
+    actions: [],
+  },
   {
     name: "homepage_manage",
     title: "主页管理",

@@ -670,6 +670,8 @@ export async function dispatchToolCalls(params: {
 }): Promise<DispatchToolCallsResult> {
   const executor = new NativeToolExecutor();
   const stormBreaker = params.stormBreaker ?? new StormBreaker();
+  // 同一批并行调用来自同一次模型输出；模型尚未看到其中任何错误，不能当成纠错失败。
+  const repeatedInvalidArgsBeforeThisBatch = stormBreaker.shouldFatalAfterRepeatedInvalidActionArgs();
   const toolMessages: AgentToolMessage[] = new Array(params.calls.length);
   let cursor = 0;
 
@@ -775,7 +777,9 @@ export async function dispatchToolCalls(params: {
         fatalErrorMessage: "模型重复提交了已失败的同一工具同一参数，本轮已停止，请基于已有结果总结失败原因。",
       };
     }
-    if (content?.code === "invalid_action_args" && stormBreaker.shouldFatalAfterRepeatedInvalidActionArgs()) {
+    if (content?.code === "invalid_action_args"
+      && repeatedInvalidArgsBeforeThisBatch
+      && stormBreaker.shouldFatalAfterRepeatedInvalidActionArgs()) {
       return {
         toolMessages,
         stepCount: params.calls.length,
