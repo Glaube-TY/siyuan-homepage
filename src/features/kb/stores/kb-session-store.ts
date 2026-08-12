@@ -28,7 +28,10 @@ import {
   readTurnJournalAsync,
   readLastKnownState,
   clearLastKnownState,
+  type SafeWorkbenchEvent,
 } from "../services/agent-workbench/runtime/in-flight-turn-journal";
+import { inspectAgentRunResume } from "../services/agent-core/session/agent-run-checkpoint";
+import type { AgentWorkbenchEvent } from "../services/agent-workbench";
 
 /** 生成会话唯一 id */
 function generateConversationId(): string {
@@ -57,6 +60,46 @@ function getTurnDeleteTarget(messages: readonly ChatMessage[], assistantIndex: n
   if (startIndex < 0) return null;
 
   return { startIndex };
+}
+
+function restoreSafeWorkbenchEvent(
+  event: SafeWorkbenchEvent,
+  index: number,
+  identity: { sessionId: string; runId: string; correlationId: string },
+): AgentWorkbenchEvent | null {
+  const base = {
+    at: Date.now(),
+    eventId: `${identity.runId}-recovery-${index}`,
+    ...identity,
+    stepIndex: event.stepIndex,
+  };
+  const toolCallId = `recovery-tool-${event.stepIndex ?? index}`;
+  switch (event.type) {
+    case "tool_start":
+      return { ...base, type: "tool_start", toolCallId, toolName: event.toolName ?? "", argsPreview: event.argsPreview ?? {}, readOnly: false, startedAt: base.at };
+    case "tool_result":
+      return {
+        ...base,
+        type: "tool_result",
+        toolCallId,
+        toolName: event.toolName ?? "",
+        result: { ok: event.ok === true, summary: event.outputSummary, errorCode: event.errorCode },
+        durationMs: 0,
+        argsPreview: event.argsPreview,
+      } as AgentWorkbenchEvent;
+    case "permission_required":
+      return { ...base, type: "permission_required", toolCallId, preview: { toolName: event.toolName ?? "" } } as AgentWorkbenchEvent;
+    case "permission_resolved":
+      return { ...base, type: "permission_resolved", toolCallId, approved: event.ok === true };
+    case "notice":
+      return { ...base, type: "notice", message: event.message ?? "运行状态已恢复。" };
+    case "error":
+      return { ...base, type: "error", code: event.errorCode ?? "interrupted", message: event.message ?? "上次运行已中断。" };
+    case "done":
+      return { ...base, type: "done", status: event.status ?? "failed" };
+    default:
+      return null;
+  }
 }
 
 function removeCompactedFlag<T extends ChatMessage>(message: T): T {
@@ -1061,6 +1104,16 @@ export function createKbSessionStore(options: { persistDebounceDelay?: number } 
 
             let journalAlreadyPersisted = false;
             let recoveredPartialAnswer = false;
+            const recoveryCheckpoint = journal.agentRunCheckpoint;
+            const recoveryDecision = recoveryCheckpoint
+              ? inspectAgentRunResume(recoveryCheckpoint)
+              : undefined;
+            const agentRecovery = recoveryCheckpoint
+                ? {
+                  checkpoint: recoveryCheckpoint,
+                  userMessageId: journal.userMessageId,
+                }
+              : undefined;
             update((state) => {
               // 1. Locate target conversation by journal.conversationId first, fallback to active
               const targetConvId = state.conversations.some((c) => c.id === journal.conversationId)
@@ -1098,11 +1151,18 @@ export function createKbSessionStore(options: { persistDebounceDelay?: number } 
               } else {
                 recoveryContent = `上次回答过程中断，已恢复中断前的工具执行记录。请重新发起测试或让我继续分析。`;
               }
+              if (recoveryDecision?.resumable) {
+                recoveryContent = `${recoveryContent.replace(/请重新发起测试或让我继续分析。$/, "")}可从下方安全检查点继续。`;
+              }
 
-              const safeWorkbenchEvents = journal.workbenchEvents.map((e) => ({
-                ...e,
-                at: Date.now(),
-              })) as any;
+              const recoveryIdentity = recoveryCheckpoint?.identity ?? {
+                sessionId: journal.conversationId,
+                runId: journal.assistantMessageId,
+                correlationId: journal.assistantMessageId,
+              };
+              const safeWorkbenchEvents = journal.workbenchEvents
+                .map((event, index) => restoreSafeWorkbenchEvent(event, index, recoveryIdentity))
+                .filter((event): event is AgentWorkbenchEvent => event !== null);
 
               const hasAssistantMsg = targetConvMessages.some(
                 (m: any) => m.role === "assistant" && m.id === journal.assistantMessageId
@@ -1120,9 +1180,22 @@ export function createKbSessionStore(options: { persistDebounceDelay?: number } 
                     ? m.content.trim()
                       ? (() => {
                           recoveredPartialAnswer = true;
-                          return { ...m, isComplete: false, agentStatus: undefined };
+                          return {
+                            ...m,
+                            isComplete: false,
+                            workbenchEvents: safeWorkbenchEvents,
+                            agentStatus: undefined,
+                            agentRecovery,
+                          };
                         })()
-                      : { ...m, content: recoveryContent, isComplete: true, workbenchEvents: safeWorkbenchEvents, agentStatus: undefined }
+                      : {
+                          ...m,
+                          content: recoveryContent,
+                          isComplete: true,
+                          workbenchEvents: safeWorkbenchEvents,
+                          agentStatus: undefined,
+                          agentRecovery,
+                        }
                     : m
                 );
               } else {
@@ -1131,7 +1204,7 @@ export function createKbSessionStore(options: { persistDebounceDelay?: number } 
                 );
                 const completedPending = journal.status === "completed_pending_persist";
                 const recoveryMsg = {
-                  id: `recovery-${journal.assistantMessageId}-${Date.now()}`,
+                  id: journal.assistantMessageId,
                   role: "assistant" as const,
                   content: completedPending
                     ? `上次回答完成后未能持久化，以下为可恢复内容：${journal.answerPreview || "未保留完整回答，请重新提问。"}`
@@ -1139,6 +1212,7 @@ export function createKbSessionStore(options: { persistDebounceDelay?: number } 
                   createdAt: Date.now(),
                   isComplete: completedPending ? false : true,
                   workbenchEvents: safeWorkbenchEvents,
+                  ...(!completedPending && agentRecovery ? { agentRecovery } : {}),
                 };
                 if (userMsgIndex >= 0) {
                   updatedConvMessages = [
@@ -1195,7 +1269,7 @@ export function createKbSessionStore(options: { persistDebounceDelay?: number } 
                 ...state,
                 error: `恢复记录尚未保存：${recoverySaveResult?.errors.join("；") || "会话保存失败，请稍后重试。"}`,
               }));
-            } else {
+            } else if (!recoveryDecision?.resumable) {
               await clearTurnJournalAfterPersistence();
               clearLastKnownState();
             }

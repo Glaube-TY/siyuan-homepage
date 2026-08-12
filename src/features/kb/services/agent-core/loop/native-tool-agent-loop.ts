@@ -400,6 +400,7 @@ export class NativeToolAgentLoop {
           if (emittedReasoningLive) {
             this.options.onEvent?.({ type: "assistant_reasoning_reset" });
           }
+          this.options.onEvent?.({ type: "notice", message: "回答校验未通过，正在修正。" });
           this.session.append(createSystemMessage(finalAnswerRetryInstruction));
           continue;
         }

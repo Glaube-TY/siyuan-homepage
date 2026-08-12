@@ -101,6 +101,11 @@ export interface CitationSegment {
   citationIds: number[];
 }
 
+export interface AgentRecoveryState {
+  checkpoint: import("../services/agent-core/session/agent-run-checkpoint").AgentRunCheckpoint;
+  userMessageId: string;
+}
+
 /** AI 助手消息 */
 export type AssistantChatMessage = {
   id: string;
@@ -126,6 +131,8 @@ export type AssistantChatMessage = {
    * - 不进入 conversationContext / agent context
    */
   workbenchEvents?: import("../services/agent-workbench").AgentWorkbenchEvent[];
+  /** 崩溃恢复后仅在当前运行时保留；会话文件不重复持久化检查点正文。 */
+  agentRecovery?: AgentRecoveryState;
   /**
    * 运行态状态文本（可选）
    * - 仅用于当前 UI 渲染，不持久化为最终回答内容

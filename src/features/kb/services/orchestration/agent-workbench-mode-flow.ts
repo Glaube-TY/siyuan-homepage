@@ -28,7 +28,7 @@
 
 import type { AskByModeParams, AskByModeResult } from "./ask-by-mode-types";
 import type { ChatMode } from "../../constants/chat-modes";
-import type { ChatMessage, ConversationStageSummary, UserChatMessage } from "../../types/chat";
+import type { AssistantChatMessage, ChatMessage, ConversationStageSummary, UserChatMessage } from "../../types/chat";
 import type { ChatModelSelection } from "../../types/chat-model-selection";
 import type { AgentScopeMode } from "../agent-workbench/scope/types";
 import { runAgentTurn, type AgentTurnOutcome } from "../agent-workbench/runtime/run-agent-turn";
@@ -61,6 +61,10 @@ import {
   PROVIDER_OUTPUT_TRUNCATED_ERROR_CODE,
 } from "../agent-workbench/runtime/workbench-terminal-state";
 import { stripInlineCitationMarkersForDisplay } from "../agent-workbench/runtime/inline-citation";
+import {
+  inspectAgentRunResume,
+  type AgentRunCheckpoint,
+} from "../agent-core/session/agent-run-checkpoint";
 
 /**
  * Agent Workbench Mode Flow 参数
@@ -433,6 +437,7 @@ export async function runAgentWorkbenchModeFlow(
   } = params;
 
   const assistantMessageId = params.turnId ?? createMessageId();
+  const isResume = !!params.resumeCheckpoint;
   let flushPendingAgentStreams: (() => void) | undefined;
   let cancelPendingAgentStreams: (() => void) | undefined;
   let persistenceCheckpointTail: Promise<void> = Promise.resolve();
@@ -494,15 +499,24 @@ export async function runAgentWorkbenchModeFlow(
     }
 
     const stateForConversationContext = getState();
+    const recoveredAssistant = stateForConversationContext.messages.find(
+      (message): message is AssistantChatMessage =>
+        message.id === assistantMessageId && message.role === "assistant",
+    );
+    const recoveredWorkbenchEvents = isResume
+      ? (recoveredAssistant?.workbenchEvents ?? []).filter((event) => event.type !== "done" && event.type !== "error")
+      : [];
 
-    addMessage({
-      id: assistantMessageId,
-      role: "assistant",
-      content: "",
-      createdAt: Date.now(),
-      isComplete: false,
-      agentStatus: "正在分析问题...",
-    });
+    if (!isResume) {
+      addMessage({
+        id: assistantMessageId,
+        role: "assistant",
+        content: "",
+        createdAt: Date.now(),
+        isComplete: false,
+        agentStatus: "正在分析问题...",
+      });
+    }
 
     createTurnJournal({
       conversationId: params.conversationId ?? actualUserMessageId,
@@ -510,6 +524,13 @@ export async function runAgentWorkbenchModeFlow(
       assistantMessageId,
       questionPreview: trimmed,
     });
+    if (params.resumeCheckpoint) {
+      checkpointTurnJournal({
+        eventType: `agent_checkpoint_${params.resumeCheckpoint.phase}`,
+        stepIndex: params.resumeCheckpoint.stepIndex,
+        agentRunCheckpoint: params.resumeCheckpoint,
+      });
+    }
 
     updateState((state) => ({
       ...state,
@@ -521,9 +542,11 @@ export async function runAgentWorkbenchModeFlow(
 
     const initialPersistence = await runPersistenceCheckpoint("发送前");
     if (!initialPersistence.success) {
-      setMessages((messages) => messages.filter((message) =>
-        !(message.id === assistantMessageId && message.role === "assistant" && !message.content.trim())
-      ));
+      if (!isResume) {
+        setMessages((messages) => messages.filter((message) =>
+          !(message.id === assistantMessageId && message.role === "assistant" && !message.content.trim())
+        ));
+      }
       const message = `会话保存失败，本轮未开始生成：${initialPersistence.error || "请稍后重试。"}`;
       updateState((state) => ({
         ...state,
@@ -534,6 +557,22 @@ export async function runAgentWorkbenchModeFlow(
       }));
       failTurnJournal({ reason: "initial_persistence_failed" });
       return { success: false, error: message };
+    }
+
+    if (isResume) {
+      setMessages((messages) => messages.map((message) =>
+        message.id === assistantMessageId && message.role === "assistant"
+          ? {
+              ...message,
+              content: "",
+              isComplete: false,
+              agentStatus: "正在从安全检查点继续...",
+              agentRecovery: undefined,
+              workbenchEvents: recoveredWorkbenchEvents,
+              reasoning: undefined,
+            }
+          : message
+      ));
     }
 
     // ── Auto compression check before building conversationContext ──
@@ -693,7 +732,8 @@ export async function runAgentWorkbenchModeFlow(
 
     let latestFullContent = "";
     let answerFlushTimer: ReturnType<typeof setTimeout> | undefined;
-    let liveWorkbenchEvents: AgentWorkbenchEvent[] = [];
+    let liveWorkbenchEvents: AgentWorkbenchEvent[] = [...recoveredWorkbenchEvents];
+    let latestRunCheckpoint: AgentRunCheckpoint | undefined = params.resumeCheckpoint;
     let reasoningContent = "";
     let reasoningPartCount = 0;
     let reasoningFlushTimer: ReturnType<typeof setTimeout> | undefined;
@@ -812,11 +852,15 @@ export async function runAgentWorkbenchModeFlow(
       panelInstanceId: params.panelInstanceId,
       turnId: assistantMessageId,
       kbSettings,
-      onCheckpoint: (checkpoint) => checkpointTurnJournal({
-        eventType: `agent_checkpoint_${checkpoint.phase}`,
-        stepIndex: checkpoint.stepIndex,
-        agentRunCheckpoint: checkpoint,
-      }),
+      resumeCheckpoint: params.resumeCheckpoint,
+      onCheckpoint: (checkpoint) => {
+        latestRunCheckpoint = checkpoint;
+        checkpointTurnJournal({
+          eventType: `agent_checkpoint_${checkpoint.phase}`,
+          stepIndex: checkpoint.stepIndex,
+          agentRunCheckpoint: checkpoint,
+        });
+      },
       onReasoningDelta: (event) => {
         // Only process reasoning when thinkingMode=on
         if (userThinkingMode !== "on") {
@@ -881,15 +925,19 @@ export async function runAgentWorkbenchModeFlow(
                 argsPreview: "argsPreview" in event ? event.argsPreview : undefined,
               };
             } else if (event.type === "error") {
-              safeEvent = { type: "error", errorCode: event.code };
+              safeEvent = { type: "error", errorCode: event.code, message: event.message };
             } else if (event.type === "done") {
-              safeEvent = { type: "done", stepIndex: event.stepIndex };
+              safeEvent = { type: "done", stepIndex: event.stepIndex, status: event.status };
             } else if (event.type === "permission_required") {
               safeEvent = { type: "permission_required", stepIndex: event.stepIndex, toolName: event.preview.toolName };
             } else if (event.type === "permission_resolved") {
               safeEvent = { type: "permission_resolved", stepIndex: event.stepIndex, ok: event.approved };
             } else if (event.type === "notice" || event.type === "assistant_final") {
-              safeEvent = { type: event.type, stepIndex: event.stepIndex };
+              safeEvent = {
+                type: event.type,
+                stepIndex: event.stepIndex,
+                message: event.type === "notice" ? event.message : undefined,
+              };
             }
             checkpointTurnJournal({
               eventType: event.type,
@@ -962,6 +1010,15 @@ export async function runAgentWorkbenchModeFlow(
         }
       },
     });
+
+    const resumableFailureCheckpoint = !agentTurnOutcome.ok
+      && latestRunCheckpoint
+      && inspectAgentRunResume(latestRunCheckpoint).resumable
+      ? latestRunCheckpoint
+      : undefined;
+    if (resumableFailureCheckpoint) {
+      failTurnJournal({ reason: "recoverable_failure" });
+    }
 
     if (agentTurnOutcome.ok && agentTurnOutcome.result) {
       result = agentTurnOutcome.result;
@@ -1068,6 +1125,9 @@ export async function runAgentWorkbenchModeFlow(
                 workbenchEvents: finalWorkbenchEvents,
                 isComplete: !isPartialProviderAnswer,
                 agentStatus: undefined,
+                agentRecovery: resumableFailureCheckpoint && actualUserMessageId
+                  ? { checkpoint: resumableFailureCheckpoint, userMessageId: actualUserMessageId }
+                  : undefined,
                 // Ensure reasoning status is "done" at finalize
                 reasoning: m.reasoning && m.reasoning.status === "streaming"
                   ? { ...m.reasoning, status: "done" as const }
@@ -1102,7 +1162,9 @@ export async function runAgentWorkbenchModeFlow(
 
     await persistenceCheckpointTail;
     const finalContent = result.answer;
-    await markTurnCompletedPendingPersistence({ answerPreview: finalContent });
+    if (!resumableFailureCheckpoint) {
+      await markTurnCompletedPendingPersistence({ answerPreview: finalContent });
+    }
     const finalPersistence = await runPersistenceCheckpoint("最终回答");
     updateState((state) => ({
       ...state,
@@ -1117,7 +1179,9 @@ export async function runAgentWorkbenchModeFlow(
       const persistenceError = `回答已生成，但会话尚未保存：${finalPersistence.error || "请稍后重试。"}`;
       return { success: false, error: persistenceError };
     }
-    await clearTurnJournalAfterPersistence();
+    if (!resumableFailureCheckpoint) {
+      await clearTurnJournalAfterPersistence();
+    }
 
     return { success: true };
   } catch (err) {

@@ -748,6 +748,35 @@
     );
   }
 
+  async function handleResumeAgent(e: CustomEvent<{ assistantMessageId: string }>) {
+    if (asking) return;
+    const assistant = messages.find((message) =>
+      message.role === "assistant" && message.id === e.detail.assistantMessageId
+    );
+    if (assistant?.role !== "assistant" || !assistant.agentRecovery) return;
+    const user = messages.find((message) =>
+      message.role === "user" && message.id === assistant.agentRecovery?.userMessageId
+    );
+    if (user?.role !== "user") return;
+
+    const requestContext = user.requestContext;
+    const rawMode = requestContext?.originalMode as ChatMode | undefined;
+    const effectiveMode = rawMode && CHAT_MODES.some((item) => item.id === rawMode)
+      ? rawMode
+      : selectedMode;
+    await handleAskByModeWithExistingUser(
+      effectiveMode,
+      user.content,
+      user.id,
+      undefined,
+      requestContext?.customDocIds,
+      requestContext?.attachedDocs,
+      $kbSessionStore.thinkingMode ?? (requestContext?.thinkingMode as import("../../types/session").ThinkingMode | undefined) ?? "off",
+      webSearchEnabled ? (requestContext?.webAccessMode ?? storedWebAccessMode) : "off",
+      assistant.agentRecovery,
+    );
+  }
+
   // 切换会话侧边栏显示
   function toggleConversationSidebar() {
     if (placement === "dock") {
@@ -1163,6 +1192,7 @@
     attachedDocs?: import("../../types/chat").AttachedKbDoc[],
     submittedThinkingMode?: import("../../types/session").ThinkingMode,
     submittedWebAccessMode?: "off" | "smart" | "required",
+    recovery?: import("../../types/chat").AgentRecoveryState,
   ) {
     if (!ensureCurrentDocumentModeAvailable(mode)) {
       return;
@@ -1201,8 +1231,9 @@
       question,
       conversationId: activeConversationId,
       panelInstanceId,
-      turnId: createPanelTurnId(),
+      turnId: recovery?.checkpoint.identity.runId ?? createPanelTurnId(),
       existingUserMessageId,
+      resumeCheckpoint: recovery?.checkpoint,
       thinkingMode: effectiveThinkingMode,
       customDocIds,
       attachedDocs,
@@ -1531,6 +1562,7 @@
           on:quoteSelection={handleQuoteSelection}
           on:editUserMessage={handleEditUserMessage}
           on:deleteTurn={handleDeleteTurn}
+          on:resumeAgent={handleResumeAgent}
           on:sendSuggestedQuestion={handleSuggestedQuestion}
           {assistantActionAlignment}
           chatAppearanceStyle={chatAppearance.style}

@@ -71,6 +71,8 @@ export interface SafeWorkbenchEvent {
   errorCode?: string;
   outputSummary?: string;
   argsPreview?: Record<string, unknown>;
+  message?: string;
+  status?: "answer_ready" | "failed" | "cancelled";
 }
 
 export interface InFlightTurnJournal {

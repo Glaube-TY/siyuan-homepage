@@ -32,6 +32,8 @@ export interface AskByModeParams {
   chatModelSelection?: ChatModelSelection | null;
   /** 重新生成时复用已有 user message，不追加重复 user */
   existingUserMessageId?: string;
+  /** 从崩溃恢复产生的安全检查点继续，不重放已完成工具。 */
+  resumeCheckpoint?: import("../agent-core/session/agent-run-checkpoint").AgentRunCheckpoint;
   /** 思考模式：off=关闭，on=开启 */
   thinkingMode?: ThinkingMode;
   /** 用户手动附加的文档 ID 列表（可选，非空时强制走 custom_docs scope） */

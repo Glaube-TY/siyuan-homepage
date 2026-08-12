@@ -88,6 +88,7 @@
     quoteSelection: { text: string };
     editUserMessage: { text: string };
     deleteTurn: { assistantMessageId: string };
+    resumeAgent: { assistantMessageId: string };
     sendSuggestedQuestion: string;
   }>();
 
@@ -356,6 +357,7 @@
               on:quoteSelection={(e) => dispatch('quoteSelection', e.detail)}
               on:editUserMessage={(e) => dispatch('editUserMessage', e.detail)}
               on:deleteTurn={(e) => dispatch('deleteTurn', e.detail)}
+              on:resumeAgent={(e) => dispatch('resumeAgent', e.detail)}
             />
           </div>
         {/each}

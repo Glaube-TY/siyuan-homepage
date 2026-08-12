@@ -8,6 +8,8 @@
   import { pushAgentDebugEvent } from "../../services/agent-workbench/debug/workbench-debug";
   import { mapAgentErrorToUserFacing } from "../../services/agent-workbench/runtime/user-facing-agent-error";
   import {
+    getAgentRecoveryPresentation,
+    getWorkbenchRunPresentation,
     hasSettledWorkbenchTerminal,
     isProviderOutputTruncatedWorkbench,
   } from "../../services/agent-workbench/runtime/workbench-terminal-state";
@@ -52,6 +54,7 @@
     quoteSelection: { text: string };
     editUserMessage: { text: string };
     deleteTurn: { assistantMessageId: string };
+    resumeAgent: { assistantMessageId: string };
   }>();
 
   // 复制状态管理
@@ -226,12 +229,15 @@
     }
   }
 
-  // 最终消息先进入会话、等待持久化成功，最后才会清除 asking。
-  // 持久化收尾期间仍显示“执行中”，避免界面提前宣告完成。
+  $: workbenchEvents =
+    message.role === "assistant" ? message.workbenchEvents ?? [] : [];
+  $: workbenchRun = getWorkbenchRunPresentation(workbenchEvents);
+
+  // 标准运行事件是主状态源；asking 只覆盖首个 run_started 到达前的短暂准备期。
   $: isAssistantGenerating =
     message.role === "assistant" &&
     isLastAssistant &&
-    asking;
+    (workbenchRun.active || (asking && workbenchEvents.length === 0));
 
   // 判断 assistant 是否有有效内容
   $: hasAssistantContent =
@@ -282,14 +288,13 @@
       ? mdToHtml(message.reasoning.content)
       : "";
 
-  $: workbenchEvents =
-    message.role === "assistant" ? message.workbenchEvents ?? [] : [];
   const VISIBLE_WORKBENCH_EVENT_TYPES = new Set<AgentWorkbenchEvent["type"]>([
     "tool_call_delta",
     "permission_required",
     "permission_resolved",
     "tool_start",
     "tool_result",
+    "notice",
     "error",
   ]);
   $: visibleWorkbenchEvents = workbenchEvents.filter((event) =>
@@ -300,7 +305,11 @@
   $: isAssistantPending =
     message.role === "assistant" &&
     !message.content.trim() &&
-    !!message.agentStatus;
+    (workbenchRun.active || !!message.agentStatus);
+
+  $: recoveryPresentation = message.role === "assistant" && message.agentRecovery
+    ? getAgentRecoveryPresentation(message.agentRecovery.checkpoint, workbenchEvents)
+    : undefined;
 
   function computeWorkbenchExpanded(): boolean {
     if (workbenchDisplayMode === "expanded") return true;
@@ -397,6 +406,16 @@
             ? `${userFacing.title}：${userFacing.message} ${userFacing.suggestion}`
             : `${userFacing.title}：${userFacing.message}`,
           ok: false,
+        });
+        continue;
+      }
+
+      if (event.type === "notice") {
+        steps.push({
+          key: event.eventId,
+          title: /重试|retry/i.test(event.message) ? "自动重试" : "运行提示",
+          summary: event.message,
+          running: isTurnActive,
         });
         continue;
       }
@@ -550,11 +569,15 @@
   }
 
   $: workbenchDisplaySteps = buildDisplaySteps(visibleWorkbenchEvents, isAssistantGenerating);
-  $: workbenchProcessSummary = formatWorkbenchProcessStats(workbenchDisplaySteps, {
-    isGenerating: isAssistantGenerating,
-    isComplete: message.role !== "assistant" || message.isComplete !== false,
-    doneStatus: resolveWorkbenchFinalStatus(workbenchEvents),
-  });
+  $: workbenchProcessSummary = recoveryPresentation
+    ? "执行已中断"
+    : workbenchRun.active
+      ? workbenchRun.label
+      : formatWorkbenchProcessStats(workbenchDisplaySteps, {
+        isGenerating: false,
+        isComplete: message.role !== "assistant" || message.isComplete !== false,
+        doneStatus: resolveWorkbenchFinalStatus(workbenchEvents),
+        });
 
   // 选中文本追问
   let selectedText = "";
@@ -653,7 +676,7 @@
         bind:this={assistantContentEl}
         use:citationNavigation
       >
-        {#if workbenchDisplaySteps.length}
+        {#if workbenchEvents.length}
           <div class="workbench-events">
             <button
               type="button"
@@ -736,7 +759,7 @@
         {#if isAssistantPending}
           <!-- 运行态状态：content 为空且 agentStatus 非空时显示 -->
           <div class="agent-status-line">
-            <span class="status-text">{message.agentStatus}</span>
+            <span class="status-text">{workbenchRun.active ? workbenchRun.label : message.agentStatus}</span>
             <span class="loading-dots"></span>
           </div>
         {:else}
@@ -771,6 +794,23 @@
                 {/if}
               </button>
             {/each}
+          </div>
+        {/if}
+
+        {#if recoveryPresentation && message.role === "assistant"}
+          <div class="agent-recovery" class:is-blocked={!recoveryPresentation.resumable}>
+            <div class="agent-recovery-title">{recoveryPresentation.title}</div>
+            <div class="agent-recovery-summary">{recoveryPresentation.summary}</div>
+            {#if recoveryPresentation.resumable}
+              <button
+                type="button"
+                class="agent-recovery-button"
+                disabled={asking || !isLastAssistant}
+                on:click={() => dispatch("resumeAgent", { assistantMessageId: message.id })}
+              >
+                从检查点继续
+              </button>
+            {/if}
           </div>
         {/if}
 
@@ -1687,6 +1727,46 @@
     font-size: 12px;
     line-height: 1.45;
     color: var(--b3-theme-on-surface-light);
+  }
+
+  .agent-recovery {
+    display: grid;
+    gap: 5px;
+    margin-top: 10px;
+    padding: 9px 10px;
+    border-left: 3px solid var(--b3-theme-primary);
+    border-radius: 6px;
+    background: var(--b3-theme-background-light);
+
+    &.is-blocked {
+      border-left-color: var(--b3-card-warning-color, #e6a817);
+    }
+  }
+
+  .agent-recovery-title {
+    font-size: 12px;
+    font-weight: 600;
+  }
+
+  .agent-recovery-summary {
+    color: var(--b3-theme-on-surface-light);
+    font-size: 12px;
+    line-height: 1.45;
+  }
+
+  .agent-recovery-button {
+    justify-self: start;
+    padding: 4px 9px;
+    border: 1px solid var(--b3-theme-primary);
+    border-radius: 6px;
+    background: transparent;
+    color: var(--b3-theme-primary);
+    cursor: pointer;
+
+    &:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
   }
 
   // 已停止的半截回答提示
