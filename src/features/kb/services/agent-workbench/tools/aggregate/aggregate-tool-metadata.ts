@@ -192,7 +192,7 @@ export const AGGREGATE_TOOL_CATALOG: AggregateToolMeta[] = [
     notes: [
       "先调用现有只读工具取得真实数据和 ID，再生成工作台。",
       "已有真实 docId 时直接生成文档跳转按钮，不需要为了跳转额外调用 read_blocks。",
-      "工作台会随当前聊天会话保存，但不会固定到主页或修改业务数据。",
+      "工作台保存到统一临时仓库，由调用入口持有轻量引用；不会固定到主页或修改业务数据。",
     ],
     actions: [],
   },

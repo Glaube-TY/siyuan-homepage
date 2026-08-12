@@ -15,7 +15,11 @@ import {
   type AgentProfileRunOutcome,
   type RunAgentProfileParams,
 } from "./run-agent-profile";
-import { collectTemporaryWorkbenches } from "../tools/homepage/homepage-workbench.tool";
+import {
+  collectTemporaryWorkbenches,
+  toTemporaryWorkbenchReference,
+} from "../tools/homepage/homepage-workbench.tool";
+import { attachTemporaryWorkbenchUsage } from "../tools/homepage/temporary-workbench-store";
 
 export type RunAgentTurnParams = Omit<
   RunAgentProfileParams<AgentTurnResult>,
@@ -33,7 +37,7 @@ export async function runAgentTurn(params: RunAgentTurnParams): Promise<AgentTur
       answer,
       collectObservationReferences(observations),
     ),
-    finalize: ({ answer, events, observations, resolvedScope }) => {
+    finalize: async ({ answer, events, observations, resolvedScope }) => {
       const observationRefs = collectObservationReferences(observations);
       buildReferenceGroundingSet({
         observationRefs,
@@ -74,6 +78,23 @@ export async function runAgentTurn(params: RunAgentTurnParams): Promise<AgentTur
         }
       }
 
+      const temporaryWorkbenches = collectTemporaryWorkbenches(observations).map(toTemporaryWorkbenchReference);
+      if (temporaryWorkbenches.length > 0 && params.conversationId && params.turnId) {
+        try {
+          await attachTemporaryWorkbenchUsage(temporaryWorkbenches.map((item) => item.id), {
+            kind: "chat-message",
+            id: `${params.conversationId}:${params.turnId}`,
+            label: "AI 知识库对话",
+            conversationId: params.conversationId,
+            messageId: params.turnId,
+          });
+        } catch (error) {
+          pushAgentDebugEvent("TEMPORARY_WORKBENCH_USAGE_ATTACH_FAILED", {
+            error: error instanceof Error ? error.message.slice(0, 120) : String(error),
+          }, "warn");
+        }
+      }
+
       return {
         result: {
           scope: resolvedScope.scope,
@@ -83,7 +104,7 @@ export async function runAgentTurn(params: RunAgentTurnParams): Promise<AgentTur
           citationSegments: citationResolution.citationSegments,
           warnings: [],
           events,
-          temporaryWorkbenches: collectTemporaryWorkbenches(observations),
+          temporaryWorkbenches,
           stageSummary,
         },
         footerReferencesCount: footerReferences.length,

@@ -16,11 +16,15 @@ import {
   type AgentContextProvider,
   type AgentSurfaceCapabilitySnapshot,
 } from "../../../../agent-platform/agent-surface-capability";
-import { createHomepageWorkbenchTool } from "../tools/homepage/homepage-workbench.tool";
+import {
+  createHomepageWorkbenchTool,
+  type AgentTemporaryWorkbenchSource,
+} from "../tools/homepage/homepage-workbench.tool";
 
 export interface HomepageToolRegistrationOptions {
   enabled: boolean;
   workbench?: boolean;
+  workbenchSource: AgentTemporaryWorkbenchSource;
 }
 
 function registerHomepageTools(
@@ -60,7 +64,7 @@ export function registerHomepageAgentCapabilities(
 ): AgentSurfaceCapabilitySnapshot {
   registerHomepageTools(toolRegistry, options);
   registerHomepageComponentTools(toolRegistry, options.components);
-  if (options.workbench !== false) toolRegistry.ensureTool(createHomepageWorkbenchTool());
+  if (options.workbench !== false) toolRegistry.ensureTool(createHomepageWorkbenchTool(options.workbenchSource));
 
   const homepageToolNames = new Set([
     "homepage_manage",

@@ -228,6 +228,18 @@ const temporaryWorkbenchSource = readFileSync(
   new URL("../src/features/kb/services/agent-workbench/tools/homepage/homepage-workbench.tool.ts", import.meta.url),
   "utf8",
 );
+const temporaryWorkbenchContractSource = readFileSync(
+  new URL("../src/features/kb/services/agent-workbench/tools/homepage/temporary-workbench-contract.ts", import.meta.url),
+  "utf8",
+);
+const temporaryWorkbenchStoreSource = readFileSync(
+  new URL("../src/features/kb/services/agent-workbench/tools/homepage/temporary-workbench-store.ts", import.meta.url),
+  "utf8",
+);
+const chatMessageSource = readFileSync(
+  new URL("../src/features/kb/components/common/chat-message-item.svelte", import.meta.url),
+  "utf8",
+);
 const chatSessionStorageSource = readFileSync(
   new URL("../src/features/kb/services/session/kb-chat-session-storage.ts", import.meta.url),
   "utf8",
@@ -265,9 +277,14 @@ assert.equal(workbenchCompositionSource.includes("registerHomepageComponentTools
 assert.match(homepageCapabilitySource, /HOMEPAGE_AGENT_WIDGET_CATALOG/);
 assert.match(homepageCapabilitySource, /createAgentSurfaceCapabilitySnapshot/);
 assert.match(homepageCapabilitySource, /createHomepageWorkbenchTool/);
-assert.match(temporaryWorkbenchSource, /DOMPurify\.sanitize/);
-assert.match(temporaryWorkbenchSource, /FORBID_TAGS:[\s\S]*"script"[\s\S]*"iframe"/);
-assert.match(temporaryWorkbenchSource, /FORBID_ATTR: \["style"\]/);
+assert.match(temporaryWorkbenchContractSource, /DOMPurify\.sanitize/);
+assert.match(temporaryWorkbenchContractSource, /FORBID_TAGS:[\s\S]*"script"[\s\S]*"iframe"/);
+assert.match(temporaryWorkbenchContractSource, /FORBID_ATTR: \["style"\]/);
+assert.match(temporaryWorkbenchSource, /saveTemporaryWorkbench/);
+assert.match(temporaryWorkbenchStoreSource, /notebrain\/workbenches\/index\.json/);
+assert.match(temporaryWorkbenchStoreSource, /notebrain\/workbenches\/items/);
+assert.match(chatMessageSource, /openTemporaryWorkbenchDialog/);
+assert.equal(chatMessageSource.includes("{@html workbench.html}"), false);
 assert.match(chatSessionStorageSource, /temporaryWorkbenches/);
 assert.match(chatSessionStorageSource, /normalizeTemporaryWorkbench/);
 assert.equal(normalizeTemporaryWorkbenchClassNames("wb-card evil wb-accent"), "wb-card wb-accent");
@@ -282,11 +299,11 @@ assert.deepEqual(collectTemporaryWorkbenches([{
   toolName: HOMEPAGE_WORKBENCH_TOOL_NAME,
   content: {
     schemaVersion: 1,
-    id: "workbench-1",
+    id: "workbench-1-verify",
     title: "今日工作台",
     html: '<section class="wb-card">内容</section>',
     createdAt: 1,
   },
-}]).map((item) => item.id), ["workbench-1"]);
+}]).map((item) => item.id), ["workbench-1-verify"]);
 
 console.log("Agent Profile、多入口、主页能力与临时工作台协议校验通过。");

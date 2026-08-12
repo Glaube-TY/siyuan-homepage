@@ -99,6 +99,7 @@ export interface AgentWorkbenchRuntimeOptions {
   };
   /** 当前对话标识，用于 confirmation store 等需要关联 conversation 的场景。 */
   conversationId?: string;
+  turnId?: string;
   confirmationRoute?: ConfirmationRoute;
   externalSkillSettings?: ExternalSkillSettings;
   mcpSettings?: McpSettings;
@@ -143,6 +144,12 @@ export function createAgentWorkbenchRuntime(
     surfaceCapabilities = registerHomepageAgentCapabilities(toolRegistry, {
       enabled: options.builtinCapabilityAccess?.homepageManagement === true,
       workbench: options.builtinCapabilityAccess?.homepageWorkbench !== false,
+      workbenchSource: {
+        profileId: options.profile.id,
+        label: options.profile.label,
+        conversationId: options.conversationId,
+        messageId: options.turnId,
+      },
       components: {
         quickNote: options.builtinCapabilityAccess?.homepageQuickNote === true,
         focus: options.builtinCapabilityAccess?.homepageFocus === true,

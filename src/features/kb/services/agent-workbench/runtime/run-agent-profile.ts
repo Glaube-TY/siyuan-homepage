@@ -361,6 +361,7 @@ export async function runAgentProfile<TResult>(
       globalToolAccess,
       globalMemoryToolDeps,
       conversationId,
+      turnId: params.turnId,
       confirmationRoute: params.panelInstanceId && params.turnId
         ? { panelInstanceId: params.panelInstanceId, conversationId, turnId: params.turnId }
         : undefined,

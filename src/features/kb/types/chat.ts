@@ -131,8 +131,8 @@ export type AssistantChatMessage = {
    * - 不进入 conversationContext / agent context
    */
   workbenchEvents?: import("../services/agent-workbench").AgentWorkbenchEvent[];
-  /** 本次运行生成的受控 HTML 工作台；仅驻留内存，不进入会话存储。 */
-  temporaryWorkbenches?: import("../services/agent-workbench/tools/homepage/homepage-workbench.tool").AgentTemporaryWorkbench[];
+  /** 本次运行生成的工作台引用；完整内容由统一工作台仓库存储。 */
+  temporaryWorkbenches?: import("../services/agent-workbench/tools/homepage/homepage-workbench.tool").AgentTemporaryWorkbenchReference[];
   /** 崩溃恢复后仅在当前运行时保留；会话文件不重复持久化检查点正文。 */
   agentRecovery?: AgentRecoveryState;
   /**

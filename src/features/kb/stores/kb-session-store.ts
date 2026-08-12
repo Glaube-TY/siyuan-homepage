@@ -32,6 +32,7 @@ import {
 } from "../services/agent-workbench/runtime/in-flight-turn-journal";
 import { inspectAgentRunResume } from "../services/agent-core/session/agent-run-checkpoint";
 import type { AgentWorkbenchEvent } from "../services/agent-workbench";
+import { detachTemporaryWorkbenchUsages } from "../services/agent-workbench/tools/homepage/temporary-workbench-store";
 
 /** 生成会话唯一 id */
 function generateConversationId(): string {
@@ -881,6 +882,8 @@ export function createKbSessionStore(options: { persistDebounceDelay?: number } 
           set(beforeDelete);
         }
         storeUpdate((state) => ({ ...state, error: result?.errors.join("；") || "删除会话保存失败，请重试。" }));
+      } else {
+        void detachTemporaryWorkbenchUsages({ conversationId: id }).catch(() => undefined);
       }
     },
 
@@ -939,6 +942,10 @@ export function createKbSessionStore(options: { persistDebounceDelay?: number } 
           set(beforeReset);
         }
         storeUpdate((state) => ({ ...state, error: result?.errors.join("；") || "重置会话保存失败，请重试。" }));
+      } else {
+        for (const conversationId of deletedSessionIds) {
+          void detachTemporaryWorkbenchUsages({ conversationId }).catch(() => undefined);
+        }
       }
     },
 
@@ -1425,6 +1432,7 @@ export function createKbSessionStore(options: { persistDebounceDelay?: number } 
      */
     deleteTurnByAssistantId: (assistantMessageId: string): boolean => {
       let deleted = false;
+      let deletedConversationId = "";
       update((state) => {
         const assistantIndex = state.messages.findIndex(
           (m) => m.id === assistantMessageId && m.role === "assistant"
@@ -1454,6 +1462,7 @@ export function createKbSessionStore(options: { persistDebounceDelay?: number } 
         }
 
         deleted = true;
+        deletedConversationId = state.activeConversationId;
         return {
           ...state,
           messages: unCompactedMessages,
@@ -1479,6 +1488,10 @@ export function createKbSessionStore(options: { persistDebounceDelay?: number } 
 
       if (deleted) {
         schedulePersist();
+        void detachTemporaryWorkbenchUsages({
+          conversationId: deletedConversationId,
+          messageId: assistantMessageId,
+        }).catch(() => undefined);
       }
       return deleted;
     },

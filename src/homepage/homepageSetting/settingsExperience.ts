@@ -281,6 +281,12 @@ const SETTINGS_SEARCH_REGISTRY: readonly SettingSearchEntry[] = [
         ],
     ),
     ...defineSettings(
+        { mainTab: "aiKnowledgeBase", subTab: "workbenches", section: "临时工作台", scope: "all-devices" },
+        [
+            { id: "ai.workbenches.manage", title: "临时工作台管理", description: "查看、打开和删除所有 Agent 入口生成的临时工作台", keywords: ["工作台", "AI 卡片", "空间占用"], target: "section" },
+        ],
+    ),
+    ...defineSettings(
         { mainTab: "notifyBridge", subTab: "desktop", section: "桌面系统通知", scope: "current-device" },
         [
             { id: "notify.desktop.enabled", title: "开启桌面系统通知", description: "通过操作系统通知中心显示提醒" },

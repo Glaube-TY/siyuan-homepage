@@ -52,6 +52,7 @@
     type SelectionAskPayload,
   } from "../../services/selection-ai/selection-ai-chat-bridge";
   import type { AttachedKbDoc } from "../../types/chat";
+  import { detachTemporaryWorkbenchUsages } from "../../services/agent-workbench/tools/homepage/temporary-workbench-store";
 
   export let placement: "dock" | "tab" | "mobile" = "dock";
   export let onOpenSettings: (() => void) | undefined = undefined;
@@ -580,6 +581,11 @@
       appendChatModelUnavailableError();
       return;
     }
+
+    void detachTemporaryWorkbenchUsages({
+      conversationId: activeConversationId,
+      messageId: lastMessage.id,
+    }).catch(() => undefined);
 
     kbSessionStore.update((state) => {
       const removedAssistantId = lastMessage.id;

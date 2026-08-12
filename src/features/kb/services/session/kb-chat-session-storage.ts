@@ -17,8 +17,14 @@ import {
 } from "../agent-workbench/runtime/workbench-terminal-state";
 import {
   normalizeTemporaryWorkbench,
-  type AgentTemporaryWorkbench,
+  normalizeTemporaryWorkbenchReference,
+  toTemporaryWorkbenchReference,
+  type AgentTemporaryWorkbenchReference,
 } from "../agent-workbench/tools/homepage/homepage-workbench.tool";
+import {
+  attachTemporaryWorkbenchUsage,
+  saveTemporaryWorkbench,
+} from "../agent-workbench/tools/homepage/temporary-workbench-store";
 
 export interface PersistedReferenceItem {
   index: number;
@@ -113,7 +119,7 @@ export type PersistedChatMessage =
       isComplete?: boolean;
       agentMemory?: PersistedAgentTurnMemory;
       workbenchEvents?: PersistedWorkbenchEvent[];
-      temporaryWorkbenches?: AgentTemporaryWorkbench[];
+      temporaryWorkbenches?: AgentTemporaryWorkbenchReference[];
       reasoning?: { content: string; chars: number; partCount: number };
       compacted?: boolean;
     };
@@ -507,8 +513,8 @@ function toPersistedMessage(message: ChatMessage): PersistedChatMessage | null {
       }
       if (message.temporaryWorkbenches && message.temporaryWorkbenches.length > 0) {
         const workbenches = message.temporaryWorkbenches
-          .map(normalizeTemporaryWorkbench)
-          .filter((item): item is AgentTemporaryWorkbench => item !== undefined)
+          .map(normalizeTemporaryWorkbenchReference)
+          .filter((item): item is AgentTemporaryWorkbenchReference => item !== undefined)
           .slice(-3);
         if (workbenches.length > 0) persisted.temporaryWorkbenches = workbenches;
       }
@@ -529,7 +535,7 @@ function toPersistedMessage(message: ChatMessage): PersistedChatMessage | null {
   }
 }
 
-function fromPersistedMessage(message: PersistedChatMessage): ChatMessage {
+function fromPersistedMessage(message: PersistedChatMessage, conversationId: string): ChatMessage {
   switch (message.role) {
     case "user":
     case "error": {
@@ -583,8 +589,29 @@ function fromPersistedMessage(message: PersistedChatMessage): ChatMessage {
       }
       if (message.temporaryWorkbenches && message.temporaryWorkbenches.length > 0) {
         const workbenches = message.temporaryWorkbenches
-          .map(normalizeTemporaryWorkbench)
-          .filter((item): item is AgentTemporaryWorkbench => item !== undefined)
+          .map((value) => {
+            const legacy = normalizeTemporaryWorkbench(value);
+            if (legacy) {
+              void (async () => {
+                await saveTemporaryWorkbench(legacy, {
+                  profileId: "knowledge-chat",
+                  label: "AI 知识库对话",
+                  conversationId,
+                  messageId: message.id,
+                });
+                await attachTemporaryWorkbenchUsage([legacy.id], {
+                  kind: "chat-message",
+                  id: `${conversationId}:${message.id}`,
+                  label: "AI 知识库对话",
+                  conversationId,
+                  messageId: message.id,
+                });
+              })().catch(() => undefined);
+              return toTemporaryWorkbenchReference(legacy);
+            }
+            return normalizeTemporaryWorkbenchReference(value);
+          })
+          .filter((item): item is AgentTemporaryWorkbenchReference => item !== undefined)
           .slice(-3);
         if (workbenches.length > 0) assistantMsg.temporaryWorkbenches = workbenches;
       }
@@ -638,7 +665,7 @@ export function fromPersistedConversation(
     title: persisted.title,
     createdAt: persisted.createdAt,
     updatedAt: persisted.updatedAt,
-    messages: persisted.messages.map(fromPersistedMessage),
+    messages: persisted.messages.map((message) => fromPersistedMessage(message, persisted.id)),
     stageSummaries: persisted.stageSummaries?.map(sanitizeConversationStageSummary) ?? [],
     compressionState: persisted.compressionState,
     compressedContextSummary:

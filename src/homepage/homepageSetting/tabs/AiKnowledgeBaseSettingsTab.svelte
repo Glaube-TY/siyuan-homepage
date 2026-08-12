@@ -17,6 +17,7 @@
     import SelectionAiSkillEditorDialog from "./SelectionAiSkillEditorDialog.svelte";
     import { confirmDialogBoolean } from "@/libs/dialog";
     import type { AiKnowledgeBaseSubTab } from "../aiKnowledgeBaseTabs";
+    import TemporaryWorkbenchSettingsPanel from "./TemporaryWorkbenchSettingsPanel.svelte";
 
     interface Props {
         activeSubTab: AiKnowledgeBaseSubTab;
@@ -643,6 +644,8 @@
     </div>
     {/if}
 </SettingSection>
+{:else if activeSubTab === "workbenches"}
+    <TemporaryWorkbenchSettingsPanel />
 {/if}
 
 {#if editorOpen}
