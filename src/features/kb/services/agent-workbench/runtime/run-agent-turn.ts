@@ -48,6 +48,12 @@ import {
   getAgentProfile,
   KNOWLEDGE_CHAT_AGENT_PROFILE_ID,
 } from "../../../../agent-platform/agent-profile";
+import {
+  createAgentEventId,
+  createAgentRunIdentity,
+  type AgentRunIdentity,
+  type AgentTokenUsage,
+} from "../../../../agent-platform/agent-run-protocol";
 
 export interface RunAgentTurnParams {
   question: string;
@@ -80,10 +86,26 @@ export interface AgentTurnOutcome {
   stopReasonCode?: string;
   displayError?: AgentTurnDisplayError;
   agentSessionMessages?: AgentMessage[];
+  identity: AgentRunIdentity;
+  usage?: AgentTokenUsage;
 }
 
-function toWorkbenchEvent(event: AgentStreamEvent): AgentWorkbenchEvent {
-  return { ...event, at: Date.now() } as AgentWorkbenchEvent;
+function toWorkbenchEvent(
+  event: AgentStreamEvent,
+  identity: AgentRunIdentity,
+  ordinal: number,
+): AgentWorkbenchEvent {
+  const payload = event.type === "run_started"
+    ? (({ identity: _identity, ...rest }) => rest)(event)
+    : event;
+  return {
+    ...payload,
+    at: Date.now(),
+    eventId: createAgentEventId(identity.runId, ordinal),
+    sessionId: identity.sessionId,
+    runId: identity.runId,
+    correlationId: identity.correlationId,
+  } as AgentWorkbenchEvent;
 }
 
 function shouldStoreWorkbenchEvent(event: AgentStreamEvent): boolean {
@@ -93,7 +115,9 @@ function shouldStoreWorkbenchEvent(event: AgentStreamEvent): boolean {
 function toTraceEvents(events: AgentWorkbenchEvent[]) {
   return events.map((event) => ({
     type: event.type,
+    eventId: event.eventId,
     stepIndex: event.stepIndex,
+    modelStepIndex: event.type === "model_started" || event.type === "usage" ? event.modelStepIndex : undefined,
     toolName: "toolName" in event ? event.toolName : undefined,
     ok: event.type === "tool_result" ? event.result.ok : undefined,
     durationMs: event.type === "tool_result" ? event.durationMs : undefined,
@@ -103,6 +127,12 @@ function toTraceEvents(events: AgentWorkbenchEvent[]) {
     status: event.type === "done" ? event.status : undefined,
     providerFinishReason: event.type === "done" ? event.providerFinishReason : undefined,
     outputChars: event.type === "done" ? event.outputChars : undefined,
+    usage: event.type === "usage" ? event.cumulativeUsage : undefined,
+    errorCategory: event.type === "error" ? event.category : undefined,
+    retryable: event.type === "error" ? event.retryable : undefined,
+    retryAfterMs: event.type === "error" ? event.retryAfterMs : undefined,
+    safeToReplay: event.type === "error" ? event.safeToReplay : undefined,
+    sideEffectState: event.type === "error" ? event.sideEffectState : undefined,
     errorCode: event.type === "tool_result"
       ? event.result.errorCode ?? event.result.code
       : event.type === "error"
@@ -126,6 +156,8 @@ function buildFailureOutcome(params: {
   steps?: number;
   events: AgentWorkbenchEvent[];
   agentSessionMessages?: AgentMessage[];
+  identity: AgentRunIdentity;
+  usage?: AgentTokenUsage;
 }): AgentTurnOutcome {
   const userFacing = mapAgentErrorToUserFacing({
     agentErrorCode: params.code,
@@ -142,6 +174,8 @@ function buildFailureOutcome(params: {
       completedStepsSummary: summary?.text,
     },
     agentSessionMessages: params.agentSessionMessages,
+    identity: params.identity,
+    usage: params.usage,
   };
 }
 
@@ -151,12 +185,42 @@ export async function runAgentTurn(
   const agentProfile = getAgentProfile(KNOWLEDGE_CHAT_AGENT_PROFILE_ID);
   const localEvents: AgentWorkbenchEvent[] = [];
   const conversationId = params.conversationId ?? `conv-${Date.now()}`;
+  const identity = createAgentRunIdentity({
+    sessionId: conversationId,
+    runId: params.turnId,
+  });
+  let eventOrdinal = 0;
+  let activeProviderId: string | undefined;
 
   const emitNativeEvent = (event: AgentStreamEvent): AgentWorkbenchEvent => {
-    const workbenchEvent = toWorkbenchEvent(event);
+    const workbenchEvent = toWorkbenchEvent(event, identity, ++eventOrdinal);
     localEvents.push(workbenchEvent);
     params.onWorkbenchEvent?.(workbenchEvent);
     return workbenchEvent;
+  };
+
+  const saveCurrentTrace = (trace: {
+    status: string;
+    steps: number;
+    providerRequestCount?: number;
+    usage?: AgentTokenUsage;
+  }): void => {
+    const finishedAt = Date.now();
+    saveTurnTrace({
+      sessionId: identity.sessionId,
+      runId: identity.runId,
+      correlationId: identity.correlationId,
+      turnId: params.turnId ?? identity.runId,
+      providerId: activeProviderId,
+      startedAt: identity.startedAt,
+      finishedAt,
+      durationMs: finishedAt - identity.startedAt,
+      status: trace.status,
+      steps: trace.steps,
+      providerRequestCount: trace.providerRequestCount,
+      usage: trace.usage,
+      events: toTraceEvents(localEvents),
+    });
   };
 
   let session: AgentSession | undefined;
@@ -356,14 +420,8 @@ export async function runAgentTurn(
     if (!selected.provider || !selected.model) {
       const code = "provider_tool_call_not_supported";
       emitNativeEvent({ type: "error", code, message: "当前没有可用于 Agent 的模型配置。" });
-      saveTurnTrace({
-        turnId: `${Date.now()}`,
-        finishedAt: Date.now(),
-        status: "failed",
-        steps: 0,
-        events: toTraceEvents(localEvents),
-      });
-      return buildFailureOutcome({ code, message: "当前没有可用于 Agent 的模型配置。", events: localEvents });
+      saveCurrentTrace({ status: "failed", steps: 0 });
+      return buildFailureOutcome({ code, message: "当前没有可用于 Agent 的模型配置。", events: localEvents, identity });
     }
 
     // Pre-flight: if provider needs an API key but it's empty due to decrypt failure,
@@ -381,14 +439,8 @@ export async function runAgentTurn(
           providerId: selected.provider.id,
           providerType: selected.provider.type,
         }, "error");
-        saveTurnTrace({
-          turnId: `${Date.now()}`,
-          finishedAt: Date.now(),
-          status: "failed",
-          steps: 0,
-          events: toTraceEvents(localEvents),
-        });
-        return buildFailureOutcome({ code, message, events: localEvents });
+        saveCurrentTrace({ status: "failed", steps: 0 });
+        return buildFailureOutcome({ code, message, events: localEvents, identity });
       }
     }
 
@@ -398,21 +450,17 @@ export async function runAgentTurn(
       thinkingMode: params.thinkingMode ?? "off",
       agentThinkingEnabled: settings.agentThinkingEnabled,
     });
+    activeProviderId = provider.id;
 
     if (!provider.capabilities.nativeToolCalls) {
       const code = "provider_tool_call_not_supported";
       emitNativeEvent({ type: "error", code, message: "当前模型不支持原生工具调用，不能进入 Agent 模式。" });
-      saveTurnTrace({
-        turnId: `${Date.now()}`,
-        finishedAt: Date.now(),
-        status: "failed",
-        steps: 0,
-        events: toTraceEvents(localEvents),
-      });
+      saveCurrentTrace({ status: "failed", steps: 0 });
       return buildFailureOutcome({
         code,
         message: "当前模型不支持原生工具调用，不能进入 Agent 模式。",
         events: localEvents,
+        identity,
       });
     }
 
@@ -485,6 +533,7 @@ export async function runAgentTurn(
       systemPrompt: buildAgentSystemPrompt(),
       contextInstructions: context.contextInstructions,
       conversationId,
+      identity,
       confirmationRoute: params.panelInstanceId && params.turnId
         ? { panelInstanceId: params.panelInstanceId, conversationId, turnId: params.turnId }
         : undefined,
@@ -533,12 +582,11 @@ export async function runAgentTurn(
 
     const compactedAndSanitizedMessages = compactAndSanitizeAgentMessages(loopResult.messages);
 
-    saveTurnTrace({
-      turnId: `${Date.now()}`,
-      finishedAt: Date.now(),
+    saveCurrentTrace({
       status: loopResult.status,
       steps: loopResult.steps,
-      events: toTraceEvents(localEvents),
+      providerRequestCount: loopResult.providerRequestCount,
+      usage: loopResult.usage,
     });
 
     if (!loopResult.ok) {
@@ -554,6 +602,8 @@ export async function runAgentTurn(
         steps: loopResult.steps,
         events: localEvents,
         agentSessionMessages: compactedAndSanitizedMessages,
+        identity,
+        usage: loopResult.usage,
       });
     }
 
@@ -614,6 +664,8 @@ export async function runAgentTurn(
       footerReferencesCount: footerReferences.length,
       result,
       agentSessionMessages: compactedAndSanitizedMessages,
+      identity,
+      usage: loopResult.usage,
     };
   } catch (err) {
     const providerError = normalizeProviderError(err);
@@ -623,16 +675,27 @@ export async function runAgentTurn(
       errorName: err instanceof Error ? err.name : "unknown",
       code,
       sanitizedMessage: message.slice(0, 200),
+      category: providerError.category,
+      retryable: providerError.retryable,
+      safeToReplay: providerError.safeToReplay,
+      correlationId: identity.correlationId,
     }, "error");
 
-    emitNativeEvent({ type: "error", code, message });
-    saveTurnTrace({
-      turnId: `${Date.now()}`,
-      finishedAt: Date.now(),
+    emitNativeEvent({
+      type: "error",
+      code,
+      message,
+      category: providerError.category,
+      retryable: providerError.retryable,
+      retryAfterMs: providerError.retryAfterMs,
+      safeToReplay: providerError.safeToReplay,
+      sideEffectState: providerError.sideEffectState,
+      userAction: providerError.userAction,
+    });
+    saveCurrentTrace({
       status: "exception",
       steps: localEvents.length > 0
         ? Math.max(...localEvents.map((event) => event.stepIndex ?? 0)) : 0,
-      events: toTraceEvents(localEvents),
     });
 
     const exceptionSessionMessages = session
@@ -644,6 +707,7 @@ export async function runAgentTurn(
       message,
       events: localEvents,
       agentSessionMessages: exceptionSessionMessages,
+      identity,
     });
   }
 }

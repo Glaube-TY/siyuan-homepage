@@ -48,14 +48,16 @@ export class KernelRobotAgentRuntime implements RobotAgentRuntime {
       temperature: snapshot.temperature ?? 0.3,
       ...(snapshot.maxTokens !== undefined ? { maxTokens: snapshot.maxTokens } : {}),
     };
-    let modelCallTimedOut = false;
-    const timedTransport = this.createTimedTransport(input.modelTimeoutMs, () => { modelCallTimedOut = true; });
     const adapter = createProviderAdapterForKbModel({
       provider,
       model,
       thinkingMode: "off",
       agentThinkingEnabled: false,
-      overrides: { transport: timedTransport, stream: false },
+      overrides: {
+        transport: this.deps.transport,
+        stream: false,
+        requestTimeoutMs: input.modelTimeoutMs,
+      },
     });
 
     const persistedAgentMessages = Array.isArray(input.session.agentMessages) ? input.session.agentMessages : [];
@@ -115,7 +117,9 @@ export class KernelRobotAgentRuntime implements RobotAgentRuntime {
         agentMessages,
       };
     } catch (error) {
-      const timeout = timedOut || modelCallTimedOut;
+      const providerTimedOut = error && typeof error === "object"
+        && (error as { code?: unknown }).code === "provider_timeout";
+      const timeout = timedOut || providerTimedOut;
       const runtimeCode = error && typeof error === "object" && typeof (error as { code?: unknown }).code === "string"
         ? String((error as { code: string }).code).slice(0, 80)
         : "agent_failed";
@@ -130,31 +134,6 @@ export class KernelRobotAgentRuntime implements RobotAgentRuntime {
     } finally {
       cancelTimeout();
     }
-  }
-
-  private createTimedTransport(timeoutMs: number, onTimeout: () => void): AgentHttpTransport {
-    return {
-      post: (options) => new Promise((resolve, reject) => {
-        let settled = false;
-        const cancel = this.scheduleTimeout(() => {
-          if (settled) return;
-          settled = true;
-          onTimeout();
-          reject(new Error("robot_model_request_timeout"));
-        }, Math.max(1_000, timeoutMs));
-        void this.deps.transport.post(options).then((response) => {
-          if (settled) return;
-          settled = true;
-          cancel();
-          resolve(response);
-        }, (error) => {
-          if (settled) return;
-          settled = true;
-          cancel();
-          reject(error);
-        });
-      }),
-    };
   }
 
   private createTurnRegistry(policy: RobotAgentTurnInput["toolPolicy"]): NativeToolRegistry {

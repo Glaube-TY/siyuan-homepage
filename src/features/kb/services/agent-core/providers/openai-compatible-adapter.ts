@@ -5,6 +5,7 @@ import { OPENAI_COMPATIBLE_CAPABILITIES } from "./provider-capabilities";
 import type { AgentChatRequest, AgentProviderEvent, ProviderAdapter } from "./provider-adapter";
 import { AgentProviderError } from "./provider-error";
 import { BrowserAgentHttpTransport, type AgentHttpTransport } from "./agent-http-transport";
+import { normalizeProviderUsage } from "./provider-usage";
 
 interface OpenAICompatibleAdapterOptions {
   id: string;
@@ -19,6 +20,7 @@ interface OpenAICompatibleAdapterOptions {
   transport?: AgentHttpTransport;
   /** 是否流式（浏览器默认 true；Kernel 传 false 走非流式 JSON）。 */
   stream?: boolean;
+  requestTimeoutMs?: number;
 }
 
 interface ToolCallState {
@@ -144,8 +146,9 @@ function buildDoneToolCalls(state: Map<number, ToolCallState>): AgentToolCall[] 
 }
 
 export class OpenAICompatibleAdapter implements ProviderAdapter {
-  readonly capabilities = OPENAI_COMPATIBLE_CAPABILITIES;
+  readonly capabilities;
   readonly id: string;
+  readonly requestTimeoutMs?: number;
   private readonly transport: AgentHttpTransport;
   private readonly stream: boolean;
 
@@ -153,6 +156,8 @@ export class OpenAICompatibleAdapter implements ProviderAdapter {
     this.id = options.id;
     this.transport = options.transport ?? new BrowserAgentHttpTransport();
     this.stream = options.stream !== false;
+    this.requestTimeoutMs = options.requestTimeoutMs;
+    this.capabilities = { ...OPENAI_COMPATIBLE_CAPABILITIES, streaming: this.stream };
   }
 
   async *streamChat(request: AgentChatRequest): AsyncGenerator<AgentProviderEvent> {
@@ -168,6 +173,7 @@ export class OpenAICompatibleAdapter implements ProviderAdapter {
         signal: request.abortSignal,
       });
     } catch (err) {
+      if (err instanceof AgentProviderError) throw err;
       if (err instanceof DOMException && err.name === "AbortError") {
         yield { type: "done", finishReason: "aborted" };
         return;
@@ -175,12 +181,12 @@ export class OpenAICompatibleAdapter implements ProviderAdapter {
       if (err instanceof TypeError && (err.message.includes("fetch") || err.message.includes("network"))) {
         throw new AgentProviderError(
           `Provider network error: ${err.message}`,
-          { code: "provider_network_error", recoverable: true },
+          { code: "provider_network_error", retryable: true },
         );
       }
       throw new AgentProviderError(
         `Provider request failed: ${err instanceof Error ? err.message : String(err)}`,
-        { code: "provider_network_error", recoverable: true },
+        { code: "provider_network_error", retryable: true },
       );
     }
 
@@ -199,7 +205,14 @@ export class OpenAICompatibleAdapter implements ProviderAdapter {
       const text = await response.text().catch(() => "");
       throw new AgentProviderError(
         `Provider request failed: HTTP ${status}${text ? ` ${text.slice(0, 500)}` : ""}`,
-        { code, status, recoverable: status >= 500 },
+        {
+          code,
+          status,
+          retryable: status === 429 || status >= 500,
+          userAction: status === 401 || status === 403
+            ? "check_credentials"
+            : status === 429 || status >= 500 ? "retry" : "inspect_provider",
+        },
       );
     }
 
@@ -273,6 +286,8 @@ export class OpenAICompatibleAdapter implements ProviderAdapter {
     const choices = Array.isArray(root.choices) ? root.choices : [];
     const first = choices[0] && typeof choices[0] === "object" ? choices[0] as Record<string, unknown> : {};
     const message = first.message && typeof first.message === "object" ? first.message as Record<string, unknown> : {};
+    const usage = normalizeProviderUsage(root.usage);
+    if (usage) yield { type: "usage", usage };
     const content = typeof message.content === "string" ? message.content : "";
     if (content) {
       yield { type: "text_delta", delta: content };
@@ -358,7 +373,8 @@ export class OpenAICompatibleAdapter implements ProviderAdapter {
       }
 
       if (parsed.usage && typeof parsed.usage === "object") {
-        out.push({ type: "usage", usage: parsed.usage as Record<string, unknown> });
+        const usage = normalizeProviderUsage(parsed.usage);
+        if (usage) out.push({ type: "usage", usage });
       }
 
       const delta = readChoiceDelta(parsed);

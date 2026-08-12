@@ -2,7 +2,9 @@ export interface ProviderCapabilities {
   nativeToolCalls: boolean;
   streaming: boolean;
   reasoningDeltas: boolean;
-  parallelToolCalls?: boolean;
+  parallelToolCalls: boolean;
+  requiredToolChoice: boolean;
+  usageReporting: boolean;
 }
 
 export const OPENAI_COMPATIBLE_CAPABILITIES: ProviderCapabilities = {
@@ -10,6 +12,8 @@ export const OPENAI_COMPATIBLE_CAPABILITIES: ProviderCapabilities = {
   streaming: true,
   reasoningDeltas: true,
   parallelToolCalls: true,
+  requiredToolChoice: true,
+  usageReporting: true,
 };
 
 export const GEMINI_CAPABILITIES: ProviderCapabilities = {
@@ -17,6 +21,8 @@ export const GEMINI_CAPABILITIES: ProviderCapabilities = {
   streaming: true,
   reasoningDeltas: true,
   parallelToolCalls: true,
+  requiredToolChoice: true,
+  usageReporting: true,
 };
 
 export const ANTHROPIC_CAPABILITIES: ProviderCapabilities = {
@@ -24,5 +30,7 @@ export const ANTHROPIC_CAPABILITIES: ProviderCapabilities = {
   streaming: true,
   reasoningDeltas: true,
   parallelToolCalls: true,
+  requiredToolChoice: true,
+  usageReporting: true,
 };
 

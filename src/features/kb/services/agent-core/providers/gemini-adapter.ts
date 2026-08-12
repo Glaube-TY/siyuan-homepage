@@ -5,6 +5,7 @@ import type { AgentChatRequest, AgentProviderEvent, ProviderAdapter } from "./pr
 import { AgentProviderError } from "./provider-error";
 import { normalizeGeminiEndpoint } from "./provider-url-normalizer";
 import { BrowserAgentHttpTransport, type AgentHttpTransport } from "./agent-http-transport";
+import { normalizeProviderUsage } from "./provider-usage";
 
 export interface GeminiAdapterOptions {
   id: string;
@@ -15,6 +16,7 @@ export interface GeminiAdapterOptions {
   transport?: AgentHttpTransport;
   /** 是否流式（浏览器默认 true；Kernel 传 false 走非流式 JSON）。 */
   stream?: boolean;
+  requestTimeoutMs?: number;
 }
 
 function toGeminiContent(message: AgentMessage): Record<string, unknown> | null {
@@ -58,8 +60,9 @@ function toGeminiContent(message: AgentMessage): Record<string, unknown> | null 
 }
 
 export class GeminiAdapter implements ProviderAdapter {
-  readonly capabilities = GEMINI_CAPABILITIES;
+  readonly capabilities;
   readonly id: string;
+  readonly requestTimeoutMs?: number;
   private readonly endpoint: string;
   private readonly transport: AgentHttpTransport;
   private readonly stream: boolean;
@@ -69,6 +72,8 @@ export class GeminiAdapter implements ProviderAdapter {
     this.endpoint = normalizeGeminiEndpoint(options.baseUrl ?? "");
     this.transport = options.transport ?? new BrowserAgentHttpTransport();
     this.stream = options.stream !== false;
+    this.requestTimeoutMs = options.requestTimeoutMs;
+    this.capabilities = { ...GEMINI_CAPABILITIES, streaming: this.stream };
   }
 
   async *streamChat(request: AgentChatRequest): AsyncGenerator<AgentProviderEvent> {
@@ -123,13 +128,15 @@ export class GeminiAdapter implements ProviderAdapter {
       }
       throw new AgentProviderError(`Gemini request failed: ${err instanceof Error ? err.message : String(err)}`, {
         code: "provider_network_error",
-        recoverable: true,
+        retryable: true,
       });
     }
   }
 
   private async *parseJsonResponse(raw: unknown): AsyncGenerator<AgentProviderEvent> {
     const root = raw && typeof raw === "object" ? raw as Record<string, unknown> : {};
+    const usage = normalizeProviderUsage(root.usageMetadata);
+    if (usage) yield { type: "usage", usage };
     const candidates = Array.isArray(root.candidates) ? root.candidates : [];
     const first = candidates[0] && typeof candidates[0] === "object" ? candidates[0] as Record<string, unknown> : {};
     const content = first.content && typeof first.content === "object" ? first.content as Record<string, unknown> : {};
@@ -178,15 +185,20 @@ export class GeminiAdapter implements ProviderAdapter {
       code = "provider_auth_failed";
     } else if (status === 429) {
       code = "provider_rate_limited";
-    } else {
+    } else if (status >= 500) {
       code = "provider_network_error";
+    } else {
+      code = "provider_http_error";
     }
     yield {
       type: "error",
       error: new AgentProviderError(`Gemini request failed: HTTP ${status}`, {
         code,
         status,
-        recoverable: status >= 500,
+        retryable: status === 429 || status >= 500,
+        userAction: status === 401 || status === 403
+          ? "check_credentials"
+          : status === 429 || status >= 500 ? "retry" : "inspect_provider",
       }),
     };
     yield { type: "done" };
@@ -234,6 +246,8 @@ export class GeminiAdapter implements ProviderAdapter {
       if (!data) continue;
       try {
         const parsed = JSON.parse(data) as Record<string, unknown>;
+        const usage = normalizeProviderUsage(parsed.usageMetadata);
+        if (usage) out.push({ type: "usage", usage });
         const candidates = Array.isArray(parsed.candidates) ? parsed.candidates : [];
         const first = candidates[0] && typeof candidates[0] === "object" ? candidates[0] as Record<string, unknown> : {};
         const content = first.content && typeof first.content === "object" ? first.content as Record<string, unknown> : {};

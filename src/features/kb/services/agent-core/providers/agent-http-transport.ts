@@ -9,6 +9,8 @@
  * AgentHttpResponse 与浏览器 Response 结构兼容，Provider adapter 无需按环境分支处理响应对象。
  */
 
+import { AgentProviderError } from "./provider-error";
+
 export interface AgentHttpResponse {
   ok: boolean;
   status: number;
@@ -43,6 +45,58 @@ export class BrowserAgentHttpTransport implements AgentHttpTransport {
       signal: options.signal,
     });
     return response as unknown as AgentHttpResponse;
+  }
+}
+
+function createAbortError(): Error {
+  const error = new Error("Provider request aborted.");
+  error.name = "AbortError";
+  return error;
+}
+
+/** Adds one shared request timeout to browser and Kernel transports. */
+export class TimedAgentHttpTransport implements AgentHttpTransport {
+  constructor(
+    private readonly transport: AgentHttpTransport,
+    private readonly timeoutMs: number,
+  ) {}
+
+  post(options: AgentHttpPostOptions): Promise<AgentHttpResponse> {
+    const timeoutMs = Math.max(1_000, Math.round(this.timeoutMs));
+    return new Promise((resolve, reject) => {
+      let settled = false;
+      const controller = new AbortController();
+      const finish = (callback: () => void): void => {
+        if (settled) return;
+        settled = true;
+        globalThis.clearTimeout(timer);
+        options.signal?.removeEventListener("abort", onExternalAbort);
+        callback();
+      };
+      const onExternalAbort = (): void => {
+        controller.abort();
+        finish(() => reject(createAbortError()));
+      };
+      const timer = globalThis.setTimeout(() => {
+        controller.abort();
+        finish(() => reject(new AgentProviderError(`Provider request timed out after ${timeoutMs}ms.`, {
+          code: "provider_timeout",
+          category: "timeout",
+          retryable: true,
+          userAction: "retry",
+        })));
+      }, timeoutMs);
+
+      if (options.signal?.aborted) {
+        onExternalAbort();
+        return;
+      }
+      options.signal?.addEventListener("abort", onExternalAbort, { once: true });
+      void this.transport.post({ ...options, signal: controller.signal }).then(
+        (response) => finish(() => resolve(response)),
+        (error) => finish(() => reject(error)),
+      );
+    });
   }
 }
 

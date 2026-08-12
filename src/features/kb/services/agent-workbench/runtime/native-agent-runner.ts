@@ -4,6 +4,7 @@ import type { ProviderAdapter } from "../../agent-core/providers/provider-adapte
 import type { NativeToolRegistry } from "../../agent-core/tools/native-tool-registry";
 import type { AgentStreamEvent } from "../../agent-core/loop/stream-event";
 import { RegisteredConfirmationBridge, type ConfirmationRoute } from "../../agent-core/permissions/confirmation-bridge";
+import type { AgentRunIdentity, AgentTokenUsage } from "../../../../agent-platform/agent-run-protocol";
 
 export interface RunNativeAgentLoopParams {
   provider: ProviderAdapter;
@@ -12,6 +13,7 @@ export interface RunNativeAgentLoopParams {
   contextInstructions: string;
   session?: AgentSession;
   conversationId?: string;
+  identity?: AgentRunIdentity;
   confirmationRoute?: ConfirmationRoute;
   /** Tool names that skip confirmation dialog (still go through preview & safety guards). */
   autoAllowedToolNames?: string[];
@@ -31,6 +33,9 @@ export interface RunNativeAgentLoopResult {
   messages: NativeToolAgentLoopResult["messages"];
   errorCode?: string;
   errorMessage?: string;
+  identity: AgentRunIdentity;
+  usage?: AgentTokenUsage;
+  providerRequestCount: number;
 }
 
 export async function runNativeAgentLoop(
@@ -43,6 +48,7 @@ export async function runNativeAgentLoop(
     systemPrompt: params.systemPrompt,
     contextInstructions: params.contextInstructions,
     conversationId: params.conversationId,
+    identity: params.identity,
     bridge: new RegisteredConfirmationBridge(params.confirmationRoute),
     autoAllowedToolNames: params.autoAllowedToolNames,
     abortSignal: params.abortSignal,
@@ -61,5 +67,8 @@ export async function runNativeAgentLoop(
     messages: raw.messages,
     errorCode: raw.errorCode,
     errorMessage: raw.errorMessage,
+    identity: raw.identity,
+    usage: raw.usage,
+    providerRequestCount: raw.providerRequestCount,
   };
 }

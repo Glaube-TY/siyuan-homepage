@@ -66,6 +66,10 @@ export interface PersistedWorkbenchEvent {
   type: "tool_start" | "tool_result" | "error" | "assistant_final" | "done" | "notice";
   stepIndex?: number;
   at?: number;
+  eventId?: string;
+  sessionId?: string;
+  runId?: string;
+  correlationId?: string;
   toolName?: string;
   toolCallId?: string;
   argsPreview?: Record<string, unknown>;
@@ -260,10 +264,17 @@ function toPersistedArgsPreview(argsPreview: Record<string, unknown> | undefined
 }
 
 function toPersistedWorkbenchEvent(event: AgentWorkbenchEvent): PersistedWorkbenchEvent | null {
+  const identity = {
+    eventId: event.eventId,
+    sessionId: event.sessionId,
+    runId: event.runId,
+    correlationId: event.correlationId,
+  };
   switch (event.type) {
     case "tool_start":
       return {
         type: "tool_start",
+        ...identity,
         stepIndex: event.stepIndex,
         at: event.at,
         toolCallId: event.toolCallId,
@@ -274,6 +285,7 @@ function toPersistedWorkbenchEvent(event: AgentWorkbenchEvent): PersistedWorkben
     case "tool_result":
       return {
         type: "tool_result",
+        ...identity,
         stepIndex: event.stepIndex,
         at: event.at,
         toolCallId: event.toolCallId,
@@ -288,6 +300,7 @@ function toPersistedWorkbenchEvent(event: AgentWorkbenchEvent): PersistedWorkben
     case "error":
       return {
         type: "error",
+        ...identity,
         stepIndex: event.stepIndex,
         at: event.at,
         message: sanitizePersistedSummaryText(event.message, 300),
@@ -296,6 +309,7 @@ function toPersistedWorkbenchEvent(event: AgentWorkbenchEvent): PersistedWorkben
     case "assistant_final":
       return {
         type: "assistant_final",
+        ...identity,
         stepIndex: event.stepIndex,
         at: event.at,
         message: truncatePersistedText(event.answer, 200),
@@ -303,6 +317,7 @@ function toPersistedWorkbenchEvent(event: AgentWorkbenchEvent): PersistedWorkben
     case "done":
       return {
         type: "done",
+        ...identity,
         stepIndex: event.stepIndex,
         at: event.at,
         status: event.status,
@@ -312,6 +327,7 @@ function toPersistedWorkbenchEvent(event: AgentWorkbenchEvent): PersistedWorkben
     case "notice":
       return {
         type: "notice",
+        ...identity,
         stepIndex: event.stepIndex,
         at: event.at,
         message: sanitizePersistedSummaryText(event.message, 200),
@@ -322,12 +338,20 @@ function toPersistedWorkbenchEvent(event: AgentWorkbenchEvent): PersistedWorkben
 }
 
 function fromPersistedWorkbenchEvent(event: PersistedWorkbenchEvent): AgentWorkbenchEvent | null {
+  if (!event.eventId || !event.sessionId || !event.runId || !event.correlationId) return null;
+  const identity = {
+    eventId: event.eventId,
+    sessionId: event.sessionId,
+    runId: event.runId,
+    correlationId: event.correlationId,
+  };
   const at = event.at ?? Date.now();
   const stepIndex = event.stepIndex ?? 0;
   switch (event.type) {
     case "tool_start":
       return {
         type: "tool_start",
+        ...identity,
         stepIndex,
         at,
         toolCallId: event.toolCallId ?? `persisted-${stepIndex}-${event.toolName ?? "tool"}`,
@@ -339,6 +363,7 @@ function fromPersistedWorkbenchEvent(event: PersistedWorkbenchEvent): AgentWorkb
     case "tool_result":
       return {
         type: "tool_result",
+        ...identity,
         stepIndex,
         at,
         toolCallId: event.toolCallId ?? `persisted-${stepIndex}-${event.toolName ?? "tool"}`,
@@ -356,6 +381,7 @@ function fromPersistedWorkbenchEvent(event: PersistedWorkbenchEvent): AgentWorkb
     case "error":
       return {
         type: "error",
+        ...identity,
         stepIndex,
         at,
         message: sanitizePersistedSummaryText(event.message, 300) ?? event.message ?? "",
@@ -364,6 +390,7 @@ function fromPersistedWorkbenchEvent(event: PersistedWorkbenchEvent): AgentWorkb
     case "assistant_final":
       return {
         type: "assistant_final",
+        ...identity,
         stepIndex,
         at,
         answer: event.message ?? "",
@@ -371,6 +398,7 @@ function fromPersistedWorkbenchEvent(event: PersistedWorkbenchEvent): AgentWorkb
     case "done":
       return {
         type: "done",
+        ...identity,
         stepIndex,
         at,
         status: (event.status as "answer_ready" | "failed" | "cancelled" | undefined) ?? "failed",
@@ -380,6 +408,7 @@ function fromPersistedWorkbenchEvent(event: PersistedWorkbenchEvent): AgentWorkb
     case "notice":
       return {
         type: "notice",
+        ...identity,
         stepIndex,
         at,
         message: sanitizePersistedSummaryText(event.message, 200) ?? event.message ?? "",

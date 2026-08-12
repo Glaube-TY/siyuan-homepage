@@ -1,8 +1,13 @@
 import type { AgentToolCall } from "../../agent-core/messages/agent-message";
 import type { ToolExecutionResult } from "../../agent-core/tools/native-tool";
 import type { ToolPermissionPreview } from "../../agent-core/permissions/tool-preview";
+import type { AgentTokenUsage } from "../../../../agent-platform/agent-run-protocol";
+import type { AgentProviderErrorCategory, AgentProviderErrorOptions } from "../../agent-core/providers/provider-error";
 
 export type AgentWorkbenchEventType =
+  | "run_started"
+  | "model_started"
+  | "usage"
   | "assistant_text_delta"
   | "assistant_reasoning_delta"
   | "assistant_reasoning_reset"
@@ -20,7 +25,30 @@ export type AgentWorkbenchEventType =
 export interface AgentWorkbenchEventBase {
   type: AgentWorkbenchEventType;
   at: number;
+  eventId: string;
+  sessionId: string;
+  runId: string;
+  correlationId: string;
   stepIndex?: number;
+}
+
+export interface RunStartedEvent extends AgentWorkbenchEventBase {
+  type: "run_started";
+  providerId: string;
+  requestTimeoutMs?: number;
+}
+
+export interface ModelStartedEvent extends AgentWorkbenchEventBase {
+  type: "model_started";
+  modelStepIndex: number;
+  providerId: string;
+}
+
+export interface UsageEvent extends AgentWorkbenchEventBase {
+  type: "usage";
+  modelStepIndex: number;
+  stepUsage: AgentTokenUsage;
+  cumulativeUsage: AgentTokenUsage;
 }
 
 export interface AssistantTextDeltaEvent extends AgentWorkbenchEventBase {
@@ -97,6 +125,12 @@ export interface ErrorEvent extends AgentWorkbenchEventBase {
   type: "error";
   code: string;
   message: string;
+  category?: AgentProviderErrorCategory;
+  retryable?: boolean;
+  retryAfterMs?: number;
+  safeToReplay?: boolean;
+  sideEffectState?: "not_started" | "committed" | "unknown";
+  userAction?: AgentProviderErrorOptions["userAction"];
 }
 
 export interface DoneEvent extends AgentWorkbenchEventBase {
@@ -116,6 +150,9 @@ export interface SafeTargetPreview {
 }
 
 export type AgentWorkbenchEvent =
+  | RunStartedEvent
+  | ModelStartedEvent
+  | UsageEvent
   | AssistantTextDeltaEvent
   | AssistantReasoningDeltaEvent
   | AssistantReasoningResetEvent

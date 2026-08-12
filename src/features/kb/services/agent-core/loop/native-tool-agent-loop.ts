@@ -14,6 +14,12 @@ import {
   inspectUnfinishedAgentOutput,
   type UnfinishedAgentOutputDiagnostic,
 } from "./unfinished-agent-output";
+import {
+  createAgentRunIdentity,
+  type AgentRunIdentity,
+  type AgentTokenUsage,
+} from "../../../../agent-platform/agent-run-protocol";
+import { addAgentTokenUsage, mergeLatestAgentTokenUsage } from "../providers/provider-usage";
 
 export interface NativeToolAgentLoopResult {
   status: "answer_ready" | "failed" | "cancelled";
@@ -22,6 +28,9 @@ export interface NativeToolAgentLoopResult {
   messages: AgentMessage[];
   errorCode?: string;
   errorMessage?: string;
+  identity: AgentRunIdentity;
+  usage?: AgentTokenUsage;
+  providerRequestCount: number;
 }
 
 export interface NativeToolAgentLoopOptions {
@@ -29,6 +38,7 @@ export interface NativeToolAgentLoopOptions {
   toolRegistry: NativeToolRegistry;
   session?: AgentSession;
   conversationId?: string;
+  identity?: AgentRunIdentity;
   systemPrompt: string;
   contextInstructions?: string;
   /** Maximum tool calls per turn; 0 disables this count-based limit. */
@@ -89,14 +99,34 @@ export class NativeToolAgentLoop {
   private readonly session: AgentSession;
   private readonly bridge: ToolConfirmationBridge;
   private readonly stormBreaker = new StormBreaker();
+  private readonly identity: AgentRunIdentity;
+  private totalUsage: AgentTokenUsage | undefined;
+  private providerRequestCount = 0;
 
   constructor(private readonly options: NativeToolAgentLoopOptions) {
     const id = options.conversationId ?? `conv_${Date.now()}`;
     this.session = options.session ?? new AgentSession(id);
     this.bridge = options.bridge ?? new RegisteredConfirmationBridge();
+    this.identity = options.identity ?? createAgentRunIdentity({ sessionId: id });
   }
 
   async run(question: string): Promise<NativeToolAgentLoopResult> {
+    this.options.onEvent?.({
+      type: "run_started",
+      identity: this.identity,
+      providerId: this.options.provider.id,
+      requestTimeoutMs: this.options.provider.requestTimeoutMs,
+    });
+    const result = await this.runInternal(question);
+    return {
+      ...result,
+      identity: this.identity,
+      usage: this.totalUsage,
+      providerRequestCount: this.providerRequestCount,
+    };
+  }
+
+  private async runInternal(question: string): Promise<Omit<NativeToolAgentLoopResult, "identity" | "usage" | "providerRequestCount">> {
     const configuredMaxToolCalls = this.options.maxToolCalls ?? 20;
     const maxToolCalls = Number.isFinite(configuredMaxToolCalls) && configuredMaxToolCalls >= 0
       ? configuredMaxToolCalls
@@ -127,6 +157,12 @@ export class NativeToolAgentLoop {
       const messages = this.buildProviderMessages();
       const tools = this.options.toolRegistry.listProviderVisible();
       const toolChoice = requireToolCallForNextTurn ? "required" as const : "auto" as const;
+      if (tools.length > 0 && !this.options.provider.capabilities.nativeToolCalls) {
+        return this.finishWithUnsupportedProviderCapability("provider_native_tools_unsupported", steps);
+      }
+      if (toolChoice === "required" && !this.options.provider.capabilities.requiredToolChoice) {
+        return this.finishWithUnsupportedProviderCapability("provider_required_tool_choice_unsupported", steps);
+      }
       requireToolCallForNextTurn = false;
       let answer = "";
       let reasoning = "";
@@ -138,6 +174,9 @@ export class NativeToolAgentLoop {
       let streamedOutputDefect: UnfinishedAgentOutputDiagnostic | undefined;
       let lastOutputInspectionAt = 0;
       let finishReason: string | undefined;
+      let stepUsage: AgentTokenUsage | undefined;
+      const modelStepIndex = ++this.providerRequestCount;
+      this.options.onEvent?.({ type: "model_started", modelStepIndex, providerId: this.options.provider.id });
 
       for await (const event of this.options.provider.streamChat({
         messages,
@@ -145,7 +184,9 @@ export class NativeToolAgentLoop {
         toolChoice,
         abortSignal: this.options.abortSignal,
       })) {
-        if (event.type === "text_delta") {
+        if (event.type === "usage") {
+          stepUsage = mergeLatestAgentTokenUsage(stepUsage, event.usage);
+        } else if (event.type === "text_delta") {
           answer += event.delta;
           if (!pseudoToolMarkupDetected && isPseudoToolMarkup(answer)) {
             pseudoToolMarkupDetected = true;
@@ -194,6 +235,7 @@ export class NativeToolAgentLoop {
           finishReason = event.finishReason;
         }
       }
+      this.recordStepUsage(modelStepIndex, stepUsage);
 
       const finishKind = classifyProviderFinishReason(finishReason);
       if (finishKind === "aborted") {
@@ -302,6 +344,24 @@ export class NativeToolAgentLoop {
             finishReason,
             steps,
           });
+        }
+        if (!answer.trim()) {
+          const message = "模型没有返回可继续执行的工具调用或有效回答，本轮已停止。";
+          this.options.onEvent?.({ type: "error", code: "provider_empty_response", message });
+          this.options.onEvent?.({
+            type: "done",
+            status: "failed",
+            providerFinishReason: finishReason,
+            outputChars: 0,
+          });
+          return {
+            status: "failed",
+            answer: "",
+            steps,
+            messages: this.session.snapshot(),
+            errorCode: "provider_empty_response",
+            errorMessage: message,
+          };
         }
         const finalAnswerRetryInstruction = this.options.validateFinalAnswer?.(answer);
         if (finalAnswerRetryInstruction && finalAnswerValidationRetryCount < 1) {
@@ -416,7 +476,7 @@ export class NativeToolAgentLoop {
     diagnostic: UnfinishedAgentOutputDiagnostic;
     finishReason?: string;
     steps: number;
-  }): NativeToolAgentLoopResult {
+  }): Omit<NativeToolAgentLoopResult, "identity" | "usage" | "providerRequestCount"> {
     const reason = params.diagnostic.reason === "repetitive_output"
       ? "repetitive_output"
       : "dangling_tool_intent";
@@ -451,7 +511,7 @@ export class NativeToolAgentLoop {
     code: string;
     message?: string;
     steps: number;
-  }): Promise<NativeToolAgentLoopResult> {
+  }): Promise<Omit<NativeToolAgentLoopResult, "identity" | "usage" | "providerRequestCount">> {
     if (this.options.abortSignal?.aborted) {
       this.options.onEvent?.({ type: "done", status: "cancelled" });
       return {
@@ -482,13 +542,18 @@ export class NativeToolAgentLoop {
     let emittedReasoningLive = false;
     let pseudoToolMarkupDetected = false;
     let finishReason: string | undefined;
+    let stepUsage: AgentTokenUsage | undefined;
+    const modelStepIndex = ++this.providerRequestCount;
+    this.options.onEvent?.({ type: "model_started", modelStepIndex, providerId: this.options.provider.id });
 
     for await (const event of this.options.provider.streamChat({
       messages,
       tools: [],
       abortSignal: this.options.abortSignal,
     })) {
-      if (event.type === "text_delta") {
+      if (event.type === "usage") {
+        stepUsage = mergeLatestAgentTokenUsage(stepUsage, event.usage);
+      } else if (event.type === "text_delta") {
         answer += event.delta;
         if (!pseudoToolMarkupDetected && isPseudoToolMarkup(answer)) {
           pseudoToolMarkupDetected = true;
@@ -510,6 +575,7 @@ export class NativeToolAgentLoop {
         finishReason = event.finishReason;
       }
     }
+    this.recordStepUsage(modelStepIndex, stepUsage);
 
     const softFinishKind = classifyProviderFinishReason(finishReason);
     if (softFinishKind === "aborted") {
@@ -570,7 +636,7 @@ export class NativeToolAgentLoop {
     message?: string;
     steps: number;
     reasoning?: string;
-  }): NativeToolAgentLoopResult {
+  }): Omit<NativeToolAgentLoopResult, "identity" | "usage" | "providerRequestCount"> {
     const answer = [
       "工具调用已安全停止，没有继续执行重复请求。",
       params.message ? `原因：${params.message}` : `停止原因：${params.code}。`,
@@ -602,7 +668,7 @@ export class NativeToolAgentLoop {
   private finishWithPseudoToolMarkupBlocked(params: {
     steps: number;
     reasoning?: string;
-  }): NativeToolAgentLoopResult {
+  }): Omit<NativeToolAgentLoopResult, "identity" | "usage" | "providerRequestCount"> {
     const answer = PSEUDO_TOOL_MARKUP_BLOCKED_MESSAGE;
     this.options.onEvent?.({ type: "assistant_text_delta", delta: answer, fullContent: answer });
     this.session.append(createAssistantMessage({
@@ -624,6 +690,36 @@ export class NativeToolAgentLoop {
       errorCode: "pseudo_tool_markup_blocked",
       errorMessage: PSEUDO_TOOL_MARKUP_BLOCKED_MESSAGE,
     };
+  }
+
+  private finishWithUnsupportedProviderCapability(
+    code: string,
+    steps: number,
+  ): Omit<NativeToolAgentLoopResult, "identity" | "usage" | "providerRequestCount"> {
+    const message = code === "provider_native_tools_unsupported"
+      ? "当前模型 Provider 不支持原生工具调用，无法运行 Agent。"
+      : "当前模型 Provider 不支持强制原生工具调用，无法安全继续本轮 Agent。";
+    this.options.onEvent?.({ type: "error", code, message });
+    this.options.onEvent?.({ type: "done", status: "failed" });
+    return {
+      status: "failed",
+      answer: "",
+      steps,
+      messages: this.session.snapshot(),
+      errorCode: code,
+      errorMessage: message,
+    };
+  }
+
+  private recordStepUsage(modelStepIndex: number, stepUsage: AgentTokenUsage | undefined): void {
+    if (!stepUsage) return;
+    this.totalUsage = addAgentTokenUsage(this.totalUsage, stepUsage);
+    this.options.onEvent?.({
+      type: "usage",
+      modelStepIndex,
+      stepUsage,
+      cumulativeUsage: this.totalUsage,
+    });
   }
 
   private buildProviderMessages(): AgentMessage[] {

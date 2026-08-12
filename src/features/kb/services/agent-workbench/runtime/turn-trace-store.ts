@@ -4,11 +4,21 @@
  * Not visible to the agent prompt.
  */
 
+import type { AgentTokenUsage } from "../../../../agent-platform/agent-run-protocol";
+
 export interface TurnTrace {
+  sessionId: string;
+  runId: string;
+  correlationId: string;
   turnId: string;
+  providerId?: string;
+  startedAt: number;
   finishedAt: number;
+  durationMs: number;
   status: string;
   steps: number;
+  providerRequestCount?: number;
+  usage?: AgentTokenUsage;
   events: Array<{
     type: string;
     stepIndex?: number;
@@ -22,6 +32,14 @@ export interface TurnTrace {
     errorCode?: string;
     providerFinishReason?: string;
     outputChars?: number;
+    eventId?: string;
+    modelStepIndex?: number;
+    usage?: AgentTokenUsage;
+    errorCategory?: string;
+    retryable?: boolean;
+    retryAfterMs?: number;
+    safeToReplay?: boolean;
+    sideEffectState?: string;
   }>;
 }
 

@@ -5,6 +5,7 @@ import type { AgentChatRequest, AgentProviderEvent, ProviderAdapter } from "./pr
 import { AgentProviderError } from "./provider-error";
 import { normalizeAnthropicEndpoint } from "./provider-url-normalizer";
 import { BrowserAgentHttpTransport, type AgentHttpTransport } from "./agent-http-transport";
+import { normalizeProviderUsage } from "./provider-usage";
 
 export interface AnthropicAdapterOptions {
   id: string;
@@ -16,6 +17,7 @@ export interface AnthropicAdapterOptions {
   transport?: AgentHttpTransport;
   /** 是否流式（浏览器默认 true；Kernel 传 false 走非流式 JSON）。 */
   stream?: boolean;
+  requestTimeoutMs?: number;
 }
 
 interface AnthropicToolUseState {
@@ -65,8 +67,9 @@ function toAnthropicMessage(message: AgentMessage): Record<string, unknown> | nu
 }
 
 export class AnthropicAdapter implements ProviderAdapter {
-  readonly capabilities = ANTHROPIC_CAPABILITIES;
+  readonly capabilities;
   readonly id: string;
+  readonly requestTimeoutMs?: number;
   private readonly endpoint: string;
   private readonly transport: AgentHttpTransport;
   private readonly stream: boolean;
@@ -76,6 +79,8 @@ export class AnthropicAdapter implements ProviderAdapter {
     this.endpoint = normalizeAnthropicEndpoint(options.baseUrl ?? "");
     this.transport = options.transport ?? new BrowserAgentHttpTransport();
     this.stream = options.stream !== false;
+    this.requestTimeoutMs = options.requestTimeoutMs;
+    this.capabilities = { ...ANTHROPIC_CAPABILITIES, streaming: this.stream };
   }
 
   async *streamChat(request: AgentChatRequest): AsyncGenerator<AgentProviderEvent> {
@@ -130,13 +135,15 @@ export class AnthropicAdapter implements ProviderAdapter {
       }
       throw new AgentProviderError(`Anthropic request failed: ${err instanceof Error ? err.message : String(err)}`, {
         code: "provider_network_error",
-        recoverable: true,
+        retryable: true,
       });
     }
   }
 
   private async *parseJsonResponse(raw: unknown): AsyncGenerator<AgentProviderEvent> {
     const root = raw && typeof raw === "object" ? raw as Record<string, unknown> : {};
+    const usage = normalizeProviderUsage(root.usage);
+    if (usage) yield { type: "usage", usage };
     const content = Array.isArray(root.content) ? root.content : [];
     let callIndex = 0;
 
@@ -170,15 +177,20 @@ export class AnthropicAdapter implements ProviderAdapter {
       code = "provider_auth_failed";
     } else if (status === 429) {
       code = "provider_rate_limited";
-    } else {
+    } else if (status >= 500) {
       code = "provider_network_error";
+    } else {
+      code = "provider_http_error";
     }
     yield {
       type: "error",
       error: new AgentProviderError(`Anthropic request failed: HTTP ${status}`, {
         code,
         status,
-        recoverable: status >= 500,
+        retryable: status === 429 || status >= 500,
+        userAction: status === 401 || status === 403
+          ? "check_credentials"
+          : status === 429 || status >= 500 ? "retry" : "inspect_provider",
       }),
     };
     yield { type: "done" };
@@ -239,7 +251,13 @@ export class AnthropicAdapter implements ProviderAdapter {
       try {
         const parsed = JSON.parse(data) as Record<string, unknown>;
         const type = typeof parsed.type === "string" ? parsed.type : "";
-        if (type === "content_block_start") {
+        if (type === "message_start") {
+          const message = parsed.message && typeof parsed.message === "object"
+            ? parsed.message as Record<string, unknown>
+            : {};
+          const usage = normalizeProviderUsage(message.usage);
+          if (usage) out.push({ type: "usage", usage });
+        } else if (type === "content_block_start") {
           const index = typeof parsed.index === "number" ? parsed.index : toolState.size;
           const block = parsed.content_block && typeof parsed.content_block === "object"
             ? parsed.content_block as Record<string, unknown>
@@ -267,6 +285,8 @@ export class AnthropicAdapter implements ProviderAdapter {
             }
           }
         } else if (type === "message_delta") {
+          const usage = normalizeProviderUsage(parsed.usage);
+          if (usage) out.push({ type: "usage", usage });
           const delta = parsed.delta && typeof parsed.delta === "object"
             ? parsed.delta as Record<string, unknown>
             : {};

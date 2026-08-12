@@ -8,13 +8,19 @@ import { OpenAICompatibleAdapter } from "./openai-compatible-adapter";
 import { GeminiAdapter } from "./gemini-adapter";
 import { AnthropicAdapter } from "./anthropic-adapter";
 import type { ProviderAdapter } from "./provider-adapter";
-import type { AgentHttpTransport } from "./agent-http-transport";
+import {
+  BrowserAgentHttpTransport,
+  TimedAgentHttpTransport,
+  type AgentHttpTransport,
+} from "./agent-http-transport";
 
 export interface ProviderFactoryOverrides {
   /** 注入 HTTP 传输（Kernel Robot 传 KernelAgentHttpTransport；前端不传使用浏览器 fetch）。 */
   transport?: AgentHttpTransport;
   /** 是否流式（Kernel 传 false；前端不传默认 true 保持现有流式体验）。 */
   stream?: boolean;
+  /** 覆盖 Provider Profile 的单次模型请求超时。 */
+  requestTimeoutMs?: number;
 }
 
 function buildProviderOptions(params: {
@@ -79,6 +85,11 @@ export function createProviderAdapterForKbModel(params: {
   const adapterId = `${params.provider.id}:${params.model.id}`;
   const apiKey = params.provider.apiKey;
   const modelId = params.model.id;
+  const requestTimeoutMs = params.overrides?.requestTimeoutMs ?? profile.providerRequestTimeoutMs;
+  const transport = new TimedAgentHttpTransport(
+    params.overrides?.transport ?? new BrowserAgentHttpTransport(),
+    requestTimeoutMs,
+  );
 
   // Detect Gemini by baseUrl pattern (gemini.googleapis.com or generativelanguage.googleapis.com)
   const baseUrl = params.provider.baseUrl?.trim() || "";
@@ -88,7 +99,8 @@ export function createProviderAdapterForKbModel(params: {
       model: modelId,
       apiKey: apiKey || "",
       baseUrl: baseUrl || undefined,
-      ...(params.overrides?.transport ? { transport: params.overrides.transport } : {}),
+      transport,
+      requestTimeoutMs,
       ...(params.overrides?.stream !== undefined ? { stream: params.overrides.stream } : {}),
     });
   }
@@ -101,7 +113,8 @@ export function createProviderAdapterForKbModel(params: {
       apiKey: apiKey || "",
       baseUrl: baseUrl || undefined,
       maxTokens: params.model.maxTokens,
-      ...(params.overrides?.transport ? { transport: params.overrides.transport } : {}),
+      transport,
+      requestTimeoutMs,
       ...(params.overrides?.stream !== undefined ? { stream: params.overrides.stream } : {}),
     });
   }
@@ -124,7 +137,8 @@ export function createProviderAdapterForKbModel(params: {
     maxTokens: params.model.maxTokens,
     tokenParamStrategy: profile.providerNativeAgentCompatibility?.tokenParamStrategy,
     providerOptions: buildProviderOptions(params),
-    ...(params.overrides?.transport ? { transport: params.overrides.transport } : {}),
+    transport,
+    requestTimeoutMs,
     ...(params.overrides?.stream !== undefined ? { stream: params.overrides.stream } : {}),
   });
 }

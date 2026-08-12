@@ -34,7 +34,7 @@ export function mapAgentErrorToUserFacing(input: {
   const msg = (input.message ?? "").toLowerCase();
 
   // 超时
-  if (code.includes("agent_timeout") || code.includes("stream_idle_timeout") || msg.includes("超时")) {
+  if (code.includes("agent_timeout") || code.includes("provider_timeout") || code.includes("stream_idle_timeout") || msg.includes("超时")) {
     return {
       title: "模型响应超时",
       message: "模型没有在设定时间内返回可继续执行的内容，本轮已停止。",
@@ -43,7 +43,7 @@ export function mapAgentErrorToUserFacing(input: {
   }
 
   // 没有可执行内容
-  if (code.includes("empty_content")) {
+  if (code.includes("empty_content") || code.includes("empty_response")) {
     return {
       title: "模型没有返回可执行内容",
       message: "模型没有返回可执行内容，本轮已停止。",
@@ -70,7 +70,7 @@ export function mapAgentErrorToUserFacing(input: {
   }
 
   // Agent 工具调用不兼容
-  if (code.includes("native_tool_calls") || code.includes("tool_call_not_supported")) {
+  if (code.includes("native_tool") || code.includes("required_tool_choice") || code.includes("tool_call_not_supported")) {
     return {
       title: "模型不支持 Agent 工具调用",
       message: "当前模型不能完成 Agent 工具调用，本轮已停止。",
@@ -79,7 +79,7 @@ export function mapAgentErrorToUserFacing(input: {
   }
 
   // HTTP 错误
-  if (code.includes("http_401")) {
+  if (code.includes("http_401") || code === "provider_auth_failed") {
     return {
       title: "认证失败",
       message: "连接失败：当前 API Key 未通过鉴权。",
@@ -91,7 +91,7 @@ export function mapAgentErrorToUserFacing(input: {
       message: "连接失败：当前 API Key 没有调用该模型的权限。",
     };
   }
-  if (code.includes("http_429")) {
+  if (code.includes("http_429") || code === "provider_rate_limited") {
     return {
       title: "请求频率过高",
       message: "请求过于频繁或额度受限，请稍后重试。",
@@ -103,7 +103,7 @@ export function mapAgentErrorToUserFacing(input: {
       message: "服务商暂时无法完成请求，请稍后重试。",
     };
   }
-  if (code.includes("http_xxx")) {
+  if (code.includes("http_xxx") || code === "provider_http_error") {
     return {
       title: "模型请求失败",
       message: "模型请求失败，本轮已停止。",
