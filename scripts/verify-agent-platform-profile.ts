@@ -5,13 +5,18 @@ import {
   AGENT_CAPABILITY_IDS,
   AGENT_CONTEXT_SOURCE_IDS,
   AGENT_PROFILE_SCHEMA_VERSION,
+  EDITOR_SELECTION_AGENT_PROFILE_ID,
+  HOMEPAGE_STATUS_AGENT_PROFILE_ID,
   agentProfileAllowsContext,
+  agentProfileHasCapability,
   agentProfileAllowsMemory,
   agentProfileResourceAllowList,
   agentProfileAllowsTool,
   agentProfileAllowsToolAction,
   getAgentProfile,
   KNOWLEDGE_CHAT_AGENT_PROFILE_ID,
+  ROBOT_AGENT_PROFILE_ID,
+  ROBOT_AGENT_TOOL_NAMES,
   registerAgentProfile,
 } from "../src/features/agent-platform/agent-profile";
 import { ToolRegistry } from "../src/features/kb/services/agent-workbench/registries/tool-registry";
@@ -58,6 +63,36 @@ assert.deepEqual(agentProfileResourceAllowList(restricted.permissions.mcpServerI
 assert.deepEqual(agentProfileResourceAllowList(restricted.permissions.mcpToolNames), ["safe-tool"]);
 assert.equal(agentProfileAllowsTool(restricted, "blocked_tool"), false);
 assert.equal(agentProfileAllowsToolAction(restricted, "safe_aggregate", "write"), false);
+
+const robot = getAgentProfile(ROBOT_AGENT_PROFILE_ID);
+assert.deepEqual(robot.permissions.contextSources, ["conversation", "runtime-tools"]);
+assert.deepEqual(robot.permissions.tools.names, ROBOT_AGENT_TOOL_NAMES);
+assert.equal(agentProfileAllowsTool(robot, "siyuan_kb"), true);
+assert.equal(agentProfileAllowsTool(robot, "homepage_manage"), false);
+assert.equal(agentProfileAllowsTool(robot, "homepage_music"), false);
+assert.equal(agentProfileAllowsTool(robot, "notebrain_file"), false);
+assert.equal(agentProfileAllowsMemory(robot, "read"), false);
+assert.equal(agentProfileHasCapability(robot, "mcp"), false);
+assert.equal(agentProfileHasCapability(robot, "external-skills"), false);
+
+const homepageStatus = getAgentProfile(HOMEPAGE_STATUS_AGENT_PROFILE_ID);
+assert.deepEqual(homepageStatus.permissions.contextSources, ["homepage-statistics"]);
+assert.equal(homepageStatus.execution.defaultMaxToolCalls, 0);
+assert.equal(agentProfileAllowsTool(homepageStatus, "siyuan_kb"), false);
+assert.equal(agentProfileAllowsContext(homepageStatus, "conversation"), false);
+assert.equal(agentProfileAllowsMemory(homepageStatus, "write"), false);
+
+const editorSelection = getAgentProfile(EDITOR_SELECTION_AGENT_PROFILE_ID);
+assert.deepEqual(editorSelection.permissions.contextSources, ["editor-selection", "editor-document"]);
+assert.equal(editorSelection.execution.defaultMaxToolCalls, 0);
+assert.equal(agentProfileAllowsContext(editorSelection, "homepage-statistics"), false);
+assert.equal(agentProfileHasCapability(editorSelection, "tools"), false);
+
+assert.throws(() => registerAgentProfile({
+  ...homepageStatus,
+  id: "invalid-zero-tool-loop",
+  capabilities: ["tools"],
+}), /工具调用次数无效/);
 
 const registry = new ToolRegistry({
   allowsTool: (name) => agentProfileAllowsTool(restricted, name),
@@ -123,6 +158,26 @@ const profileRunnerSource = readFileSync(
   new URL("../src/features/kb/services/agent-workbench/runtime/run-agent-profile.ts", import.meta.url),
   "utf8",
 );
+const robotRuntimeSource = readFileSync(
+  new URL("../src/features/robot-assistant/agent/kernel-robot-agent-runtime.ts", import.meta.url),
+  "utf8",
+);
+const selectionRunnerSource = readFileSync(
+  new URL("../src/features/kb/services/selection-ai/selection-ai-runner.ts", import.meta.url),
+  "utf8",
+);
+const selectionPopupSource = readFileSync(
+  new URL("../src/features/kb/components/selection-ai/SelectionAiPopup.svelte", import.meta.url),
+  "utf8",
+);
+const statusGeneratorSource = readFileSync(
+  new URL("../src/homepage/header/status-ai-generator.ts", import.meta.url),
+  "utf8",
+);
+const plainTextSource = readFileSync(
+  new URL("../src/services/ai/plain-text-generation.ts", import.meta.url),
+  "utf8",
+);
 
 assert.match(turnAdapterSource, /runAgentProfile/);
 for (const platformAssembly of [
@@ -143,5 +198,13 @@ assert.equal(
   existsSync(new URL("../src/features/kb/services/agent-core/tools/native-tool-registry-builder.ts", import.meta.url)),
   false,
 );
+assert.match(robotRuntimeSource, /ROBOT_AGENT_PROFILE_ID/);
+assert.match(robotRuntimeSource, /agentProfileAllowsTool/);
+assert.match(statusGeneratorSource, /HOMEPAGE_STATUS_AGENT_PROFILE_ID/);
+assert.match(selectionRunnerSource, /EDITOR_SELECTION_AGENT_PROFILE_ID/);
+assert.equal(selectionRunnerSource.includes("streamModelText"), false);
+assert.match(plainTextSource, /agentProfileAllowsContext/);
+assert.match(plainTextSource, /streamModelText/);
+assert.match(selectionPopupSource, /onDestroy\(\(\) => \{[\s\S]*abortController\?\.abort\(\)/);
 
-console.log("Agent Profile 权限隔离与统一运行入口校验通过。");
+console.log("Agent Profile、三类受限入口与统一运行边界校验通过。");

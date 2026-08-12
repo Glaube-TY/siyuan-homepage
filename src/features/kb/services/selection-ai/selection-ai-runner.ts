@@ -1,5 +1,5 @@
 import { generatePlainText } from "@/services/ai/plain-text-generation";
-import { streamModelText } from "../qa/kb-model-call";
+import { EDITOR_SELECTION_AGENT_PROFILE_ID, type AgentContextSourceId } from "@/features/agent-platform/agent-profile";
 import { getKbSettings } from "../settings/kb-settings-service";
 import { buildChatModelOptions, findDefaultChatModelOption } from "../settings/chat-model-options";
 import { buildChatModelKey, type ChatModelSelection } from "../../types/chat-model-selection";
@@ -18,19 +18,6 @@ const FALLBACK_GENERATION = {
   maxSelectedTextChars: 6000,
   stream: true,
 } as const;
-
-function isAbortError(error: unknown): boolean {
-  if (error instanceof DOMException && error.name === "AbortError") return true;
-  if (error instanceof Error) {
-    return error.name === "AbortError" || /abort|aborted|cancel/i.test(error.message);
-  }
-  return false;
-}
-
-function getErrorMessage(error: unknown): string {
-  if (error instanceof Error) return error.message;
-  return String(error || "未知错误");
-}
 
 function trimOutput(text: string, maxChars: number): { text: string; truncatedOutput: boolean } {
   const normalized = String(text ?? "").trim();
@@ -93,70 +80,39 @@ export async function runSelectionAiAction(
   const maxOutputChars = skill?.maxOutputChars ?? FALLBACK_GENERATION.maxOutputChars;
   const useStream = skill?.stream ?? FALLBACK_GENERATION.stream;
 
-  try {
-    const modelSelection = skill ? await resolveSelectionAiModel(skill) : null;
-    if (!modelSelection) {
-      return {
-        text: "",
-        error: "未配置可用大模型，请到 AI 知识库设置中配置。",
-      };
-    }
-
-    const prompt = buildSelectionAiPrompt(request, settings);
-    const maxOutputTokens = resolveMaxOutputTokens(maxOutputChars);
-
-    if (useStream) {
-      let streamedText = "";
-      await streamModelText(
-        prompt,
-        "off",
-        {
-          onChunk: ({ chunk, fullContent }) => {
-            streamedText = fullContent;
-            callbacks.onToken?.(chunk, fullContent);
-          },
-        },
-        {
-          chatModelSelection: modelSelection,
-          abortSignal: callbacks.signal,
-          maxOutputTokens,
-          temperature,
-          purpose: "generic",
-        }
-      );
-      return trimOutput(streamedText, maxOutputChars);
-    }
-
-    const result = await generatePlainText({
-      prompt,
-      modelSelection,
-      thinkingMode: "off",
-      maxOutputTokens,
-      temperature,
-      abortSignal: callbacks.signal,
-      purpose: "generic",
-    });
-
-    if (!result.ok) {
-      const reason = "reason" in result ? result.reason : "unknown";
-      const message = "message" in result ? result.message : "模型调用失败";
-      return {
-        text: "",
-        stopped: reason === "aborted",
-        error: reason === "aborted" ? undefined : message,
-      };
-    }
-
-    const trimmed = trimOutput(result.text, maxOutputChars);
-    callbacks.onToken?.(trimmed.text, trimmed.text);
-    return trimmed;
-  } catch (error) {
-    if (isAbortError(error)) {
-      return { text: "", stopped: true };
-    }
+  const modelSelection = skill ? await resolveSelectionAiModel(skill) : null;
+  if (!modelSelection) {
     return {
       text: "",
-      error: getErrorMessage(error),
+      error: "未配置可用大模型，请到 AI 知识库设置中配置。",
     };
   }
+
+  const contextSources: AgentContextSourceId[] = ["editor-selection"];
+  if (skill?.includeDocumentContext) contextSources.push("editor-document");
+  const result = await generatePlainText({
+    profileId: EDITOR_SELECTION_AGENT_PROFILE_ID,
+    contextSources,
+    prompt: buildSelectionAiPrompt(request, settings),
+    modelSelection,
+    thinkingMode: "off",
+    maxOutputTokens: resolveMaxOutputTokens(maxOutputChars),
+    temperature,
+    abortSignal: callbacks.signal,
+    purpose: "generic",
+    stream: useStream,
+    onToken: callbacks.onToken,
+  });
+
+  if (result.ok === false) {
+    return {
+      text: "",
+      stopped: result.reason === "aborted",
+      error: result.reason === "aborted" ? undefined : result.message,
+    };
+  }
+
+  const trimmed = trimOutput(result.text, maxOutputChars);
+  if (!useStream) callbacks.onToken?.(trimmed.text, trimmed.text);
+  return trimmed;
 }

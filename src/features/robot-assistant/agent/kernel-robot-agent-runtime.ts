@@ -11,6 +11,12 @@ import type { RobotModelConfigStore } from "../runtime/robot-model-config";
 import type { RobotConfirmation } from "../contracts/robot-confirmation";
 import { RobotConfirmationBridge } from "./robot-confirmation-bridge";
 import type { RobotConfirmationOutcome } from "../core/robot-core";
+import {
+  agentProfileAllowsTool,
+  getAgentProfile,
+  ROBOT_AGENT_PROFILE_ID,
+  type AgentProfile,
+} from "../../../features/agent-platform/agent-profile";
 
 export interface KernelRobotAgentRuntimeDeps {
   /** Kernel HTTP transport（siyuan.client.fetch → forwardProxy），stream:false。 */
@@ -35,6 +41,7 @@ export class KernelRobotAgentRuntime implements RobotAgentRuntime {
   constructor(private readonly deps: KernelRobotAgentRuntimeDeps) {}
 
   async runTurn(input: RobotAgentTurnInput): Promise<RobotAgentTurnResult> {
+    const profile = getAgentProfile(ROBOT_AGENT_PROFILE_ID);
     const snapshot = await this.deps.modelConfigStore.get();
     if (!snapshot) {
       return { ok: false, answer: "机器人模型配置尚未同步，请在设置中选择 AI 知识库当前模型。", errorCode: "model_config_missing", toolSummaries: [], conversationId: input.conversationId };
@@ -72,7 +79,7 @@ export class KernelRobotAgentRuntime implements RobotAgentRuntime {
       toolPolicy: input.toolPolicy,
     });
 
-    const turnRegistry = this.createTurnRegistry(input.toolPolicy);
+    const turnRegistry = this.createTurnRegistry(input.toolPolicy, profile);
 
     const abort = new AbortController();
     let timedOut = false;
@@ -88,7 +95,7 @@ export class KernelRobotAgentRuntime implements RobotAgentRuntime {
       conversationId: input.conversationId,
       systemPrompt: input.systemPrompt,
       bridge,
-      maxToolCalls: this.deps.maxToolCalls ?? 20,
+      maxToolCalls: this.deps.maxToolCalls ?? profile.execution.defaultMaxToolCalls,
       abortSignal: abort.signal,
     });
     const initialMessageCount = session.messageCount();
@@ -136,14 +143,14 @@ export class KernelRobotAgentRuntime implements RobotAgentRuntime {
     }
   }
 
-  private createTurnRegistry(policy: RobotAgentTurnInput["toolPolicy"]): NativeToolRegistry {
+  private createTurnRegistry(policy: RobotAgentTurnInput["toolPolicy"], profile: AgentProfile): NativeToolRegistry {
     const registry = new NativeToolRegistry();
     for (const tool of this.deps.toolRegistry.list()) {
       const explicit = policy.tools[tool.name];
       const allowed = explicit
         ? explicit.remoteAllowed
         : tool.readOnly && policy.readOnlyDefaultAllowed;
-      if (allowed) registry.register(tool);
+      if (allowed && agentProfileAllowsTool(profile, tool.name)) registry.register(tool);
     }
     return registry;
   }

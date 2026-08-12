@@ -19,6 +19,9 @@ export const AGENT_CONTEXT_SOURCE_IDS = [
   "knowledge",
   "global-memory",
   "attached-documents",
+  "homepage-statistics",
+  "editor-selection",
+  "editor-document",
   "skills",
   "external-skills",
   "runtime-tools",
@@ -80,7 +83,7 @@ export function registerAgentProfile(profile: AgentProfile): AgentProfile {
   if (!/^[a-z][a-z0-9-]*$/.test(profile.id)) {
     throw new Error(`Agent Profile id 无效: ${profile.id}`);
   }
-  if (!Number.isInteger(profile.execution.defaultMaxToolCalls) || profile.execution.defaultMaxToolCalls < 1) {
+  if (!Number.isInteger(profile.execution.defaultMaxToolCalls) || profile.execution.defaultMaxToolCalls < 0) {
     throw new Error(`Agent Profile 最大工具调用次数无效: ${profile.id}`);
   }
   if (profiles.has(profile.id)) {
@@ -95,6 +98,9 @@ export function registerAgentProfile(profile: AgentProfile): AgentProfile {
     throw new Error(`Agent Profile 上下文来源不受支持: ${unsupportedContextSource}`);
   }
   const capabilities = new Set(profile.capabilities);
+  if (capabilities.has("tools") && profile.execution.defaultMaxToolCalls < 1) {
+    throw new Error(`Agent Profile 工具调用次数无效: ${profile.id}`);
+  }
   const requireCapability = (condition: boolean, capability: AgentCapabilityId, label: string): void => {
     if (condition && !capabilities.has(capability)) {
       throw new Error(`Agent Profile ${label} 缺少能力: ${capability}`);
@@ -201,6 +207,27 @@ export function agentProfileResourceAllowList(access: AgentResourceAccess): read
 }
 
 export const KNOWLEDGE_CHAT_AGENT_PROFILE_ID = "knowledge-chat";
+export const ROBOT_AGENT_PROFILE_ID = "remote-robot";
+export const HOMEPAGE_STATUS_AGENT_PROFILE_ID = "homepage-status";
+export const EDITOR_SELECTION_AGENT_PROFILE_ID = "editor-selection";
+
+export const ROBOT_AGENT_TOOL_NAMES = [
+  "siyuan_kb",
+  "diary_task",
+  "siyuan_database",
+  "siyuan_doc_edit",
+  "siyuan_tree",
+  "siyuan_meta",
+  "siyuan_asset",
+  "siyuan_riff",
+  "homepage_quick_note",
+  "homepage_focus",
+  "homepage_accounting",
+  "homepage_fixed_assets",
+  "homepage_anniversary",
+  "homepage_favorites",
+  "homepage_review",
+] as const;
 
 registerAgentProfile({
   schemaVersion: AGENT_PROFILE_SCHEMA_VERSION,
@@ -218,4 +245,55 @@ registerAgentProfile({
   execution: {
     defaultMaxToolCalls: 20,
   },
+});
+
+registerAgentProfile({
+  schemaVersion: AGENT_PROFILE_SCHEMA_VERSION,
+  id: ROBOT_AGENT_PROFILE_ID,
+  label: "远程机器人对话",
+  capabilities: ["conversation", "tools", "siyuan", "homepage"],
+  permissions: {
+    contextSources: ["conversation", "runtime-tools"],
+    tools: {
+      names: ROBOT_AGENT_TOOL_NAMES,
+      actions: Object.fromEntries(ROBOT_AGENT_TOOL_NAMES.map((name) => [name, "*" as const])),
+    },
+    memory: { read: false, write: false },
+    externalSkillIds: [],
+    mcpServerIds: [],
+    mcpToolNames: [],
+  },
+  execution: { defaultMaxToolCalls: 20 },
+});
+
+registerAgentProfile({
+  schemaVersion: AGENT_PROFILE_SCHEMA_VERSION,
+  id: HOMEPAGE_STATUS_AGENT_PROFILE_ID,
+  label: "主页状态语",
+  capabilities: ["homepage"],
+  permissions: {
+    contextSources: ["homepage-statistics"],
+    tools: { names: [], actions: {} },
+    memory: { read: false, write: false },
+    externalSkillIds: [],
+    mcpServerIds: [],
+    mcpToolNames: [],
+  },
+  execution: { defaultMaxToolCalls: 0 },
+});
+
+registerAgentProfile({
+  schemaVersion: AGENT_PROFILE_SCHEMA_VERSION,
+  id: EDITOR_SELECTION_AGENT_PROFILE_ID,
+  label: "编辑器划词 AI",
+  capabilities: ["siyuan"],
+  permissions: {
+    contextSources: ["editor-selection", "editor-document"],
+    tools: { names: [], actions: {} },
+    memory: { read: false, write: false },
+    externalSkillIds: [],
+    mcpServerIds: [],
+    mcpToolNames: [],
+  },
+  execution: { defaultMaxToolCalls: 0 },
 });

@@ -3,6 +3,7 @@ import { getKbSettings } from "@/features/kb/services/settings/kb-settings-servi
 import { buildChatModelOptions, findDefaultChatModelOption } from "@/features/kb/services/settings/chat-model-options";
 import { buildChatModelKey, type ChatModelSelection } from "@/features/kb/types/chat-model-selection";
 import type { ThinkingMode } from "@/features/kb/types/session";
+import { HOMEPAGE_STATUS_AGENT_PROFILE_ID } from "@/features/agent-platform/agent-profile";
 import {
     HOMEPAGE_STATUS_STAT_DEFINITIONS,
     normalizeStatusAiMaxChars,
@@ -195,6 +196,8 @@ export async function generateHomepageStatusText(params: {
     const thinkingMode: ThinkingMode = config.thinkingEnabled ? "on" : "off";
 
     const result = await generatePlainText({
+        profileId: HOMEPAGE_STATUS_AGENT_PROFILE_ID,
+        contextSources: ["homepage-statistics"],
         prompt,
         modelSelection: selection,
         thinkingMode,

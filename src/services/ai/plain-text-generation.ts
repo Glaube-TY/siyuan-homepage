@@ -1,8 +1,15 @@
 import type { ChatModelSelection } from "@/features/kb/types/chat-model-selection";
 import type { ThinkingMode } from "@/features/kb/types/session";
-import { callModelText } from "@/features/kb/services/qa/kb-model-call";
+import { callModelText, streamModelText } from "@/features/kb/services/qa/kb-model-call";
+import {
+    agentProfileAllowsContext,
+    getAgentProfile,
+    type AgentContextSourceId,
+} from "@/features/agent-platform/agent-profile";
 
 export interface GeneratePlainTextOptions {
+    profileId: string;
+    contextSources: readonly AgentContextSourceId[];
     prompt: string;
     modelSelection?: ChatModelSelection | null;
     thinkingMode?: ThinkingMode;
@@ -10,9 +17,11 @@ export interface GeneratePlainTextOptions {
     temperature?: number;
     abortSignal?: AbortSignal;
     purpose?: "homepage_status" | "generic";
+    stream?: boolean;
+    onToken?: (token: string, fullText: string) => void;
 }
 
-export type GeneratePlainTextFailureReason = "no_model" | "provider_error" | "aborted" | "unknown";
+export type GeneratePlainTextFailureReason = "no_model" | "provider_error" | "permission_denied" | "aborted" | "unknown";
 
 export type GeneratePlainTextResult =
     | {
@@ -60,6 +69,12 @@ function classifyModelError(message: string): GeneratePlainTextFailureReason {
 }
 
 export async function generatePlainText(options: GeneratePlainTextOptions): Promise<GeneratePlainTextResult> {
+    const profile = getAgentProfile(options.profileId);
+    const deniedContext = options.contextSources.find((source) => !agentProfileAllowsContext(profile, source));
+    if (deniedContext) {
+        return { ok: false, reason: "permission_denied", message: `当前 AI 入口无权读取上下文：${deniedContext}` };
+    }
+
     const prompt = typeof options.prompt === "string" ? options.prompt.trim() : "";
     if (!prompt) {
         return { ok: false, reason: "unknown", message: "提示语为空" };
@@ -70,6 +85,23 @@ export async function generatePlainText(options: GeneratePlainTextOptions): Prom
     }
 
     try {
+        if (options.stream) {
+            let fullText = "";
+            await streamModelText(prompt, options.thinkingMode ?? "off", {
+                onChunk: ({ chunk, fullContent }) => {
+                    fullText = fullContent;
+                    options.onToken?.(chunk, fullContent);
+                },
+            }, {
+                chatModelSelection: options.modelSelection,
+                abortSignal: options.abortSignal,
+                maxOutputTokens: options.maxOutputTokens,
+                temperature: options.temperature,
+                purpose: "generic",
+            });
+            return { ok: true, text: fullText };
+        }
+
         const text = await callModelText(prompt, options.thinkingMode ?? "off", {
             chatModelSelection: options.modelSelection,
             abortSignal: options.abortSignal,
