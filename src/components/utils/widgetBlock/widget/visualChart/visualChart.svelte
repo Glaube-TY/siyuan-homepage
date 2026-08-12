@@ -5,7 +5,7 @@
     import { getTaskIndexResult } from "@/components/tools/siyuanComponentDataApi";
     import { isTaskCompleted, parseTaskLine } from "../tasksPlus/tasksPlusParser";
     import { onMount, onDestroy } from "svelte";
-    import * as echarts from "echarts";
+    import * as echarts from "@/utils/charts/echarts";
     import "echarts-wordcloud";
     import type { WidgetRuntimeContext } from "../../widgetMountRegistry";
     import { loadWidgetInstanceConfig } from "@/homepage/deviceView/widgetInstanceRepository";

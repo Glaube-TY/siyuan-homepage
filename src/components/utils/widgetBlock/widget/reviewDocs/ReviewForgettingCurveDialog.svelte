@@ -1,6 +1,6 @@
 <script lang="ts">
     import { onMount } from "svelte";
-    import * as echarts from "echarts";
+    import * as echarts from "@/utils/charts/echarts";
     import {
         addDays,
         diffDays,

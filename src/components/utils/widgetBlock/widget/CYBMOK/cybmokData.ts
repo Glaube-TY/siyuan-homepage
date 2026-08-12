@@ -195,7 +195,15 @@ export function normalizeCYBMOKBatchesYearFile(raw: unknown, expectedYear: numbe
         || value.year !== expectedYear || !Array.isArray(value.batches)) {
         throw new Error("木鱼年度批次 schema、version 或 year 无效");
     }
-    const batches = value.batches.map((item) => normalizeCYBMOKBatch(item, expectedYear));
+    // 大版本不再保留 legacy-daily 等旧批次：它们既不能参与当前事务校验，也不能
+    // 因单条废弃记录让整份年度文件不可读。这里只删除已明确退役的记录，不转换、
+    // 不补写旧字段；其他未知损坏仍按严格 schema 报错。
+    const currentItems = value.batches.filter((item) => {
+        if (!item || typeof item !== "object" || Array.isArray(item)) return true;
+        const record = item as Record<string, unknown>;
+        return record.kind !== "legacy-daily" && record.source !== "legacy-daily";
+    });
+    const batches = currentItems.map((item) => normalizeCYBMOKBatch(item, expectedYear));
     if (new Set(batches.map((batch) => batch.id)).size !== batches.length) throw new Error("木鱼年度批次存在重复 ID");
     return {
         schema: CYBMOK_BATCHES_SCHEMA,

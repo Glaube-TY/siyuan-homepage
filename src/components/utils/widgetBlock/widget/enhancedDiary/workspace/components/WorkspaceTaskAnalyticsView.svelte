@@ -1,6 +1,6 @@
 <script lang="ts">
     import { onDestroy, onMount, tick } from "svelte";
-    import * as echarts from "echarts";
+    import * as echarts from "@/utils/charts/echarts";
     import type { WorkspaceTaskViewModel } from "../enhancedDiaryWorkspaceTaskModel";
     import { buildWorkspaceTaskAnalytics, type WorkspaceTaskAnalyticsSelection, type WorkspaceTaskMetric } from "../enhancedDiaryWorkspaceTaskAnalytics";
     interface Props { models: WorkspaceTaskViewModel[]; onSelect: (selection: WorkspaceTaskAnalyticsSelection) => void; }

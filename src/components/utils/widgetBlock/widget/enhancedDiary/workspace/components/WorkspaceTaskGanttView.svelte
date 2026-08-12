@@ -1,6 +1,6 @@
 <script lang="ts">
     import { onDestroy, onMount, tick } from "svelte";
-    import * as echarts from "echarts";
+    import * as echarts from "@/utils/charts/echarts";
     import type { VirtualElement } from "@floating-ui/dom";
     import type { WorkspaceTaskViewModel } from "../enhancedDiaryWorkspaceTaskModel";
     import { buildWorkspaceTaskGanttData, clampGanttRowsToRange } from "../enhancedDiaryWorkspaceTaskTimeline";

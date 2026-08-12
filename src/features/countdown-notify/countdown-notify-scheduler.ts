@@ -6,14 +6,15 @@ import { runCountdownNotifyScan } from "./countdown-notify-service";
 let timer: number | null = null;
 let started = false;
 let running = false;
+type CountdownNotifySettings = Awaited<ReturnType<typeof loadCountdownNotifySettings>>;
 
-async function shouldRun(): Promise<{ ok: boolean; intervalMs: number }> {
-  if (!isNotificationCenterFeatureAvailable()) return { ok: false, intervalMs: 60000 };
-  let countdownSettings: Awaited<ReturnType<typeof loadCountdownNotifySettings>>;
+async function shouldRun(): Promise<{ ok: boolean; intervalMs: number; settings: CountdownNotifySettings | null }> {
+  if (!isNotificationCenterFeatureAvailable()) return { ok: false, intervalMs: 60000, settings: null };
+  let countdownSettings: CountdownNotifySettings;
   try {
     countdownSettings = await loadCountdownNotifySettings();
   } catch {
-    return { ok: false, intervalMs: 60000 };
+    return { ok: false, intervalMs: 60000, settings: null };
   }
   const enabledRules = countdownSettings.rules.filter((rule) => rule.enabled && rule.deliveryTargets.length > 0);
   const activeCustomOverrides = countdownSettings.eventOverrides.filter(
@@ -37,19 +38,22 @@ async function shouldRun(): Promise<{ ok: boolean; intervalMs: number }> {
       deliveryTargets.length > 0 &&
       (await hasResolvableTargetsForCurrentRuntime(deliveryTargets)),
     intervalMs: countdownSettings.scanIntervalMs,
+    settings: countdownSettings,
   };
 }
 
-async function scanOnce(): Promise<void> {
+async function scanOnce(settings?: CountdownNotifySettings): Promise<void> {
   if (running) return;
   running = true;
   try {
-    const runState = await shouldRun();
-    if (!runState.ok) {
-      stopCountdownNotifyScheduler();
-      return;
+    if (!settings) {
+      const runState = await shouldRun();
+      if (!runState.ok || !runState.settings) {
+        stopCountdownNotifyScheduler();
+        return;
+      }
+      settings = runState.settings;
     }
-    const settings = await loadCountdownNotifySettings();
     await runCountdownNotifyScan(settings);
   } finally {
     running = false;
@@ -58,13 +62,13 @@ async function scanOnce(): Promise<void> {
 
 async function reconcileScheduler(): Promise<void> {
   const runState = await shouldRun();
-  if (!runState.ok) {
+  if (!runState.ok || !runState.settings) {
     stopCountdownNotifyScheduler();
     return;
   }
   if (timer !== null) window.clearInterval(timer);
   timer = window.setInterval(() => { void scanOnce(); }, runState.intervalMs);
-  void scanOnce();
+  void scanOnce(runState.settings);
 }
 
 function handleSchedulerSignal(): void {

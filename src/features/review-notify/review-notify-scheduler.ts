@@ -6,32 +6,37 @@ import { loadReviewNotifySettings } from "./review-notify-settings-store";
 let timer: number | null = null;
 let started = false;
 let running = false;
+type ReviewNotifySettings = Awaited<ReturnType<typeof loadReviewNotifySettings>>;
 
-async function shouldRun(): Promise<{ ok: boolean; intervalMs: number }> {
-  if (!isNotificationCenterFeatureAvailable()) return { ok: false, intervalMs: 60000 };
-  let settings: Awaited<ReturnType<typeof loadReviewNotifySettings>>;
+async function shouldRun(): Promise<{ ok: boolean; intervalMs: number; settings: ReviewNotifySettings | null }> {
+  if (!isNotificationCenterFeatureAvailable()) return { ok: false, intervalMs: 60000, settings: null };
+  let settings: ReviewNotifySettings;
   try {
     settings = await loadReviewNotifySettings();
   } catch {
-    return { ok: false, intervalMs: 60000 };
+    return { ok: false, intervalMs: 60000, settings: null };
   }
   const enabledRules = settings.rules.filter((rule) => rule.enabled && rule.deliveryTargets.length > 0);
   return {
     ok: settings.enabled && enabledRules.length > 0 && await hasResolvableTargetsForCurrentRuntime(enabledRules.flatMap((rule) => rule.deliveryTargets)),
     intervalMs: settings.scanIntervalMs,
+    settings,
   };
 }
 
-async function scanOnce(): Promise<void> {
+async function scanOnce(settings?: ReviewNotifySettings): Promise<void> {
   if (running) return;
   running = true;
   try {
-    const runState = await shouldRun();
-    if (!runState.ok) {
-      stopReviewNotifyScheduler();
-      return;
+    if (!settings) {
+      const runState = await shouldRun();
+      if (!runState.ok || !runState.settings) {
+        stopReviewNotifyScheduler();
+        return;
+      }
+      settings = runState.settings;
     }
-    await runReviewNotifyScan(await loadReviewNotifySettings());
+    await runReviewNotifyScan(settings);
   } finally {
     running = false;
   }
@@ -39,13 +44,13 @@ async function scanOnce(): Promise<void> {
 
 async function reconcileScheduler(): Promise<void> {
   const runState = await shouldRun();
-  if (!runState.ok) {
+  if (!runState.ok || !runState.settings) {
     stopReviewNotifyScheduler();
     return;
   }
   if (timer !== null) window.clearInterval(timer);
   timer = window.setInterval(() => { void scanOnce().catch(() => undefined); }, runState.intervalMs);
-  void scanOnce().catch(() => undefined);
+  void scanOnce(runState.settings).catch(() => undefined);
 }
 
 function handleSchedulerSignal(): void {

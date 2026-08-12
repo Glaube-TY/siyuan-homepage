@@ -117,6 +117,9 @@
         type HomepageStatusStatKey,
     } from "./status-text-config";
     import { assertSectionLayoutInvariants } from "@/components/utils/widgetBlock/utils/layout-section-ops";
+    import { mapWithConcurrency } from "@/utils/async/mapWithConcurrency";
+    import { scheduleIdleTask } from "@/utils/runtime/idleTask";
+    import { createRuntimePerformanceTrace } from "@/utils/performance/runtimePerformance";
     import {
         clearPreservedWidgetElementAfterAppend,
         captureHomepageWidgetDomSnapshot,
@@ -229,6 +232,8 @@
     let homepageConfigLoaded = $state(false);
     type HomepageInitialLoadState = "loading" | "revealing" | "ready" | "error";
     let homepageInitialLoadState = $state<HomepageInitialLoadState>("loading");
+    let homepageInitialLoadProgress = $state(4);
+    let homepageInitialLoadDetail = $state("正在连接主页运行时…");
     let initialThemeRendererMounted = $state(false);
     type HomepageThemeTransitionState = Readonly<{
         requestId: number;
@@ -1173,6 +1178,12 @@
     let homepageVisibilityObserver: ResizeObserver | null = null;
 
     let homepageComponentDestroyed = false;
+    let cancelDeferredHomepageEffects: (() => void) | null = null;
+
+    function updateInitialLoadProgress(progress: number, detail: string): void {
+        homepageInitialLoadProgress = Math.max(homepageInitialLoadProgress, Math.min(100, progress));
+        homepageInitialLoadDetail = detail;
+    }
 
     // 实时获取高级功能启用状态
     function getAdvancedEnabled(): boolean {
@@ -2934,6 +2945,8 @@
 
     function handleHomepageTabBeforeDestroy(): void {
         homepageComponentDestroyed = true;
+        cancelDeferredHomepageEffects?.();
+        cancelDeferredHomepageEffects = null;
         if (homepageThemeTransitionTimer !== null) {
             window.clearTimeout(homepageThemeTransitionTimer);
             homepageThemeTransitionTimer = null;
@@ -2946,6 +2959,7 @@
 
     onMount(async () => {
         homepageComponentDestroyed = false;
+        const startupTrace = createRuntimePerformanceTrace("homepage-startup");
         try {
         // 先添加事件监听器，确保不会错过 VIP 状态变化事件
         window.addEventListener("homepage-advanced-ready", handleAdvancedReady);
@@ -2966,8 +2980,11 @@
         );
 
         // 首屏主题解析必须等待会员能力完成一次确定性判定，避免先回退 Classic、随后再闪回 VIP 主题。
+        updateInitialLoadProgress(12, "正在确认主题能力…");
         await plugin?.waitForHomepageEntitlementReady?.();
         if (homepageComponentDestroyed) return;
+        startupTrace.checkpoint("entitlement-ready");
+        updateInitialLoadProgress(20, "正在准备主页容器…");
 
         // 不在冷启动阶段写入空布局：存储暂不可用时，空读不能覆盖用户已有布局。
 
@@ -2977,12 +2994,18 @@
             if (!regionsReady) {
                 throw new Error("主页主题必需区域尚未完成挂载，已停止初始布局恢复");
             }
+            startupTrace.checkpoint("persistent-regions-ready");
+            updateInitialLoadProgress(30, "正在读取配置与组件数据…");
             await updateHomepage("initial-load");
             if (homepageComponentDestroyed) return;
+            startupTrace.checkpoint("homepage-data-ready");
+            updateInitialLoadProgress(68, "正在恢复当前分区…");
             await tick();
             if (homepageComponentDestroyed) return;
             await initCustomContentLayout();
             if (homepageComponentDestroyed) return;
+            startupTrace.checkpoint("visible-section-restored");
+            updateInitialLoadProgress(84, "正在校准组件网格…");
 
             // 首次恢复后的最终校准：等待滚动条和容器宽度稳定后执行一次精确网格计算。
             await tick();
@@ -3011,8 +3034,12 @@
             throw new Error("主页组件网格尚未完成首轮校准，拒绝提前显示主页");
         }
 
+        startupTrace.checkpoint("widget-grid-ready");
+        updateInitialLoadProgress(94, "正在完成主题绘制…");
         await revealInitializedHomepage();
         if (homepageComponentDestroyed) return;
+        updateInitialLoadProgress(100, "主页已就绪");
+        startupTrace.finish("homepage-visible");
 
         // 建立外部存储刷新调度器的可见性观察：Homepage 隐藏期间收到 Agent 写入时保留 pending，
         // 切回可见（clientWidth 从 0 变 > 0）后自动执行一次最新刷新。
@@ -3037,19 +3064,25 @@
         reRegisterAllShortcuts(buttonsList);
         document.addEventListener("click", handleClickEffect);
 
-        // 启动飘落特效
-        startFallingEffects();
-
-        // 显式更新鼠标样式
-        applyMouseEffectsConfig();
+        // 视觉特效不影响主页可用性，避免与首屏绘制争抢主线程。
+        cancelDeferredHomepageEffects = scheduleIdleTask(() => {
+            cancelDeferredHomepageEffects = null;
+            if (homepageComponentDestroyed || homepageInitialLoadState !== "ready") return;
+            startFallingEffects();
+            applyMouseEffectsConfig();
+            startupTrace.checkpoint("deferred-effects-ready");
+        }, { timeout: 900 });
         } catch (error) {
             console.error("[Homepage] 初始主页恢复失败", error);
+            startupTrace.finish("failed");
             if (!homepageComponentDestroyed) homepageInitialLoadState = "error";
         }
     });
 
     onDestroy(() => {
         homepageComponentDestroyed = true;
+        cancelDeferredHomepageEffects?.();
+        cancelDeferredHomepageEffects = null;
 
         for (const sortable of sectionSortables.values()) {
             try {
@@ -3241,9 +3274,12 @@
             );
         });
         const initialWidgetDocuments = new Map<string, Awaited<ReturnType<typeof readWidgetInstanceDocument>>>();
-        for (const widgetId of widgetIdsNeedingRead) {
+        const initialReadResults = await mapWithConcurrency(widgetIdsNeedingRead, 4, async (widgetId) => {
             const document = await readWidgetInstanceDocument(context, widgetId);
             if (!document) throw new Error(`主页组件 ${widgetId} 配置明确缺失，拒绝切换当前健康主页`);
+            return [widgetId, document] as const;
+        });
+        for (const [widgetId, document] of initialReadResults) {
             initialWidgetDocuments.set(widgetId, document);
         }
         const coordinatedRecheck = await readCoordinatedSnapshotForContext(context);
@@ -3255,7 +3291,7 @@
         ) {
             throw new Error("主页协调快照在 UI 切换前发生变化，已保留当前健康主页");
         }
-        for (const [widgetId, initialDocument] of initialWidgetDocuments) {
+        await mapWithConcurrency(Array.from(initialWidgetDocuments), 4, async ([widgetId, initialDocument]) => {
             const currentDocument = await readWidgetInstanceDocument(context, widgetId);
             if (
                 !currentDocument
@@ -3265,7 +3301,7 @@
             ) {
                 throw new Error(`主页组件 ${widgetId} 在 UI 切换前发生变化，已保留当前健康主页`);
             }
-        }
+        });
 
         // 丢弃过期请求结果
         if (currentVersion !== updateHomepageVersion) return;
@@ -3556,40 +3592,22 @@
         backgroundImageOpacity = advanced ? config.backgroundImageOpacity : DEFAULT_BACKGROUND_IMAGE_OPACITY;
         backgroundImageBlur = advanced ? config.backgroundImageBlur : DEFAULT_BACKGROUND_IMAGE_BLUR;
 
-        if (themeSupportsBanner) {
-            // 横幅高度配置 - 优先使用当前桌面设备的配置
-            try {
-                const displaySettings = await loadBannerDisplaySettings(plugin);
-                if (currentVersion !== updateHomepageVersion) return;
-                bannerHeight = displaySettings.bannerHeight;
-            } catch {
-                if (currentVersion !== updateHomepageVersion) return;
-                bannerHeight = config.bannerHeight;
-            }
-        } else {
-            bannerHeight = config.bannerHeight;
-            bannerImgSrc = "";
-        }
-
         // 按钮列表
         buttonsList = resolveButtonsList(config);
 
-        // 只有最终生效主题声明支持 Banner 时，才允许读取本地图片或请求远程图片。
-        if (themeSupportsBanner) {
-            const bannerResult = await resolveBannerImage(
-                config,
-                getAdvancedEnabled(),
-            );
-            if (currentVersion !== updateHomepageVersion) return;
-            bannerImgSrc = bannerResult.bannerImgSrc;
-        }
-
-        // 背景图片
-        const backgroundResult = await resolveBackgroundImage(
-            config,
-            getAdvancedEnabled(),
-        );
+        // 设备横幅配置、横幅资源和背景资源互不依赖，并发解析避免三段 I/O 串行拉长首屏。
+        const [bannerDisplaySettings, bannerResult, backgroundResult] = await Promise.all([
+            themeSupportsBanner
+                ? loadBannerDisplaySettings(plugin).catch(() => null)
+                : Promise.resolve(null),
+            themeSupportsBanner
+                ? resolveBannerImage(config, getAdvancedEnabled())
+                : Promise.resolve(null),
+            resolveBackgroundImage(config, getAdvancedEnabled()),
+        ]);
         if (currentVersion !== updateHomepageVersion) return;
+        bannerHeight = bannerDisplaySettings?.bannerHeight ?? config.bannerHeight;
+        bannerImgSrc = themeSupportsBanner ? (bannerResult?.bannerImgSrc ?? "") : "";
         backgroundImageSrc = backgroundResult.backgroundImageSrc;
     }
 
@@ -3986,7 +4004,11 @@
     {/if}
 
     {#if homepageInitialLoadState !== "ready"}
-        <HomepageInitialLoadOverlay failed={homepageInitialLoadState === "error"} />
+        <HomepageInitialLoadOverlay
+            failed={homepageInitialLoadState === "error"}
+            progress={homepageInitialLoadProgress}
+            detail={homepageInitialLoadDetail}
+        />
     {/if}
 
     {#if themeTransitionOverlayActive && homepageThemeTransition}

@@ -6,32 +6,36 @@ import { runTaskNotifyScan } from "./task-notify-service";
 let timer: number | null = null;
 let started = false;
 let running = false;
+type TaskNotifySettings = Awaited<ReturnType<typeof loadTaskNotifySettings>>;
 
-async function shouldRun(): Promise<{ ok: boolean; intervalMs: number }> {
-  if (!isNotificationCenterFeatureAvailable()) return { ok: false, intervalMs: 60000 };
-  let taskSettings: Awaited<ReturnType<typeof loadTaskNotifySettings>>;
+async function shouldRun(): Promise<{ ok: boolean; intervalMs: number; settings: TaskNotifySettings | null }> {
+  if (!isNotificationCenterFeatureAvailable()) return { ok: false, intervalMs: 60000, settings: null };
+  let taskSettings: TaskNotifySettings;
   try {
     taskSettings = await loadTaskNotifySettings();
   } catch {
-    return { ok: false, intervalMs: 60000 };
+    return { ok: false, intervalMs: 60000, settings: null };
   }
   const enabledRules = taskSettings.rules.filter((rule) => rule.enabled && rule.deliveryTargets.length > 0);
   return {
     ok: taskSettings.enabled && enabledRules.length > 0 && await hasResolvableTargetsForCurrentRuntime(enabledRules.flatMap((rule) => rule.deliveryTargets)),
     intervalMs: taskSettings.scanIntervalMs,
+    settings: taskSettings,
   };
 }
 
-async function scanOnce(): Promise<void> {
+async function scanOnce(settings?: TaskNotifySettings): Promise<void> {
   if (running) return;
   running = true;
   try {
-    const runState = await shouldRun();
-    if (!runState.ok) {
-      stopTaskNotifyScheduler();
-      return;
+    if (!settings) {
+      const runState = await shouldRun();
+      if (!runState.ok || !runState.settings) {
+        stopTaskNotifyScheduler();
+        return;
+      }
+      settings = runState.settings;
     }
-    const settings = await loadTaskNotifySettings();
     await runTaskNotifyScan(settings);
   } finally {
     running = false;
@@ -40,13 +44,13 @@ async function scanOnce(): Promise<void> {
 
 async function reconcileScheduler(): Promise<void> {
   const runState = await shouldRun();
-  if (!runState.ok) {
+  if (!runState.ok || !runState.settings) {
     stopTaskNotifyScheduler();
     return;
   }
   if (timer !== null) window.clearInterval(timer);
   timer = window.setInterval(() => { void scanOnce(); }, runState.intervalMs);
-  void scanOnce();
+  void scanOnce(runState.settings);
 }
 
 function handleSchedulerSignal(): void {

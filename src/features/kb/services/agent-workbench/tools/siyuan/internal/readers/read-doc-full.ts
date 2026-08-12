@@ -12,7 +12,7 @@
  */
 
 import { exportMdContentReadonly } from "../../../../../siyuan/read-only-kernel";
-import { mapWithConcurrency } from "../../../../../../utils/async-map";
+import { mapWithConcurrency } from "@/utils/async/mapWithConcurrency";
 import type { SiyuanDocFull, ReadSiyuanDocsForToolParams, ReadSiyuanDocForToolParams } from "../doc-types";
 import { pushAgentDebugEvent } from "../../../../debug/workbench-debug";
 

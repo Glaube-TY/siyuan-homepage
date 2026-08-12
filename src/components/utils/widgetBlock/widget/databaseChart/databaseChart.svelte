@@ -1,6 +1,6 @@
 <script lang="ts">
     import { onMount, onDestroy } from "svelte";
-    import * as echarts from "echarts";
+    import * as echarts from "@/utils/charts/echarts";
     import { getAttributeView } from "@/api";
     import AdvancedFeatureLock from "../common/AdvancedFeatureLock.svelte";
 

@@ -6,32 +6,36 @@ import { runEnhancedDiaryNotifyScan } from "./enhanced-diary-notify-service";
 let timer: number | null = null;
 let started = false;
 let running = false;
+type EnhancedDiaryNotifySettings = Awaited<ReturnType<typeof loadEnhancedDiaryNotifySettings>>;
 
-async function shouldRun(): Promise<{ ok: boolean; intervalMs: number }> {
-  if (!isNotificationCenterFeatureAvailable()) return { ok: false, intervalMs: 60000 };
-  let diarySettings: Awaited<ReturnType<typeof loadEnhancedDiaryNotifySettings>>;
+async function shouldRun(): Promise<{ ok: boolean; intervalMs: number; settings: EnhancedDiaryNotifySettings | null }> {
+  if (!isNotificationCenterFeatureAvailable()) return { ok: false, intervalMs: 60000, settings: null };
+  let diarySettings: EnhancedDiaryNotifySettings;
   try {
     diarySettings = await loadEnhancedDiaryNotifySettings();
   } catch {
-    return { ok: false, intervalMs: 60000 };
+    return { ok: false, intervalMs: 60000, settings: null };
   }
   const enabledRules = diarySettings.rules.filter((rule) => rule.enabled && rule.deliveryTargets.length > 0);
   return {
     ok: diarySettings.enabled && enabledRules.length > 0 && await hasResolvableTargetsForCurrentRuntime(enabledRules.flatMap((rule) => rule.deliveryTargets)),
     intervalMs: diarySettings.scanIntervalMs,
+    settings: diarySettings,
   };
 }
 
-async function scanOnce(): Promise<void> {
+async function scanOnce(settings?: EnhancedDiaryNotifySettings): Promise<void> {
   if (running) return;
   running = true;
   try {
-    const runState = await shouldRun();
-    if (!runState.ok) {
-      stopEnhancedDiaryNotifyScheduler();
-      return;
+    if (!settings) {
+      const runState = await shouldRun();
+      if (!runState.ok || !runState.settings) {
+        stopEnhancedDiaryNotifyScheduler();
+        return;
+      }
+      settings = runState.settings;
     }
-    const settings = await loadEnhancedDiaryNotifySettings();
     await runEnhancedDiaryNotifyScan(settings);
   } finally {
     running = false;
@@ -40,13 +44,13 @@ async function scanOnce(): Promise<void> {
 
 async function reconcileScheduler(): Promise<void> {
   const runState = await shouldRun();
-  if (!runState.ok) {
+  if (!runState.ok || !runState.settings) {
     stopEnhancedDiaryNotifyScheduler();
     return;
   }
   if (timer !== null) window.clearInterval(timer);
   timer = window.setInterval(() => { void scanOnce().catch((error) => console.error("[enhanced-diary-notify] scan failed", error)); }, runState.intervalMs);
-  void scanOnce().catch((error) => console.error("[enhanced-diary-notify] scan failed", error));
+  void scanOnce(runState.settings).catch((error) => console.error("[enhanced-diary-notify] scan failed", error));
 }
 
 function handleSchedulerSignal(): void {

@@ -1,5 +1,6 @@
 <script lang="ts">
     import { onMount } from "svelte";
+    import { subscribeSharedSecondClock } from "./sharedSecondClock";
     import AdvancedFeatureLock from "../common/AdvancedFeatureLock.svelte";
 
     interface Props {
@@ -36,13 +37,9 @@
             console.warn("无法解析 contentTypeJson", e);
         }
 
-        const interval = setInterval(() => {
-            time = new Date();
-        }, 500);
-
-        return () => {
-            clearInterval(interval);
-        };
+        return subscribeSharedSecondClock((now) => {
+            time = now;
+        });
     });
 </script>
 

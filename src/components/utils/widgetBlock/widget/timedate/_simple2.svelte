@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount } from "svelte";
 	import { getImage } from "@/components/tools/getImage";
+	import { subscribeSharedSecondClock } from "./sharedSecondClock";
 
 	interface Props {
 		contentTypeJson?: string;
@@ -35,16 +36,14 @@
 			});
 		}
 
-		const interval = setInterval(() => {
-			date = new Date();
+		return subscribeSharedSecondClock((now) => {
+			date = now;
 			month = date.getMonth() + 1;
 			week = date.getDay();
 			day = date.getDate();
 			hour = date.getHours();
 			minute = date.getMinutes();
-		}, 1000);
-
-		return () => clearInterval(interval);
+		});
 	});
 </script>
 

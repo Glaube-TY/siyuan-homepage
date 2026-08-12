@@ -12,6 +12,8 @@ import {
     type IMenuItem,
 } from "siyuan";
 import { setSiyuanRuntimePort } from "@/runtime/siyuan-runtime-port";
+import { scheduleIdleTask } from "@/utils/runtime/idleTask";
+import { createRuntimePerformanceTrace } from "@/utils/performance/runtimePerformance";
 import { openDocsInClientRuntime, setOpenDocsRuntime } from "@/components/tools/openDocs";
 import {
     ROBOT_QUICK_NOTE_CONFIG_KEY,
@@ -324,6 +326,7 @@ export default class PluginHomepage extends Plugin {
     private mobileQuickActionsRefreshTimer: number | null = null;
     private mobileQuickActionsVisibilityHandler: (() => void) | null = null;
     private mobileQuickActionsFocusHandler: (() => void) | null = null;
+    private cancelDeferredBackgroundStartup: (() => void) | null = null;
     private desktopCommandsRegistered = false;
     private homepageWindowListenersRegistered = false;
     private baseEventListenersRegistered = false;
@@ -385,6 +388,7 @@ export default class PluginHomepage extends Plugin {
     }
 
     async onload() {
+        const startupTrace = createRuntimePerformanceTrace("plugin-startup");
         setSiyuanRuntimePort({
             post: (path, payload) => fetchSyncPost(path, payload),
             getFile: (path) => new Promise((resolve) => {
@@ -435,22 +439,24 @@ export default class PluginHomepage extends Plugin {
         this.registerMobileQuickActionsForegroundListeners();
         this.registerMinimalHomepageEntry();
         this.data[STORAGE_NAME] = { readonlyText: "Readonly" };
+        startupTrace.checkpoint("registrations-ready");
 
         // 第二部分：启动共享身份 Promise 并立即附加失败处理，但暂不等待。
         const identityPromise = this.ensureDeviceIdentityForRuntime();
         void identityPromise.catch(() => undefined);
 
-        // 独立业务逐项隔离失败，不能被设备身份长期 pending 阻塞。
-        try {
-            await loadSelectionAiToolbarSettingsSnapshot(this);
-        } catch (error) {
-            console.warn("[Homepage] 划词 AI 设置读取失败，划词 AI 本次停用", error);
-        }
-        initSelectionAiToolbarPointerTracker();
+        // 划词设置不影响插件注册和主页可用性，不再阻塞 onload。
+        void loadSelectionAiToolbarSettingsSnapshot(this)
+            .catch((error) => {
+                console.warn("[Homepage] 划词 AI 设置读取失败，划词 AI 本次停用", error);
+            })
+            .finally(() => initSelectionAiToolbarPointerTracker());
+        startupTrace.checkpoint("noncritical-settings-scheduled");
 
         // 第三部分：独立能力完成后才等待身份；失败只停用设备视图。
         try {
             await identityPromise;
+            startupTrace.checkpoint("device-identity-ready");
             const config = await this.recoverDeviceViewRuntimeAfterIdentityReady();
             void this.saveData(ROBOT_QUICK_NOTE_CONFIG_KEY, {
                 quickNotesPosition: config.quickNotesPosition ?? "",
@@ -458,6 +464,7 @@ export default class PluginHomepage extends Plugin {
                 quickNotesAddPosition: config.quickNotesAddPosition ?? "bottom",
             }).catch((error) => console.warn("[Homepage] 快速笔记 Kernel 配置快照同步失败", error));
             this.syncHomepageConfigDependentListeners(config);
+            startupTrace.finish("device-view-ready");
         } catch (error) {
             this.syncHomepageConfigDependentListeners(null);
             if (error instanceof DeviceViewAccessBlockedError) {
@@ -469,6 +476,7 @@ export default class PluginHomepage extends Plugin {
             } else {
                 console.warn("[Homepage] 设备视图初始化失败；独立业务继续运行", error);
             }
+            startupTrace.finish("device-view-unavailable");
         }
     }
 
@@ -622,6 +630,8 @@ export default class PluginHomepage extends Plugin {
     }
 
     async onunload() {
+        this.cancelDeferredBackgroundStartup?.();
+        this.cancelDeferredBackgroundStartup = null;
         this.destroyMobileMusicRuntime();
         await disposeRobotClientRuntime();
         if (this.currentMobileEnhancedDiaryWorkspaceDialog) {
@@ -755,25 +765,38 @@ export default class PluginHomepage extends Plugin {
     }
 
     async onLayoutReady() {
-        // 独立业务先启动：通知中心、机器人客户端、日记通知等不依赖设备身份。
-        try {
-            startNotificationCenterRuntime();
-            startTaskNotifyScheduler();
-            startCountdownNotifyScheduler();
-            startEnhancedDiaryNotifyScheduler();
-            startReviewNotifyScheduler();
-        } catch (error) {
-            console.warn("[Homepage] 通知中心启动失败，业务通知调度器未启动", error);
-        }
-
-        // 手机端不参与机器人运行设备竞争，也不加载任何渠道 Provider。
-        if (!this.isMobileFrontend()) initRobotClientRuntime(this);
+        const layoutTrace = createRuntimePerformanceTrace("layout-ready");
+        // 通知首轮扫描与机器人 Provider 都是后台能力，让出思源布局恢复的关键帧。
+        this.cancelDeferredBackgroundStartup?.();
+        this.cancelDeferredBackgroundStartup = scheduleIdleTask(() => {
+            this.cancelDeferredBackgroundStartup = null;
+            const starters: Array<readonly [string, () => void]> = [
+                ["通知中心", startNotificationCenterRuntime],
+                ["任务通知", startTaskNotifyScheduler],
+                ["倒计时通知", startCountdownNotifyScheduler],
+                ["日记通知", startEnhancedDiaryNotifyScheduler],
+                ["复习通知", startReviewNotifyScheduler],
+            ];
+            for (const [name, start] of starters) {
+                try {
+                    start();
+                } catch (error) {
+                    console.warn(`[Homepage] ${name}启动失败，其他后台能力继续运行`, error);
+                }
+            }
+            // 手机端不参与机器人运行设备竞争，也不加载任何渠道 Provider。
+            if (!this.isMobileFrontend()) initRobotClientRuntime(this);
+            layoutTrace.checkpoint("background-runtimes-started");
+        }, { timeout: 1200 });
+        layoutTrace.checkpoint("background-runtimes-scheduled");
 
         try {
             await this.ensureDeviceIdentityForRuntime();
         } catch {
+            layoutTrace.finish("device-identity-unavailable");
             return;
         }
+        layoutTrace.checkpoint("device-identity-ready");
 
         try {
             const config = await this.recoverDeviceViewRuntimeAfterIdentityReady();
@@ -782,9 +805,11 @@ export default class PluginHomepage extends Plugin {
                 await this.finalizeHomepageSurfaceOnLayoutReady(config);
                 this.homepageLayoutReadyFinalized = true;
             }
+            layoutTrace.finish("homepage-surface-ready");
         } catch (error) {
             this.syncHomepageConfigDependentListeners(null);
             console.warn("[Homepage] onLayoutReady 设备视图恢复失败，独立业务继续运行", error);
+            layoutTrace.finish("homepage-surface-unavailable");
         }
     }
 

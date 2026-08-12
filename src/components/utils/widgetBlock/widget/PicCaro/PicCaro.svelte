@@ -1,6 +1,23 @@
 <script lang="ts">
     import { onMount } from "svelte";
-    import { register } from "swiper/element/bundle";
+    import { register } from "swiper/element";
+    import {
+        A11y,
+        Autoplay,
+        EffectCoverflow,
+        EffectCube,
+        EffectFade,
+        EffectFlip,
+        Navigation,
+        Pagination,
+    } from "swiper/modules";
+    import a11yStyles from "swiper/element/css/a11y?inline";
+    import coverflowStyles from "swiper/element/css/effect-coverflow?inline";
+    import cubeStyles from "swiper/element/css/effect-cube?inline";
+    import fadeStyles from "swiper/element/css/effect-fade?inline";
+    import flipStyles from "swiper/element/css/effect-flip?inline";
+    import navigationStyles from "swiper/element/css/navigation?inline";
+    import paginationStyles from "swiper/element/css/pagination?inline";
     import { canUseElectronLocalFileSystem } from "@/components/tools/runtimeEnv";
     import AdvancedFeatureLock from "../common/AdvancedFeatureLock.svelte";
 
@@ -30,6 +47,37 @@
     let images: Array<{ name: string; path: string }> = $state([]);
     let loading = $state(true);
     let error = $state("");
+
+    const swiperModules = [
+        A11y,
+        Autoplay,
+        EffectCoverflow,
+        EffectCube,
+        EffectFade,
+        EffectFlip,
+        Navigation,
+        Pagination,
+    ];
+    const swiperStyles = [
+        a11yStyles,
+        coverflowStyles,
+        cubeStyles,
+        fadeStyles,
+        flipStyles,
+        navigationStyles,
+        paginationStyles,
+    ];
+
+    function initializeSwiper(node: HTMLElement): void {
+        const swiper = node as HTMLElement & {
+            modules: typeof swiperModules;
+            injectStyles: string[];
+            initialize: () => void;
+        };
+        swiper.modules = swiperModules;
+        swiper.injectStyles = swiperStyles;
+        swiper.initialize();
+    }
 
     // 读取文件夹中的图片
     async function loadImages() {
@@ -138,6 +186,8 @@
         {:else if images.length > 0}
             <div class="carousel-container">
                 <swiper-container
+                    init="false"
+                    use:initializeSwiper
                     class="piccaro-swiper"
                     slides-per-view={PicEffect === "slide" ? PicSlidesPerView : "1"}
                     speed="800"

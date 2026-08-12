@@ -1,6 +1,6 @@
 <script lang="ts">
     import { onMount, onDestroy, tick } from "svelte";
-    import * as echarts from "echarts";
+    import * as echarts from "@/utils/charts/echarts";
     import AdvancedFeatureLock from "../common/AdvancedFeatureLock.svelte";
     import LocalIndexEmptyState from "../common/LocalIndexEmptyState.svelte";
     import {

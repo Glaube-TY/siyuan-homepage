@@ -1,7 +1,7 @@
 <script lang="ts">
     import { saveWidgetContentPreservingSize } from "../../styleUtils";
     import { onMount, onDestroy, mount, untrack } from "svelte";
-    import { Howl } from "howler";
+    import { Howl } from "howler/dist/howler.core.min.js";
     import { getFrontend } from "siyuan";
     import { svelteDialog } from "@/libs/dialog";
     import { canUseElectronLocalFileSystem, isMobileRuntime } from "@/components/tools/runtimeEnv";

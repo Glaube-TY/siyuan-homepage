@@ -2,6 +2,7 @@
 	import { run } from 'svelte/legacy';
 
 	import { onMount } from "svelte";
+	import { subscribeSharedSecondClock } from "./sharedSecondClock";
 
 	interface Props {
 		contentTypeJson?: string;
@@ -65,8 +66,8 @@
 				console.warn("无法解析 contentTypeJson", e);
 			}
 		}
-		const interval = setInterval(() => {
-			date = new Date();
+		return subscribeSharedSecondClock((now) => {
+			date = now;
 			year = date.getFullYear();
 			month = date.getMonth() + 1;
 			week = date.getDay();
@@ -74,9 +75,7 @@
 			hour = date.getHours();
 			minute = date.getMinutes();
 			second = date.getSeconds();
-		}, 500);
-
-		return () => clearInterval(interval);
+		});
 	});
 	run(() => {
 		formatDateStr = `${getWeekName(week)}, ${day}. ${getMonthName(month)} ${year}`;

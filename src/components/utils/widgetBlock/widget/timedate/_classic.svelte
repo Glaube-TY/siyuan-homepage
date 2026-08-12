@@ -1,5 +1,6 @@
 <script lang="ts">
     import { onMount } from "svelte";
+    import { subscribeSharedSecondClock } from "./sharedSecondClock";
     import { getImage } from "@/components/tools/getImage";
     import { SolarDay, LunarDay, EarthBranch } from "tyme4ts";
 
@@ -202,7 +203,10 @@
         updateTime();
         updateDateAndLunar();
 
-        const intervalId = setInterval(updateTime, 50);
+        const unsubscribeClock = subscribeSharedSecondClock((now) => {
+            currentTime = now;
+            initTimeOfDay();
+        });
         let dailyUpdateInterval: ReturnType<typeof setInterval> | null = null;
         const timeUntilMidnight = getMidnightTimestamp() - Date.now();
         const tomorrowUpdateTimeout = setTimeout(() => {
@@ -211,7 +215,7 @@
         }, timeUntilMidnight);
 
         return () => {
-            clearInterval(intervalId);
+            unsubscribeClock();
             clearTimeout(tomorrowUpdateTimeout);
             if (dailyUpdateInterval) {
                 clearInterval(dailyUpdateInterval);

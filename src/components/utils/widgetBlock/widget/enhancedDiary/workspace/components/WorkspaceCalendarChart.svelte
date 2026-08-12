@@ -1,6 +1,6 @@
 <script lang="ts">
     import { onMount, onDestroy, tick } from "svelte";
-    import * as echarts from "echarts";
+    import * as echarts from "@/utils/charts/echarts";
     import type { EnhancedDiaryCalendarDay } from "../enhancedDiaryWorkspaceCalendar";
     import type { EnhancedDiaryWorkspaceCalendarSettings } from "../../enhancedDiaryTypes";
 

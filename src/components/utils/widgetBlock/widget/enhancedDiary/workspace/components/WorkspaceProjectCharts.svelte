@@ -1,6 +1,6 @@
 <script lang="ts">
     import { onDestroy, onMount, tick } from "svelte";
-    import * as echarts from "echarts";
+    import * as echarts from "@/utils/charts/echarts";
     import type { ProjectActivityDay, ProjectTaskViewFilter } from "../enhancedDiaryWorkspaceProjectAnalytics";
     import WorkspaceProjectIcon from "./WorkspaceProjectIcon.svelte";
 

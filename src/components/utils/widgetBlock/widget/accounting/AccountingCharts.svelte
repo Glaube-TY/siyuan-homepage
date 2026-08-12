@@ -1,6 +1,6 @@
 <script lang="ts">
     import { onDestroy, onMount, untrack } from "svelte";
-    import * as echarts from "echarts";
+    import * as echarts from "@/utils/charts/echarts";
     import AccountingIcon from "./AccountingIcon.svelte";
     import AccountingCalendarChart from "./AccountingCalendarChart.svelte";
     import AccountingCategoryReport from "./AccountingCategoryReport.svelte";
