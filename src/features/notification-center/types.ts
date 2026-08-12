@@ -171,6 +171,20 @@ export interface NotificationDeliveryHistoryRecord {
   payloadHash?: string;
 }
 
+export interface NotificationRule {
+  schemaVersion: 1;
+  ruleId: string;
+  revision: number;
+  name: string;
+  enabled: boolean;
+  title: string;
+  content: string;
+  trigger: import("@/features/background-runtime/schedule-contract").ScheduledTrigger;
+  targets: NotificationDeliveryTarget[];
+  createdAt: number;
+  updatedAt: number;
+}
+
 export interface NotificationHistoryIndex {
   schema: "siyuan-homepage-notification-history-index";
   version: 1;

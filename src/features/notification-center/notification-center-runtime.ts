@@ -1,5 +1,6 @@
 import {
   NOTIFICATION_CENTER_SETTINGS_CHANGED_EVENT,
+  NOTIFICATION_RULES_CHANGED_EVENT,
 } from "./constants";
 import { isMobileNotificationRuntime } from "./notification-center-device";
 import {
@@ -9,6 +10,7 @@ import {
 } from "./notification-center-mobile-plan-manager";
 import { clearNotificationCenterMemoryCaches } from "./notification-center-service";
 import { NOTIFICATION_CENTER_BROADCAST_CHANNEL } from "./notification-center-events";
+import { destroyNotificationRuleRuntime, startNotificationRuleRuntime } from "./notification-rule-runtime";
 
 let started = false;
 let interval: number | null = null;
@@ -62,6 +64,7 @@ export function startNotificationCenterRuntime(): void {
   started = true;
   membershipState = "unknown";
   window.addEventListener(NOTIFICATION_CENTER_SETTINGS_CHANGED_EVENT, handleRefreshEvent);
+  window.addEventListener(NOTIFICATION_RULES_CHANGED_EVENT, handleRefreshEvent);
   window.addEventListener("task-notify-settings-changed", handleRefreshEvent);
   window.addEventListener("countdown-notify-settings-changed", handleRefreshEvent);
   window.addEventListener("enhanced-diary-notify-settings-changed", handleRefreshEvent);
@@ -77,6 +80,7 @@ export function startNotificationCenterRuntime(): void {
   if (isMobileNotificationRuntime()) {
     interval = window.setInterval(() => requestMobilePlanAction("periodic"), 5 * 60 * 1000);
   }
+  startNotificationRuleRuntime();
 }
 
 export function destroyNotificationCenterRuntime(): void {
@@ -84,6 +88,7 @@ export function destroyNotificationCenterRuntime(): void {
   if (interval !== null) window.clearInterval(interval);
   interval = null;
   window.removeEventListener(NOTIFICATION_CENTER_SETTINGS_CHANGED_EVENT, handleRefreshEvent);
+  window.removeEventListener(NOTIFICATION_RULES_CHANGED_EVENT, handleRefreshEvent);
   window.removeEventListener("task-notify-settings-changed", handleRefreshEvent);
   window.removeEventListener("countdown-notify-settings-changed", handleRefreshEvent);
   window.removeEventListener("enhanced-diary-notify-settings-changed", handleRefreshEvent);
@@ -96,5 +101,6 @@ export function destroyNotificationCenterRuntime(): void {
   broadcast = null;
   membershipState = "unknown";
   clearNotificationCenterMemoryCaches();
+  destroyNotificationRuleRuntime();
   started = false;
 }

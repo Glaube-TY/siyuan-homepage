@@ -135,6 +135,9 @@ export function createAgentWorkbenchRuntime(
       automation: { source: { profileId: options.profile.id, surface: options.profile.label, conversationId: options.conversationId, messageId: options.turnId } },
     });
   }
+  if (agentProfileAllowsTool(options.profile, "notification_manage")) {
+    registerSystemTools(toolRegistry, { notification: true });
+  }
 
   // Register Siyuan tools (knowledge base, diary, doc editing)
   if (agentProfileHasCapability(options.profile, "siyuan") && options.kbRetrievalToolDeps) {

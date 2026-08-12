@@ -1,10 +1,10 @@
-import { createLegacyNotificationScheduler } from "@/features/agent-platform/automation/legacy-notification-scheduler";
+import { createNotificationScanScheduler } from "@/features/notification-center/notification-scan-scheduler";
 import { hasResolvableTargetsForCurrentRuntime, isNotificationCenterFeatureAvailable, NOTIFICATION_CENTER_SETTINGS_CHANGED_EVENT } from "@/features/notification-center";
 import { ENHANCED_DIARY_NOTIFY_SETTINGS_CHANGED_EVENT } from "./constants";
 import { loadEnhancedDiaryNotifySettings } from "./enhanced-diary-notify-settings-store";
 import { runEnhancedDiaryNotifyScan } from "./enhanced-diary-notify-service";
 
-const scheduler = createLegacyNotificationScheduler({
+const scheduler = createNotificationScanScheduler({
   id: "legacy-enhanced-diary-notify",
   signals: ["homepage-advanced-ready", "homepage-advanced-unavailable", NOTIFICATION_CENTER_SETTINGS_CHANGED_EVENT, ENHANCED_DIARY_NOTIFY_SETTINGS_CHANGED_EVENT],
   load: loadEnhancedDiaryNotifySettings,

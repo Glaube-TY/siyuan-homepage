@@ -1,6 +1,6 @@
-import { registerBackgroundScanTask, signalBackgroundScanTask, stopBackgroundScanTask } from "./unified-background-scheduler";
+import { registerBackgroundScanTask, signalBackgroundScanTask, stopBackgroundScanTask } from "@/features/background-runtime/background-scheduler";
 
-export interface LegacyNotificationSchedulerOptions<T> {
+export interface NotificationScanSchedulerOptions<T> {
   id: string;
   signals: readonly string[];
   load(): Promise<T>;
@@ -8,7 +8,7 @@ export interface LegacyNotificationSchedulerOptions<T> {
   scan(settings: T): Promise<void>;
 }
 
-export function createLegacyNotificationScheduler<T>(options: LegacyNotificationSchedulerOptions<T>) {
+export function createNotificationScanScheduler<T>(options: NotificationScanSchedulerOptions<T>) {
   let unregister: (() => void) | undefined;
   return {
     start(): void {

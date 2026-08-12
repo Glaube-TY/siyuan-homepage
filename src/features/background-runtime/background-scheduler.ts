@@ -5,15 +5,15 @@ export interface BackgroundScanTask {
 }
 
 interface RegisteredTask { definition: BackgroundScanTask; nextAt: number; running: boolean }
-
 const tasks = new Map<string, RegisteredTask>();
 let timer: number | undefined;
 let listening = false;
 
 function schedule(): void {
   if (timer !== undefined) window.clearTimeout(timer);
-  if (tasks.size === 0) { timer = undefined; return; }
-  const next = Math.min(...[...tasks.values()].map((task) => task.nextAt));
+  const dueTimes = [...tasks.values()].filter((task) => !task.running).map((task) => task.nextAt).filter(Number.isFinite);
+  if (dueTimes.length === 0) { timer = undefined; return; }
+  const next = Math.min(...dueTimes);
   timer = window.setTimeout(() => void pump(), Math.max(0, Math.min(60_000, next - Date.now())));
 }
 
@@ -26,10 +26,8 @@ async function runTask(task: RegisteredTask): Promise<void> {
     if (resolved.enabled) await resolved.run();
   } catch (error) {
     task.nextAt = Date.now() + 60_000;
-    console.error(`[automation-scheduler] ${task.definition.id} failed`, error);
-  } finally {
-    task.running = false;
-  }
+    console.error(`[background-scheduler] ${task.definition.id} failed`, error);
+  } finally { task.running = false; }
 }
 
 async function pump(): Promise<void> {
@@ -39,24 +37,10 @@ async function pump(): Promise<void> {
   schedule();
 }
 
-function onWindowSignal(): void {
-  for (const task of tasks.values()) task.nextAt = Date.now();
-  schedule();
-}
-
-function ensureListeners(): void {
-  if (listening) return;
-  listening = true;
-  window.addEventListener("online", onWindowSignal);
-  window.addEventListener("visibilitychange", onWindowSignal);
-}
-
-function cleanupListeners(): void {
-  if (!listening || tasks.size > 0) return;
-  listening = false;
-  window.removeEventListener("online", onWindowSignal);
-  window.removeEventListener("visibilitychange", onWindowSignal);
-}
+function wake(): void { for (const task of tasks.values()) task.nextAt = Date.now(); schedule(); }
+function wakeWhenVisible(): void { if (document.visibilityState === "visible") wake(); }
+function ensureListeners(): void { if (!listening) { listening = true; window.addEventListener("online", wake); document.addEventListener("visibilitychange", wakeWhenVisible); } }
+function cleanupListeners(): void { if (listening && tasks.size === 0) { listening = false; window.removeEventListener("online", wake); document.removeEventListener("visibilitychange", wakeWhenVisible); } }
 
 export function registerBackgroundScanTask(definition: BackgroundScanTask): () => void {
   if (tasks.has(definition.id)) signalBackgroundScanTask(definition.id);
@@ -67,21 +51,9 @@ export function registerBackgroundScanTask(definition: BackgroundScanTask): () =
   schedule();
   return () => {
     for (const signal of definition.signals ?? []) window.removeEventListener(signal, signalHandler);
-    tasks.delete(definition.id);
-    cleanupListeners();
-    schedule();
+    tasks.delete(definition.id); cleanupListeners(); schedule();
   };
 }
 
-export function signalBackgroundScanTask(id: string): void {
-  const task = tasks.get(id);
-  if (!task) return;
-  task.nextAt = Date.now();
-  schedule();
-}
-
-export function stopBackgroundScanTask(id: string): void {
-  const task = tasks.get(id);
-  if (task) task.nextAt = Number.POSITIVE_INFINITY;
-  schedule();
-}
+export function signalBackgroundScanTask(id: string): void { const task = tasks.get(id); if (task) { task.nextAt = Date.now(); schedule(); } }
+export function stopBackgroundScanTask(id: string): void { const task = tasks.get(id); if (task) task.nextAt = Number.POSITIVE_INFINITY; schedule(); }

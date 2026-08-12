@@ -1,10 +1,10 @@
-import { createLegacyNotificationScheduler } from "@/features/agent-platform/automation/legacy-notification-scheduler";
+import { createNotificationScanScheduler } from "@/features/notification-center/notification-scan-scheduler";
 import { hasResolvableTargetsForCurrentRuntime, isNotificationCenterFeatureAvailable, NOTIFICATION_CENTER_SETTINGS_CHANGED_EVENT } from "@/features/notification-center";
 import { TASK_NOTIFY_SETTINGS_CHANGED_EVENT } from "./constants";
 import { loadTaskNotifySettings } from "./task-notify-settings-store";
 import { runTaskNotifyScan } from "./task-notify-service";
 
-const scheduler = createLegacyNotificationScheduler({
+const scheduler = createNotificationScanScheduler({
   id: "legacy-task-notify",
   signals: ["homepage-advanced-ready", "homepage-advanced-unavailable", NOTIFICATION_CENTER_SETTINGS_CHANGED_EVENT, TASK_NOTIFY_SETTINGS_CHANGED_EVENT],
   load: loadTaskNotifySettings,

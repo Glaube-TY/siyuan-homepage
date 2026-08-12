@@ -7,6 +7,7 @@ import { createMemoryManageTool, type MemoryManageToolOptions } from "../tools/s
 import { createAgentToolHelpTool, type AvailableToolSnapshot } from "../tools/aggregate/agent-tool-help.tool";
 import type { ExternalSkillSettings } from "../../../types/settings";
 import { createAutomationManageTool, type AutomationManageToolOptions } from "../tools/system/automation-manage.tool";
+import { createNotificationManageTool } from "../tools/system/notification-manage.tool";
 
 export interface SystemToolOptions {
   memory?: MemoryManageToolOptions;
@@ -16,6 +17,7 @@ export interface SystemToolOptions {
   externalSkillSettings?: ExternalSkillSettings;
   agentToolHelpAvailableTools?: readonly AvailableToolSnapshot[];
   automation?: AutomationManageToolOptions;
+  notification?: boolean;
 }
 
 export function registerSystemTools(
@@ -26,6 +28,7 @@ export function registerSystemTools(
     toolRegistry.ensureTool(createMemoryManageTool(options.memory));
   }
   if (options.automation) toolRegistry.ensureTool(createAutomationManageTool(options.automation));
+  if (options.notification) toolRegistry.ensureTool(createNotificationManageTool());
 
   if (
     options.globalToolAccess?.agentToolHelp !== false &&

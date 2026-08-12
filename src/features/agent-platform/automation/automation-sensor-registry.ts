@@ -1,4 +1,3 @@
-import { loadRecentNotificationDeliveries } from "@/features/notification-center";
 import { loadOpenTasks } from "@/features/task-notify/task-notify-rules";
 import { getDiaryDocForNotify, loadDiaryConfig } from "@/features/enhanced-diary-notify/enhanced-diary-notify-rules";
 
@@ -39,14 +38,5 @@ registerAutomationSensor({
     const config = await loadDiaryConfig();
     const result = await getDiaryDocForNotify(now, config.dailyNotebookId);
     return { fingerprint: result.state === "exists" ? `exists:${result.id}` : result.state, summary: result.state === "exists" ? "今日日记已创建。" : result.state === "missing" ? "今日日记尚未创建。" : "今日日记状态暂时无法确认。" };
-  },
-});
-
-registerAutomationSensor({
-  id: "notification-failures", label: "通知投递失败变化",
-  async evaluate() {
-    const records = (await loadRecentNotificationDeliveries(50)).filter((record) => record.status === "failed");
-    const ids = records.map((record) => `${record.id}:${record.attemptCount}`).sort();
-    return { fingerprint: ids.join(",") || "none", summary: `最近记录中有 ${records.length} 条通知投递失败。` };
   },
 });

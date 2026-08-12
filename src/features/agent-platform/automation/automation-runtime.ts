@@ -1,4 +1,4 @@
-import { notificationCenter, getNotificationDeviceId, requestMobilePlanRefresh, type NotificationDeliveryTarget } from "@/features/notification-center";
+import { getNotificationDeviceId } from "@/features/notification-center";
 import { notificationLockName, withNotificationLock } from "@/features/notification-center/notification-center-locks";
 import { runAgentProfile } from "@/features/kb/services/agent-workbench";
 import type { AgentWorkbenchEvent } from "@/features/kb/services/agent-workbench/contracts/turn-event";
@@ -7,7 +7,7 @@ import { createAutomationRunId, type AutomationJobDefinition, type AutomationJob
 import { AUTOMATION_JOBS_CHANGED_EVENT, automationJobStore } from "./automation-job-store";
 import { getAutomationSensor } from "./automation-sensor-registry";
 import { nextScheduledAt, resolveDueOccurrence } from "./automation-schedule";
-import { registerBackgroundScanTask, signalBackgroundScanTask } from "./unified-background-scheduler";
+import { registerBackgroundScanTask, signalBackgroundScanTask } from "@/features/background-runtime/background-scheduler";
 import { AUTOMATION_RUN_NOW_EVENT } from "./automation-control";
 import { decodeAutomationRobotRoute } from "./automation-robot-route";
 import { getNotebrainPlugin } from "@/features/kb/services/agent-workbench/storage/notebrain-plugin-storage";
@@ -34,34 +34,18 @@ async function saveState(job: AutomationJobDefinition, current: AutomationJobSta
   return automationJobStore.saveState(next, current?.revision);
 }
 
-function mapTargets(job: AutomationJobDefinition): NotificationDeliveryTarget[] {
-  return job.delivery.targets.flatMap((target) => target.kind === "robot" ? [] : [target]);
-}
-
-async function deliver(job: AutomationJobDefinition, run: AutomationRunRecord, title: string, content: string, level: "success" | "warning" | "error" = "success"): Promise<void> {
-  const targets = mapTargets(job);
-  if (targets.length > 0) {
-    await notificationCenter.notify({
-      source: "ai", sourceId: job.jobId, type: `automation_${job.task.kind}`, title, content, level,
-      scheduledAt: new Date(run.scheduledAt).toISOString(), occurrenceKey: run.occurrenceKey,
-      extra: { automationJobId: job.jobId, automationRunId: run.runId },
-    }, { targets, reason: "自动化任务投递" });
-  }
-  for (const target of job.delivery.targets) {
-    if (target.kind !== "robot") continue;
-    const route = decodeAutomationRobotRoute(target.routeRef);
+async function deliver(job: AutomationJobDefinition, content: string): Promise<void> {
+  if (job.output.robotRouteRef) {
+    const route = decodeAutomationRobotRoute(job.output.robotRouteRef);
     const client = new RobotKernelClient(getPluginKernelPort(getNotebrainPlugin()));
     if (!client.available) throw new Error("机器人运行设备当前不可用。");
-    const result = await client.call<{ ok?: boolean; message?: string }>("robot.sendAutomationMessage", { ...route, text: `${title}\n${content}` });
+    const result = await client.call<{ ok?: boolean; message?: string }>("robot.sendAutomationMessage", { ...route, text: `${job.name}\n${content}` });
     if (!result?.ok) throw new Error(result?.message || "机器人消息投递失败。");
   }
 }
 
-function shouldDeliver(job: AutomationJobDefinition, status: AutomationRunRecord["status"], changed: boolean, actionPerformed = false): boolean {
-  if (status === "failed") return true;
-  if (job.delivery.notifyWhen === "always" || job.delivery.notifyWhen === "result-or-error") return true;
-  if (job.delivery.notifyWhen === "change-only") return changed;
-  return actionPerformed;
+function shouldDeliver(job: AutomationJobDefinition, status: AutomationRunRecord["status"], changed: boolean): boolean {
+  return Boolean(job.output.robotRouteRef) && status !== "skipped" && (job.task.kind !== "monitor" || changed);
 }
 
 function retryableCode(code: string | undefined): boolean {
@@ -69,9 +53,7 @@ function retryableCode(code: string | undefined): boolean {
 }
 
 async function executeAgent(job: AutomationJobDefinition, goal: string, runId: string) {
-  if (job.task.kind === "reminder") throw new Error("提醒任务不能运行 Agent。");
-  const execution = job.task.kind === "agent" ? job.task.execution : job.task.reaction.kind === "agent" ? job.task.reaction.execution : undefined;
-  if (!execution) throw new Error("当前任务没有 Agent 执行配置。");
+  const execution = job.task.execution;
   const controller = new AbortController();
   const timeout = window.setTimeout(() => controller.abort("automation_timeout"), execution.budget.maxDurationMs);
   const events: AgentWorkbenchEvent[] = [];
@@ -104,14 +86,14 @@ const TERMINAL_RUN_STATUSES = new Set<AutomationRunRecord["status"]>(["succeeded
 
 async function recoverInterruptedRun(job: AutomationJobDefinition, state: AutomationJobState): Promise<AutomationJobState> {
   if (!state.activeRunId || !state.activeRunMonth) return state;
-  const execution = job.task.kind === "agent" ? job.task.execution : job.task.kind === "monitor" && job.task.reaction.kind === "agent" ? job.task.reaction.execution : undefined;
+  const execution = job.task.execution;
   if (Date.now() - (state.lastStartedAt ?? state.updatedAt) <= (execution?.budget.maxDurationMs ?? 60_000) + 60_000) return state;
   const run = await automationJobStore.getRun(state.activeRunMonth, state.activeRunId);
   if (run && TERMINAL_RUN_STATUSES.has(run.status)) {
     const summary = run.result?.summary ?? run.error?.message ?? "任务已取消。";
     try {
-      if (shouldDeliver(job, run.status, run.status !== "skipped", run.toolSummaries.length > 0)) {
-        await deliver(job, run, job.name, summary, run.status === "failed" ? "error" : "success");
+      if (shouldDeliver(job, run.status, run.status !== "skipped")) {
+        await deliver(job, summary);
       }
     } catch (error) { console.error("[automation-runtime] 恢复投递失败", error); }
     await automationJobStore.deleteCheckpoint(run.runId);
@@ -172,7 +154,7 @@ async function runOccurrence(job: AutomationJobDefinition, scheduledAt: number, 
     run = await automationJobStore.saveRun({ ...run, revision: 2, status: "running", startedAt: Date.now(), updatedAt: Date.now() }, 1);
 
     let changed = true;
-    let summary = job.task.kind === "reminder" ? job.task.message : "";
+    let summary = "";
     let runStatus: AutomationRunRecord["status"] = "succeeded";
     let usage: AutomationRunRecord["usage"];
     let summaries: AutomationRunRecord["toolSummaries"] = [];
@@ -188,8 +170,7 @@ async function runOccurrence(job: AutomationJobDefinition, scheduledAt: number, 
         sensorCheckpoint = { fingerprint: result.fingerprint, checkedAt: Date.now(), summary: result.summary };
         summary = result.summary;
         if (!current.sensorCheckpoint || !changed) runStatus = "skipped";
-        else if (job.task.reaction.kind === "notify") summary = `${job.task.reaction.message}\n${result.summary}`;
-        else agentGoal = `${job.task.reaction.execution.goal}\n\n监测变化：${result.summary}`;
+        else agentGoal = `${job.task.execution.goal}\n\n监测变化：${result.summary}`;
       } else if (job.task.kind === "agent") agentGoal = job.task.execution.goal;
 
       if (agentGoal) {
@@ -198,8 +179,7 @@ async function runOccurrence(job: AutomationJobDefinition, scheduledAt: number, 
           executed = await executeAgent(job, agentGoal, runId);
           if (executed.outcome.ok || !retryableCode(executed.outcome.agentErrorCode)) break;
         }
-        const tokenBudget = job.task.kind === "agent" ? job.task.execution.budget.maxTokens
-          : job.task.kind === "monitor" && job.task.reaction.kind === "agent" ? job.task.reaction.execution.budget.maxTokens : Number.POSITIVE_INFINITY;
+        const tokenBudget = job.task.execution.budget.maxTokens;
         if ((executed?.outcome.usage?.totalTokens ?? 0) > tokenBudget) {
           throw Object.assign(new Error("后台 Agent 已超过任务令牌预算。"), { code: "automation_token_budget_exceeded", events: executed?.events });
         }
@@ -242,8 +222,8 @@ async function runOccurrence(job: AutomationJobDefinition, scheduledAt: number, 
       nextRunAt: manual ? current.nextRunAt : nextScheduledAt(job.trigger, job.policy.catchUp === "skip" ? scheduledAt : completedAt), consecutiveFailures: failures,
       pauseReason: blocked ? "连续失败次数达到上限，已自动暂停。" : undefined, sensorCheckpoint,
     });
-    if (shouldDeliver(job, runStatus, changed, summaries.length > 0)) {
-      try { await deliver(job, terminal, job.name, summary, runStatus === "failed" ? "error" : changed ? "success" : "warning"); }
+    if (shouldDeliver(job, runStatus, changed)) {
+      try { await deliver(job, summary); }
       catch (deliveryError) { console.error("[automation-runtime] 任务已完成，但投递失败", deliveryError); }
     }
     emitChanged();
@@ -280,7 +260,6 @@ async function scanJobs(): Promise<void> {
 
 function onJobsChanged(): void {
   signalBackgroundScanTask(TASK_ID);
-  requestMobilePlanRefresh("automation-jobs-changed");
   emitChanged();
 }
 

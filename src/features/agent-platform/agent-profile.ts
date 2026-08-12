@@ -266,6 +266,7 @@ export const ROBOT_AGENT_TOOL_NAMES = [
   "homepage_review",
   "memory_manage",
   "automation_manage",
+  "notification_manage",
 ] as const;
 
 registerAgentProfile({

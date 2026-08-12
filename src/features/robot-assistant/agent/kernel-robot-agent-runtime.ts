@@ -5,6 +5,7 @@ import type { AgentMessage } from "../../../features/kb/services/agent-core/mess
 import { compactAgentSessionMessagesForStorage } from "../../../features/kb/services/agent-core/messages/message-compactor";
 import { createProviderAdapterForKbModel } from "../../../features/kb/services/agent-core/providers/agent-provider-factory";
 import { NativeToolRegistry } from "../../../features/kb/services/agent-core/tools/native-tool-registry";
+import type { NativeTool } from "../../../features/kb/services/agent-core/tools/native-tool";
 import type { AgentHttpTransport } from "../../../features/kb/services/agent-core/providers/agent-http-transport";
 import type { KbChatModelConfig, KbChatProviderConfig, KbChatProviderType } from "../../../features/kb/types/settings";
 import type { RobotModelConfigStore } from "../runtime/robot-model-config";
@@ -19,6 +20,7 @@ import {
   type AgentProfile,
 } from "../../../features/agent-platform/agent-profile";
 import { buildGlobalMemoryContext } from "../../../features/kb/services/agent-workbench/memory/global-memory-store";
+import { bindAutomationRobotResult, encodeAutomationRobotRoute } from "../../../features/agent-platform/automation/automation-robot-route";
 
 export interface KernelRobotAgentRuntimeDeps {
   /** Kernel HTTP transport（siyuan.client.fetch → forwardProxy），stream:false。 */
@@ -81,7 +83,7 @@ export class KernelRobotAgentRuntime implements RobotAgentRuntime {
       toolPolicy: input.toolPolicy,
     });
 
-    const turnRegistry = this.createTurnRegistry(input.toolPolicy, profile);
+    const turnRegistry = this.createTurnRegistry(input, profile);
     const memoryContext = agentProfileAllowsMemory(profile, "read")
       ? await buildGlobalMemoryContext(input.userText, { limit: 8, maxChars: 4000 })
       : undefined;
@@ -151,16 +153,29 @@ export class KernelRobotAgentRuntime implements RobotAgentRuntime {
     }
   }
 
-  private createTurnRegistry(policy: RobotAgentTurnInput["toolPolicy"], profile: AgentProfile): NativeToolRegistry {
+  private createTurnRegistry(input: RobotAgentTurnInput, profile: AgentProfile): NativeToolRegistry {
     const registry = new NativeToolRegistry();
     for (const tool of this.deps.toolRegistry.list()) {
-      const explicit = policy.tools[tool.name];
+      const explicit = input.toolPolicy.tools[tool.name];
       const allowed = explicit
         ? explicit.remoteAllowed
-        : tool.readOnly && policy.readOnlyDefaultAllowed;
-      if (allowed && agentProfileAllowsTool(profile, tool.name)) registry.register(tool);
+        : tool.readOnly && input.toolPolicy.readOnlyDefaultAllowed;
+      if (!allowed || !agentProfileAllowsTool(profile, tool.name)) continue;
+      registry.register(tool.name === "automation_manage" ? this.bindAutomationRoute(tool, input) : tool);
     }
     return registry;
+  }
+
+  private bindAutomationRoute(tool: NativeTool, input: RobotAgentTurnInput): NativeTool {
+    const routeRef = encodeAutomationRobotRoute(input);
+    const bind = (args: Record<string, unknown>) => bindAutomationRobotResult(args, routeRef);
+    return {
+      ...tool,
+      execute: (args, context) => tool.execute(bind(args), context),
+      ...(tool.preflightValidate ? { preflightValidate: (args: Record<string, unknown>) => tool.preflightValidate!(bind(args)) } : {}),
+      ...(tool.isReadOnlyCall ? { isReadOnlyCall: (args: Record<string, unknown>) => tool.isReadOnlyCall!(bind(args)) } : {}),
+      ...(tool.preview ? { preview: (args: Record<string, unknown>) => tool.preview!(bind(args)) } : {}),
+    };
   }
 
   private scheduleTimeout(fn: () => void, ms: number): () => void {

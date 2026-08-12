@@ -11,20 +11,24 @@
     DEFAULT_NOTIFICATION_CENTER_SETTINGS,
     NOTIFICATION_CENTER_HISTORY_CHANGED_EVENT,
     NOTIFICATION_CENTER_MOBILE_PLANS_CHANGED_EVENT,
+    NOTIFICATION_RULES_CHANGED_EVENT,
+    deleteNotificationRule,
     getMobilePlanRuntimeStatus,
     isMobileNotificationRuntime,
     loadNotificationCenterSettings,
     loadCurrentDeviceMobilePlans,
     loadRecentNotificationDeliveries,
+    listNotificationRules,
     notificationCenter,
     saveNotificationCenterSettings,
   } from "@/features/notification-center";
-  import type { MobilePlanRuntimeStatus, NotificationCenterSettings, NotificationDeliveryHistoryRecord } from "@/features/notification-center/types";
+  import type { MobilePlanRuntimeStatus, NotificationCenterSettings, NotificationDeliveryHistoryRecord, NotificationRule } from "@/features/notification-center/types";
   import type { NotificationCenterSubTab } from "../notificationCenterTabs";
   interface Props { plugin: any; advancedEnabled: boolean; activeSubTab: NotificationCenterSubTab; }
   let { advancedEnabled, activeSubTab }: Props = $props();
   let settings = $state<NotificationCenterSettings>(structuredClone(DEFAULT_NOTIFICATION_CENTER_SETTINGS));
   let history = $state<NotificationDeliveryHistoryRecord[]>([]);
+  let rules = $state<NotificationRule[]>([]);
   let mobileStatus = $state<MobilePlanRuntimeStatus>({ planCount: 0 });
   let loadingSettings = $state(false);
   let saving = $state(false);
@@ -48,6 +52,13 @@
     } catch (error) {
       if (advancedEnabled && generation === accessGeneration) historyLoadError = errorMessage(error, "通知历史加载失败，请检查历史数据文件。");
     }
+  }
+  async function refreshRules(): Promise<void> {
+    if (advancedEnabled) rules = await listNotificationRules();
+  }
+  async function removeRule(rule: NotificationRule): Promise<void> {
+    try { await deleteNotificationRule(rule.ruleId, rule.revision); await refreshRules(); }
+    catch (error) { showMessage(errorMessage(error, "通知规则删除失败。"), 5000, "error"); }
   }
   async function loadMobilePlans(): Promise<void> {
     if (!advancedEnabled) return;
@@ -78,6 +89,7 @@
     accessGeneration += 1;
     settings = structuredClone(DEFAULT_NOTIFICATION_CENTER_SETTINGS);
     history = [];
+    rules = [];
     mobileStatus = { planCount: 0 };
     loadingSettings = false;
     saving = false;
@@ -100,6 +112,7 @@
     }
     if (!advancedEnabled || generation !== accessGeneration) return;
     await refreshHistory();
+    await refreshRules();
     if (!advancedEnabled || generation !== accessGeneration) return;
     await loadMobilePlans();
   }
@@ -109,12 +122,15 @@
   async function clearPlans(): Promise<void> { try { mobileStatus = await notificationCenter.clearCurrentDeviceMobilePlans(); mobilePlanLoadError = null; showMessage("当前设备移动通知计划已清理。"); } catch (error) { mobilePlanLoadError = errorMessage(error, "计划清理失败。"); showMessage(mobilePlanLoadError, 5000, "error"); } }
   onMount(() => {
     const handleHistoryChanged = () => { if (advancedEnabled) void refreshHistory(); };
+    const handleRulesChanged = () => { if (advancedEnabled) void refreshRules(); };
     const refreshMobile = () => { if (advancedEnabled && isMobileNotificationRuntime()) mobileStatus = getMobilePlanRuntimeStatus(); };
     window.addEventListener(NOTIFICATION_CENTER_HISTORY_CHANGED_EVENT, handleHistoryChanged);
     window.addEventListener(NOTIFICATION_CENTER_MOBILE_PLANS_CHANGED_EVENT, refreshMobile);
+    window.addEventListener(NOTIFICATION_RULES_CHANGED_EVENT, handleRulesChanged);
     return () => {
       window.removeEventListener(NOTIFICATION_CENTER_HISTORY_CHANGED_EVENT, handleHistoryChanged);
       window.removeEventListener(NOTIFICATION_CENTER_MOBILE_PLANS_CHANGED_EVENT, refreshMobile);
+      window.removeEventListener(NOTIFICATION_RULES_CHANGED_EVENT, handleRulesChanged);
     };
   });
   $effect(() => {
@@ -131,13 +147,20 @@
       </SettingRow>
     </SettingSection>
   {:else}
-  <div class="shp-notification-page-header"><div><h2>通知中心</h2><p>统一管理桌面端、移动端和外联通知链路。具体内容、时间和规则在任务、纪念日、强化日记等对应功能中设置。</p></div><button type="button" class="b3-button b3-button--text" {disabled} onclick={save}>{saving ? "保存中…" : "保存设置"}</button></div>
+  <div class="shp-notification-page-header"><h2>通知中心</h2><button type="button" class="b3-button b3-button--text" {disabled} onclick={save}>{saving ? "保存中…" : "保存设置"}</button></div>
   {#if settingsLoadError}
     <SettingSection title="通知中心状态">
       {#if settingsLoadError}<SettingRow title="设置加载失败" description="通知中心设置未被覆盖"><span class="shp-notification-error">{settingsLoadError}</span></SettingRow>{/if}
     </SettingSection>
   {/if}
-  {#if activeSubTab === "desktop"}
+  {#if activeSubTab === "rules"}
+    <div class="shp-rule-list">
+      {#if rules.length === 0}<div class="shp-rule-empty">暂无通知规则</div>{/if}
+      {#each rules as rule (rule.ruleId)}
+        <article class="shp-rule-row"><div><strong>{rule.name}</strong><span>{rule.title}</span></div><time>{rule.enabled ? "已启用" : "已停用"}</time><button type="button" class="b3-button b3-button--text" onclick={() => void removeRule(rule)}>删除</button></article>
+      {/each}
+    </div>
+  {:else if activeSubTab === "desktop"}
     <DesktopNotificationSettings value={settings.desktop} {disabled} onChange={(desktop) => settings = { ...settings, desktop }} onTest={() => test("desktop")} />
   {:else if activeSubTab === "mobile"}
     <MobileNotificationSettings value={settings.mobile} status={mobileStatus} error={mobilePlanLoadError} {disabled} onChange={(mobile) => settings = { ...settings, mobile }} onTest={() => void test("mobile")} onReconcile={() => void reconcile()} onClear={() => void clearPlans()} />
@@ -152,8 +175,14 @@
 <style>
   .shp-notification-page { display: grid; gap: 16px; padding: 4px; }
   .shp-notification-page-header { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
-  .shp-notification-page-header h2, .shp-notification-page-header p { margin: 0; }
-  .shp-notification-page-header p, .shp-notification-status { color: var(--b3-theme-on-surface); font-size: 12px; line-height: 1.5; }
+  .shp-notification-page-header h2 { margin: 0; }
+  .shp-notification-status { color: var(--b3-theme-on-surface); font-size: 12px; line-height: 1.5; }
   .shp-notification-error { color: var(--b3-theme-error); font-size: 12px; line-height: 1.5; }
+  .shp-rule-list { display: grid; border: 1px solid var(--b3-border-color); border-radius: 8px; overflow: hidden; }
+  .shp-rule-row { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 12px; align-items: center; padding: 10px 12px; border-bottom: 1px solid var(--b3-border-color); }
+  .shp-rule-row:last-child { border-bottom: 0; }
+  .shp-rule-row div { display: grid; gap: 3px; min-width: 0; }
+  .shp-rule-row span, .shp-rule-row time { color: var(--b3-theme-on-surface-light); font-size: 12px; }
+  .shp-rule-empty { padding: 32px; text-align: center; color: var(--b3-theme-on-surface-light); }
   @media (max-width: 700px) { .shp-notification-page-header { align-items: flex-start; flex-direction: column; } }
 </style>

@@ -29,6 +29,9 @@ export * from "./notification-center-mobile-plan-store";
 export * from "./notification-center-runtime";
 export * from "./notification-center-device";
 export * from "./notification-center-redact";
+export * from "./notification-rule-store";
+export * from "./notification-rule-runtime";
+export * from "./notification-rule-mobile-plans";
 export {
   notify,
   testDesktop,

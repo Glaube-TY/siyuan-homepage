@@ -17,6 +17,7 @@ import {
 import { registerDocContentEditConfirmationHandler } from "../../../features/kb/services/doc-content-edit/doc-content-edit-confirmation-bridge";
 import { registerSystemTools } from "../../../features/kb/services/agent-workbench/composition/register-system-tools";
 import { getGlobalMemoryProfile } from "../../../features/kb/services/agent-workbench/memory/global-memory-store";
+import { setNotificationCenterPlugin } from "../../../features/notification-center/notification-center-plugin";
 
 /**
  * 构建 Kernel-safe 工具注册表。
@@ -48,6 +49,7 @@ async function registerKernelDataTools(registry: NativeToolRegistry, host: Robot
   // Existing homepage and Agent services all receive the same plugin-scoped
   // data adapter. No Robot-only business JSON or duplicated service exists.
   setNotebrainPlugin(storage as never);
+  setNotificationCenterPlugin(storage as never);
   setSharedWidgetStoragePlugin(storage);
   setQuickNoteWritePlugin(storage);
   setQuickNoteConfigLoader(async () => {
@@ -108,7 +110,17 @@ async function registerKernelDataTools(registry: NativeToolRegistry, host: Robot
       source: { profileId: "remote-robot", surface: "远程机器人对话" },
       writeRequiresConfirmation: !(await getGlobalMemoryProfile()).autoLearn,
     },
-    automation: { source: { profileId: "remote-robot", surface: "远程机器人对话" } },
+    automation: {
+      source: { profileId: "remote-robot", surface: "远程机器人对话" },
+      resolveRunnerDeviceId: async () => {
+        const response = await host.siyuanPost("/api/system/getConf", {});
+        const data = response.data && typeof response.data === "object" ? response.data as Record<string, unknown> : {};
+        const conf = data.conf && typeof data.conf === "object" ? data.conf as Record<string, unknown> : {};
+        const system = conf.system && typeof conf.system === "object" ? conf.system as Record<string, unknown> : {};
+        return typeof system.id === "string" ? system.id : undefined;
+      },
+    },
+    notification: true,
   });
 
   const native = createNativeToolRegistryFromWorkbench({

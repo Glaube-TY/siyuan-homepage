@@ -20,7 +20,6 @@ import { ROBOT_TEXT_UNSUPPORTED_REPLY } from "../contracts/robot-message";
 import type { RobotDebugLogger } from "./robot-logger";
 import { NOOP_ROBOT_LOGGER } from "./robot-logger";
 import { createRobotId } from "../contracts/robot-id";
-import { encodeAutomationRobotRoute } from "@/features/agent-platform/automation/automation-robot-route";
 
 /** 确认请求结果。 */
 export type RobotConfirmationOutcome = "approved" | "rejected" | "expired";
@@ -657,7 +656,6 @@ export class RobotCore {
     systemPrompt: string,
     settings: RobotAssistantSettings,
   ): Promise<RobotAgentTurnResult> {
-    const automationRoute = encodeAutomationRobotRoute(message);
     return await this.deps.agentRuntime.runTurn({
       session,
       userText: message.text,
@@ -668,7 +666,7 @@ export class RobotCore {
       senderId: message.senderId,
       senderName: message.senderName,
       conversationId: session.conversationId,
-      systemPrompt: `${systemPrompt}\n\n当用户要求定时提醒、周期任务或变化监测时，使用 automation_manage。需要把结果发回当前机器人会话时，投递目标使用 {"kind":"robot","routeRef":"${automationRoute}"}；不要向用户展示或解释 routeRef。`,
+      systemPrompt: `${systemPrompt}\n\n严格区分通知与 Agent 自动化：用户只要求在某个时间收到既定提醒时使用 notification_manage；用户要求到点后由 Agent 读取数据、归纳、生成内容或执行工作流时使用 automation_manage 的 agent；要求持续检查变化并由 Agent 处理时使用 automation_manage 的 monitor。Agent 自动化结果会由系统绑定并主动发回当前机器人会话，不要混用两种工具，也不要展示内部路由。`,
       toolPolicy: settings.robotToolPolicy,
       modelTimeoutMs: settings.modelTimeoutMs,
       turnTimeoutMs: settings.turnTimeoutMs,

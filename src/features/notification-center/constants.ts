@@ -5,6 +5,7 @@ export const NOTIFICATION_CENTER_HISTORY_INDEX_KEY = "notification-center/histor
 export const NOTIFICATION_CENTER_SETTINGS_CHANGED_EVENT = "notification-center-settings-changed";
 export const NOTIFICATION_CENTER_HISTORY_CHANGED_EVENT = "notification-center-history-changed";
 export const NOTIFICATION_CENTER_MOBILE_PLANS_CHANGED_EVENT = "notification-center-mobile-plans-changed";
+export const NOTIFICATION_RULES_CHANGED_EVENT = "notification-center-rules-changed";
 export const NOTIFICATION_CENTER_DEFAULT_TIMEOUT_MS = 10000;
 
 export const DEFAULT_NOTIFICATION_CENTER_SETTINGS: NotificationCenterSettings = {

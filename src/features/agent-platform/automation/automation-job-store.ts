@@ -16,13 +16,14 @@ import {
 } from "./automation-job-contract";
 import type { AgentRunCheckpoint } from "../../kb/services/agent-core/session/agent-run-checkpoint";
 
-const JOB_INDEX_KEY = "notebrain/automation/jobs/index.json";
-const RUN_CATALOG_KEY = "notebrain/automation/runs/index.json";
-const jobKey = (jobId: string) => `notebrain/automation/jobs/${jobId}.json`;
-const stateKey = (jobId: string) => `notebrain/automation/state/${jobId}.json`;
-const runIndexKey = (month: string) => `notebrain/automation/runs/${month}/index.json`;
-const runKey = (month: string, runId: string) => `notebrain/automation/runs/${month}/${runId}.json`;
-const checkpointKey = (runId: string) => `notebrain/automation/checkpoints/${runId}.json`;
+const ROOT = "notebrain/agent-automation";
+const JOB_INDEX_KEY = `${ROOT}/jobs/index.json`;
+const RUN_CATALOG_KEY = `${ROOT}/runs/index.json`;
+const jobKey = (jobId: string) => `${ROOT}/jobs/${jobId}.json`;
+const stateKey = (jobId: string) => `${ROOT}/state/${jobId}.json`;
+const runIndexKey = (month: string) => `${ROOT}/runs/${month}/index.json`;
+const runKey = (month: string, runId: string) => `${ROOT}/runs/${month}/${runId}.json`;
+const checkpointKey = (runId: string) => `${ROOT}/checkpoints/${runId}.json`;
 
 export const AUTOMATION_JOBS_CHANGED_EVENT = "automation-jobs-changed";
 
@@ -47,7 +48,7 @@ const pluginStorage: AutomationStoragePort = {
 const jobIndexEntrySchema = z.object({
   jobId: z.string().refine(isValidStorageId),
   name: z.string().trim().min(1).max(120),
-  kind: z.enum(["reminder", "agent", "monitor"]),
+  kind: z.enum(["agent", "monitor"]),
   enabled: z.boolean(),
   revision: z.number().int().min(1),
   updatedAt: z.number().int().nonnegative(),

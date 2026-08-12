@@ -72,6 +72,7 @@ import { syncRobotAgentRuntimeConfig } from "@/features/robot-assistant/runtime/
 import {
     destroyNotificationCenterRuntime,
     registerMobileNotificationPlanProvider,
+    notificationRuleMobilePlanProvider,
     setNotificationCenterPlugin,
     settleMobilePlanReconcile,
     settleNotificationCenterOperations,
@@ -82,7 +83,6 @@ import { taskMobileNotificationPlanProvider } from "@/features/task-notify/task-
 import { countdownMobileNotificationPlanProvider } from "@/features/countdown-notify/countdown-notify-mobile-plans";
 import { enhancedDiaryMobileNotificationPlanProvider } from "@/features/enhanced-diary-notify/enhanced-diary-notify-mobile-plans";
 import { reviewMobileNotificationPlanProvider } from "@/features/review-notify/review-notify-mobile-plans";
-import { automationMobileNotificationPlanProvider } from "@/features/agent-platform/automation/automation-mobile-plans";
 import { destroyAutomationRuntime, startAutomationRuntime } from "@/features/agent-platform/automation/automation-runtime";
 import { destroyTaskNotifyScheduler, setTaskNotifyPlugin, startTaskNotifyScheduler } from "@/features/task-notify";
 import { destroyCountdownNotifyScheduler, setCountdownNotifyPlugin, startCountdownNotifyScheduler } from "@/features/countdown-notify";
@@ -433,7 +433,7 @@ export default class PluginHomepage extends Plugin {
             registerMobileNotificationPlanProvider(countdownMobileNotificationPlanProvider),
             registerMobileNotificationPlanProvider(enhancedDiaryMobileNotificationPlanProvider),
             registerMobileNotificationPlanProvider(reviewMobileNotificationPlanProvider),
-            registerMobileNotificationPlanProvider(automationMobileNotificationPlanProvider),
+            registerMobileNotificationPlanProvider(notificationRuleMobilePlanProvider),
         ];
         this.registerIcon();
         this.ensureTabContainers();

@@ -39,10 +39,10 @@ const reminder: AutomationJobDefinition = {
   enabled: true,
   source: { surface: "kb-chat", profileId: "kb-full" },
   trigger: { kind: "once", at: now + 60_000, timeZone: "Asia/Shanghai" },
-  task: { kind: "reminder", message: "提交材料" },
+  task: { kind: "agent", execution: { goal: "整理并提交材料", profileId: "background-job", allowedToolNames: ["siyuan_kb"], allowedActionNames: ["siyuan_kb:search"], memoryAccess: "none", budget: { maxTokens: 1000, maxToolCalls: 1, maxDurationMs: 10_000 } } },
   runner: { deviceId: "device-a", runtime: "kernel", requiredCapabilities: ["notification"] },
   policy: { catchUp: "run-once", overlap: "skip", maxRetries: 1, maxConsecutiveFailures: 3 },
-  delivery: { targets: [{ kind: "desktop" }, { kind: "robot", routeRef: "robot-route-a" }], notifyWhen: "always" },
+  output: { robotRouteRef: "robot-route-a" },
   createdAt: now,
   updatedAt: now,
 };
@@ -106,8 +106,15 @@ assert.equal((await store.getRun(runMonth, queuedRun.runId))?.revision, 2);
 assert.equal(automationJobDefinitionSchema.safeParse({
   ...reminder,
   jobId: "invalid-monitor",
-  task: { kind: "monitor", reaction: { kind: "notify", message: "发生变化" } },
+  task: reminder.task,
+  trigger: { kind: "sensor", sensorId: "task-overdue", intervalMinutes: 60, timeZone: "Asia/Shanghai" },
 }).success, false);
+assert.equal(automationJobDefinitionSchema.safeParse({
+  ...reminder,
+  jobId: "legacy-reminder",
+  task: { kind: "reminder", message: "不应进入 Agent Job" },
+  delivery: { targets: [{ kind: "desktop" }], notifyWhen: "always" },
+}).success, false, "固定提醒和通知目标必须由通知中心管理");
 
 await store.deleteJob(reminder.jobId, 2);
 assert.equal(await store.getJob(reminder.jobId), undefined);

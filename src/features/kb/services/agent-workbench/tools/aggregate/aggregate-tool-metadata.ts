@@ -23,6 +23,7 @@ export type AggregateToolName =
   | "web_fetch"
   | "memory_manage"
   | "automation_manage"
+  | "notification_manage"
   | "agent_tool_help";
 
 export interface AggregateActionMeta {
@@ -170,16 +171,31 @@ function reviewTargetArgsSchema(
 
 export const AGGREGATE_TOOL_CATALOG: AggregateToolMeta[] = [
   {
+    name: "notification_manage",
+    title: "通知中心",
+    description: "创建和管理固定内容的定时通知。",
+    readOnly: false,
+    requiresConfirmation: true,
+    boundary: "通知只投递已经确定的内容；需要到点运行 Agent、读取数据或生成结果时使用 automation_manage。",
+    actions: [
+      { name: "list", title: "列出通知规则", description: "列出由 Agent 管理的通知规则。", readOnly: true },
+      { name: "get", title: "查看通知规则", description: "读取通知规则。", readOnly: true },
+      { name: "create", title: "创建通知规则", description: "创建一次性或周期通知。", readOnly: false },
+      { name: "update", title: "更新通知规则", description: "修改内容、时间、渠道或状态。", readOnly: false },
+      { name: "delete", title: "删除通知规则", description: "删除通知规则。", readOnly: false },
+    ],
+  },
+  {
     name: "automation_manage",
-    title: "自动化中心",
-    description: "创建和管理定时提醒、后台 Agent 与变化监测。",
+    title: "Agent 自动化",
+    description: "创建和管理定时 Agent 与变化监测。",
     readOnly: false,
     requiresConfirmation: true,
     boundary: "创建、修改、立即运行和删除需要确认；后台 Agent 只开放明确授权的只读工具并受预算限制。",
     actions: [
       { name: "list", title: "列出自动化", description: "列出任务与当前状态。", readOnly: true },
       { name: "get", title: "查看自动化", description: "读取任务定义和状态。", readOnly: true },
-      { name: "create", title: "创建自动化", description: "创建提醒、后台 Agent 或监测任务。", readOnly: false },
+      { name: "create", title: "创建自动化", description: "创建定时 Agent 或监测任务。", readOnly: false },
       { name: "update", title: "更新自动化", description: "修改任务或启停状态。", readOnly: false },
       { name: "run_now", title: "立即运行", description: "手动触发一次任务。", readOnly: false },
       { name: "delete", title: "删除自动化", description: "删除任务定义并保留运行历史。", readOnly: false },
