@@ -210,6 +210,43 @@ export const KNOWLEDGE_CHAT_AGENT_PROFILE_ID = "knowledge-chat";
 export const ROBOT_AGENT_PROFILE_ID = "remote-robot";
 export const HOMEPAGE_STATUS_AGENT_PROFILE_ID = "homepage-status";
 export const EDITOR_SELECTION_AGENT_PROFILE_ID = "editor-selection";
+export const BACKGROUND_JOB_AGENT_PROFILE_ID = "background-job";
+
+const BACKGROUND_SAFE_ACTIONS: Readonly<Record<string, readonly string[]>> = Object.freeze({
+  siyuan_kb: ["search", "read_docs", "read_evidence", "get_doc_info", "list_map", "list_by_time", "outline", "refs", "extra_search"],
+  diary_task: ["overview", "query_tasks", "query_records", "find_docs"],
+});
+
+export function createBackgroundJobAgentProfile(input: {
+  allowedToolNames: readonly string[];
+  allowedActionNames: readonly string[];
+  memoryAccess: "none" | "read";
+  maxToolCalls: number;
+}): AgentProfile {
+  const names = [...new Set(input.allowedToolNames)].filter((name) => BACKGROUND_SAFE_ACTIONS[name]);
+  const requestedActions = new Set(input.allowedActionNames);
+  const actions = Object.fromEntries(names.map((name) => [name,
+    BACKGROUND_SAFE_ACTIONS[name].filter((action) => requestedActions.has(`${name}:${action}`)),
+  ]));
+  const memoryRead = input.memoryAccess === "read";
+  if (names.some((name) => actions[name].length === 0)) throw new Error("后台 Agent 工具必须明确授权至少一个只读 action。");
+  const capabilities: AgentCapabilityId[] = ["tools", "siyuan"];
+  const contextSources: AgentContextSourceId[] = ["knowledge"];
+  if (memoryRead) { capabilities.push("global-memory"); contextSources.push("global-memory"); }
+  return Object.freeze({
+    schemaVersion: AGENT_PROFILE_SCHEMA_VERSION,
+    id: BACKGROUND_JOB_AGENT_PROFILE_ID,
+    label: "后台自动化任务",
+    capabilities: Object.freeze(capabilities),
+    permissions: Object.freeze({
+      contextSources: Object.freeze(contextSources),
+      tools: Object.freeze({ names: Object.freeze(names), actions: Object.freeze(actions) }),
+      memory: Object.freeze({ read: memoryRead, write: false }),
+      externalSkillIds: Object.freeze([]), mcpServerIds: Object.freeze([]), mcpToolNames: Object.freeze([]),
+    }),
+    execution: Object.freeze({ defaultMaxToolCalls: Math.max(0, input.maxToolCalls) }),
+  });
+}
 
 export const ROBOT_AGENT_TOOL_NAMES = [
   "siyuan_kb",
@@ -228,6 +265,7 @@ export const ROBOT_AGENT_TOOL_NAMES = [
   "homepage_favorites",
   "homepage_review",
   "memory_manage",
+  "automation_manage",
 ] as const;
 
 registerAgentProfile({

@@ -295,6 +295,13 @@ const SETTINGS_SEARCH_REGISTRY: readonly SettingSearchEntry[] = [
         ],
     ),
     ...defineSettings(
+        { mainTab: "aiKnowledgeBase", subTab: "automation", section: "自动化中心", scope: "all-devices" },
+        [
+            { id: "ai.automation.jobs", title: "自动化任务", description: "创建和管理定时提醒、后台 Agent 与变化监测", keywords: ["定时任务", "心跳", "提醒", "监控"], target: "section" },
+            { id: "ai.automation.runs", title: "自动化运行记录", description: "查看任务执行状态、结果和失败原因", keywords: ["日志", "历史", "后台任务"], target: "section" },
+        ],
+    ),
+    ...defineSettings(
         { mainTab: "notifyBridge", subTab: "desktop", section: "桌面系统通知", scope: "current-device" },
         [
             { id: "notify.desktop.enabled", title: "开启桌面系统通知", description: "通过操作系统通知中心显示提醒" },

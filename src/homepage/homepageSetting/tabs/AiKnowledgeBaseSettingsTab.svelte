@@ -19,6 +19,7 @@
     import type { AiKnowledgeBaseSubTab } from "../aiKnowledgeBaseTabs";
     import TemporaryWorkbenchSettingsPanel from "./TemporaryWorkbenchSettingsPanel.svelte";
     import MemoryCenterSettingsPanel from "./MemoryCenterSettingsPanel.svelte";
+    import AutomationCenterSettingsPanel from "./AutomationCenterSettingsPanel.svelte";
 
     interface Props {
         activeSubTab: AiKnowledgeBaseSubTab;
@@ -649,6 +650,8 @@
     <TemporaryWorkbenchSettingsPanel />
 {:else if activeSubTab === "memory"}
     <MemoryCenterSettingsPanel />
+{:else if activeSubTab === "automation"}
+    <AutomationCenterSettingsPanel />
 {/if}
 
 {#if editorOpen}

@@ -82,6 +82,8 @@ import { taskMobileNotificationPlanProvider } from "@/features/task-notify/task-
 import { countdownMobileNotificationPlanProvider } from "@/features/countdown-notify/countdown-notify-mobile-plans";
 import { enhancedDiaryMobileNotificationPlanProvider } from "@/features/enhanced-diary-notify/enhanced-diary-notify-mobile-plans";
 import { reviewMobileNotificationPlanProvider } from "@/features/review-notify/review-notify-mobile-plans";
+import { automationMobileNotificationPlanProvider } from "@/features/agent-platform/automation/automation-mobile-plans";
+import { destroyAutomationRuntime, startAutomationRuntime } from "@/features/agent-platform/automation/automation-runtime";
 import { destroyTaskNotifyScheduler, setTaskNotifyPlugin, startTaskNotifyScheduler } from "@/features/task-notify";
 import { destroyCountdownNotifyScheduler, setCountdownNotifyPlugin, startCountdownNotifyScheduler } from "@/features/countdown-notify";
 import { destroyEnhancedDiaryNotifyScheduler, setEnhancedDiaryNotifyPlugin, setEnhancedDiaryNotifyRulesPlugin, startEnhancedDiaryNotifyScheduler } from "@/features/enhanced-diary-notify";
@@ -431,6 +433,7 @@ export default class PluginHomepage extends Plugin {
             registerMobileNotificationPlanProvider(countdownMobileNotificationPlanProvider),
             registerMobileNotificationPlanProvider(enhancedDiaryMobileNotificationPlanProvider),
             registerMobileNotificationPlanProvider(reviewMobileNotificationPlanProvider),
+            registerMobileNotificationPlanProvider(automationMobileNotificationPlanProvider),
         ];
         this.registerIcon();
         this.ensureTabContainers();
@@ -656,6 +659,7 @@ export default class PluginHomepage extends Plugin {
         destroyCountdownNotifyScheduler();
         destroyEnhancedDiaryNotifyScheduler();
         destroyReviewNotifyScheduler();
+        destroyAutomationRuntime();
         destroyNotificationCenterRuntime();
         await settleMobilePlanReconcile();
         notificationPlanUnregisters.forEach((unregister) => unregister());
@@ -772,6 +776,7 @@ export default class PluginHomepage extends Plugin {
             this.cancelDeferredBackgroundStartup = null;
             const starters: Array<readonly [string, () => void]> = [
                 ["通知中心", startNotificationCenterRuntime],
+                ["自动化中心", startAutomationRuntime],
                 ["任务通知", startTaskNotifyScheduler],
                 ["倒计时通知", startCountdownNotifyScheduler],
                 ["日记通知", startEnhancedDiaryNotifyScheduler],

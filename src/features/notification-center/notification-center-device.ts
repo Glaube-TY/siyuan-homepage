@@ -11,8 +11,7 @@ function stableHash(value: string): string {
 }
 
 function systemConfig(): Record<string, unknown> {
-  if (typeof window === "undefined") return {};
-  return ((window as any)?.siyuan?.config?.system ?? {}) as Record<string, unknown>;
+  return ((globalThis as typeof globalThis & { siyuan?: { config?: { system?: unknown } } }).siyuan?.config?.system ?? {}) as Record<string, unknown>;
 }
 
 export function getNotificationDeviceId(): string {

@@ -108,6 +108,7 @@ async function registerKernelDataTools(registry: NativeToolRegistry, host: Robot
       source: { profileId: "remote-robot", surface: "远程机器人对话" },
       writeRequiresConfirmation: !(await getGlobalMemoryProfile()).autoLearn,
     },
+    automation: { source: { profileId: "remote-robot", surface: "远程机器人对话" } },
   });
 
   const native = createNativeToolRegistryFromWorkbench({

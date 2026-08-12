@@ -86,7 +86,7 @@ export const automationDeliveryTargetSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("mobile") }).strict(),
   z.object({ kind: z.literal("external-default") }).strict(),
   z.object({ kind: z.literal("external"), channelId: shortIdSchema }).strict(),
-  z.object({ kind: z.literal("robot"), routeRef: shortIdSchema }).strict(),
+  z.object({ kind: z.literal("robot"), routeRef: z.string().trim().min(1).max(500) }).strict(),
 ]);
 
 const sourceSchema = z.object({
@@ -157,6 +157,7 @@ export const automationJobStateSchema = z.object({
   status: z.enum(["idle", "queued", "running", "paused", "blocked", "failed"]),
   nextRunAt: timestampSchema.optional(),
   pendingScheduledAt: timestampSchema.optional(),
+  manualRunRequestedAt: timestampSchema.optional(),
   activeRunId: storageIdSchema.optional(),
   activeRunMonth: z.string().regex(/^\d{4}-\d{2}$/).optional(),
   lastOccurrenceKey: z.string().trim().min(1).max(300).optional(),

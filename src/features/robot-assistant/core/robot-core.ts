@@ -20,6 +20,7 @@ import { ROBOT_TEXT_UNSUPPORTED_REPLY } from "../contracts/robot-message";
 import type { RobotDebugLogger } from "./robot-logger";
 import { NOOP_ROBOT_LOGGER } from "./robot-logger";
 import { createRobotId } from "../contracts/robot-id";
+import { encodeAutomationRobotRoute } from "@/features/agent-platform/automation/automation-robot-route";
 
 /** 确认请求结果。 */
 export type RobotConfirmationOutcome = "approved" | "rejected" | "expired";
@@ -656,6 +657,7 @@ export class RobotCore {
     systemPrompt: string,
     settings: RobotAssistantSettings,
   ): Promise<RobotAgentTurnResult> {
+    const automationRoute = encodeAutomationRobotRoute(message);
     return await this.deps.agentRuntime.runTurn({
       session,
       userText: message.text,
@@ -666,7 +668,7 @@ export class RobotCore {
       senderId: message.senderId,
       senderName: message.senderName,
       conversationId: session.conversationId,
-      systemPrompt,
+      systemPrompt: `${systemPrompt}\n\n当用户要求定时提醒、周期任务或变化监测时，使用 automation_manage。需要把结果发回当前机器人会话时，投递目标使用 {"kind":"robot","routeRef":"${automationRoute}"}；不要向用户展示或解释 routeRef。`,
       toolPolicy: settings.robotToolPolicy,
       modelTimeoutMs: settings.modelTimeoutMs,
       turnTimeoutMs: settings.turnTimeoutMs,

@@ -100,6 +100,14 @@ export async function registerRobotKernelRpc(host: RobotKernelHost, runtime: Rob
     return { ok: true, items: await runtime.getHistory(Math.max(1, Math.min(500, limit))) };
   });
   rpc("robot.clearHistory", () => runtime.clearHistory());
+  rpc("robot.sendAutomationMessage", async (payload) => {
+    const value = payload && typeof payload === "object" ? payload as Record<string, unknown> : {};
+    const provider = value.provider;
+    if ((provider !== "wechat" && provider !== "feishu" && provider !== "qq") || typeof value.accountId !== "string" || typeof value.chatId !== "string" || typeof value.text !== "string") {
+      return { ok: false, errorCode: "invalid_automation_message" };
+    }
+    return runtime.sendAutomationMessage({ provider, accountId: value.accountId, chatId: value.chatId, text: value.text, kind: "text" });
+  });
 
   rpc("robot.getSessions", () => runtime.getSessions());
   rpc("robot.resetSession", async (payload) => {

@@ -74,6 +74,7 @@ export interface RunAgentProfileParams<TResult> {
   turnId?: string;
   onCheckpoint?: (checkpoint: AgentRunCheckpoint) => void;
   resumeCheckpoint?: AgentRunCheckpoint;
+  maxToolCalls?: number;
   kbSettings?: Awaited<ReturnType<typeof getKbSettings>>;
   validateFinalAnswer?: (answer: string, observations: readonly ToolResultEntry[]) => string | undefined;
   finalize: (context: AgentProfileFinalizeContext) => Promise<{
@@ -565,7 +566,7 @@ export async function runAgentProfile<TResult>(
       ),
       autoAllowedToolNames,
       abortSignal: params.abortSignal,
-      maxToolCalls: settings.agentMaxToolCallsPerTurn ?? agentProfile.execution.defaultMaxToolCalls,
+      maxToolCalls: params.maxToolCalls ?? settings.agentMaxToolCallsPerTurn ?? agentProfile.execution.defaultMaxToolCalls,
       validateFinalAnswer: params.validateFinalAnswer
         ? (answer) => params.validateFinalAnswer?.(answer, wb.observationLog.all())
         : undefined,

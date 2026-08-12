@@ -627,6 +627,10 @@ export class RobotKernelRuntime {
     return { ok: true, outcome: "rejected" };
   }
 
+  sendAutomationMessage(message: RobotOutboundMessage): Promise<{ ok: boolean; errorCode?: string; message?: string }> {
+    return this.sendOutbound(message);
+  }
+
   private async sendOutbound(message: RobotOutboundMessage): Promise<{ ok: boolean; errorCode?: string; message?: string }> {
     if (this.statusValue !== "running") {
       return { ok: false, errorCode: "runtime_not_active", message: "当前设备不是机器人运行设备" };

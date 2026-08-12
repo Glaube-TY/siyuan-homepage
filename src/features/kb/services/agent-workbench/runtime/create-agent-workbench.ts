@@ -130,6 +130,11 @@ export function createAgentWorkbenchRuntime(
       globalToolAccess: options.globalToolAccess,
     });
   }
+  if (agentProfileAllowsTool(options.profile, "automation_manage")) {
+    registerSystemTools(toolRegistry, {
+      automation: { source: { profileId: options.profile.id, surface: options.profile.label, conversationId: options.conversationId, messageId: options.turnId } },
+    });
+  }
 
   // Register Siyuan tools (knowledge base, diary, doc editing)
   if (agentProfileHasCapability(options.profile, "siyuan") && options.kbRetrievalToolDeps) {

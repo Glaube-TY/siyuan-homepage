@@ -94,6 +94,7 @@ export const DEFAULT_ROBOT_REMOTE_TOOLS: RobotToolPolicy["tools"] = {
   homepage_favorites: { remoteAllowed: true, writeAction: "ask" },
   homepage_review: { remoteAllowed: true, writeAction: "ask" },
   memory_manage: { remoteAllowed: true, writeAction: "ask" },
+  automation_manage: { remoteAllowed: true, writeAction: "ask" },
 };
 
 export function createDefaultRobotAdmission(): RobotAdmissionSettings {

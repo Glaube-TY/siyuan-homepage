@@ -14,6 +14,7 @@ import {
   type AutomationJobState,
   type AutomationRunRecord,
 } from "./automation-job-contract";
+import type { AgentRunCheckpoint } from "../../kb/services/agent-core/session/agent-run-checkpoint";
 
 const JOB_INDEX_KEY = "notebrain/automation/jobs/index.json";
 const RUN_CATALOG_KEY = "notebrain/automation/runs/index.json";
@@ -21,6 +22,13 @@ const jobKey = (jobId: string) => `notebrain/automation/jobs/${jobId}.json`;
 const stateKey = (jobId: string) => `notebrain/automation/state/${jobId}.json`;
 const runIndexKey = (month: string) => `notebrain/automation/runs/${month}/index.json`;
 const runKey = (month: string, runId: string) => `notebrain/automation/runs/${month}/${runId}.json`;
+const checkpointKey = (runId: string) => `notebrain/automation/checkpoints/${runId}.json`;
+
+export const AUTOMATION_JOBS_CHANGED_EVENT = "automation-jobs-changed";
+
+function dispatchChanged(): void {
+  if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent(AUTOMATION_JOBS_CHANGED_EVENT));
+}
 
 export const AUTOMATION_RUN_RETENTION = Object.freeze({ maxMonths: 12, maxRunsPerMonth: 200 });
 
@@ -194,6 +202,13 @@ export class AutomationJobStore {
       if (existing && (expectedRevision !== existing.revision || job.revision !== existing.revision + 1)) {
         throw new Error("自动化任务已被其他位置更新，请刷新后重试。");
       }
+      if (existing) {
+        const stateResult = await this.storage.load<unknown>(stateKey(job.jobId));
+        if (stateResult.status === "error") throw new Error(`自动化任务状态读取失败：${stateResult.error}`);
+        if (stateResult.status === "ok" && automationJobStateSchema.parse(stateResult.data).activeRunId) {
+          throw new Error("自动化任务正在运行，请等待本轮结束后再修改。");
+        }
+      }
 
       const index = await this.readJobIndex();
       const indexed = index.items.find((entry) => entry.jobId === job.jobId);
@@ -203,6 +218,7 @@ export class AutomationJobStore {
       index.revision += 1;
       index.updatedAt = Date.now();
       await this.saveChecked(JOB_INDEX_KEY, index, jobIndexSchema, "自动化任务索引");
+      dispatchChanged();
       return saved;
     });
   }
@@ -215,15 +231,20 @@ export class AutomationJobStore {
       if (currentResult.status === "missing") return;
       const current = automationJobDefinitionSchema.parse(currentResult.data);
       if (current.revision !== expectedRevision) throw new Error("自动化任务已被其他位置更新，请刷新后重试。");
+      const stateResult = await this.storage.load<unknown>(stateKey(jobId));
+      if (stateResult.status === "error") throw new Error(`自动化任务状态读取失败：${stateResult.error}`);
+      if (stateResult.status === "ok" && automationJobStateSchema.parse(stateResult.data).activeRunId) {
+        throw new Error("自动化任务正在运行，请等待本轮结束后再删除。");
+      }
       const index = await this.readJobIndex();
       if (!index.items.some((entry) => entry.jobId === jobId)) throw new Error("自动化任务索引缺少目标条目，已停止删除。");
       await this.removeChecked(jobKey(jobId), "自动化任务");
-      const storedState = await this.storage.load(stateKey(jobId));
-      if (storedState.status !== "missing") await this.removeChecked(stateKey(jobId), "自动化任务状态");
+      if (stateResult.status !== "missing") await this.removeChecked(stateKey(jobId), "自动化任务状态");
       index.items = index.items.filter((entry) => entry.jobId !== jobId);
       index.revision += 1;
       index.updatedAt = Date.now();
       await this.saveChecked(JOB_INDEX_KEY, index, jobIndexSchema, "自动化任务索引");
+      dispatchChanged();
     });
   }
 
@@ -314,6 +335,17 @@ export class AutomationJobStore {
     }));
   }
 
+  async listRecentRuns(limit = 50): Promise<AutomationRunRecord[]> {
+    await this.mutationTail;
+    const catalog = await this.readRunCatalog();
+    const result: AutomationRunRecord[] = [];
+    for (const { month } of catalog.months) {
+      result.push(...await this.listRuns(month, limit - result.length));
+      if (result.length >= limit) break;
+    }
+    return result.sort((a, b) => b.updatedAt - a.updatedAt).slice(0, limit);
+  }
+
   async getRun(month: string, runId: string): Promise<AutomationRunRecord | undefined> {
     if (!/^\d{4}-\d{2}$/.test(month) || !isValidStorageId(runId)) return undefined;
     await this.mutationTail;
@@ -321,6 +353,31 @@ export class AutomationJobStore {
     if (result.status === "missing") return undefined;
     if (result.status === "error") throw new Error(`自动化运行记录读取失败：${result.error}`);
     return automationRunRecordSchema.parse(result.data);
+  }
+
+  async saveCheckpoint(runId: string, checkpoint: AgentRunCheckpoint): Promise<void> {
+    if (!isValidStorageId(runId) || checkpoint.identity.runId !== runId) throw new Error("自动化检查点身份无效。");
+    await this.storage.save(checkpointKey(runId), checkpoint);
+    const saved = await this.storage.load<AgentRunCheckpoint>(checkpointKey(runId));
+    if (saved.status !== "ok" || JSON.stringify(saved.data) !== JSON.stringify(checkpoint)) {
+      throw new Error("自动化检查点写入校验失败。");
+    }
+  }
+
+  async getCheckpoint(runId: string): Promise<AgentRunCheckpoint | undefined> {
+    if (!isValidStorageId(runId)) return undefined;
+    const result = await this.storage.load<AgentRunCheckpoint>(checkpointKey(runId));
+    if (result.status === "missing") return undefined;
+    if (result.status === "error" || !result.data || result.data.schemaVersion !== 1 || result.data.identity?.runId !== runId) {
+      throw new Error("自动化检查点结构无效。");
+    }
+    return result.data;
+  }
+
+  async deleteCheckpoint(runId: string): Promise<void> {
+    if (!isValidStorageId(runId)) return;
+    const existing = await this.storage.load(checkpointKey(runId));
+    if (existing.status !== "missing") await this.removeChecked(checkpointKey(runId), "自动化检查点");
   }
 
   private async updateRunCatalog(month: string, count: number): Promise<void> {
