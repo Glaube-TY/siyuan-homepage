@@ -3,6 +3,7 @@ import type { ToolRegistry } from "../../agent-workbench/registries/tool-registr
 import { ToolExecutor as WorkbenchToolExecutor } from "../../agent-workbench/runtime/tool-executor";
 import type { McpSettings, NotebrainAgentWorkspaceSettings } from "../../../types/settings";
 import { loadMcpToolIndex } from "../../agent-workbench/mcp/mcp-tool-index";
+import { isMcpServerAllowed, isMcpToolAllowed } from "../../agent-workbench/mcp/mcp-access";
 import { buildNotebrainCommandPermissionPreview } from "./local/notebrain-command-runtime";
 import type { NativeTool } from "./native-tool";
 import { ensureObjectJsonSchema } from "./native-tool-schema";
@@ -21,9 +22,7 @@ async function previewMcpManageCallTool(
   const serverId = typeof nestedArgs?.serverId === "string" ? nestedArgs.serverId : "";
   const toolName = typeof nestedArgs?.toolName === "string" ? nestedArgs.toolName : "";
   if (!serverId || !toolName) return {};
-  const disabledServers = new Set(settings.disabledServerIds ?? []);
-  if (disabledServers.has(serverId)) return {};
-  const disabledTools = new Set(settings.disabledToolNames ?? []);
+  if (!isMcpServerAllowed(settings, serverId)) return {};
   const index = await loadMcpToolIndex();
   const tool = index.tools.find(
     (entry) =>
@@ -32,7 +31,7 @@ async function previewMcpManageCallTool(
       (entry.internalName === toolName || entry.originalName === toolName),
   );
   if (!tool) return {};
-  if (disabledTools.has(tool.internalName) || disabledTools.has(tool.originalName)) return {};
+  if (!isMcpToolAllowed(settings, tool)) return {};
   const trustedTools = new Set(settings.trustedToolNames ?? []);
   const trusted = tool.trusted === true
     || trustedTools.has(tool.internalName)

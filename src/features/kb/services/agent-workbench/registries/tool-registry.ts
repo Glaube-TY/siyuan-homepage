@@ -9,6 +9,7 @@ import type {
   ToolContract,
   ToolManifest,
   ToolRuntimeContext,
+  ToolSafetyInfo,
 } from "../contracts/tool-contract";
 
 interface RegisteredTool {
@@ -19,26 +20,36 @@ interface RegisteredTool {
   inputJsonSchema?: unknown;
 }
 
+export interface ToolRegistryAccess {
+  allowsTool(name: string): boolean;
+  allowsAction(toolName: string, action: string): boolean;
+}
+
 export class ToolRegistry {
   private readonly tools = new Map<string, RegisteredTool>();
+
+  constructor(private readonly access?: ToolRegistryAccess) {}
 
   registerTool(tool: ToolContract): void {
     if (!tool?.name) {
       throw new Error("[ToolRegistry] Tool must have a name.");
     }
-    if (this.tools.has(tool.name)) {
+    if (this.access && !this.access.allowsTool(tool.name)) return;
+    const accessibleTool = this.access ? restrictAggregateActions(tool, this.access) : tool;
+    if (!accessibleTool) return;
+    if (this.tools.has(accessibleTool.name)) {
       throw new Error(
-        `[ToolRegistry] Tool "${tool.name}" is already registered. ` +
+        `[ToolRegistry] Tool "${accessibleTool.name}" is already registered. ` +
           `Call unregisterTool first to replace it.`,
       );
     }
-    if (!tool.inputSchema || typeof (tool.inputSchema as { parse?: unknown }).parse !== "function") {
+    if (!accessibleTool.inputSchema || typeof (accessibleTool.inputSchema as { parse?: unknown }).parse !== "function") {
       throw new Error(
-        `[ToolRegistry] Tool "${tool.name}" must declare a real ZodSchema as inputSchema.`,
+        `[ToolRegistry] Tool "${accessibleTool.name}" must declare a real ZodSchema as inputSchema.`,
       );
     }
-    const inputJsonSchema = computeAndCanonicalizeSchema(tool);
-    this.tools.set(tool.name, { tool, registeredAt: Date.now(), inputJsonSchema });
+    const inputJsonSchema = computeAndCanonicalizeSchema(accessibleTool);
+    this.tools.set(accessibleTool.name, { tool: accessibleTool, registeredAt: Date.now(), inputJsonSchema });
   }
 
   /** Idempotent: register if not exists, skip if already present. */
@@ -85,6 +96,83 @@ export class ToolRegistry {
       availability,
     };
   }
+}
+
+function restrictAggregateActions(tool: ToolContract, access: ToolRegistryAccess): ToolContract | null {
+  const actionHelp = tool.aggregateActionHelp;
+  if (!actionHelp) return tool;
+  const actionNames = Object.keys(actionHelp);
+  const allowedActions = actionNames.filter((action) => access.allowsAction(tool.name, action));
+  if (allowedActions.length === actionNames.length) return tool;
+  if (allowedActions.length === 0) return null;
+
+  const allowed = new Set(allowedActions);
+  const isAllowedCall = (rawArgs: unknown): boolean => {
+    if (!rawArgs || typeof rawArgs !== "object") return false;
+    const action = (rawArgs as Record<string, unknown>).action;
+    return typeof action === "string" && allowed.has(action);
+  };
+  const filteredHelp = Object.fromEntries(
+    Object.entries(actionHelp).filter(([action]) => allowed.has(action)),
+  );
+  const readOnly = Object.values(filteredHelp).every((item) => item.readOnly === true);
+  const deniedSafety: ToolSafetyInfo = {
+    readOnly: false,
+    canWrite: true,
+    requiresConfirmation: true,
+    riskLevel: "high",
+  };
+
+  return {
+    ...tool,
+    readOnly,
+    safety: readOnly ? { readOnly: true } : tool.safety,
+    inputHint: `action 必须是：${allowedActions.join(" / ")}。args 为该 action 的参数对象。`,
+    inputJsonSchemaOverride: filterActionEnum(tool.inputJsonSchemaOverride, allowedActions),
+    aggregateActionHelp: filteredHelp,
+    resolveCallSafety: (args) => isAllowedCall(args)
+      ? tool.resolveCallSafety?.(args) ?? tool.safety
+      : deniedSafety,
+    validateInputForPreview: (rawArgs) => isAllowedCall(rawArgs)
+      ? tool.validateInputForPreview?.(rawArgs) ?? { ok: true }
+      : {
+          ok: false,
+          error: {
+            message: "当前 Agent Profile 未授权该 action。",
+            details: { code: "permission_denied" },
+          },
+        },
+    async execute(ctx, args) {
+      if (!isAllowedCall(args)) {
+        return {
+          ok: false,
+          data: null,
+          error: {
+            code: "permission_denied",
+            message: "当前 Agent Profile 未授权该 action。",
+            recoverable: false,
+          },
+        };
+      }
+      return tool.execute(ctx, args);
+    },
+  };
+}
+
+function filterActionEnum(schema: unknown, actions: readonly string[]): unknown {
+  if (!schema || typeof schema !== "object") return schema;
+  const root = schema as Record<string, unknown>;
+  const properties = root.properties;
+  if (!properties || typeof properties !== "object") return schema;
+  const action = (properties as Record<string, unknown>).action;
+  if (!action || typeof action !== "object") return schema;
+  return {
+    ...root,
+    properties: {
+      ...properties as Record<string, unknown>,
+      action: { ...action as Record<string, unknown>, enum: [...actions] },
+    },
+  };
 }
 
 /* ────────────────────────────────────────────────────────────────── */

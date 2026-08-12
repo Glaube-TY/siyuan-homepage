@@ -233,6 +233,8 @@ export type ExternalSkillSettings = {
   maxSkillReadChars: number;
   autoInstallEnabled: boolean;
   disabledSkillIds: string[];
+  /** 当前 Agent Profile 的运行时白名单；不持久化时表示全部允许。 */
+  allowedSkillIds?: readonly string[];
 };
 
 export type McpSettings = {
@@ -241,6 +243,9 @@ export type McpSettings = {
   disabledServerIds: string[];
   disabledToolNames: string[];
   trustedToolNames: string[];
+  /** 当前 Agent Profile 的运行时白名单；不持久化时表示全部允许。 */
+  allowedServerIds?: readonly string[];
+  allowedToolNames?: readonly string[];
 };
 
 export type RuntimeToolsSettings = {

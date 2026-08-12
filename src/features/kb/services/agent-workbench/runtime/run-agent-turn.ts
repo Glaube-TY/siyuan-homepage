@@ -45,8 +45,12 @@ import { compactAgentSessionMessagesForStorage } from "../../agent-core/messages
 import { sanitizeMessageForStorage } from "../../agent-core/session/session-store";
 import { buildSafeTurnStageSummary } from "../memory/build-safe-turn-stage-summary";
 import {
+  agentProfileAllowsContext,
+  agentProfileAllowsMemory,
   getAgentProfile,
   KNOWLEDGE_CHAT_AGENT_PROFILE_ID,
+  agentProfileHasCapability,
+  agentProfileResourceAllowList,
 } from "../../../../agent-platform/agent-profile";
 import {
   createAgentEventId,
@@ -234,9 +238,18 @@ export async function runAgentTurn(
     const deps = new SiyuanToolRuntimeState({ scope, loadPluginData, savePluginData });
     const settings = params.kbSettings ?? await getKbSettings();
     const ws = settings.webSearch;
+    const externalSkillSettings = {
+      ...settings.externalSkills,
+      allowedSkillIds: agentProfileResourceAllowList(agentProfile.permissions.externalSkillIds),
+    };
+    const mcpSettings = {
+      ...settings.mcp,
+      allowedServerIds: agentProfileResourceAllowList(agentProfile.permissions.mcpServerIds),
+      allowedToolNames: agentProfileResourceAllowList(agentProfile.permissions.mcpToolNames),
+    };
 
     // Inject runtime tools settings for MCP command resolution
-    if (settings.runtimeTools) {
+    if (agentProfileHasCapability(agentProfile, "mcp") && settings.runtimeTools) {
       setMcpRuntimeSettings(settings.runtimeTools);
     }
 
@@ -244,7 +257,7 @@ export async function runAgentTurn(
     const runtimeEnv = getNotebrainRuntimeEnvironment();
     const sandboxEnabled = settings.notebrainWorkspace.enabled === true && runtimeEnv.isPcElectron;
     const localCommandToolEnabled = sandboxEnabled && settings.notebrainWorkspace.commandExecutionEnabled === true;
-    const mcpClientEnabled = settings.mcp.enabled === true;
+    const mcpClientEnabled = agentProfileHasCapability(agentProfile, "mcp") && mcpSettings.enabled === true;
 
     let webReadPageToolDeps: AgentWorkbenchRuntimeOptions["webReadPageToolDeps"] | undefined;
 
@@ -266,15 +279,18 @@ export async function runAgentTurn(
     }
 
     const memoryDocId = settings.globalMemory?.docId?.trim() ?? "";
+    const canReadGlobalMemory = agentProfileAllowsMemory(agentProfile, "read")
+      && agentProfileAllowsContext(agentProfile, "global-memory");
+    const canWriteGlobalMemory = agentProfileAllowsMemory(agentProfile, "write");
     let memoryDocIdValid = false;
-    if (memoryDocId) {
+    if (memoryDocId && (canReadGlobalMemory || canWriteGlobalMemory)) {
       const validation = await validateGlobalMemoryDocId(memoryDocId);
       memoryDocIdValid = validation.valid;
     }
 
-    let globalMemoryText: string | undefined = params.globalMemory;
+    let globalMemoryText: string | undefined = canReadGlobalMemory ? params.globalMemory : undefined;
     let globalMemoryBaseDigest = params.globalMemoryBaseDigest;
-    if (globalMemoryText === undefined && settings.globalMemory?.enabled && memoryDocIdValid) {
+    if (canReadGlobalMemory && globalMemoryText === undefined && settings.globalMemory?.enabled && memoryDocIdValid) {
       const mem = await readGlobalMemory(memoryDocId, settings.globalMemory.maxChars);
       if (!mem.readOk) {
         globalMemoryText = "全局记忆读取失败，本轮不使用全局记忆。";
@@ -288,6 +304,8 @@ export async function runAgentTurn(
 
     const globalMemoryToolDeps: AgentWorkbenchRuntimeOptions["globalMemoryToolDeps"] | undefined =
       settings.globalMemory?.enabled === true
+        && settings.globalMemory.allowAiUpdate === true
+        && canWriteGlobalMemory
         && memoryDocIdValid
         && globalToolAccess.editGlobalMemory
         && !!globalMemoryBaseDigest
@@ -329,8 +347,8 @@ export async function runAgentTurn(
       confirmationRoute: params.panelInstanceId && params.turnId
         ? { panelInstanceId: params.panelInstanceId, conversationId, turnId: params.turnId }
         : undefined,
-      externalSkillSettings: settings.externalSkills,
-      mcpSettings: settings.mcp,
+      externalSkillSettings,
+      mcpSettings,
       notebrainWorkspaceSettings: settings.notebrainWorkspace,
       runtimeToolsSettings: settings.runtimeTools,
     });
@@ -359,10 +377,11 @@ export async function runAgentTurn(
     }, "info");
 
     let externalSkillIndexPrompt = "";
-    if (settings.externalSkills?.enabled !== false) {
+    if (agentProfileAllowsContext(agentProfile, "external-skills") && externalSkillSettings.enabled !== false) {
       try {
         const entries = await listAllExternalSkillEntries({
-          disabledSkillIds: settings.externalSkills?.disabledSkillIds ?? [],
+          disabledSkillIds: externalSkillSettings.disabledSkillIds,
+          allowedSkillIds: externalSkillSettings.allowedSkillIds,
         });
         externalSkillIndexPrompt = renderExternalSkillIndexPrompt(entries);
       } catch (err) {
@@ -373,7 +392,7 @@ export async function runAgentTurn(
     }
 
     const attachedDocIds = params.attachedDocs?.map((doc) => doc.docId).filter(Boolean) ?? [];
-    if (attachedDocIds.length > 0) {
+    if (agentProfileAllowsContext(agentProfile, "attached-documents") && attachedDocIds.length > 0) {
       emitNativeEvent({ type: "notice", message: "加载已选文档..." });
       const hydration = await hydrateAttachedDocsForTurn(attachedDocIds);
 
@@ -471,21 +490,32 @@ export async function runAgentTurn(
       conversationId,
       abortSignal: params.abortSignal,
       notebrainWorkspaceSettings: settings.notebrainWorkspace,
-      mcpSettings: settings.mcp,
+      mcpSettings,
       runtimeToolsSettings: settings.runtimeTools,
     });
 
+    const profileConversationContext = agentProfileAllowsContext(agentProfile, "conversation")
+      ? canReadGlobalMemory || !params.conversationContext
+        ? params.conversationContext
+        : { ...params.conversationContext, globalMemory: undefined }
+      : undefined;
     const context = buildAgentContextInstructions({
       toolRegistry: wb.toolRegistry,
       skillRegistry: wb.skillRegistry,
       observationLog: wb.observationLog,
       question: params.question,
       abortSignal: params.abortSignal,
-      conversationContext: params.conversationContext,
+      conversationContext: profileConversationContext,
       globalMemory: globalMemoryText,
-      attachedDocs: params.attachedDocs,
+      attachedDocs: agentProfileAllowsContext(agentProfile, "attached-documents")
+        ? params.attachedDocs
+        : undefined,
       externalSkillIndexPrompt,
-      runtimeToolsSettings: settings.runtimeTools,
+      runtimeToolsSettings: agentProfileAllowsContext(agentProfile, "runtime-tools")
+        ? settings.runtimeTools
+        : undefined,
+      includeKnowledgeGuidance: agentProfileAllowsContext(agentProfile, "knowledge"),
+      includeSkillInstructions: agentProfileAllowsContext(agentProfile, "skills"),
       runtimeToolCapabilities: {
         sandboxEnabled,
         localCommandToolEnabled,
@@ -530,7 +560,11 @@ export async function runAgentTurn(
       provider,
       toolRegistry: nativeToolRegistry,
       session,
-      systemPrompt: buildAgentSystemPrompt(),
+      systemPrompt: buildAgentSystemPrompt({
+        isToolAvailable: (toolName) => nativeToolRegistry.get(toolName)?.providerVisible === true,
+        isActionAvailable: (toolName, action) =>
+          wb.toolRegistry.getTool(toolName)?.aggregateActionHelp?.[action] !== undefined,
+      }),
       contextInstructions: context.contextInstructions,
       conversationId,
       identity,

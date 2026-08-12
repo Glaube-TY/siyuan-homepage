@@ -26,6 +26,9 @@ import type { ExternalSkillSettings, McpSettings, NotebrainAgentWorkspaceSetting
 import type { ConfirmationRoute } from "../../agent-core/permissions/confirmation-bridge";
 import type { AvailableToolSnapshot } from "../tools/aggregate/agent-tool-help.tool";
 import {
+  agentProfileAllowsMemory,
+  agentProfileAllowsTool,
+  agentProfileAllowsToolAction,
   agentProfileHasCapability,
   type AgentProfile,
 } from "../../../../agent-platform/agent-profile";
@@ -106,13 +109,18 @@ export function createAgentWorkbenchRuntime(
 ): AgentWorkbenchRuntime {
   // Per-turn registries, no global state.
   const skillRegistry = new SkillRegistry();
-  const toolRegistry = new ToolRegistry();
+  const toolRegistry = new ToolRegistry({
+    allowsTool: (name) => agentProfileAllowsTool(options.profile, name),
+    allowsAction: (toolName, action) => agentProfileAllowsToolAction(options.profile, toolName, action),
+  });
   const externalSkillSettings = options.externalSkillSettings ?? DEFAULT_EXTERNAL_SKILL_SETTINGS;
 
   // Register system tools (edit_global_memory)
   if (agentProfileHasCapability(options.profile, "global-memory")) {
     registerSystemTools(toolRegistry, {
-      globalMemoryToolDeps: options.globalMemoryToolDeps,
+      globalMemoryToolDeps: agentProfileAllowsMemory(options.profile, "write")
+        ? options.globalMemoryToolDeps
+        : undefined,
       globalToolAccess: options.globalToolAccess,
     });
   }

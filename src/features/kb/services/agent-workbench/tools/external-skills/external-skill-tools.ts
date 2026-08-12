@@ -41,7 +41,10 @@ function maxSkillReadChars(settings: ExternalSkillSettings): number {
 }
 
 async function findSkillEntry(id: string, settings: ExternalSkillSettings): Promise<ExternalSkillIndexEntry | null> {
-  const entries = await listAllExternalSkillEntries({ disabledSkillIds: settings.disabledSkillIds });
+  const entries = await listAllExternalSkillEntries({
+    disabledSkillIds: settings.disabledSkillIds,
+    allowedSkillIds: settings.allowedSkillIds,
+  });
   const normalized = id.trim();
   return entries.find((entry) => entry.id === normalized)
     ?? entries.find((entry) => entry.id === `user_${normalized}`)
@@ -66,7 +69,10 @@ export function createListActionTool(settings: ExternalSkillSettings): ToolContr
       };
     },
     async execute(): Promise<ToolResult> {
-      const skills = await listAllExternalSkillEntries({ disabledSkillIds: settings.disabledSkillIds });
+      const skills = await listAllExternalSkillEntries({
+        disabledSkillIds: settings.disabledSkillIds,
+        allowedSkillIds: settings.allowedSkillIds,
+      });
       return {
         ok: true,
         data: {
@@ -228,6 +234,19 @@ export function createInstallActionTool(settings: ExternalSkillSettings): ToolCo
     safety: { readOnly: false, canWrite: true, requiresConfirmation: true, permissionScope: "notebrain.skills" },
     source: "local",
     providerVisible: false,
+    validateInputForPreview(rawArgs) {
+      const parsed = skillInstallInputSchema.safeParse(rawArgs);
+      if (!parsed.success || !settings.allowedSkillIds) return { ok: true };
+      return parsed.data.targetSkillId && settings.allowedSkillIds.includes(parsed.data.targetSkillId)
+        ? { ok: true }
+        : {
+            ok: false,
+            error: {
+              message: "当前 Agent Profile 未授权安装该 Skill。",
+              details: { code: "permission_denied" },
+            },
+          };
+    },
     availability() {
       if (!settings.enabled || !settings.autoInstallEnabled) {
         return {
@@ -239,6 +258,14 @@ export function createInstallActionTool(settings: ExternalSkillSettings): ToolCo
       return { available: true };
     },
     async execute(_ctx: ToolRuntimeContext, args): Promise<ToolResult> {
+      if (settings.allowedSkillIds
+        && (!args.targetSkillId || !settings.allowedSkillIds.includes(args.targetSkillId))) {
+        return {
+          ok: false,
+          data: null,
+          error: { code: "permission_denied", message: "当前 Agent Profile 未授权安装该 Skill。", recoverable: false },
+        };
+      }
       try {
         const result = await installExternalSkill(args);
         return {

@@ -14,6 +14,7 @@ import { callMcpTool, syncMcpServerTools, diagnoseStdioCommand } from "../../mcp
 import { normalizeMcpResultContent, redactMcpSyncError } from "../../mcp/mcp-result-normalizer";
 import { MCP_SERVER_PRESETS, findKnownBadPackage } from "../../mcp/mcp-presets";
 import { isDangerousCommand } from "../../mcp/mcp-safety";
+import { isMcpServerAllowed, isMcpToolAllowed } from "../../mcp/mcp-access";
 import { getNotebrainRuntimeEnvironment } from "../../workspace/notebrain-runtime-env";
 
 const serverConfigSchema = z.object({
@@ -194,12 +195,10 @@ function findCallableMcpTool(params: {
   toolName: string;
   settings: McpSettings;
 }): McpToolIndexEntry | null {
-  const disabledTools = new Set(params.settings.disabledToolNames ?? []);
   return params.tools.find((tool) =>
     tool.serverId === params.serverId &&
     tool.enabled !== false &&
-    !disabledTools.has(tool.internalName) &&
-    !disabledTools.has(tool.originalName) &&
+    isMcpToolAllowed(params.settings, tool) &&
     (tool.internalName === params.toolName || tool.originalName === params.toolName)
   ) ?? null;
 }
@@ -223,7 +222,9 @@ export function createListServersActionTool(settings: McpSettings): ToolContract
     },
     async execute(): Promise<ToolResult> {
       const file = await loadMcpServers();
-      const servers = file.servers.map(sanitizeMcpServerForToolResult);
+      const servers = file.servers
+        .filter((server) => isMcpServerAllowed(settings, server.id))
+        .map(sanitizeMcpServerForToolResult);
       return { ok: true, data: { total: servers.length, servers } };
     },
   };
@@ -281,6 +282,13 @@ export function createSaveServerActionTool(settings: McpSettings): ToolContract<
           ok: false,
           data: null,
           error: { code: "invalid_mcp_server", message: "MCP Server 配置不完整。", recoverable: true },
+        };
+      }
+      if (!isMcpServerAllowed(settings, normalized.id)) {
+        return {
+          ok: false,
+          data: null,
+          error: { code: "permission_denied", message: "当前 Agent Profile 未授权该 MCP Server。", recoverable: false },
         };
       }
       // Lightweight validation: detect common AI mistakes with node/npx
@@ -355,6 +363,13 @@ export function createDeleteServerActionTool(settings: McpSettings): ToolContrac
       };
     },
     async execute(_ctx, args): Promise<ToolResult> {
+      if (!isMcpServerAllowed(settings, args.serverId)) {
+        return {
+          ok: false,
+          data: null,
+          error: { code: "permission_denied", message: "当前 Agent Profile 未授权该 MCP Server。", recoverable: false },
+        };
+      }
       const current = await loadMcpServers();
       const serverToDelete = current.servers.find((s) => s.id === args.serverId);
       if (!serverToDelete) {
@@ -439,10 +454,9 @@ export function createSyncToolsActionTool(settings: McpSettings, runtimeTools?: 
     },
     async execute(_ctx, args): Promise<ToolResult> {
       const file = await loadMcpServers();
-      const disabledServers = new Set(settings.disabledServerIds ?? []);
       const servers = file.servers
         .filter((server) => server.enabled !== false)
-        .filter((server) => !disabledServers.has(server.id))
+        .filter((server) => isMcpServerAllowed(settings, server.id))
         .filter((server) => !args.serverId || server.id === args.serverId);
       if (servers.length === 0) {
         return {
@@ -567,7 +581,7 @@ export function createListToolsActionTool(settings: McpSettings): ToolContract<z
       const activeServerIds = new Set(
         serversFile.servers
           .filter((s) => s.enabled !== false)
-          .filter((s) => !(settings.disabledServerIds ?? []).includes(s.id))
+          .filter((s) => isMcpServerAllowed(settings, s.id))
           .map((s) => s.id),
       );
       // Build server transport map for runtime availability
@@ -579,11 +593,10 @@ export function createListToolsActionTool(settings: McpSettings): ToolContract<z
 
       const query = args.query?.trim().toLowerCase() ?? "";
       const limit = Math.min(args.limit ?? 50, 100);
-      const disabled = new Set(settings.disabledToolNames ?? []);
       const tools = index.tools
         .filter((tool) => activeServerIds.has(tool.serverId))
         .filter((tool) => !args.serverId || tool.serverId === args.serverId)
-        .filter((tool) => !disabled.has(tool.internalName) && !disabled.has(tool.originalName))
+        .filter((tool) => isMcpToolAllowed(settings, tool))
         .filter((tool) => !query || [
           tool.internalName,
           tool.originalName,
@@ -656,16 +669,14 @@ export function createReadToolActionTool(settings: McpSettings): ToolContract<z.
       const activeServerIds = new Set(
         serversFile.servers
           .filter((s) => s.enabled !== false)
-          .filter((s) => !(settings.disabledServerIds ?? []).includes(s.id))
+          .filter((s) => isMcpServerAllowed(settings, s.id))
           .map((s) => s.id),
       );
-      const disabledTools = new Set(settings.disabledToolNames ?? []);
       const tool = index.tools.find(
         (entry) =>
           (entry.internalName === args.name || entry.originalName === args.name) &&
           activeServerIds.has(entry.serverId) &&
-          !disabledTools.has(entry.internalName) &&
-          !disabledTools.has(entry.originalName),
+          isMcpToolAllowed(settings, entry),
       );
       if (!tool) {
         return {
@@ -725,12 +736,11 @@ export function createCallToolActionTool(
         loadMcpServers(),
         loadMcpToolIndex(),
       ]);
-      const disabledServers = new Set(settings.disabledServerIds ?? []);
       const server = serversFile.servers.find(
         (item) =>
           item.id === args.serverId &&
           item.enabled !== false &&
-          !disabledServers.has(item.id),
+          isMcpServerAllowed(settings, item.id),
       );
       if (!server) {
         return {

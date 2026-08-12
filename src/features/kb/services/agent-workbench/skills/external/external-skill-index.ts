@@ -82,14 +82,20 @@ export async function loadUserSkillsAsExternalEntries(): Promise<ExternalSkillIn
 
 export async function listAllExternalSkillEntries(params?: {
   disabledSkillIds?: readonly string[];
+  allowedSkillIds?: readonly string[];
 }): Promise<ExternalSkillIndexEntry[]> {
   const disabled = new Set(params?.disabledSkillIds ?? []);
+  const allowed = params?.allowedSkillIds ? new Set(params.allowedSkillIds) : null;
   const [installed, userSkills] = await Promise.all([
     loadExternalSkillIndex(),
     loadUserSkillsAsExternalEntries(),
   ]);
   const entries = [...installed.skills, ...userSkills].map(sanitizeIndexEntry);
-  return entries.filter((entry) => entry.enabled !== false && !disabled.has(entry.id));
+  return entries.filter((entry) =>
+    entry.enabled !== false
+    && !disabled.has(entry.id)
+    && (!allowed || allowed.has(entry.id))
+  );
 }
 
 async function walkInstalledSkillFiles(base = "skills/installed", depth = 0): Promise<string[]> {

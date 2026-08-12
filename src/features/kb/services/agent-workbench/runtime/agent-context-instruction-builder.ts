@@ -21,6 +21,8 @@ export interface BuildAgentContextInstructionsParams {
   globalMemory?: string;
   attachedDocs?: readonly { docId: string; title?: string }[];
   externalSkillIndexPrompt?: string;
+  includeKnowledgeGuidance?: boolean;
+  includeSkillInstructions?: boolean;
   runtimeToolsSettings?: RuntimeToolsSettings;
   runtimeToolCapabilities?: {
     sandboxEnabled: boolean;
@@ -85,19 +87,24 @@ export function buildAgentContextInstructions(params: BuildAgentContextInstructi
     abortSignal: params.abortSignal,
   });
   const disabledSkillNames = new Set(params.userDisabledSkillNames ?? []);
-  const enabledSkillNames = params.skillRegistry
-    .listSkills()
-    .map((skill) => skill.name)
-    .filter((name) => !disabledSkillNames.has(name));
+  const includeSkillInstructions = params.includeSkillInstructions !== false;
+  const enabledSkillNames = includeSkillInstructions
+    ? params.skillRegistry
+        .listSkills()
+        .map((skill) => skill.name)
+        .filter((name) => !disabledSkillNames.has(name))
+    : [];
 
-  const skillSections = params.skillRegistry.buildSkillPromptSections({
-    question: params.question,
-    toolManifest: skillToolManifest,
-    enabledSkillNames,
-    observations: params.observationLog.getContextEvidence(),
-    userEnabledSkillNames: enabledSkillNames,
-    userDisabledSkillNames: params.userDisabledSkillNames ?? [],
-  });
+  const skillSections = includeSkillInstructions
+    ? params.skillRegistry.buildSkillPromptSections({
+        question: params.question,
+        toolManifest: skillToolManifest,
+        enabledSkillNames,
+        observations: params.observationLog.getContextEvidence(),
+        userEnabledSkillNames: enabledSkillNames,
+        userDisabledSkillNames: params.userDisabledSkillNames ?? [],
+      })
+    : [];
 
   pushAgentDebugEvent("AGENT_CONTEXT_SKILLS_BUILT", {
     registeredSkillCount: params.skillRegistry.listSkills().length,
@@ -111,11 +118,13 @@ export function buildAgentContextInstructions(params: BuildAgentContextInstructi
   setLastToolManifestCount(skillToolManifest.length);
 
   const contextInstructions = [
-    [
-      "知识库证据规则：搜索结果只是候选，不能直接作为事实或引用。",
-      "候选带有 blockId 时优先调用 siyuan_kb.read_evidence；只有全文总结、跨章节比较或证据不足时才调用 siyuan_kb.read_docs。",
-      "只有成功读取正文的结果才可作为 grounded 引用，未读取的候选不得引用。",
-    ].join("\n"),
+    params.includeKnowledgeGuidance !== false
+      ? [
+          "知识库证据规则：搜索结果只是候选，不能直接作为事实或引用。",
+          "候选带有 blockId 时优先调用 siyuan_kb.read_evidence；只有全文总结、跨章节比较或证据不足时才调用 siyuan_kb.read_docs。",
+          "只有成功读取正文的结果才可作为 grounded 引用，未读取的候选不得引用。",
+        ].join("\n")
+      : "",
     renderContextInstructions({
       conversationContext: params.conversationContext,
       globalMemory: params.globalMemory,
@@ -123,7 +132,7 @@ export function buildAgentContextInstructions(params: BuildAgentContextInstructi
     }),
     renderAttachedDocObservationContext(params.observationLog.getContextEvidence()),
     params.externalSkillIndexPrompt ?? "",
-    renderSkillInstructions(skillSections),
+    includeSkillInstructions ? renderSkillInstructions(skillSections) : "",
     params.runtimeToolsSettings
       ? buildRuntimeToolContextInstructions(params.runtimeToolsSettings, params.runtimeToolCapabilities)
       : "",
