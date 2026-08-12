@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { existsSync, readFileSync } from "node:fs";
 import { z } from "zod";
 import {
   AGENT_CAPABILITY_IDS,
@@ -114,4 +115,33 @@ const restrictedPrompt = buildAgentSystemPrompt({
 assert.equal(restrictedPrompt.includes("notebrain_file.run_command"), false);
 assert.equal(restrictedPrompt.includes("homepage_manage"), false);
 
-console.log("Agent Profile 最小权限、资源范围与聚合 action 隔离校验通过。");
+const turnAdapterSource = readFileSync(
+  new URL("../src/features/kb/services/agent-workbench/runtime/run-agent-turn.ts", import.meta.url),
+  "utf8",
+);
+const profileRunnerSource = readFileSync(
+  new URL("../src/features/kb/services/agent-workbench/runtime/run-agent-profile.ts", import.meta.url),
+  "utf8",
+);
+
+assert.match(turnAdapterSource, /runAgentProfile/);
+for (const platformAssembly of [
+  "createProviderAdapterForKbModel",
+  "createAgentWorkbenchRuntime",
+  "NativeToolAgentLoop",
+  "readGlobalMemory",
+  "setMcpRuntimeSettings",
+]) {
+  assert.equal(turnAdapterSource.includes(platformAssembly), false);
+  assert.equal(profileRunnerSource.includes(platformAssembly), true);
+}
+assert.equal(
+  existsSync(new URL("../src/features/kb/services/agent-workbench/runtime/native-agent-runner.ts", import.meta.url)),
+  false,
+);
+assert.equal(
+  existsSync(new URL("../src/features/kb/services/agent-core/tools/native-tool-registry-builder.ts", import.meta.url)),
+  false,
+);
+
+console.log("Agent Profile 权限隔离与统一运行入口校验通过。");

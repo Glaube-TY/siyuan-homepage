@@ -1,747 +1,91 @@
-import { createAgentWorkbenchRuntime } from "./create-agent-workbench";
-import { buildAgentContextInstructions } from "./agent-context-instruction-builder";
-import { runNativeAgentLoop } from "./native-agent-runner";
-import { SiyuanToolRuntimeState } from "../tools/siyuan/siyuan-tool-runtime";
-import { getKbSettings } from "../../settings/kb-settings-service";
-import { loadData as loadPluginData, saveData as savePluginData } from "../storage/notebrain-plugin-storage";
-import { resolveAgentScope } from "../scope/resolve-scope";
-import type { AgentScopeMode } from "../scope/types";
-import type { AgentWorkbenchEvent } from "../contracts/turn-event";
+import {
+  getAgentProfile,
+  KNOWLEDGE_CHAT_AGENT_PROFILE_ID,
+} from "../../../../agent-platform/agent-profile";
 import type { AgentTurnResult } from "../contracts/turn-result";
-import type { ChatModelSelection } from "../../../types/chat-model-selection";
-import type { ThinkingMode } from "../../../types/session";
-import { saveTurnTrace } from "./turn-trace-store";
-import { pushAgentDebugEvent } from "../debug/workbench-debug";
-import { getNotebrainRuntimeEnvironment } from "../workspace/notebrain-runtime-env";
-import type { ConversationContextSnapshot } from "./conversation-context-builder";
+import { buildSafeTurnStageSummary } from "../memory/build-safe-turn-stage-summary";
+import { buildMissingCitationRetryInstruction, resolveInlineCitations } from "./inline-citation";
 import {
   buildReferenceGroundingSet,
   collectObservationReferences,
 } from "./reference-collector";
-import { buildMissingCitationRetryInstruction, resolveInlineCitations } from "./inline-citation";
-import type { AgentWorkbenchRuntimeOptions } from "./create-agent-workbench";
-import { resolveSelectedChatConfig } from "../../settings/chat-provider-config";
-import { getLastSecretDiagnostics } from "../../settings/kb-settings-service";
+import { pushAgentDebugEvent } from "../debug/workbench-debug";
 import {
-  mapAgentErrorToUserFacing,
-  buildCompletedStepsSummary,
-  type AgentTurnDisplayError,
-} from "./user-facing-agent-error";
-import { hydrateAttachedDocsForTurn } from "../adapters/siyuan/attached-doc-hydration";
-import { digestGlobalMemoryText, readGlobalMemory, validateGlobalMemoryDocId } from "../memory/global-memory-doc";
-import { setMcpRuntimeSettings } from "../mcp/mcp-client-manager";
-import { buildAgentSystemPrompt } from "../../agent-core/prompts/system-prefix";
-import { createProviderAdapterForKbModel } from "../../agent-core/providers/agent-provider-factory";
-import { normalizeProviderError } from "../../agent-core/providers/provider-error";
-import { buildNativeToolRegistryForTurn } from "../../agent-core/tools/native-tool-registry-builder";
-import {
-  listAllExternalSkillEntries,
-  renderExternalSkillIndexPrompt,
-} from "../skills/external/external-skill-index";
-import type { AgentStreamEvent } from "../../agent-core/loop/stream-event";
-import { AgentSession } from "../../agent-core/session/agent-session";
-import type { AgentMessage } from "../../agent-core/messages/agent-message";
-import { compactAgentSessionMessagesForStorage } from "../../agent-core/messages/message-compactor";
-import { sanitizeMessageForStorage } from "../../agent-core/session/session-store";
-import { buildSafeTurnStageSummary } from "../memory/build-safe-turn-stage-summary";
-import {
-  agentProfileAllowsContext,
-  agentProfileAllowsMemory,
-  getAgentProfile,
-  KNOWLEDGE_CHAT_AGENT_PROFILE_ID,
-  agentProfileHasCapability,
-  agentProfileResourceAllowList,
-} from "../../../../agent-platform/agent-profile";
-import {
-  createAgentEventId,
-  createAgentRunIdentity,
-  type AgentRunIdentity,
-  type AgentTokenUsage,
-} from "../../../../agent-platform/agent-run-protocol";
+  runAgentProfile,
+  type AgentProfileRunOutcome,
+  type RunAgentProfileParams,
+} from "./run-agent-profile";
 
-export interface RunAgentTurnParams {
-  question: string;
-  conversationContext?: ConversationContextSnapshot;
-  mode: AgentScopeMode;
-  customDocIds?: string[];
-  attachedDocs?: readonly { docId: string; title?: string }[];
-  abortSignal?: AbortSignal;
-  chatModelSelection?: ChatModelSelection | null;
-  thinkingMode?: ThinkingMode;
-  onWorkbenchEvent?: (event: AgentWorkbenchEvent) => void;
-  onAnswerChunk?: (event: { chunk: string; fullContent: string }) => void;
-  onAnswerFinish?: (fullContent: string) => void;
-  onReasoningDelta?: (event: { type: "reasoning-start" | "reasoning-delta" | "reasoning-end" | "reasoning-reset"; delta?: string }) => void;
-  globalMemory?: string;
-  globalMemoryBaseDigest?: string;
-  conversationId?: string;
-  panelInstanceId?: string;
-  turnId?: string;
-  agentSessionMessages?: readonly AgentMessage[];
-  kbSettings?: Awaited<ReturnType<typeof getKbSettings>>;
-}
+export type RunAgentTurnParams = Omit<
+  RunAgentProfileParams<AgentTurnResult>,
+  "profile" | "validateFinalAnswer" | "finalize"
+>;
 
-export interface AgentTurnOutcome {
-  ok: boolean;
-  result?: AgentTurnResult;
-  agentErrorCode?: string;
-  steps?: number;
-  footerReferencesCount?: number;
-  stopReasonCode?: string;
-  displayError?: AgentTurnDisplayError;
-  agentSessionMessages?: AgentMessage[];
-  identity: AgentRunIdentity;
-  usage?: AgentTokenUsage;
-}
+export type AgentTurnOutcome = AgentProfileRunOutcome<AgentTurnResult>;
 
-function toWorkbenchEvent(
-  event: AgentStreamEvent,
-  identity: AgentRunIdentity,
-  ordinal: number,
-): AgentWorkbenchEvent {
-  const payload = event.type === "run_started"
-    ? (({ identity: _identity, ...rest }) => rest)(event)
-    : event;
-  return {
-    ...payload,
-    at: Date.now(),
-    eventId: createAgentEventId(identity.runId, ordinal),
-    sessionId: identity.sessionId,
-    runId: identity.runId,
-    correlationId: identity.correlationId,
-  } as AgentWorkbenchEvent;
-}
-
-function shouldStoreWorkbenchEvent(event: AgentStreamEvent): boolean {
-  return event.type !== "assistant_text_delta" && event.type !== "assistant_reasoning_delta";
-}
-
-function toTraceEvents(events: AgentWorkbenchEvent[]) {
-  return events.map((event) => ({
-    type: event.type,
-    eventId: event.eventId,
-    stepIndex: event.stepIndex,
-    modelStepIndex: event.type === "model_started" || event.type === "usage" ? event.modelStepIndex : undefined,
-    toolName: "toolName" in event ? event.toolName : undefined,
-    ok: event.type === "tool_result" ? event.result.ok : undefined,
-    durationMs: event.type === "tool_result" ? event.durationMs : undefined,
-    argsPreview: event.type === "tool_start" || event.type === "tool_result" ? event.argsPreview : undefined,
-    outputSummary: event.type === "tool_result" ? event.result.summary : undefined,
-    message: "message" in event ? event.message : event.type === "assistant_final" ? event.answer : undefined,
-    status: event.type === "done" ? event.status : undefined,
-    providerFinishReason: event.type === "done" ? event.providerFinishReason : undefined,
-    outputChars: event.type === "done" ? event.outputChars : undefined,
-    usage: event.type === "usage" ? event.cumulativeUsage : undefined,
-    errorCategory: event.type === "error" ? event.category : undefined,
-    retryable: event.type === "error" ? event.retryable : undefined,
-    retryAfterMs: event.type === "error" ? event.retryAfterMs : undefined,
-    safeToReplay: event.type === "error" ? event.safeToReplay : undefined,
-    sideEffectState: event.type === "error" ? event.sideEffectState : undefined,
-    errorCode: event.type === "tool_result"
-      ? event.result.errorCode ?? event.result.code
-      : event.type === "error"
-        ? event.code
-        : undefined,
-  }));
-}
-
-function compactAndSanitizeAgentMessages(messages: readonly AgentMessage[]): AgentMessage[] {
-  const compacted = compactAgentSessionMessagesForStorage(messages);
-  pushAgentDebugEvent("AGENT_SESSION_STORAGE_COMPACTED", {
-    beforeMessageCount: messages.length,
-    afterMessageCount: compacted.length,
-  }, "info");
-  return compacted.map(sanitizeMessageForStorage);
-}
-
-function buildFailureOutcome(params: {
-  code: string;
-  message?: string;
-  steps?: number;
-  events: AgentWorkbenchEvent[];
-  agentSessionMessages?: AgentMessage[];
-  identity: AgentRunIdentity;
-  usage?: AgentTokenUsage;
-}): AgentTurnOutcome {
-  const userFacing = mapAgentErrorToUserFacing({
-    agentErrorCode: params.code,
-    message: params.message,
-  });
-  const summary = buildCompletedStepsSummary(params.events);
-  return {
-    ok: false,
-    agentErrorCode: params.code,
-    stopReasonCode: params.code,
-    steps: params.steps,
-    displayError: {
-      ...userFacing,
-      completedStepsSummary: summary?.text,
-    },
-    agentSessionMessages: params.agentSessionMessages,
-    identity: params.identity,
-    usage: params.usage,
-  };
-}
-
-export async function runAgentTurn(
-  params: RunAgentTurnParams,
-): Promise<AgentTurnOutcome> {
-  const agentProfile = getAgentProfile(KNOWLEDGE_CHAT_AGENT_PROFILE_ID);
-  const localEvents: AgentWorkbenchEvent[] = [];
-  const conversationId = params.conversationId ?? `conv-${Date.now()}`;
-  const identity = createAgentRunIdentity({
-    sessionId: conversationId,
-    runId: params.turnId,
-  });
-  let eventOrdinal = 0;
-  let activeProviderId: string | undefined;
-
-  const emitNativeEvent = (event: AgentStreamEvent): AgentWorkbenchEvent => {
-    const workbenchEvent = toWorkbenchEvent(event, identity, ++eventOrdinal);
-    localEvents.push(workbenchEvent);
-    params.onWorkbenchEvent?.(workbenchEvent);
-    return workbenchEvent;
-  };
-
-  const saveCurrentTrace = (trace: {
-    status: string;
-    steps: number;
-    providerRequestCount?: number;
-    usage?: AgentTokenUsage;
-  }): void => {
-    const finishedAt = Date.now();
-    saveTurnTrace({
-      sessionId: identity.sessionId,
-      runId: identity.runId,
-      correlationId: identity.correlationId,
-      turnId: params.turnId ?? identity.runId,
-      providerId: activeProviderId,
-      startedAt: identity.startedAt,
-      finishedAt,
-      durationMs: finishedAt - identity.startedAt,
-      status: trace.status,
-      steps: trace.steps,
-      providerRequestCount: trace.providerRequestCount,
-      usage: trace.usage,
-      events: toTraceEvents(localEvents),
-    });
-  };
-
-  let session: AgentSession | undefined;
-
-  try {
-    const resolvedScope = await resolveAgentScope({
-      mode: params.mode,
-      customDocIds: params.customDocIds,
-    });
-    const scope = resolvedScope.scope;
-    const deps = new SiyuanToolRuntimeState({ scope, loadPluginData, savePluginData });
-    const settings = params.kbSettings ?? await getKbSettings();
-    const ws = settings.webSearch;
-    const externalSkillSettings = {
-      ...settings.externalSkills,
-      allowedSkillIds: agentProfileResourceAllowList(agentProfile.permissions.externalSkillIds),
-    };
-    const mcpSettings = {
-      ...settings.mcp,
-      allowedServerIds: agentProfileResourceAllowList(agentProfile.permissions.mcpServerIds),
-      allowedToolNames: agentProfileResourceAllowList(agentProfile.permissions.mcpToolNames),
-    };
-
-    // Inject runtime tools settings for MCP command resolution
-    if (agentProfileHasCapability(agentProfile, "mcp") && settings.runtimeTools) {
-      setMcpRuntimeSettings(settings.runtimeTools);
-    }
-
-    // ── Per-turn capability computation ──
-    const runtimeEnv = getNotebrainRuntimeEnvironment();
-    const sandboxEnabled = settings.notebrainWorkspace.enabled === true && runtimeEnv.isPcElectron;
-    const localCommandToolEnabled = sandboxEnabled && settings.notebrainWorkspace.commandExecutionEnabled === true;
-    const mcpClientEnabled = agentProfileHasCapability(agentProfile, "mcp") && mcpSettings.enabled === true;
-
-    let webReadPageToolDeps: AgentWorkbenchRuntimeOptions["webReadPageToolDeps"] | undefined;
-
-    const disabledGlobalTools = new Set(settings.toolSettings?.disabledGlobalToolNames ?? []);
-    const globalToolAccess = {
-      editGlobalMemory: !disabledGlobalTools.has("edit_global_memory"),
-      // agent_tool_help 是系统必需工具，不受用户 disabledGlobalToolNames 影响，始终启用。
-      agentToolHelp: true,
-      webFetch: !disabledGlobalTools.has("web_fetch"),
-    };
-
-    const webReadAccess = params.conversationContext?.currentTurn?.webReadAccess;
-    if (webReadAccess?.enabled && globalToolAccess.webFetch) {
-      webReadPageToolDeps = {
-        readProxyEndpoint: ws.readProxyEndpoint || undefined,
-        readPageMaxChars: ws.readPageMaxChars,
-        timeoutMs: ws.timeoutMs,
-      };
-    }
-
-    const memoryDocId = settings.globalMemory?.docId?.trim() ?? "";
-    const canReadGlobalMemory = agentProfileAllowsMemory(agentProfile, "read")
-      && agentProfileAllowsContext(agentProfile, "global-memory");
-    const canWriteGlobalMemory = agentProfileAllowsMemory(agentProfile, "write");
-    let memoryDocIdValid = false;
-    if (memoryDocId && (canReadGlobalMemory || canWriteGlobalMemory)) {
-      const validation = await validateGlobalMemoryDocId(memoryDocId);
-      memoryDocIdValid = validation.valid;
-    }
-
-    let globalMemoryText: string | undefined = canReadGlobalMemory ? params.globalMemory : undefined;
-    let globalMemoryBaseDigest = params.globalMemoryBaseDigest;
-    if (canReadGlobalMemory && globalMemoryText === undefined && settings.globalMemory?.enabled && memoryDocIdValid) {
-      const mem = await readGlobalMemory(memoryDocId, settings.globalMemory.maxChars);
-      if (!mem.readOk) {
-        globalMemoryText = "全局记忆读取失败，本轮不使用全局记忆。";
-      } else if (mem.truncated) {
-        globalMemoryText = `${mem.content}\n（记忆内容已截断）`;
-      } else {
-        globalMemoryText = mem.content;
-        globalMemoryBaseDigest = digestGlobalMemoryText(mem.content);
-      }
-    }
-
-    const globalMemoryToolDeps: AgentWorkbenchRuntimeOptions["globalMemoryToolDeps"] | undefined =
-      settings.globalMemory?.enabled === true
-        && settings.globalMemory.allowAiUpdate === true
-        && canWriteGlobalMemory
-        && memoryDocIdValid
-        && globalToolAccess.editGlobalMemory
-        && !!globalMemoryBaseDigest
-        ? {
-            docId: memoryDocId,
-            maxMemoryChars: settings.globalMemory?.maxChars ?? 8000,
-            baseDigest: globalMemoryBaseDigest,
-          }
-        : undefined;
-
-    const builtinCapabilityAccess = {
-      knowledgeBase: !disabledGlobalTools.has("siyuan_kb"),
-      scheduleTaskDiary: !disabledGlobalTools.has("diary_task"),
-      databaseAssistant: !disabledGlobalTools.has("siyuan_database"),
-      docContentEditing: !disabledGlobalTools.has("siyuan_doc_edit"),
-      notebookDocTree: !disabledGlobalTools.has("siyuan_tree"),
-      tagBookmarkOutline: !disabledGlobalTools.has("siyuan_meta"),
-      assetManagement: !disabledGlobalTools.has("siyuan_asset"),
-      riffReview: !disabledGlobalTools.has("siyuan_riff"),
-      homepageManagement: !disabledGlobalTools.has("homepage_manage"),
-      homepageQuickNote: !disabledGlobalTools.has("homepage_quick_note"),
-      homepageFocus: !disabledGlobalTools.has("homepage_focus"),
-      homepageAccounting: !disabledGlobalTools.has("homepage_accounting"),
-      homepageFixedAssets: !disabledGlobalTools.has("homepage_fixed_assets"),
-      homepageAnniversary: !disabledGlobalTools.has("homepage_anniversary"),
-      homepageFavorites: !disabledGlobalTools.has("homepage_favorites"),
-      homepageReview: !disabledGlobalTools.has("homepage_review"),
-      homepageMusic: !disabledGlobalTools.has("homepage_music"),
-    };
-
-    const wb = createAgentWorkbenchRuntime({
-      profile: agentProfile,
-      kbRetrievalToolDeps: deps,
-      webReadPageToolDeps,
-      builtinCapabilityAccess,
-      globalToolAccess,
-      globalMemoryToolDeps,
-      conversationId,
-      confirmationRoute: params.panelInstanceId && params.turnId
-        ? { panelInstanceId: params.panelInstanceId, conversationId, turnId: params.turnId }
-        : undefined,
-      externalSkillSettings,
-      mcpSettings,
-      notebrainWorkspaceSettings: settings.notebrainWorkspace,
-      runtimeToolsSettings: settings.runtimeTools,
-    });
-
-    pushAgentDebugEvent("AGENT_PROFILE_RESOLVED", {
-      profileId: agentProfile.id,
-      schemaVersion: agentProfile.schemaVersion,
-      capabilities: agentProfile.capabilities,
-    }, "info");
-
-    pushAgentDebugEvent("WEB_TOOL_REGISTRATION_SAFE", {
-      webReadPageRegistered: !!webReadPageToolDeps,
-      settingsEnabled: ws.enabled,
-      webFetchRegistered: globalToolAccess.webFetch,
-      webFetchDisabledReason: !globalToolAccess.webFetch ? "web_fetch_disabled"
-        : !webReadPageToolDeps ? "web_read_access_off"
-        : undefined,
-    }, "info");
-
-    // Runtime environment debug (already computed above)
-    pushAgentDebugEvent("RUNTIME_ENVIRONMENT", {
-      isPcElectron: runtimeEnv.isPcElectron,
-      platformLabel: runtimeEnv.platformLabel,
-      hasNodeRequire: runtimeEnv.hasNodeRequire,
-      unsupportedCapabilities: runtimeEnv.unsupportedCapabilities,
-    }, "info");
-
-    let externalSkillIndexPrompt = "";
-    if (agentProfileAllowsContext(agentProfile, "external-skills") && externalSkillSettings.enabled !== false) {
-      try {
-        const entries = await listAllExternalSkillEntries({
-          disabledSkillIds: externalSkillSettings.disabledSkillIds,
-          allowedSkillIds: externalSkillSettings.allowedSkillIds,
-        });
-        externalSkillIndexPrompt = renderExternalSkillIndexPrompt(entries);
-      } catch (err) {
-        pushAgentDebugEvent("EXTERNAL_SKILL_INDEX_PROMPT_FAILED", {
-          error: err instanceof Error ? err.message.slice(0, 80) : String(err),
-        }, "warn");
-      }
-    }
-
-    const attachedDocIds = params.attachedDocs?.map((doc) => doc.docId).filter(Boolean) ?? [];
-    if (agentProfileAllowsContext(agentProfile, "attached-documents") && attachedDocIds.length > 0) {
-      emitNativeEvent({ type: "notice", message: "加载已选文档..." });
-      const hydration = await hydrateAttachedDocsForTurn(attachedDocIds);
-
-      for (const item of hydration.items) {
-        wb.observationLog.push({
-          kind: "skill_observation",
-          summary: `用户附加文档已加载: ${item.title}`,
-          content: {
-            items: [{
-              docId: item.docId,
-              title: item.title,
-              content: item.content,
-              contentChars: item.contentChars,
-              truncated: item.truncated,
-              chunkIndex: item.chunkIndex,
-              chunkCount: item.chunkCount,
-            }],
-            source: "attached_doc_hydration",
-          },
-        });
-      }
-
-      for (const err of hydration.errors) {
-        wb.observationLog.push({
-          kind: "skill_observation",
-          summary: `用户附加文档加载失败: ${err.message}`,
-          reasonCode: err.code,
-          content: {
-            error: { docId: err.docId, code: err.code, message: err.message },
-            source: "attached_doc_hydration",
-          },
-        });
-      }
-
-      emitNativeEvent({ type: "notice", message: `已加载 ${hydration.loadedCount} 个已选文档` });
-    }
-
-    const selected = resolveSelectedChatConfig(
-      settings.chatProviders,
-      params.chatModelSelection?.providerId ?? settings.selectedChatProviderId,
-      params.chatModelSelection?.modelId ?? settings.selectedChatModelId,
-    );
-
-    if (!selected.provider || !selected.model) {
-      const code = "provider_tool_call_not_supported";
-      emitNativeEvent({ type: "error", code, message: "当前没有可用于 Agent 的模型配置。" });
-      saveCurrentTrace({ status: "failed", steps: 0 });
-      return buildFailureOutcome({ code, message: "当前没有可用于 Agent 的模型配置。", events: localEvents, identity });
-    }
-
-    // Pre-flight: if provider needs an API key but it's empty due to decrypt failure,
-    // return a clear user-facing error instead of sending empty key → 401.
-    if (!selected.provider.apiKey) {
-      const secretDiag = getLastSecretDiagnostics();
-      const providerNeedsKey = selected.provider.type !== "openai-compatible"
-        || (selected.provider.baseUrl && !selected.provider.baseUrl.includes("127.0.0.1") && !selected.provider.baseUrl.includes("localhost"));
-      if (providerNeedsKey && secretDiag.hasDecryptFailure
-        && secretDiag.failedChatProviderIds.includes(selected.provider.id)) {
-        const code = "api_key_decrypt_failed";
-        const message = "模型 API Key 解密失败，请到大模型配置重新填写。";
-        emitNativeEvent({ type: "error", code, message });
-        pushAgentDebugEvent("AGENT_PREFLIGHT_API_KEY_DECRYPT_FAILED", {
-          providerId: selected.provider.id,
-          providerType: selected.provider.type,
-        }, "error");
-        saveCurrentTrace({ status: "failed", steps: 0 });
-        return buildFailureOutcome({ code, message, events: localEvents, identity });
-      }
-    }
-
-    const provider = createProviderAdapterForKbModel({
-      provider: selected.provider,
-      model: selected.model,
-      thinkingMode: params.thinkingMode ?? "off",
-      agentThinkingEnabled: settings.agentThinkingEnabled,
-    });
-    activeProviderId = provider.id;
-
-    if (!provider.capabilities.nativeToolCalls) {
-      const code = "provider_tool_call_not_supported";
-      emitNativeEvent({ type: "error", code, message: "当前模型不支持原生工具调用，不能进入 Agent 模式。" });
-      saveCurrentTrace({ status: "failed", steps: 0 });
-      return buildFailureOutcome({
-        code,
-        message: "当前模型不支持原生工具调用，不能进入 Agent 模式。",
-        events: localEvents,
-        identity,
+/** 知识库领域适配器：Profile 运行结束后只负责引用与阶段摘要。 */
+export async function runAgentTurn(params: RunAgentTurnParams): Promise<AgentTurnOutcome> {
+  return runAgentProfile({
+    ...params,
+    profile: getAgentProfile(KNOWLEDGE_CHAT_AGENT_PROFILE_ID),
+    validateFinalAnswer: (answer, observations) => buildMissingCitationRetryInstruction(
+      answer,
+      collectObservationReferences(observations),
+    ),
+    finalize: ({ answer, events, observations, resolvedScope }) => {
+      const observationRefs = collectObservationReferences(observations);
+      buildReferenceGroundingSet({
+        observationRefs,
+        conversationContext: params.conversationContext,
+        scope: resolvedScope.scope,
+        attachedDocs: params.attachedDocs,
       });
-    }
+      const citationResolution = resolveInlineCitations(answer, observationRefs);
+      const footerReferences = citationResolution.citedReferences;
+      const finalAnswer = citationResolution.answer;
+      pushAgentDebugEvent("INLINE_CITATIONS_RESOLVED_SAFE", {
+        acceptedCount: citationResolution.acceptedCount,
+        rejectedCount: citationResolution.rejectedCount,
+        citedReferenceCount: footerReferences.length,
+      }, citationResolution.rejectedCount > 0 ? "warn" : "info");
 
-    const nativeToolRegistry = await buildNativeToolRegistryForTurn({
-      toolRegistry: wb.toolRegistry,
-      observationLog: wb.observationLog,
-      question: params.question,
-      conversationId,
-      abortSignal: params.abortSignal,
-      notebrainWorkspaceSettings: settings.notebrainWorkspace,
-      mcpSettings,
-      runtimeToolsSettings: settings.runtimeTools,
-    });
-
-    const profileConversationContext = agentProfileAllowsContext(agentProfile, "conversation")
-      ? canReadGlobalMemory || !params.conversationContext
-        ? params.conversationContext
-        : { ...params.conversationContext, globalMemory: undefined }
-      : undefined;
-    const context = buildAgentContextInstructions({
-      toolRegistry: wb.toolRegistry,
-      skillRegistry: wb.skillRegistry,
-      observationLog: wb.observationLog,
-      question: params.question,
-      abortSignal: params.abortSignal,
-      conversationContext: profileConversationContext,
-      globalMemory: globalMemoryText,
-      attachedDocs: agentProfileAllowsContext(agentProfile, "attached-documents")
-        ? params.attachedDocs
-        : undefined,
-      externalSkillIndexPrompt,
-      runtimeToolsSettings: agentProfileAllowsContext(agentProfile, "runtime-tools")
-        ? settings.runtimeTools
-        : undefined,
-      includeKnowledgeGuidance: agentProfileAllowsContext(agentProfile, "knowledge"),
-      includeSkillInstructions: agentProfileAllowsContext(agentProfile, "skills"),
-      runtimeToolCapabilities: {
-        sandboxEnabled,
-        localCommandToolEnabled,
-        mcpClientEnabled,
-      },
-    });
-
-    const initialMessages = params.agentSessionMessages ?? [];
-    const safeInitialMessages = initialMessages.length > 0
-      ? compactAndSanitizeAgentMessages(initialMessages)
-      : initialMessages;
-    if (initialMessages.length > 0) {
-      pushAgentDebugEvent("AGENT_SESSION_INITIAL_STORAGE_SAFE_COMPACTED", {
-        beforeMessageCount: initialMessages.length,
-        afterMessageCount: safeInitialMessages.length,
-      }, "info");
-    }
-
-    session = new AgentSession(conversationId, safeInitialMessages);
-    let reasoningStarted = false;
-    let answerFinished = false;
-
-    const autoAllowedToolNames = [
-      ...(settings.toolSettings?.disabledWriteToolConfirmationNames ?? []),
-      ...(settings.mcp?.trustedToolNames ?? []),
-    ];
-    // Append action-level trusted entries (encoded as "toolName:actionName")
-    // from toolActionConfirmOverrides. Only false values mean trusted.
-    const actionOverrides = settings.toolSettings?.toolActionConfirmOverrides;
-    if (actionOverrides && typeof actionOverrides === "object") {
-      for (const [toolName, actionMap] of Object.entries(actionOverrides)) {
-        if (!actionMap || typeof actionMap !== "object") continue;
-        for (const [actionName, flag] of Object.entries(actionMap)) {
-          if (flag === false) {
-            autoAllowedToolNames.push(`${toolName}:${actionName}`);
+      let stageSummary: { summary: string } | undefined;
+      if (finalAnswer.trim().length > 0) {
+        try {
+          stageSummary = buildSafeTurnStageSummary({
+            userQuestion: params.question,
+            answer: finalAnswer,
+            footerReferences,
+            events,
+            scopeSummary: resolvedScope.summary,
+          });
+          if (stageSummary) {
+            pushAgentDebugEvent("TURN_STAGE_SUMMARY_GENERATED_SAFE", {
+              summaryChars: stageSummary.summary.length,
+              footerReferenceCount: footerReferences.length,
+              eventCount: events.length,
+            }, "info");
           }
+        } catch (error) {
+          pushAgentDebugEvent("TURN_STAGE_SUMMARY_GENERATION_FAILED", {
+            error: error instanceof Error ? error.message.slice(0, 80) : String(error),
+          }, "warn");
         }
       }
-    }
 
-    const loopResult = await runNativeAgentLoop({
-      provider,
-      toolRegistry: nativeToolRegistry,
-      session,
-      systemPrompt: buildAgentSystemPrompt({
-        isToolAvailable: (toolName) => nativeToolRegistry.get(toolName)?.providerVisible === true,
-        isActionAvailable: (toolName, action) =>
-          wb.toolRegistry.getTool(toolName)?.aggregateActionHelp?.[action] !== undefined,
-      }),
-      contextInstructions: context.contextInstructions,
-      conversationId,
-      identity,
-      confirmationRoute: params.panelInstanceId && params.turnId
-        ? { panelInstanceId: params.panelInstanceId, conversationId, turnId: params.turnId }
-        : undefined,
-      autoAllowedToolNames,
-      abortSignal: params.abortSignal,
-      question: params.question,
-      maxToolCalls: settings.agentMaxToolCallsPerTurn ?? agentProfile.execution.defaultMaxToolCalls,
-      validateFinalAnswer: (answer) => buildMissingCitationRetryInstruction(
-        answer,
-        collectObservationReferences(wb.observationLog.all()),
-      ),
-      onEvent: (event) => {
-        if (shouldStoreWorkbenchEvent(event)) {
-          emitNativeEvent(event);
-        }
-        if (event.type === "assistant_text_delta") {
-          params.onAnswerChunk?.({ chunk: event.delta, fullContent: event.fullContent });
-        } else if (event.type === "assistant_reasoning_delta") {
-          if (!reasoningStarted) {
-            reasoningStarted = true;
-            params.onReasoningDelta?.({ type: "reasoning-start" });
-          }
-          params.onReasoningDelta?.({ type: "reasoning-delta", delta: event.delta });
-        } else if (event.type === "assistant_reasoning_reset") {
-          if (reasoningStarted) {
-            params.onReasoningDelta?.({ type: "reasoning-reset" });
-            reasoningStarted = false;
-          }
-        } else if (event.type === "assistant_final") {
-          answerFinished = true;
-          if (reasoningStarted) {
-            params.onReasoningDelta?.({ type: "reasoning-end" });
-            reasoningStarted = false;
-          }
-          params.onAnswerFinish?.(event.answer);
-        } else if (event.type === "done" && reasoningStarted) {
-          params.onReasoningDelta?.({ type: "reasoning-end" });
-          reasoningStarted = false;
-        }
-      },
-    });
-
-    if (loopResult.ok && !answerFinished) {
-      params.onAnswerFinish?.(loopResult.answer);
-    }
-
-    const compactedAndSanitizedMessages = compactAndSanitizeAgentMessages(loopResult.messages);
-
-    saveCurrentTrace({
-      status: loopResult.status,
-      steps: loopResult.steps,
-      providerRequestCount: loopResult.providerRequestCount,
-      usage: loopResult.usage,
-    });
-
-    if (!loopResult.ok) {
-      const code = loopResult.errorCode ?? loopResult.status;
-      pushAgentDebugEvent("TURN_FAILED", {
-        agentErrorCode: code,
-        loopStatus: loopResult.status,
-        steps: loopResult.steps,
-      }, "warn");
-      return buildFailureOutcome({
-        code,
-        message: loopResult.errorMessage,
-        steps: loopResult.steps,
-        events: localEvents,
-        agentSessionMessages: compactedAndSanitizedMessages,
-        identity,
-        usage: loopResult.usage,
-      });
-    }
-
-    const observationRefs = collectObservationReferences(wb.observationLog.all());
-    buildReferenceGroundingSet({
-      observationRefs,
-      conversationContext: params.conversationContext,
-      scope,
-      attachedDocs: params.attachedDocs,
-    });
-    const citationResolution = resolveInlineCitations(loopResult.answer, observationRefs);
-    const footerReferences = citationResolution.citedReferences;
-    const finalAnswer = citationResolution.answer;
-    pushAgentDebugEvent("INLINE_CITATIONS_RESOLVED_SAFE", {
-      acceptedCount: citationResolution.acceptedCount,
-      rejectedCount: citationResolution.rejectedCount,
-      citedReferenceCount: footerReferences.length,
-    }, citationResolution.rejectedCount > 0 ? "warn" : "info");
-
-    let stageSummary: { summary: string } | undefined;
-    if (finalAnswer.trim().length > 0) {
-      try {
-        stageSummary = buildSafeTurnStageSummary({
-          userQuestion: params.question,
+      return {
+        result: {
+          scope: resolvedScope.scope,
+          scopeSummary: resolvedScope.summary,
           answer: finalAnswer,
           footerReferences,
-          events: localEvents,
-          scopeSummary: resolvedScope.summary,
-        });
-        if (stageSummary) {
-          pushAgentDebugEvent("TURN_STAGE_SUMMARY_GENERATED_SAFE", {
-            summaryChars: stageSummary.summary.length,
-            footerReferenceCount: footerReferences.length,
-            eventCount: localEvents.length,
-          }, "info");
-        }
-      } catch (err) {
-        pushAgentDebugEvent("TURN_STAGE_SUMMARY_GENERATION_FAILED", {
-          error: err instanceof Error ? err.message.slice(0, 80) : String(err),
-        }, "warn");
-      }
-    }
-
-    const result: AgentTurnResult = {
-      scope,
-      scopeSummary: resolvedScope.summary,
-      answer: finalAnswer,
-      footerReferences,
-      citationSegments: citationResolution.citationSegments,
-      warnings: [],
-      events: localEvents,
-      stageSummary,
-    };
-
-    return {
-      ok: true,
-      steps: loopResult.steps,
-      footerReferencesCount: footerReferences.length,
-      result,
-      agentSessionMessages: compactedAndSanitizedMessages,
-      identity,
-      usage: loopResult.usage,
-    };
-  } catch (err) {
-    const providerError = normalizeProviderError(err);
-    const code = providerError.code || "agent_workbench_unexpected_error";
-    const message = providerError.message;
-    pushAgentDebugEvent("RUN_AGENT_TURN_EXCEPTION", {
-      errorName: err instanceof Error ? err.name : "unknown",
-      code,
-      sanitizedMessage: message.slice(0, 200),
-      category: providerError.category,
-      retryable: providerError.retryable,
-      safeToReplay: providerError.safeToReplay,
-      correlationId: identity.correlationId,
-    }, "error");
-
-    emitNativeEvent({
-      type: "error",
-      code,
-      message,
-      category: providerError.category,
-      retryable: providerError.retryable,
-      retryAfterMs: providerError.retryAfterMs,
-      safeToReplay: providerError.safeToReplay,
-      sideEffectState: providerError.sideEffectState,
-      userAction: providerError.userAction,
-    });
-    saveCurrentTrace({
-      status: "exception",
-      steps: localEvents.length > 0
-        ? Math.max(...localEvents.map((event) => event.stepIndex ?? 0)) : 0,
-    });
-
-    const exceptionSessionMessages = session
-      ? compactAndSanitizeAgentMessages(session.snapshot())
-      : undefined;
-
-    return buildFailureOutcome({
-      code,
-      message,
-      events: localEvents,
-      agentSessionMessages: exceptionSessionMessages,
-      identity,
-    });
-  }
+          citationSegments: citationResolution.citationSegments,
+          warnings: [],
+          events,
+          stageSummary,
+        },
+        footerReferencesCount: footerReferences.length,
+      };
+    },
+  });
 }

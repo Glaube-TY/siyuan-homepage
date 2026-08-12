@@ -67,8 +67,12 @@ export type {
   RunAgentTurnParams,
   AgentTurnOutcome,
 } from "./runtime/run-agent-turn";
-export { runNativeAgentLoop } from "./runtime/native-agent-runner";
-export type { RunNativeAgentLoopParams, RunNativeAgentLoopResult } from "./runtime/native-agent-runner";
+export { runAgentProfile } from "./runtime/run-agent-profile";
+export type {
+  AgentProfileFinalizeContext,
+  AgentProfileRunOutcome,
+  RunAgentProfileParams,
+} from "./runtime/run-agent-profile";
 export { buildAgentContextInstructions } from "./runtime/agent-context-instruction-builder";
 export type {
   BuildAgentContextInstructionsParams,
