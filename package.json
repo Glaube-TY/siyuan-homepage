@@ -38,7 +38,8 @@
     "verify:agent-runtime": "node --loader ts-node/esm --experimental-specifier-resolution=node scripts/verify-agent-runtime-protocol.ts",
     "verify:agent-continuation": "node --loader ts-node/esm --experimental-specifier-resolution=node scripts/verify-agent-continuation-guard.ts",
     "verify:agent-context": "node --loader ts-node/esm --experimental-specifier-resolution=node scripts/verify-agent-context-recovery.ts",
-    "verify:agent-ui": "node --loader ts-node/esm --experimental-specifier-resolution=node scripts/verify-agent-execution-ui.ts"
+    "verify:agent-ui": "node --loader ts-node/esm --experimental-specifier-resolution=node scripts/verify-agent-execution-ui.ts",
+    "verify:automation-storage": "node --loader ts-node/esm --experimental-specifier-resolution=node scripts/verify-automation-job-storage.ts"
   },
   "devDependencies": {
     "@eslint/js": "^9.17.0",
