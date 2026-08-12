@@ -22,6 +22,7 @@ import {
 import { ToolRegistry } from "../src/features/kb/services/agent-workbench/registries/tool-registry";
 import type { ToolContract } from "../src/features/kb/services/agent-workbench/contracts/tool-contract";
 import { buildAgentSystemPrompt } from "../src/features/kb/services/agent-core/prompts/system-prefix";
+import { createAgentSurfaceCapabilitySnapshot } from "../src/features/agent-platform/agent-surface-capability";
 
 const profile = getAgentProfile(KNOWLEDGE_CHAT_AGENT_PROFILE_ID);
 
@@ -63,6 +64,35 @@ assert.deepEqual(agentProfileResourceAllowList(restricted.permissions.mcpServerI
 assert.deepEqual(agentProfileResourceAllowList(restricted.permissions.mcpToolNames), ["safe-tool"]);
 assert.equal(agentProfileAllowsTool(restricted, "blocked_tool"), false);
 assert.equal(agentProfileAllowsToolAction(restricted, "safe_aggregate", "write"), false);
+
+const surfaceCapabilities = createAgentSurfaceCapabilitySnapshot({
+  contexts: [{
+    id: "homepage-context:test",
+    title: "测试组件",
+    scope: "homepage-component",
+    sensitivity: "private",
+    source: { toolName: "safe_aggregate", actions: ["read"] },
+  }],
+  actions: [{
+    id: "homepage-action:test:read",
+    title: "读取测试组件",
+    scope: "homepage-component",
+    toolName: "safe_aggregate",
+    action: "read",
+    readOnly: true,
+    idempotency: "read",
+    requiresConfirmation: false,
+  }],
+});
+assert.equal(surfaceCapabilities.contexts[0]?.source.actions[0], "read");
+assert.throws(() => createAgentSurfaceCapabilitySnapshot({
+  contexts: [surfaceCapabilities.contexts[0]!],
+  actions: [{ ...surfaceCapabilities.actions[0]!, id: surfaceCapabilities.contexts[0]!.id }],
+}), /duplicated/);
+assert.throws(() => createAgentSurfaceCapabilitySnapshot({
+  contexts: [{ ...surfaceCapabilities.contexts[0]!, source: { toolName: "safe_aggregate", actions: ["missing"] } }],
+  actions: surfaceCapabilities.actions,
+}), /not a registered read action/);
 
 const robot = getAgentProfile(ROBOT_AGENT_PROFILE_ID);
 assert.deepEqual(robot.permissions.contextSources, ["conversation", "runtime-tools"]);
@@ -178,6 +208,14 @@ const plainTextSource = readFileSync(
   new URL("../src/services/ai/plain-text-generation.ts", import.meta.url),
   "utf8",
 );
+const workbenchCompositionSource = readFileSync(
+  new URL("../src/features/kb/services/agent-workbench/runtime/create-agent-workbench.ts", import.meta.url),
+  "utf8",
+);
+const homepageCapabilitySource = readFileSync(
+  new URL("../src/features/kb/services/agent-workbench/composition/register-homepage-tools.ts", import.meta.url),
+  "utf8",
+);
 
 assert.match(turnAdapterSource, /runAgentProfile/);
 for (const platformAssembly of [
@@ -206,5 +244,9 @@ assert.equal(selectionRunnerSource.includes("streamModelText"), false);
 assert.match(plainTextSource, /agentProfileAllowsContext/);
 assert.match(plainTextSource, /streamModelText/);
 assert.match(selectionPopupSource, /onDestroy\(\(\) => \{[\s\S]*abortController\?\.abort\(\)/);
+assert.match(workbenchCompositionSource, /registerHomepageAgentCapabilities/);
+assert.equal(workbenchCompositionSource.includes("registerHomepageComponentTools("), false);
+assert.match(homepageCapabilitySource, /HOMEPAGE_AGENT_WIDGET_CATALOG/);
+assert.match(homepageCapabilitySource, /createAgentSurfaceCapabilitySnapshot/);
 
-console.log("Agent Profile、三类受限入口与统一运行边界校验通过。");
+console.log("Agent Profile、多入口与主页能力注册边界校验通过。");

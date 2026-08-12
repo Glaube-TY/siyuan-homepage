@@ -16,8 +16,7 @@ import { registerWebTools } from "../composition/register-web-tools";
 import { registerLocalTools } from "../composition/register-local-tools";
 import { registerExternalSkillTools } from "../composition/register-external-skill-tools";
 import { registerMcpManagementTools } from "../composition/register-mcp-tools";
-import { registerHomepageTools } from "../composition/register-homepage-tools";
-import { registerHomepageComponentTools } from "../composition/register-homepage-component-tools";
+import { registerHomepageAgentCapabilities } from "../composition/register-homepage-tools";
 import {
   DEFAULT_EXTERNAL_SKILL_SETTINGS,
   DEFAULT_MCP_SETTINGS,
@@ -32,6 +31,7 @@ import {
   agentProfileHasCapability,
   type AgentProfile,
 } from "../../../../agent-platform/agent-profile";
+import type { AgentSurfaceCapabilitySnapshot } from "../../../../agent-platform/agent-surface-capability";
 
 // User skill loader (uses new agent-workbench contracts directly)
 import { MarkdownSkillLoader } from "../skills/user/markdown-skill-loader";
@@ -50,6 +50,7 @@ export interface AgentWorkbenchRuntime {
   skillRegistry: SkillRegistry;
   toolRegistry: ToolRegistry;
   observationLog: ToolResultLog;
+  surfaceCapabilities: AgentSurfaceCapabilitySnapshot;
 }
 
 export interface BuiltinCapabilityAccess {
@@ -114,6 +115,7 @@ export function createAgentWorkbenchRuntime(
     allowsAction: (toolName, action) => agentProfileAllowsToolAction(options.profile, toolName, action),
   });
   const externalSkillSettings = options.externalSkillSettings ?? DEFAULT_EXTERNAL_SKILL_SETTINGS;
+  let surfaceCapabilities: AgentSurfaceCapabilitySnapshot = { contexts: [], actions: [] };
 
   // Register system tools (edit_global_memory)
   if (agentProfileHasCapability(options.profile, "global-memory")) {
@@ -137,18 +139,18 @@ export function createAgentWorkbenchRuntime(
   }
 
   if (agentProfileHasCapability(options.profile, "homepage")) {
-    registerHomepageTools(toolRegistry, {
+    surfaceCapabilities = registerHomepageAgentCapabilities(toolRegistry, {
       enabled: options.builtinCapabilityAccess?.homepageManagement === true,
-    });
-    registerHomepageComponentTools(toolRegistry, {
-      quickNote: options.builtinCapabilityAccess?.homepageQuickNote === true,
-      focus: options.builtinCapabilityAccess?.homepageFocus === true,
-      accounting: options.builtinCapabilityAccess?.homepageAccounting === true,
-      fixedAssets: options.builtinCapabilityAccess?.homepageFixedAssets === true,
-      anniversary: options.builtinCapabilityAccess?.homepageAnniversary === true,
-      favorites: options.builtinCapabilityAccess?.homepageFavorites === true,
-      review: options.builtinCapabilityAccess?.homepageReview === true,
-      music: options.builtinCapabilityAccess?.homepageMusic === true,
+      components: {
+        quickNote: options.builtinCapabilityAccess?.homepageQuickNote === true,
+        focus: options.builtinCapabilityAccess?.homepageFocus === true,
+        accounting: options.builtinCapabilityAccess?.homepageAccounting === true,
+        fixedAssets: options.builtinCapabilityAccess?.homepageFixedAssets === true,
+        anniversary: options.builtinCapabilityAccess?.homepageAnniversary === true,
+        favorites: options.builtinCapabilityAccess?.homepageFavorites === true,
+        review: options.builtinCapabilityAccess?.homepageReview === true,
+        music: options.builtinCapabilityAccess?.homepageMusic === true,
+      },
     });
   }
 
@@ -218,6 +220,7 @@ export function createAgentWorkbenchRuntime(
     skillRegistry,
     toolRegistry,
     observationLog: new ToolResultLog(),
+    surfaceCapabilities,
   };
 }
 
