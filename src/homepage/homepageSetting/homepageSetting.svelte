@@ -160,7 +160,7 @@
     }));
     const availableHomepageThemes = homepageThemeRegistry.list("desktop-homepage");
     let settingsActiveTab = $state<HomepageSettingSubTab>(getInitialSubTab());
-    let aiKnowledgeBaseActiveTab = $state<AiKnowledgeBaseSubTab>("entries");
+    let aiKnowledgeBaseActiveTab = $state<AiKnowledgeBaseSubTab>("models");
     let notificationCenterActiveTab = $state<NotificationCenterSubTab>("desktop");
     let robotAssistantActiveTab = $state<RobotAssistantSubTab>("general");
     let settingsSaveMode = $derived<"auto" | "manual" | "none">(
@@ -1806,7 +1806,7 @@
         {:else if activeTab === "aiKnowledgeBase"}
             <div class="content-scroll-area full-content">
                 {#if !settingsLoaded}
-                    <div class="ai-kb-settings-loading">正在加载 AI 知识库设置...</div>
+                    <div class="ai-kb-settings-loading">正在加载 AI 中心设置...</div>
                 {:else}
                     <AiKnowledgeBaseSettingsTab
                         activeSubTab={aiKnowledgeBaseActiveTab}

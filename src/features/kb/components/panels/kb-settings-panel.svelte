@@ -17,12 +17,13 @@
 
   export let close: (() => void) | undefined = undefined;
   export let mobile = false;
+  export let modelOnly = false;
 
   // 页签定义
   const TABS = [
     { id: "basic", label: "基础设置", icon: "iconSettings" },
     { id: "style", label: "样式", icon: "iconTheme" },
-    { id: "model", label: "大模型配置", icon: "iconSparkles" },
+    { id: "model", label: "模型与服务", icon: "iconSparkles" },
     { id: "retrieval", label: "检索与上下文", icon: "iconSearch" },
     { id: "skills", label: "技能", icon: "iconPlugin" },
     { id: "tools", label: "工具", icon: "iconKey" },
@@ -40,13 +41,14 @@
   let saving = false;
   let saveMessage = "";
   let saveMessageType: "success" | "error" = "success";
-  let activeTab: TabId = "basic";
+  let activeTab: TabId = modelOnly ? "model" : "basic";
   let mobileView: "list" | "detail" = "list";
   const MOBILE_HIDDEN_TAB_IDS = new Set<TabId>(["agentWorkspace"]);
 
-  $: visibleTabs = mobile
-    ? TABS.filter((tab) => !MOBILE_HIDDEN_TAB_IDS.has(tab.id))
-    : TABS;
+  $: visibleTabs = TABS.filter((tab) =>
+    (modelOnly ? tab.id === "model" : tab.id !== "model")
+      && (!mobile || !MOBILE_HIDDEN_TAB_IDS.has(tab.id)),
+  );
   $: if (mobile && !visibleTabs.some((tab) => tab.id === activeTab)) {
     activeTab = visibleTabs[0]?.id ?? "basic";
   }
@@ -120,6 +122,7 @@
   {:else}
     <div class="settings-layout" class:mobile-list={mobile && mobileView === "list"} class:mobile-detail={mobile && mobileView === "detail"}>
       <!-- 左侧导航 -->
+      {#if !modelOnly}
       <div class="settings-sidebar" class:mobile-hidden={mobile && mobileView !== "list"}>
         {#if mobile}
           <div class="mobile-settings-heading">
@@ -156,6 +159,7 @@
           <div class="mobile-desktop-note">沙箱环境、本地命令和运行时检测仅在 PC/Electron 桌面端配置与执行。</div>
         {/if}
       </div>
+      {/if}
 
       <!-- 右侧内容 -->
       <div class="settings-main" class:mobile-hidden={mobile && mobileView !== "detail"}>

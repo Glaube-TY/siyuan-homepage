@@ -260,6 +260,12 @@ const SETTINGS_SEARCH_REGISTRY: readonly SettingSearchEntry[] = [
         ],
     ),
     ...defineSettings(
+        { mainTab: "aiKnowledgeBase", subTab: "models", section: "模型与服务", scope: "all-devices" },
+        [
+            { id: "ai.models.providers", title: "模型与服务", description: "配置全局模型供应商、API Key 和默认模型", keywords: ["大模型", "provider", "API Key"], target: "section" },
+        ],
+    ),
+    ...defineSettings(
         { mainTab: "aiKnowledgeBase", subTab: "entries", section: "AI 知识库", scope: "all-devices" },
         [
             { id: "ai.entries.dock", title: "开启侧边栏对话", description: "在右侧侧边栏启用 AI 知识库入口" },

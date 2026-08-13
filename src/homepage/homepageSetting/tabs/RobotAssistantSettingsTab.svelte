@@ -995,7 +995,7 @@
                 <select class="b3-select robot-model-select" value={selectedAgentModelKey()}
                     onchange={(event) => selectAgentModel((event.currentTarget as HTMLSelectElement).value)}
                     disabled={disabled} aria-label="机器人 Agent 执行模型">
-                    <option value="">跟随 AI 知识库默认模型</option>
+                    <option value="">跟随全局默认模型</option>
                     {#if selectedAgentModelKey() && !agentModelOptions.some((option) => option.key === selectedAgentModelKey())}
                         <option value={selectedAgentModelKey()} disabled>
                             已选模型暂不可用（{settings.agentModelProviderId} / {settings.agentModelId}）

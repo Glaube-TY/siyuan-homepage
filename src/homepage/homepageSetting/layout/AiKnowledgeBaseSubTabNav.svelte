@@ -12,7 +12,7 @@
     let { activeTab, onTabChange }: Props = $props();
 </script>
 
-<nav class="sub-tab-nav" aria-label="AI 知识库设置分类">
+<nav class="sub-tab-nav" aria-label="AI 中心设置分类">
     {#each AI_KNOWLEDGE_BASE_SUB_TABS as tab (tab.id)}
         <button
             type="button"

@@ -17,6 +17,7 @@
     import SelectionAiSkillEditorDialog from "./SelectionAiSkillEditorDialog.svelte";
     import { confirmDialogBoolean } from "@/libs/dialog";
     import type { AiKnowledgeBaseSubTab } from "../aiKnowledgeBaseTabs";
+    import KbSettingsPanel from "@/features/kb/components/panels/kb-settings-panel.svelte";
     import TemporaryWorkbenchSettingsPanel from "./TemporaryWorkbenchSettingsPanel.svelte";
     import MemoryCenterSettingsPanel from "./MemoryCenterSettingsPanel.svelte";
     import AutomationCenterSettingsPanel from "./AutomationCenterSettingsPanel.svelte";
@@ -107,7 +108,7 @@
     function handleStatusAiModelSelect(event: Event): void {
         const key = (event.currentTarget as HTMLSelectElement).value;
         if (!key) {
-            // 选择"使用 AI 知识库默认模型"
+            // 选择“使用全局默认模型”
             selectedStatusAiModelKey = "";
             statusAiModelInvalid = false;
             onStatusAiModelChange({
@@ -324,7 +325,10 @@
     });
 </script>
 
-{#if activeSubTab === "entries"}
+{#if activeSubTab === "models"}
+<KbSettingsPanel modelOnly />
+
+{:else if activeSubTab === "entries"}
 <a
     class="tutorial-link-card"
     href="https://glaube-ty.top/tutorials/siyuan-homepage/ai-knowledge-base/"
@@ -404,7 +408,7 @@
                     value={selectedStatusAiModelKey}
                     onchange={handleStatusAiModelSelect}
                 >
-                    <option value="">使用 AI 知识库默认模型</option>
+                    <option value="">使用全局默认模型</option>
                     {#each modelOptions as option (option.key)}
                         <option value={option.key}>{option.label}</option>
                     {/each}
@@ -415,7 +419,7 @@
         {#if modelOptions.length === 0 && !modelOptionsLoading}
             <div class="status-ai-panel warning">
                 <SiyuanIcon name="warning" size={14} />
-                <span>尚未配置可用大模型，请先打开「AI 知识库设置 → 大模型配置」添加提供商和模型。</span>
+                <span>尚未配置可用大模型，请先打开「AI 中心 → 模型与服务」添加提供商和模型。</span>
             </div>
         {:else if statusAiModelInvalid}
             <div class="status-ai-panel warning">

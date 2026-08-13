@@ -49,7 +49,7 @@ async function resolveSelectionAiModel(
     }
   }
 
-  // fallback 到 AI 知识库默认模型
+  // fallback 到全局默认模型
   const fallback = findDefaultChatModelOption(kbSettings, options);
   return fallback ? { providerId: fallback.providerId, modelId: fallback.modelId } : null;
 }
@@ -84,7 +84,7 @@ export async function runSelectionAiAction(
   if (!modelSelection) {
     return {
       text: "",
-      error: "未配置可用大模型，请到 AI 知识库设置中配置。",
+      error: "未配置可用大模型，请到「主页设置 → AI 中心 → 模型与服务」中配置。",
     };
   }
 

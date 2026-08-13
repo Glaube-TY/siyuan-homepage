@@ -249,7 +249,7 @@
                             value={selectedModelKey}
                             onchange={handleModelSelect}
                         >
-                            <option value="">使用 AI 知识库默认模型</option>
+                            <option value="">使用全局默认模型</option>
                             {#each modelOptions as option (option.key)}
                                 <option value={option.key}>{option.label}</option>
                             {/each}

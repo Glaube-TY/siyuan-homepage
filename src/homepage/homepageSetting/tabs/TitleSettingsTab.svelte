@@ -507,7 +507,7 @@
             {#if statusAiAvailableModelCount <= 0}
                 <div class="status-ai-note warning">
                     <SiyuanIcon name="warning" size={14} />
-                    <span>尚未配置可用大模型。请先到「AI 知识库设置 → 大模型配置」添加模型，再到「AI 知识库」标签选择状态语模型。</span>
+                    <span>尚未配置可用大模型。请先到「AI 中心 → 模型与服务」添加模型，再到「状态语 AI」标签选择状态语模型。</span>
                 </div>
             {:else if statusAiSelectedModelLabel}
                 <div class="status-ai-note">

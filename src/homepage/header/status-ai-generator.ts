@@ -157,7 +157,7 @@ async function resolveConfiguredStatusModel(config: HomepageStatusAiConfig): Pro
         return null;
     }
 
-    // 空 provider/model：使用 AI 知识库默认模型
+    // 空 provider/model：使用全局默认模型
     const fallback = findDefaultChatModelOption(settings, options);
     return fallback ? { providerId: fallback.providerId, modelId: fallback.modelId } : null;
 }

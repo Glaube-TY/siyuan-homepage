@@ -1,9 +1,10 @@
-export type AiKnowledgeBaseSubTab = "entries" | "status" | "selection" | "workbenches" | "memory" | "automation";
+export type AiKnowledgeBaseSubTab = "models" | "entries" | "status" | "selection" | "workbenches" | "memory" | "automation";
 
 export const AI_KNOWLEDGE_BASE_SUB_TABS: ReadonlyArray<{
     id: AiKnowledgeBaseSubTab;
     label: string;
 }> = [
+    { id: "models", label: "模型与服务" },
     { id: "entries", label: "知识库入口" },
     { id: "status", label: "状态语 AI" },
     { id: "selection", label: "选区工具栏" },

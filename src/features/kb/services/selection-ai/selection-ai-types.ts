@@ -19,7 +19,7 @@ export interface SelectionAiSkill {
   includeDocumentContext: boolean;
   documentContextMaxChars: number;
   placement: SelectionAiSkillPlacement;
-  // 每技能独立模型和生成参数（为空时使用 AI 知识库默认模型）
+  // 每技能独立模型和生成参数（为空时使用全局默认模型）
   modelProviderId?: string;
   modelId?: string;
   temperature?: number;
