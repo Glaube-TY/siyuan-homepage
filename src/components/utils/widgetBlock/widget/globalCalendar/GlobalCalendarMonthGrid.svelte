@@ -110,7 +110,7 @@
         >
           {#if cell.current || showAdjacentDays}
             <div class="date-line">
-              <span class="day-number">{cell.day}</span>
+              <span class="day-number" class:anniversary-date={Boolean(cell.anniversary)}>{#if cell.anniversary}<SiyuanIcon name="iconHeart" size={30} />{/if}<span>{cell.day}</span></span>
               <span class="date-meta">{#if cell.metaLabel}<span class:special={Boolean(cell.metadata.solarFestivalName || cell.metadata.lunarFestivalName || cell.metadata.solarTermName)}>{cell.metaLabel}</span>{/if}</span>
             </div>
             {#if cell.anniversary}<button type="button" class="anniversary-marker" title={cell.anniversary.title} onclick={(event) => { event.stopPropagation(); onOpenEvent?.(cell.anniversary!); }}><SiyuanIcon name="iconHeart" size={11} /><span>{cell.anniversary.title}</span></button>{/if}
@@ -148,7 +148,7 @@
   .day-cell:hover { background: color-mix(in srgb, var(--b3-theme-primary) 4%, var(--b3-theme-surface)); }
   .day-cell:focus-visible { position: relative; z-index: 3; box-shadow: inset 0 0 0 2px var(--b3-theme-primary); }
   .day-cell.selected { background: color-mix(in srgb, var(--b3-theme-primary) 5%, var(--b3-theme-surface)); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--b3-theme-primary) 46%, transparent); }
-  .day-cell.anniversary { background-color: var(--b3-theme-surface); background-image: repeating-linear-gradient(135deg, transparent 0 5px, color-mix(in srgb, var(--b3-theme-warning, #c98518) 9%, transparent) 5px 6px, transparent 6px 10px); background-position: top right; background-repeat: no-repeat; background-size: 42px 42px; }
+  .day-cell.anniversary { background-color: var(--b3-theme-surface); background-image: repeating-linear-gradient(135deg, transparent 0 11px, color-mix(in srgb, var(--b3-theme-warning, #c98518) 13%, transparent) 11px 12px); }
   .day-cell.anniversary .day-number { color: color-mix(in srgb, var(--b3-theme-warning, #c98518) 82%, var(--b3-theme-on-background)); }
   .day-cell.outside { background: color-mix(in srgb, var(--b3-theme-background) 68%, var(--b3-theme-surface)); }
   .day-cell.outside .date-line { opacity: .48; }
@@ -156,10 +156,12 @@
   .date-meta { min-width: 0; display: flex; align-items: center; justify-content: flex-end; gap: 4px; overflow: hidden; color: var(--b3-theme-on-surface-light); font-size: 10px; white-space: nowrap; }
   .date-meta > span { overflow: hidden; text-overflow: ellipsis; }
   .date-meta > span.special { color: var(--b3-theme-primary); font-weight: 600; }
-  .day-number { display: inline-grid; width: 25px; height: 25px; flex: 0 0 25px; place-items: center; border-radius: 999px; font-size: 13px; font-weight: 650; }
+  .day-number { position: relative; display: inline-grid; width: 25px; height: 25px; flex: 0 0 25px; place-items: center; border-radius: 999px; font-size: 13px; font-weight: 650; }
+  .day-number > span { position: relative; z-index: 1; }
+  .anniversary-date :global(svg) { position: absolute; color: color-mix(in srgb, var(--b3-theme-warning, #c98518) 44%, transparent); }
   .weekend .day-number { color: var(--b3-theme-primary); }
   .today .day-number { color: var(--b3-theme-on-primary); background: var(--b3-theme-primary); }
-  .anniversary-marker { position: absolute; z-index: 3; right: 32px; bottom: 6px; left: 7px; display: flex; min-width: 0; align-items: center; gap: 5px; padding: 3px 6px; border: 0; border-radius: 6px; color: color-mix(in srgb, var(--b3-theme-warning, #c98518) 88%, var(--b3-theme-on-background)); background: color-mix(in srgb, var(--b3-theme-warning, #c98518) 16%, var(--b3-theme-surface)); box-shadow: 0 2px 7px color-mix(in srgb, var(--b3-theme-warning, #c98518) 14%, transparent); font: inherit; font-size: 9px; font-weight: 650; text-align: left; cursor: pointer; }
+  .anniversary-marker { position: absolute; z-index: 3; bottom: 6px; left: 7px; width: max-content; max-width: calc(100% - 42px); display: flex; min-width: 0; align-items: center; gap: 4px; padding: 2px 4px; border: 0; border-radius: 999px; color: color-mix(in srgb, var(--b3-theme-warning, #c98518) 92%, var(--b3-theme-on-background)); background: transparent; font: inherit; font-size: 9px; font-weight: 650; text-align: left; cursor: pointer; }
   .anniversary-marker span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .diary-marker { position: absolute; z-index: 4; right: 7px; bottom: 6px; display: inline-grid; width: 22px; height: 22px; padding: 0; place-items: center; border: 0; border-radius: 7px; color: color-mix(in srgb, var(--b3-theme-success, #2e9d62) 88%, var(--b3-theme-on-background)); background: color-mix(in srgb, var(--b3-theme-success, #2e9d62) 16%, var(--b3-theme-surface)); box-shadow: 0 2px 7px color-mix(in srgb, var(--b3-theme-success, #2e9d62) 14%, transparent); cursor: pointer; }
   .range-layer { position: absolute; z-index: 2; top: 38px; right: 0; left: 0; display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); grid-auto-rows: 21px; gap: 3px 0; pointer-events: none; }

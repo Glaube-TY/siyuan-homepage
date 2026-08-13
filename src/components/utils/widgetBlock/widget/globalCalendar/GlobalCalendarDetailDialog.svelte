@@ -135,6 +135,12 @@
       await reload();
       return;
     }
+    if (event.source === "countdown") {
+      if (event.date !== date) return;
+      await saveGlobalCalendarSchedule({ title: event.title, date, startTime: time, endTime: addMinutes(time, 60), allDay: false, color: "#d68a18", note: "纪念日安排", recurrence: { kind: "none" } });
+      await reload();
+      return;
+    }
     if (event.target?.kind !== "schedule") return; const schedule = (await loadGlobalCalendarSchedules()).find((item) => item.id === event.target!.eventId); if (!schedule) return;
     if (schedule.linkedTaskId && (date < (schedule.linkedTaskStartDate || schedule.date) || date > (schedule.linkedTaskEndDate || schedule.date))) return;
     const duration = schedule.startTime && schedule.endTime ? (Number(schedule.endTime.slice(0,2)) * 60 + Number(schedule.endTime.slice(3))) - (Number(schedule.startTime.slice(0,2)) * 60 + Number(schedule.startTime.slice(3))) : 60;
@@ -144,7 +150,7 @@
       : schedule.recurrence;
     await saveGlobalCalendarSchedule({ ...schedule, date, startTime: time, endTime: `${String(Math.floor(endMinutes / 60)).padStart(2,"0")}:${String(endMinutes % 60).padStart(2,"0")}`, recurrence }); await reload();
   }
-  async function resizeSchedule(event: GlobalCalendarEvent, endTime: string): Promise<void> { if (event.target?.kind !== "schedule") return; const schedule = (await loadGlobalCalendarSchedules()).find((item) => item.id === event.target!.eventId); if (!schedule) return; await saveGlobalCalendarSchedule({ ...schedule, endTime }); await reload(); }
+  async function resizeSchedule(event: GlobalCalendarEvent, startTime: string, endTime: string): Promise<void> { if (event.target?.kind !== "schedule") return; const schedule = (await loadGlobalCalendarSchedules()).find((item) => item.id === event.target!.eventId); if (!schedule) return; await saveGlobalCalendarSchedule({ ...schedule, startTime, endTime }); await reload(); }
   function addMinutes(time: string, amount: number): string { const [hour, minute] = time.split(":").map(Number); const total = Math.min(1439, hour * 60 + minute + amount); return `${String(Math.floor(total / 60)).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`; }
 
   function toggleSource(source: GlobalCalendarSource): void {
@@ -270,6 +276,7 @@
         workdayStart={config.workdayStart}
         workdayEnd={config.workdayEnd}
         taskColorMode={config.taskColorMode}
+        hideFullyScheduledTasks={enabledSources.schedule !== false}
         onOpenEvent={openEvent}
         onCreate={createEvent}
         onCreateRange={createEvent}

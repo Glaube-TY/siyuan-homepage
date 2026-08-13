@@ -16,6 +16,7 @@ import {
   eventOccursOn,
   isCalendarDateMarker,
   isCalendarRangeEvent,
+  isTaskFullyScheduled,
 } from "../src/features/global-calendar/global-calendar-layout";
 import type { GlobalCalendarEvent } from "../src/features/global-calendar/global-calendar-types";
 
@@ -78,6 +79,8 @@ assert.deepEqual(
   [{ startColumn: 1, span: 7, lane: 0 }],
 );
 assert.equal(calendarEventColor(rangedTask, "priority"), "#d94b64");
+assert.equal(isTaskFullyScheduled({ ...rangedTask, scheduledExecutionDates: ["2026-08-03", "2026-08-04", "2026-08-05", "2026-08-06", "2026-08-07", "2026-08-08", "2026-08-09"] }), true);
+assert.equal(isTaskFullyScheduled({ ...rangedTask, scheduledExecutionDates: ["2026-08-03"] }), false);
 
 const diaryMarker: GlobalCalendarEvent = {
   id: "diary:2026-08-13",
@@ -105,6 +108,7 @@ assert.doesNotMatch(calendarEventsSource, /:start|:deadline/, "同一任务不�
 assert.match(eventEditorSource, /initial\.schedule\?\.recurrence \|\|/, "新建日程必须为重复规则提供安全默认值");
 assert.match(eventEditorSource, /initialEndTime/, "框选时间段必须传入结束时间");
 assert.match(timeGridSource, /onCreateRange/, "时间轴必须支持拖拽框选创建日程");
+assert.match(timeGridSource, /resizeStart\(dom, event, "start"\)/, "时间卡片必须支持调整开始时间");
 assert.match(detailDialogSource, /linkedTaskId: event\.entityId/, "任务执行时段必须保留原任务引用");
 assert.match(detailDialogSource, /linkedTaskStartDate: taskRange\.startDate/, "任务执行时段必须保留允许排期范围");
 assert.match(detailDialogSource, /eventOccursOn\(event, date\)/, "任务只能排入自身日期范围");

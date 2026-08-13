@@ -47,6 +47,8 @@ export interface GlobalCalendarEvent {
   projectId?: string;
   projectTitle?: string;
   priorityLevel?: number;
+  linkedTaskId?: string;
+  scheduledExecutionDates?: string[];
   color?: string;
   editable?: boolean;
   target?:

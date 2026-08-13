@@ -38,7 +38,9 @@ const builtInProviders: GlobalCalendarProvider[] = [
   {
     id: "tasks",
     async load(plugin, start, end) {
-      const tasks = await loadOpenTasks(plugin);
+      const [tasks, schedules] = await Promise.all([loadOpenTasks(plugin), loadGlobalCalendarSchedules()]);
+      const scheduledDates = new Map<string, string[]>();
+      for (const schedule of schedules) if (schedule.linkedTaskId && schedule.startTime) scheduledDates.set(schedule.linkedTaskId, [...(scheduledDates.get(schedule.linkedTaskId) || []), schedule.date]);
       const events: GlobalCalendarEvent[] = [];
       for (const task of tasks) {
         const project = task.parsed as typeof task.parsed & {
@@ -62,6 +64,7 @@ const builtInProviders: GlobalCalendarProvider[] = [
           endAt: `${eventEnd}T23:59:00`,
           allDay: true,
           priorityLevel: Math.min(4, (task.parsed.priority?.match(/❗/g) || []).length),
+          scheduledExecutionDates: scheduledDates.get(task.id),
           projectId: project.visibleProjectTargetId,
           projectTitle: project.visibleProjectReference?.replace(/^📁\s*/, "") || undefined,
           target: { kind: "block", id: task.id },

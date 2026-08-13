@@ -2,7 +2,7 @@ import type {
   GlobalCalendarEvent,
   GlobalCalendarTaskColorMode,
 } from "./global-calendar-types";
-import { formatCalendarDate } from "./global-calendar-types";
+import { addCalendarDays, formatCalendarDate } from "./global-calendar-types";
 
 export interface GlobalCalendarRangeSegment {
   event: GlobalCalendarEvent;
@@ -30,6 +30,17 @@ export function isCalendarRangeEvent(event: GlobalCalendarEvent): boolean {
 
 export function isCalendarDateMarker(event: GlobalCalendarEvent): boolean {
   return event.source === "diary" || event.source === "countdown";
+}
+
+export function isTaskFullyScheduled(event: GlobalCalendarEvent): boolean {
+  if (event.source !== "tasks" || !event.entityId) return false;
+  const scheduled = new Set(event.scheduledExecutionDates || []);
+  if (!scheduled.size) return false;
+  const [start, end] = eventDateRange(event);
+  for (let date = start; date <= end; date = addCalendarDays(date, 1)) {
+    if (!scheduled.has(date)) return false;
+  }
+  return true;
 }
 
 export function buildCalendarRangeSegments(

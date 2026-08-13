@@ -194,6 +194,7 @@ export function expandGlobalCalendarSchedules(
         endAt: schedule.endTime ? `${date}T${schedule.endTime}:00` : schedule.endDate ? `${schedule.endDate}T23:59:00` : undefined,
         allDay: schedule.allDay || !schedule.startTime,
         entityId: schedule.linkedTaskId || schedule.id,
+        linkedTaskId: schedule.linkedTaskId,
         projectTitle: schedule.projectTitle,
         color: schedule.color,
         editable: true,
