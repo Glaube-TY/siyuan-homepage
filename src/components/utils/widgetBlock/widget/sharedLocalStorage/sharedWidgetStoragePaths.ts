@@ -2,6 +2,7 @@ export type SharedWidgetStore =
   | "focus"
   | "cybmok"
   | "countdown"
+  | "global-calendar"
   | "fixed-assets"
   | "review-docs";
 
@@ -10,6 +11,7 @@ export const CYBMOK_INDEX_FILE = "cybmok/cybmok-index.json";
 export const COUNTDOWN_EVENTS_FILE = "countdown/countdown-events.json";
 export const COUNTDOWN_CENTER_SETTINGS_FILE =
   "countdown/countdown-center-settings.json";
+export const GLOBAL_CALENDAR_EVENTS_FILE = "global-calendar/events.json";
 export const FIXED_ASSETS_FILE = "fixed-assets/fixed-assets.json";
 export const REVIEW_LOG_INDEX_FILE = "review-docs/review-log-index.json";
 
@@ -20,6 +22,8 @@ export const CYBMOK_BATCHES_SCHEMA = "siyuan-homepage-cybmok-batches";
 export const COUNTDOWN_EVENTS_SCHEMA = "siyuan-homepage-countdown-events";
 export const COUNTDOWN_CENTER_SETTINGS_SCHEMA =
   "siyuan-homepage-countdown-center-settings";
+export const GLOBAL_CALENDAR_EVENTS_SCHEMA =
+  "siyuan-homepage-global-calendar-events";
 export const FIXED_ASSETS_SCHEMA = "siyuan-homepage-fixed-assets";
 export const REVIEW_LOG_INDEX_SCHEMA = "siyuan-homepage-review-log-index";
 export const REVIEW_LOGS_SCHEMA = "siyuan-homepage-review-logs";

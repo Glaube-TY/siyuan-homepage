@@ -6,14 +6,24 @@
   import { getCalendarDateMetadata } from "@/utils/calendar-metadata";
   import { loadGlobalCalendarEvents } from "@/features/global-calendar/global-calendar-events";
   import {
+    deleteGlobalCalendarSchedule,
+    loadGlobalCalendarSchedules,
+    saveGlobalCalendarSchedule,
+  } from "@/features/global-calendar/global-calendar-schedule-store";
+  import {
     GLOBAL_CALENDAR_SOURCES,
     formatCalendarDate,
     getCalendarMonthRange,
     type GlobalCalendarConfig,
     type GlobalCalendarEvent,
     type GlobalCalendarSource,
+    type GlobalCalendarSchedule,
   } from "@/features/global-calendar/global-calendar-types";
   import GlobalCalendarMonthGrid from "./GlobalCalendarMonthGrid.svelte";
+  import GlobalCalendarTimeGrid from "./GlobalCalendarTimeGrid.svelte";
+  import GlobalCalendarYearView from "./GlobalCalendarYearView.svelte";
+  import GlobalCalendarGanttView from "./GlobalCalendarGanttView.svelte";
+  import GlobalCalendarEventEditor from "./GlobalCalendarEventEditor.svelte";
 
   interface Props {
     plugin: any;
@@ -33,14 +43,19 @@
   let events = $state<GlobalCalendarEvent[]>([]);
   let failedSources = $state<GlobalCalendarSource[]>([]);
   let loading = $state(true);
+  let editorOpen = $state(false);
+  let editorDate = $state(untrack(() => selectedDate));
+  let editorTime = $state("09:00");
+  let editingSchedule = $state<GlobalCalendarSchedule | null>(null);
   let loadToken = 0;
 
   const sourceMeta: Record<string, { label: string }> = {
     tasks: { label: "任务" },
     diary: { label: "日记" },
     countdown: { label: "纪念日" },
+    schedule: { label: "日程" },
   };
-  const monthLabel = $derived(`${year} 年 ${month + 1} 月`);
+  const monthLabel = $derived(view === "year" ? `${year} 年` : `${year} 年 ${month + 1} 月`);
   const selectedEvents = $derived(events.filter((event) => event.date === selectedDate));
   const selectedMetadata = $derived.by(() => {
     const date = new Date(`${selectedDate}T00:00:00`);
@@ -55,6 +70,8 @@
   $effect(() => {
     year;
     month;
+    view;
+    selectedDate;
     enabledSources;
     void reload();
   });
@@ -62,7 +79,13 @@
   async function reload(): Promise<void> {
     const token = ++loadToken;
     loading = true;
-    const range = getCalendarMonthRange(year, month);
+    const range = view === "year"
+      ? { start: new Date(year, 0, 1), end: new Date(year, 11, 31, 23, 59, 59, 999) }
+      : view === "week"
+        ? (() => { const anchor = new Date(`${selectedDate}T00:00:00`); const offset = (anchor.getDay() + 6) % 7; return { start: new Date(anchor.getFullYear(), anchor.getMonth(), anchor.getDate() - offset), end: new Date(anchor.getFullYear(), anchor.getMonth(), anchor.getDate() - offset + 6, 23, 59, 59, 999) }; })()
+        : view === "day"
+          ? { start: new Date(`${selectedDate}T00:00:00`), end: new Date(`${selectedDate}T23:59:59.999`) }
+          : getCalendarMonthRange(year, month);
     const result = await loadGlobalCalendarEvents(plugin, range.start, range.end, enabledSources);
     if (token !== loadToken) return;
     events = result.events;
@@ -71,7 +94,14 @@
   }
 
   function changeMonth(delta: number): void {
-    const next = new Date(year, month + delta, 1);
+    const anchor = new Date(`${selectedDate}T00:00:00`);
+    const next = view === "year"
+      ? new Date(year + delta, month, 1)
+      : view === "week"
+        ? new Date(anchor.getFullYear(), anchor.getMonth(), anchor.getDate() + delta * 7)
+        : view === "day"
+          ? new Date(anchor.getFullYear(), anchor.getMonth(), anchor.getDate() + delta)
+          : new Date(year, month + delta, 1);
     year = next.getFullYear();
     month = next.getMonth();
     selectedDate = formatCalendarDate(next);
@@ -91,6 +121,22 @@
     dayPanelOpen = true;
   }
 
+  function selectMonth(value: number): void { month = value; selectedDate = formatCalendarDate(new Date(year, value, 1)); view = "month"; }
+  function createEvent(date = selectedDate, time = "09:00"): void { editorDate = date; editorTime = time; editingSchedule = null; editorOpen = true; }
+  async function editSchedule(id: string): Promise<void> { editingSchedule = (await loadGlobalCalendarSchedules()).find((item) => item.id === id) || null; if (editingSchedule) { editorDate = editingSchedule.date; editorTime = editingSchedule.startTime || "09:00"; editorOpen = true; } }
+  async function saveSchedule(value: Partial<GlobalCalendarSchedule> & Pick<GlobalCalendarSchedule, "title" | "date">): Promise<void> { await saveGlobalCalendarSchedule(value); editorOpen = false; await reload(); }
+  async function removeSchedule(): Promise<void> { if (!editingSchedule) return; await deleteGlobalCalendarSchedule(editingSchedule.id); editorOpen = false; await reload(); }
+  async function moveSchedule(event: GlobalCalendarEvent, date: string, time: string): Promise<void> {
+    if (event.target?.kind !== "schedule") return; const schedule = (await loadGlobalCalendarSchedules()).find((item) => item.id === event.target!.eventId); if (!schedule) return;
+    const duration = schedule.startTime && schedule.endTime ? (Number(schedule.endTime.slice(0,2)) * 60 + Number(schedule.endTime.slice(3))) - (Number(schedule.startTime.slice(0,2)) * 60 + Number(schedule.startTime.slice(3))) : 60;
+    const startMinutes = Number(time.slice(0,2)) * 60 + Number(time.slice(3)); const endMinutes = Math.min(1439, startMinutes + Math.max(30, duration));
+    const recurrence = schedule.recurrence.kind === "weekly"
+      ? { ...schedule.recurrence, weekdays: [new Date(`${date}T00:00:00`).getDay()] }
+      : schedule.recurrence;
+    await saveGlobalCalendarSchedule({ ...schedule, date, startTime: time, endTime: `${String(Math.floor(endMinutes / 60)).padStart(2,"0")}:${String(endMinutes % 60).padStart(2,"0")}`, recurrence }); await reload();
+  }
+  async function resizeSchedule(event: GlobalCalendarEvent, endTime: string): Promise<void> { if (event.target?.kind !== "schedule") return; const schedule = (await loadGlobalCalendarSchedules()).find((item) => item.id === event.target!.eventId); if (!schedule) return; await saveGlobalCalendarSchedule({ ...schedule, endTime }); await reload(); }
+
   function toggleSource(source: GlobalCalendarSource): void {
     enabledSources = { ...enabledSources, [source]: !enabledSources[source] };
   }
@@ -105,6 +151,8 @@
       onClose();
     } else if (event.target?.kind === "countdown") {
       void openCountdownCenterDialog(plugin, { initialTab: "events", eventId: event.target.eventId });
+    } else if (event.target?.kind === "schedule") {
+      void editSchedule(event.target.eventId);
     }
   }
 
@@ -127,8 +175,13 @@
       </div>
       <div class="view-switch" aria-label="日历视图">
         <button type="button" class:active={view === "month"} onclick={() => (view = "month")}>月历</button>
+        <button type="button" class:active={view === "week"} onclick={() => (view = "week")}>周</button>
+        <button type="button" class:active={view === "day"} onclick={() => (view = "day")}>日</button>
+        <button type="button" class:active={view === "year"} onclick={() => (view = "year")}>年</button>
         <button type="button" class:active={view === "agenda"} onclick={() => (view = "agenda")}>日程</button>
+        <button type="button" class:active={view === "gantt"} onclick={() => (view = "gantt")}>甘特</button>
       </div>
+      <button type="button" class="create-button" onclick={() => createEvent()}>＋ 新建</button>
       <button type="button" class="icon-button close-button" title="关闭" aria-label="关闭" onclick={onClose}>
         <SiyuanIcon name="close" size={18} />
       </button>
@@ -157,7 +210,7 @@
     <button type="button" class="source-warning" onclick={reload}>{failedSources.map(sourceLabel).join("、")}读取失败，点击重试</button>
   {/if}
 
-  <main class:agenda-view={view === "agenda"}>
+  <main class:agenda-view={view === "agenda"} class:scroll-view={["week", "day", "year", "gantt"].includes(view)}>
     {#if view === "month"}
       <section class="calendar-panel" aria-busy={loading}>
         <GlobalCalendarMonthGrid
@@ -183,7 +236,7 @@
           </div>
           <div class="event-list">
             {#each selectedEvents as event (event.id)}
-              <button type="button" class="event-card source-{event.source}" onclick={() => openEvent(event)}>
+              <button type="button" class="event-card source-{event.source}" style={event.color ? `--source-color:${event.color}` : undefined} onclick={() => openEvent(event)}>
                 <span class="source-dot"></span>
                 <span class="event-copy"><strong>{event.title}</strong>{#if event.subtitle}<small>{event.subtitle}</small>{/if}</span>
                 {#if event.target}<SiyuanIcon name="open" size={14} />{/if}
@@ -194,6 +247,22 @@
           </div>
         </aside>
       {/if}
+    {:else if view === "week" || view === "day"}
+      <GlobalCalendarTimeGrid
+        mode={view}
+        anchorDate={selectedDate}
+        {events}
+        workdayStart={config.workdayStart}
+        workdayEnd={config.workdayEnd}
+        onOpenEvent={openEvent}
+        onCreate={createEvent}
+        onMove={moveSchedule}
+        onResize={resizeSchedule}
+      />
+    {:else if view === "year"}
+      <GlobalCalendarYearView {year} {events} weekStartsOn={config.weekStartsOn} onSelectMonth={selectMonth} />
+    {:else if view === "gantt"}
+      <GlobalCalendarGanttView startDate={formatCalendarDate(new Date(year, month, 1))} days={new Date(year, month + 1, 0).getDate()} {events} onOpenEvent={openEvent} />
     {:else}
       <section class="agenda-panel">
         {#each agendaGroups as [date, group]}
@@ -201,7 +270,7 @@
             <div class="agenda-date"><strong>{Number(date.slice(-2))}</strong><span>{date.slice(0, 7)}</span></div>
             <div class="agenda-events">
               {#each group as event (event.id)}
-                <button type="button" class="event-card source-{event.source}" onclick={() => openEvent(event)}>
+                <button type="button" class="event-card source-{event.source}" style={event.color ? `--source-color:${event.color}` : undefined} onclick={() => openEvent(event)}>
                   <span class="source-dot"></span>
                   <span class="event-copy"><strong>{event.title}</strong>{#if event.subtitle}<small>{event.subtitle}</small>{/if}</span>
                   <span class="source-name">{sourceLabel(event.source)}</span>
@@ -216,6 +285,16 @@
       </section>
     {/if}
   </main>
+  {#if editorOpen}
+    <GlobalCalendarEventEditor
+      initialDate={editorDate}
+      initialTime={editorTime}
+      schedule={editingSchedule}
+      onSave={saveSchedule}
+      onDelete={editingSchedule ? removeSchedule : undefined}
+      onClose={() => (editorOpen = false)}
+    />
+  {/if}
 </div>
 
 <style>
@@ -228,6 +307,7 @@
   .primary-controls { justify-content: flex-end; flex-wrap: wrap; }
   button { color: inherit; font: inherit; }
   .icon-button, .today-button, .view-switch button, .source-filter { min-height: 36px; border: 1px solid var(--b3-border-color); border-radius: 9px; background: var(--b3-theme-surface); cursor: pointer; }
+  .create-button { min-height: 36px; padding: 6px 12px; border: 1px solid var(--b3-theme-primary); border-radius: 9px; color: var(--b3-theme-on-primary); background: var(--b3-theme-primary); white-space: nowrap; cursor: pointer; }
   .icon-button { width: 36px; flex: 0 0 36px; display: inline-grid; place-items: center; }
   .today-button, .view-switch button, .source-filter { padding: 6px 12px; white-space: nowrap; }
   .icon-button:hover, .today-button:hover, .view-switch button:hover, .source-filter:hover { border-color: color-mix(in srgb, var(--b3-theme-primary) 45%, var(--b3-border-color)); background: color-mix(in srgb, var(--b3-theme-primary) 6%, var(--b3-theme-surface)); }
@@ -242,10 +322,12 @@
   .source-tasks { --source-color: var(--b3-theme-primary); }
   .source-diary { --source-color: var(--b3-theme-success, #2e9d62); }
   .source-countdown { --source-color: var(--b3-theme-warning, #c98518); }
+  .source-schedule { --source-color: #9b6be3; }
   .loading-label { margin-left: auto; white-space: nowrap; }
   .source-warning { flex: 0 0 auto; margin: 8px 18px 0; padding: 7px 10px; border: 0; border-radius: 7px; color: var(--b3-theme-error); background: color-mix(in srgb, var(--b3-theme-error) 8%, transparent); text-align: left; cursor: pointer; }
   main { flex: 1; min-height: 0; padding: 12px 18px 18px; overflow: auto; }
   main.agenda-view { padding-top: 14px; }
+  main.scroll-view { overflow: auto; }
   .calendar-panel { width: 100%; height: 100%; min-width: 0; min-height: 600px; }
   .panel-backdrop { position: absolute; z-index: 10; inset: 0; border: 0; background: color-mix(in srgb, var(--b3-theme-on-background) 16%, transparent); cursor: default; }
   .day-panel { position: absolute; z-index: 11; top: 86px; right: 18px; bottom: 18px; width: min(360px, calc(100% - 36px)); display: flex; flex-direction: column; border: 1px solid var(--b3-border-color); border-radius: 14px; background: var(--b3-theme-surface); box-shadow: 0 18px 48px color-mix(in srgb, var(--b3-theme-on-background) 18%, transparent); overflow: hidden; }

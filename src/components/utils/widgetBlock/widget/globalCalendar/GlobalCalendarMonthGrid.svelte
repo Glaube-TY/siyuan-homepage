@@ -93,6 +93,7 @@
             <button
               type="button"
               class="event-chip source-{item.source}"
+              style={item.color ? `--source-color:${item.color}` : undefined}
               title={item.subtitle ? `${item.title} · ${item.subtitle}` : item.title}
               onclick={(event) => openEvent(event, item)}
             >
@@ -133,6 +134,7 @@
   .source-tasks { --source-color: var(--b3-theme-primary); }
   .source-diary { --source-color: var(--b3-theme-success, #2e9d62); }
   .source-countdown { --source-color: var(--b3-theme-warning, #c98518); }
+  .source-schedule { --source-color: #9b6be3; }
   .more-button { padding: 2px 6px; color: var(--b3-theme-primary); background: transparent; font-size: 10px; font-weight: 600; }
   .more-button:hover { text-decoration: underline; }
   @media (max-width: 880px) {

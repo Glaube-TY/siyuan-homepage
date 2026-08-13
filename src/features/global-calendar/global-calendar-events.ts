@@ -9,6 +9,10 @@ import {
   type GlobalCalendarLoadResult,
   type GlobalCalendarSource,
 } from "./global-calendar-types";
+import {
+  expandGlobalCalendarSchedules,
+  loadGlobalCalendarSchedules,
+} from "./global-calendar-schedule-store";
 
 export interface GlobalCalendarProvider {
   id: GlobalCalendarSource;
@@ -37,6 +41,10 @@ const builtInProviders: GlobalCalendarProvider[] = [
       const tasks = await loadOpenTasks();
       const events: GlobalCalendarEvent[] = [];
       for (const task of tasks) {
+        const project = task.parsed as typeof task.parsed & {
+          visibleProjectTargetId?: string;
+          visibleProjectReference?: string;
+        };
         const title = cleanTaskTitle(task.taskname || task.markdown);
         const startDate = task.parsed.startDate;
         const deadline = task.parsed.deadline;
@@ -47,6 +55,14 @@ const builtInProviders: GlobalCalendarProvider[] = [
             date: startDate,
             title,
             subtitle: deadline === startDate ? "任务" : "开始",
+            entityId: task.id,
+            startAt: `${startDate}T00:00:00`,
+            endAt: `${deadline || startDate}T23:59:00`,
+            allDay: true,
+            projectId: project.visibleProjectTargetId,
+            projectTitle:
+              project.visibleProjectReference?.replace(/^📁\s*/, "") ||
+              undefined,
             target: { kind: "block", id: task.id },
           });
         }
@@ -61,11 +77,29 @@ const builtInProviders: GlobalCalendarProvider[] = [
             date: deadline,
             title,
             subtitle: "截止",
+            entityId: task.id,
+            startAt: `${startDate || deadline}T00:00:00`,
+            endAt: `${deadline}T23:59:00`,
+            allDay: true,
+            projectId: project.visibleProjectTargetId,
+            projectTitle:
+              project.visibleProjectReference?.replace(/^📁\s*/, "") ||
+              undefined,
             target: { kind: "block", id: task.id },
           });
         }
       }
       return events;
+    },
+  },
+  {
+    id: "schedule",
+    async load(_plugin, start, end) {
+      return expandGlobalCalendarSchedules(
+        await loadGlobalCalendarSchedules(),
+        start,
+        end,
+      );
     },
   },
   {

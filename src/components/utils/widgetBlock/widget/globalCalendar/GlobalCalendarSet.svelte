@@ -29,8 +29,18 @@
   <SettingRow title="详细页默认视图">
     <select class="control-md" bind:value={config.defaultDetailView}>
       <option value="month">月历</option>
+      <option value="week">周视图</option>
+      <option value="day">日视图</option>
+      <option value="year">年视图</option>
       <option value="agenda">日程</option>
+      <option value="gantt">甘特图</option>
     </select>
+  </SettingRow>
+  <SettingRow title="日程开始小时">
+    <input class="control-sm" type="number" min="0" max="22" bind:value={config.workdayStart} />
+  </SettingRow>
+  <SettingRow title="日程结束小时">
+    <input class="control-sm" type="number" min="1" max="23" bind:value={config.workdayEnd} />
   </SettingRow>
 </SettingSection>
 
@@ -43,5 +53,8 @@
   </SettingRow>
   <SettingRow title="纪念日与倒数日">
     <input type="checkbox" class="b3-switch fn__flex-center" bind:checked={config.sources.countdown} />
+  </SettingRow>
+  <SettingRow title="自定义日程与课程">
+    <input type="checkbox" class="b3-switch fn__flex-center" bind:checked={config.sources.schedule} />
   </SettingRow>
 </SettingSection>
