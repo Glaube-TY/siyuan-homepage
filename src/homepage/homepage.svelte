@@ -1264,18 +1264,48 @@
         if (!container) return false;
 
         const runtimeState = sectionRuntimeStates.get(sectionId);
-        const uiBaseRevision = runtimeState?.layoutRevision ?? 0;
-        if (uiBaseRevision <= 0) return false;
+        const runtimeBaseRevision = runtimeState?.layoutRevision ?? 0;
+        if (runtimeBaseRevision <= 0) return false;
+
+        const deviceViewContext = options.deviceViewContext
+            ?? getCurrentDeviceViewContext(plugin, "desktop-homepage");
+        const latest = await loadLayoutSnapshotForContext(deviceViewContext, { assumeReady: true });
+        let expectedLayoutRevision = runtimeBaseRevision;
+        if (latest.revision !== runtimeBaseRevision) {
+            const profile = latest.layout.profiles?.[deviceViewContext.scopeId];
+            const globalOrder = normalizeLayoutItems(profile?.order || latest.layout.order);
+            const sectionWidgetIds = options.sectionsEnabled && sectionId
+                ? new Set(profile?.sections?.[sectionId]?.widgetIds || [])
+                : null;
+            const persistedItems = globalOrder
+                .filter((item) => !sectionWidgetIds || sectionWidgetIds.has(item.id))
+                .map((item, index) => ({ ...item, index }));
+            const currentItems = Array.from(container.children)
+                .filter((child): child is HTMLElement => (
+                    child instanceof HTMLElement
+                    && child.classList.contains("widget-block")
+                    && child.id !== widgetId
+                    && child.dataset.widgetDraft !== "true"
+                ))
+                .map((element, index) => ({
+                    id: element.id,
+                    style: element.getAttribute("style"),
+                    index,
+                }));
+            if (!hasSameJsonSemantic(persistedItems, currentItems)) return false;
+            expectedLayoutRevision = latest.revision;
+        }
 
         const result = await saveLayoutWithResult(plugin, container, {
             ...options,
+            deviceViewContext,
             committedWidgetIds: [widgetId],
-            expectedLayoutRevision: uiBaseRevision,
+            expectedLayoutRevision,
         });
         if (!result.success) return false;
 
         const current = sectionRuntimeStates.get(sectionId);
-        if (current && current.layoutRevision === uiBaseRevision) {
+        if (current && current.layoutRevision === runtimeBaseRevision) {
             setSectionRuntimeState(sectionId, { ...current, layoutRevision: result.layoutRevision });
         }
         return true;
@@ -3547,9 +3577,8 @@
         }
         if (currentVersion !== updateHomepageVersion) return;
 
-        // 主题能力必须先于 Banner 资源解析生效；显式禁用 Banner 的主题不创建图片，也不读取设备位置。
-        const themeSupportsBanner = supportsHomepageThemeBanner(themeResolution.definition);
-        bannerEnabled = themeSupportsBanner && config.bannerEnabled;
+        // 配置状态与主题展示能力分离，避免隐藏 Banner 的主题污染用户开关。
+        bannerEnabled = config.bannerEnabled;
 
         showIcon.set(config.showIcon);
         // 标题区域配置
@@ -3557,7 +3586,7 @@
         tempTitleIconImage = config.TitleIconImage;
         titleIconType = config.titleIconType;
         pageTitle = config.customTitle;
-        bannerTitleIntegrated = themeSupportsBanner && advanced && config.bannerTitleIntegrated;
+        bannerTitleIntegrated = advanced && config.bannerTitleIntegrated;
         homepageTitleAlign = advanced ? config.homepageTitleAlign : DEFAULT_HOMEPAGE_TITLE_ALIGN;
         quickButtonStyle = advanced ? config.quickButtonStyle : DEFAULT_QUICK_BUTTON_STYLE;
         bannerTitleColor = advanced ? config.bannerTitleColor : DEFAULT_BANNER_INTEGRATED_COLOR;
@@ -3606,19 +3635,15 @@
         // 按钮列表
         buttonsList = resolveButtonsList(config);
 
-        // 设备横幅配置、横幅资源和背景资源互不依赖，并发解析避免三段 I/O 串行拉长首屏。
+        // 横幅资源保持就绪，主题切换时只改变展示能力，无需重新加载主页。
         const [bannerDisplaySettings, bannerResult, backgroundResult] = await Promise.all([
-            themeSupportsBanner
-                ? loadBannerDisplaySettings(plugin).catch(() => null)
-                : Promise.resolve(null),
-            themeSupportsBanner
-                ? resolveBannerImage(config, getAdvancedEnabled())
-                : Promise.resolve(null),
+            loadBannerDisplaySettings(plugin).catch(() => null),
+            resolveBannerImage(config, getAdvancedEnabled()),
             resolveBackgroundImage(config, getAdvancedEnabled()),
         ]);
         if (currentVersion !== updateHomepageVersion) return;
         bannerHeight = bannerDisplaySettings?.bannerHeight ?? config.bannerHeight;
-        bannerImgSrc = themeSupportsBanner ? (bannerResult?.bannerImgSrc ?? "") : "";
+        bannerImgSrc = bannerResult.bannerImgSrc;
         backgroundImageSrc = backgroundResult.backgroundImageSrc;
     }
 
@@ -3913,7 +3938,7 @@
             enabled: supportsHomepageThemeBanner(themeResolution.definition) && bannerEnabled,
             imageSrc: bannerImgSrc,
             height: bannerHeight,
-            integrated: bannerTitleIntegrated,
+            integrated: supportsHomepageThemeBanner(themeResolution.definition) && bannerTitleIntegrated,
             setImageElement: setThemeBannerImageElement,
             resetPosition: resetThemeBannerPosition,
         }),

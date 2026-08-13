@@ -410,7 +410,11 @@ assert.match(
 assert.match(homepageSource, /await plugin\?\.waitForHomepageEntitlementReady\?\.\(\)/, "Initial theme resolution must wait for entitlement readiness");
 assert.match(homepageSource, /hp-initial-region-stage[\s\S]*HomepageThemeRegion name="workspace"[\s\S]*HomepageThemeRegion name="footer"/, "Initial restore must use neutral measurable region anchors instead of a placeholder theme");
 assert.match(homepageSource, /if \(!initialWidgetGridReady\)[\s\S]*await revealInitializedHomepage\(\)/, "The real theme must remain covered until the first widget grid is calibrated");
-assert.match(homepageSource, /themeSupportsBanner[\s\S]*\? resolveBannerImage\(/, "Banner resources must be gated by the effective theme capability");
+assert.match(homepageSource, /bannerEnabled\s*=\s*config\.bannerEnabled/, "Theme capability must not overwrite the persisted Banner preference");
+assert.match(homepageSource, /bannerTitleIntegrated\s*=\s*advanced\s*&&\s*config\.bannerTitleIntegrated/, "Theme capability must not overwrite the persisted integrated-title preference");
+assert.match(homepageSource, /enabled:\s*supportsHomepageThemeBanner\(themeResolution\.definition\)\s*&&\s*bannerEnabled/, "Banner visibility must be derived from theme capability at render time");
+assert.match(homepageSource, /integrated:\s*supportsHomepageThemeBanner\(themeResolution\.definition\)\s*&&\s*bannerTitleIntegrated/, "Integrated Banner content must be derived from theme capability at render time");
+assert.match(homepageSource, /resolveBannerImage\(config, getAdvancedEnabled\(\)\)/, "Banner resources must stay ready for live theme switching");
 const themeActivationRequestSource = homepageSource.slice(
     homepageSource.indexOf("async function requestThemeResolutionActivation"),
     homepageSource.indexOf("function activateThemeResolution"),
