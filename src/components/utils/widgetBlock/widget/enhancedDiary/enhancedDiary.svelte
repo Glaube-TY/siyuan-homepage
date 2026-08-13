@@ -41,7 +41,7 @@
         openTaskEditorSvelteDialog,
         openQuickRecordSvelteDialog,
     } from "./workspace/enhancedDiaryWorkspaceDialogs";
-    import type { GenerateTasksPlusTaskInput } from "../tasksPlus/tasksPlusParser";
+    import type { GenerateTasksPlusTaskInput } from "@/features/task-data/task-parser";
     import {
         buildEnhancedDiaryWorkspaceSummary,
         type EnhancedDiaryWorkspaceSummary,

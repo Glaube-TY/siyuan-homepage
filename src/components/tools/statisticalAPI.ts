@@ -7,7 +7,7 @@ import {
     type ComponentDataMode,
     type ComponentRecentDocSnapshotDoc,
 } from "@/components/tools/siyuanComponentDataApi";
-import { parseTaskLine } from "@/components/utils/widgetBlock/widget/tasksPlus/tasksPlusParser";
+import { parseTaskLine } from "@/features/task-data/task-parser";
 
 export interface StatisticalDataResult {
     value: number | string | null;

@@ -8,8 +8,6 @@
     import { updateTaskListItemMarker } from "@/api";
     import {
         ensureTaskBlockExists,
-        ensureTaskIndexInitialized,
-        refreshTaskIndexFromRecentDocuments,
         updateTaskIndexItem,
     } from "@/components/tools/siyuanComponentDataApi";
     import type { WidgetRuntimeContext } from "../../widgetMountRegistry";
@@ -52,10 +50,11 @@
     let isDestroyed = false;
 
     async function loadTasks() {
-        await refreshTaskIndexFromRecentDocuments(plugin, {
-            force: runtimeContext.forceIndexRefresh === true,
-        });
-        const result = await getLatestTasks(parsed.data?.tasksNotebookId, plugin);
+        const result = await getLatestTasks(
+            parsed.data?.tasksNotebookId,
+            plugin,
+            runtimeContext.forceIndexRefresh === true,
+        );
         if (isDestroyed) return;
         recentTasks = result.items;
         taskDataStatus = result.status === "disabled" ? "empty" : result.status;
@@ -68,20 +67,9 @@
         isDestroyed = false;
         isInitializing = true;
         taskStatusMessage = "正在初始化任务索引...";
-        ensureTaskIndexInitialized(plugin)
-            .then((initResult) => {
-                if (isDestroyed) return;
-                if (initResult.initialized && initResult.status.lastStatus !== "success") {
-                    taskDataStatus = "error";
-                    taskStatusMessage = `${initResult.status.lastMessage || "任务索引初始化失败"}，请到主页设置 > 检索管理中手动重建索引。`;
-                    isInitializing = false;
-                    showTasksDetails = parsed.data?.showTasksDetails ?? true;
-                    TaskManTitle = parsed.data?.TaskManTitle || "📋任务管理";
-                    return;
-                }
-                return loadTasks().finally(() => {
-                    if (!isDestroyed) isInitializing = false;
-                });
+        loadTasks()
+            .then(() => {
+                if (!isDestroyed) isInitializing = false;
             })
             .catch(() => {
                 if (isDestroyed) return;

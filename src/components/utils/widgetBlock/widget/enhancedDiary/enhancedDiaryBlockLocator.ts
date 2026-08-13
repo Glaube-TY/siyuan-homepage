@@ -24,7 +24,7 @@ import {
     getFieldAliases,
     getPrimaryFieldTitle,
 } from "./enhancedDiaryTemplateFieldMapping";
-import { parseTaskLine } from "../tasksPlus/tasksPlusParser";
+import { parseTaskLine } from "@/features/task-data/task-parser";
 
 export interface EnhancedDiaryHeadingBlock {
     id: string;

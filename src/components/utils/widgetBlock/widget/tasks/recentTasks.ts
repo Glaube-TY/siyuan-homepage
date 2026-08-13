@@ -1,8 +1,5 @@
-import {
-    getTaskIndexResult,
-    splitNotebookIds,
-    type ComponentDataResult,
-} from "@/components/tools/siyuanComponentDataApi";
+import { splitNotebookIds, type ComponentDataResult } from "@/components/tools/siyuanComponentDataApi";
+import { loadTaskData } from "@/features/task-data/task-data-service";
 
 export interface RecentTasksInfo {
     id: string;
@@ -16,7 +13,10 @@ export interface RecentTasksInfo {
 export async function getLatestTasks(
     tasksNotebookId: string | undefined,
     plugin?: any,
+    forceRefresh = false,
 ): Promise<ComponentDataResult<RecentTasksInfo>> {
-    void plugin;
-    return getTaskIndexResult(splitNotebookIds(tasksNotebookId)) as Promise<ComponentDataResult<RecentTasksInfo>>;
+    return loadTaskData(plugin, {
+        notebookIds: splitNotebookIds(tasksNotebookId),
+        forceRefresh,
+    }) as Promise<ComponentDataResult<RecentTasksInfo>>;
 }

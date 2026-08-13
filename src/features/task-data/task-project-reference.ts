@@ -5,7 +5,7 @@ function escapeRefTitle(value: string): string {
     return value.replace(/\\/g, "\\\\").replace(/"/g, "\\\"").replace(/[\r\n]+/g, " ").trim();
 }
 
-/** 生成思源动态块引用。引用文本只是展示缓存，稳定关系由块 ID 与块属性承担。 */
+/** 生成任务关联项目的思源动态块引用。 */
 export function generateVisibleProjectReference(targetId: string, title: string): string {
     if (!/^[0-9]{14}-[a-z0-9]{7}$/i.test(targetId)) throw new Error("项目目标 ID 无效。");
     return `${PROJECT_MARKER}${`((${targetId} \"${escapeRefTitle(title)}\"))`}`;

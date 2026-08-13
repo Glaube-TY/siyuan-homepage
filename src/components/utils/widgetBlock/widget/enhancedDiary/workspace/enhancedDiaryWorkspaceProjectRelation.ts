@@ -20,7 +20,7 @@ import {
     generateVisibleProjectReference,
     parseVisibleProjectTargetId,
     removeVisibleProjectReference,
-} from "./enhancedDiaryWorkspaceProjectReference";
+} from "@/features/task-data/task-project-reference";
 
 export {
     appendRecordProjectReference,
@@ -28,7 +28,7 @@ export {
     generateVisibleProjectReference,
     parseVisibleProjectTargetId,
     removeVisibleProjectReference,
-} from "./enhancedDiaryWorkspaceProjectReference";
+} from "@/features/task-data/task-project-reference";
 
 const RECORD_CONTENT_BLOCK_LIMIT = 32;
 

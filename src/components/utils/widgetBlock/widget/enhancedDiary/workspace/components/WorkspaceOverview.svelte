@@ -1,5 +1,5 @@
 <script lang="ts">
-    import type { GenerateTasksPlusTaskInput } from "../../../tasksPlus/tasksPlusParser";
+import type { GenerateTasksPlusTaskInput } from "@/features/task-data/task-parser";
     import type { EnhancedDiaryWorkspaceState } from "../enhancedDiaryWorkspaceData";
     import type { EnhancedDiaryWorkspaceRecord } from "../enhancedDiaryWorkspaceRecordService";
     import type { EnhancedDiaryWorkspaceTask } from "../enhancedDiaryWorkspaceTaskService";

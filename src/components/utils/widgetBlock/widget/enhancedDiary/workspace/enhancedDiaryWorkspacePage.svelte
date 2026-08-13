@@ -72,7 +72,7 @@
     import { formatDiaryDate } from "../enhancedDiaryUtils";
     import { saveEnhancedDiaryConfig } from "../enhancedDiaryConfig";
     import { ENHANCED_DIARY_INDEXES_UPDATED_EVENT } from "../enhancedDiaryIndex";
-    import type { GenerateTasksPlusTaskInput } from "../../tasksPlus/tasksPlusParser";
+    import type { GenerateTasksPlusTaskInput } from "@/features/task-data/task-parser";
     import {
         addNewTaskToDiary,
         getOrCreateTodayDiaryDocument,

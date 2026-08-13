@@ -3,14 +3,13 @@
     import WidgetSemanticTitle from "@/homepage/theme/widgetPresentation/components/WidgetSemanticTitle.svelte";
     import { showMessage } from "siyuan";
     import { openDocs } from "@/components/tools/openDocs";
-    import { gettasksList, formatTasksList } from "./tasksPlus";
+    import { formatTasksList } from "@/features/task-data/task-query";
     import { updateTaskListItemMarker, updateBlock } from "@/api";
     import {
         ensureTaskBlockExists,
-        ensureTaskIndexInitialized,
-        refreshTaskIndexFromRecentDocuments,
         updateTaskIndexItem,
     } from "@/components/tools/siyuanComponentDataApi";
+    import { loadTaskData } from "@/features/task-data/task-data-service";
     import LocalIndexEmptyState from "../common/LocalIndexEmptyState.svelte";
     import type { WidgetRuntimeContext } from "../../widgetMountRegistry";
 
@@ -262,45 +261,24 @@
         return lines.join("\n");
     }
 
-    async function loadTasks() {
-        const notebookIds = tasksPlusSelectedNotebookIds.map((item) => item.value);
-        await refreshTaskIndexFromRecentDocuments(plugin, {
-            force: runtimeContext.forceIndexRefresh === true,
-        });
-        const taskResult = await gettasksList(plugin, notebookIds);
-        if (isDestroyed) return;
-        taskDataStatus = taskResult.status;
-        taskStatusMessage = taskResult.message || "";
-        tasksList = taskResult.items;
-        tasksListFormat = await formatTasksList(
-            tasksList,
-            internalFilter,
-            isCustomFilter,
-            customFilter,
-            tasksSort,
-        );
-        if (isDestroyed) return;
-
-        for (const task of tasksListFormat) {
-            if (isDestroyed) return;
-            await updateTaskBasedOnRecurrence(task);
-        }
-    }
-
     onMount(async () => {
         isDestroyed = false;
         isInitializing = true;
         taskStatusMessage = "正在初始化任务索引...";
         try {
-            const initResult = await ensureTaskIndexInitialized(plugin);
+            const taskResult = await loadTaskData(plugin, {
+                notebookIds: tasksPlusSelectedNotebookIds.map((item) => item.value),
+                forceRefresh: runtimeContext.forceIndexRefresh === true,
+            });
             if (isDestroyed) return;
-            if (initResult.initialized && initResult.status.lastStatus !== "success") {
-                taskDataStatus = "error";
-                taskStatusMessage = `${initResult.status.lastMessage || "任务索引初始化失败"}，请到主页设置 > 检索管理中手动重建索引。`;
-                isInitializing = false;
-                return;
+            taskDataStatus = taskResult.status;
+            taskStatusMessage = taskResult.message || "";
+            tasksList = taskResult.items;
+            tasksListFormat = await formatTasksList(tasksList, internalFilter, isCustomFilter, customFilter, tasksSort);
+            for (const task of tasksListFormat) {
+                if (isDestroyed) return;
+                await updateTaskBasedOnRecurrence(task);
             }
-            await loadTasks();
         } catch {
             if (isDestroyed) return;
             taskDataStatus = "error";

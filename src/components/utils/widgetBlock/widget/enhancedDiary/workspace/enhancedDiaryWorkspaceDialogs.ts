@@ -9,7 +9,7 @@ import MigrateTaskDialog from "./components/MigrateTaskDialog.svelte";
 import ProjectRelationRepairDialog from "./components/ProjectRelationRepairDialog.svelte";
 import ArchiveProjectDialog from "./components/ArchiveProjectDialog.svelte";
 import WorkspaceProjectMoveDialog from "./components/WorkspaceProjectMoveDialog.svelte";
-import type { GenerateTasksPlusTaskInput } from "../../tasksPlus/tasksPlusParser";
+import type { GenerateTasksPlusTaskInput } from "@/features/task-data/task-parser";
 import type { EnhancedDiaryWorkspaceTask } from "./enhancedDiaryWorkspaceTaskService";
 import type { EnhancedDiaryWorkspaceRecord } from "./enhancedDiaryWorkspaceRecordService";
 import type { QuickRecordDialogSubmitInput } from "./enhancedDiaryWorkspaceRecordService";

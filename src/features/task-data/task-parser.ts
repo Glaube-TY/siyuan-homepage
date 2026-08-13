@@ -1,4 +1,4 @@
-import { generateVisibleProjectReference, parseVisibleProjectTargetId } from "../enhancedDiary/workspace/enhancedDiaryWorkspaceProjectReference";
+import { generateVisibleProjectReference, parseVisibleProjectTargetId } from "./task-project-reference";
 
 export interface ParsedTasksPlusMeta {
     deadline: string;

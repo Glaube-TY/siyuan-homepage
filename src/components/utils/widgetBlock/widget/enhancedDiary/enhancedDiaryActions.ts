@@ -1,4 +1,4 @@
-import { generateTaskLine, type GenerateTasksPlusTaskInput } from "../tasksPlus/tasksPlusParser";
+import { generateTaskLine, type GenerateTasksPlusTaskInput } from "@/features/task-data/task-parser";
 import type { EnhancedDiaryConfig, EnhancedDiaryHeadingStructureConfig, EnhancedDiaryProjectStorageConfig, EnhancedDiaryTemplateFieldMapping } from "./enhancedDiaryTypes";
 import { resolveRecordCategoryTitle } from "./enhancedDiaryWorkspaceSections";
 import {

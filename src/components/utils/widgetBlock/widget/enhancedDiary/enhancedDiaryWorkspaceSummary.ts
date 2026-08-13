@@ -1,4 +1,4 @@
-import { parseTaskLine } from "../tasksPlus/tasksPlusParser";
+import { parseTaskLine } from "@/features/task-data/task-parser";
 import { validateDayWorkspaceStructure, parseMarkdownHeadingTree, getSectionMarkdown, type EnhancedDiaryHeadingNode } from "./enhancedDiaryMarkdownSections";
 import {
     getDayWorkspaceSections,

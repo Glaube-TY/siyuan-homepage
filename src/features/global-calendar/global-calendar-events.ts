@@ -1,4 +1,4 @@
-import { loadOpenTasks } from "@/features/task-notify/task-notify-rules";
+import { loadOpenTasks } from "@/features/task-data/task-query";
 import { loadCountdownCenterData } from "@/components/utils/widgetBlock/widget/countdown/countdownData";
 import { getCountdownOccurrencesInRange } from "@/components/utils/widgetBlock/widget/countdown/countdownDateEngine";
 import { loadEnhancedDiaryConfig } from "@/components/utils/widgetBlock/widget/enhancedDiary/enhancedDiaryConfig";
@@ -37,8 +37,8 @@ function cleanTaskTitle(value: string): string {
 const builtInProviders: GlobalCalendarProvider[] = [
   {
     id: "tasks",
-    async load(_plugin, start, end) {
-      const tasks = await loadOpenTasks();
+    async load(plugin, start, end) {
+      const tasks = await loadOpenTasks(plugin);
       const events: GlobalCalendarEvent[] = [];
       for (const task of tasks) {
         const project = task.parsed as typeof task.parsed & {

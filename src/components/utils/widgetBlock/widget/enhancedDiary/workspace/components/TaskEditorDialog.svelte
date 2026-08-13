@@ -1,7 +1,7 @@
 <script lang="ts">
     import { onMount } from "svelte";
     import type { EnhancedDiaryWorkspaceTask } from "../enhancedDiaryWorkspaceTaskService";
-    import type { GenerateTasksPlusTaskInput } from "../../../tasksPlus/tasksPlusParser";
+    import type { GenerateTasksPlusTaskInput } from "@/features/task-data/task-parser";
     import WorkspaceIcon from "./WorkspaceIcon.svelte";
     import WorkspaceProjectPicker from "./WorkspaceProjectPicker.svelte";
     import { loadEnhancedDiaryProjectIndexForWorkspace } from "../enhancedDiaryWorkspaceProjectService";

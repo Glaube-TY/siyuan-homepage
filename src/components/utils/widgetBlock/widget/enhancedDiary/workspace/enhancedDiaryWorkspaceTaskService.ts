@@ -13,7 +13,7 @@ import {
     isTaskCompleted,
     parseTaskLine,
     type GenerateTasksPlusTaskInput,
-} from "../../tasksPlus/tasksPlusParser";
+} from "@/features/task-data/task-parser";
 import type { EnhancedDiaryConfig, EnhancedDiaryProjectStorageConfig } from "../enhancedDiaryTypes";
 import {
     appendMarkdownToDaySection,
@@ -27,13 +27,11 @@ import { addDays, formatLocalDate } from "./enhancedDiaryWorkspaceDate";
 import { deriveWorkspaceTaskScheduleFlags } from "./enhancedDiaryWorkspaceTaskModel";
 import { selectByIdsBatched } from "@/components/tools/siyuanSqlPaging";
 import {
-    getTaskIndexResult,
     ensureTaskBlockExists,
-    ensureTaskIndexInitialized,
-    refreshTaskIndexFromRecentDocuments,
     removeTaskIndexItem,
     updateTaskIndexItem,
 } from "@/components/tools/siyuanComponentDataApi";
+import { loadTaskData } from "@/features/task-data/task-data-service";
 import { readEnhancedDiaryProjectIndex } from "../enhancedDiaryProjectIndex";
 import { parseVisibleProjectTargetId, resolveProjectRelation } from "./enhancedDiaryWorkspaceProjectRelation";
 import { ENHANCED_DIARY_PROJECT_TARGET_ATTR, parseEnhancedDiaryBatchBlockAttrs } from "../enhancedDiaryProjectTypes";
@@ -223,18 +221,11 @@ export async function queryWorkspaceTasks(
     options: QueryWorkspaceTasksOptions = {},
 ): Promise<EnhancedDiaryWorkspaceTask[]> {
     const todayStr = formatDiaryDate(today);
-    const initialization = await ensureTaskIndexInitialized(plugin);
-    if (options.requireFreshIndex && initialization.status.lastStatus === "error") {
-        throw new Error(`任务索引初始化失败：${initialization.status.lastMessage || "未知错误"}`);
+    const taskResult = await loadTaskData(plugin, { forceRefresh: options.forceIndexRefresh });
+    if (options.requireFreshIndex && (taskResult.status === "error" || taskResult.status === "limited")) {
+        throw new Error(taskResult.message || "任务索引刷新失败。");
     }
-    const refreshStatus = await refreshTaskIndexFromRecentDocuments(
-        plugin,
-        options.forceIndexRefresh ? { force: true, ttlMs: 0 } : {},
-    );
-    if (options.requireFreshIndex && refreshStatus.lastStatus === "error") {
-        throw new Error(`任务索引刷新失败：${refreshStatus.lastMessage || "未知错误"}`);
-    }
-    const rows = (await getTaskIndexResult([], plugin)).items;
+    const rows = taskResult.items;
     const projectIndex = options.projectIndex ?? await readEnhancedDiaryProjectIndex(config.projectStorage);
     const taskAttrs = rows?.length
         ? parseEnhancedDiaryBatchBlockAttrs(await batchGetBlockAttrs(rows.map((row) => row.id)))

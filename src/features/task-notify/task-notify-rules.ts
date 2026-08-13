@@ -1,5 +1,4 @@
-import { customFilterTasks, formatTasksList, gettasksList } from "@/components/utils/widgetBlock/widget/tasksPlus/tasksPlus";
-import { isTaskCompleted } from "@/components/utils/widgetBlock/widget/tasksPlus/tasksPlusParser";
+import { customFilterTasks, loadOpenTasks as loadOpenTaskData } from "@/features/task-data/task-query";
 import { formatLocalDate, formatLocalDateTime } from "@/components/tools/date-utils";
 import type { TaskNotifyRule, TaskNotifyTask } from "./types";
 
@@ -27,12 +26,8 @@ export function getPriorityLevel(task: TaskNotifyTask): number {
   return (task.parsed.priority?.match(/❗/g) || []).length;
 }
 
-export async function loadOpenTasks(): Promise<TaskNotifyTask[]> {
-  const raw = await gettasksList();
-  const formatted = await formatTasksList(Array.isArray(raw) ? raw : [], "all");
-  return (Array.isArray(formatted) ? formatted : [])
-    .filter((task): task is TaskNotifyTask => task && typeof task.id === "string")
-    .filter((task) => !isTaskCompleted(task.taskCheck));
+export async function loadOpenTasks(plugin?: any): Promise<TaskNotifyTask[]> {
+  return loadOpenTaskData(plugin);
 }
 
 export function resolveReminderScheduledAt(task: TaskNotifyTask, now = new Date()): Date | null {

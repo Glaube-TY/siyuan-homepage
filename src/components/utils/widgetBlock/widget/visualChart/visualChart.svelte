@@ -2,8 +2,8 @@
     import { saveWidgetContentPreservingSize } from "../../styleUtils";
     import { showMessage, openTab } from "siyuan";
     import { sql, getTag } from "@/api";
-    import { getTaskIndexResult } from "@/components/tools/siyuanComponentDataApi";
-    import { isTaskCompleted, parseTaskLine } from "../tasksPlus/tasksPlusParser";
+    import { loadTaskData } from "@/features/task-data/task-data-service";
+    import { isTaskCompleted, parseTaskLine } from "@/features/task-data/task-parser";
     import { onMount, onDestroy } from "svelte";
     import * as echarts from "@/utils/charts/echarts";
     import "echarts-wordcloud";
@@ -367,7 +367,7 @@
     }
 
     async function getTasks() {
-        const result = await getTaskIndexResult([]);
+        const result = await loadTaskData(plugin);
         taskDataStatus = result.status;
         taskStatusMessage = result.message || "";
 

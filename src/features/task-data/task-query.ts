@@ -1,24 +1,23 @@
-import {
-    getTaskIndexResult,
-    type ComponentDataResult,
-} from "@/components/tools/siyuanComponentDataApi";
-import { parseTaskLine } from "./tasksPlusParser";
+import { parseTaskLine } from "@/features/task-data/task-parser";
+import { isTaskCompleted } from "@/features/task-data/task-parser";
+import { loadTaskData } from "./task-data-service";
 
-export interface RecentTasksInfo {
+export interface IndexedTask {
     id: string;
+    taskname: string;
+    taskCheck: string;
     markdown: string;
-    content: string;
-    created: string;
-    updated: string;
-    hpath: string;
+    hpath?: string;
+    box?: string;
+    parsed: ReturnType<typeof parseTaskLine>["parsed"];
 }
 
-export async function gettasksList(
-    plugin?: any,
-    notebookIds: string[] = [],
-): Promise<ComponentDataResult<any>> {
-    void plugin;
-    return getTaskIndexResult(notebookIds);
+export async function loadOpenTasks(plugin?: any): Promise<IndexedTask[]> {
+    const result = await loadTaskData(plugin);
+    const formatted = await formatTasksList(result.items, "all");
+    return formatted.filter((task): task is IndexedTask =>
+        typeof task?.id === "string" && !isTaskCompleted(task.taskCheck),
+    );
 }
 
 export async function formatTasksList(

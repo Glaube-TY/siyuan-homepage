@@ -3,7 +3,7 @@
     import { showMessage } from "siyuan";
     import { sql, getBlockKramdown, updateBlock as updateBlockAPI } from "@/api";
     import { ensureTaskBlockExists, updateTaskIndexItem } from "@/components/tools/siyuanComponentDataApi";
-    import { generateTaskLine, parseTaskLine } from "./tasksPlusParser";
+    import { generateTaskLine, parseTaskLine } from "@/features/task-data/task-parser";
 
     interface Props {
         blockId: string;
