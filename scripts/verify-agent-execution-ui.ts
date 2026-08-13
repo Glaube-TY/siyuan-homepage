@@ -6,6 +6,8 @@ import {
   getAgentRecoveryPresentation,
   getWorkbenchRunPresentation,
 } from "../src/features/kb/services/agent-workbench/runtime/workbench-terminal-state";
+import { buildToolPermissionPreview } from "../src/features/kb/services/agent-core/permissions/write-preview-builder";
+import type { NativeTool } from "../src/features/kb/services/agent-core/tools/native-tool";
 
 const identity = createAgentRunIdentity({ sessionId: "session-ui", runId: "run-ui", correlationId: "corr-ui", startedAt: 1 });
 const base = { at: 1, eventId: "event-1", ...identity };
@@ -50,5 +52,18 @@ const toolResult = event({
 assert.equal(getWorkbenchRunPresentation([toolResult]).active, false);
 assert.equal(getAgentRecoveryPresentation(checkpoint, [toolResult]).resumable, true);
 assert.match(getAgentRecoveryPresentation({ ...checkpoint, sideEffectState: "unknown" }, [toolResult]).summary, /禁止自动继续/);
+
+const diaryTool = { name: "diary_task", title: "日记任务", readOnly: false } as NativeTool;
+const diaryPreview = buildToolPermissionPreview(diaryTool, {
+  action: "manage_task",
+  args: {
+    operation: "create",
+    task: { taskname: "完成日历验收", startDate: "2026-08-13", deadline: "2026-08-14", priority: 3 },
+  },
+});
+assert.equal(diaryPreview.operationLabel, "创建任务");
+assert.equal(diaryPreview.targetSummary, "完成日历验收");
+assert.match(diaryPreview.sections?.[0]?.value ?? "", /开始：2026-08-13/);
+assert.match(diaryPreview.sections?.[0]?.value ?? "", /截止：2026-08-14/);
 
 console.log("Agent 执行状态与安全恢复 UI 投影校验通过。");

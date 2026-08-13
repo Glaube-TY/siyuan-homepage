@@ -42,7 +42,7 @@
   $: riskLabel = { low: "低风险", medium: "中风险", high: "高风险" }[risk] ?? "未知";
   $: riskClass = { low: "risk-low", medium: "risk-medium", high: "risk-high" }[risk] ?? "risk-medium";
   $: argsStr = JSON.stringify(argsPreview, null, 2);
-  $: actionName = String(argsPreview.action ?? argsPreview.innerAction ?? "").toLowerCase();
+  $: actionName = String(argsPreview.action ?? argsPreview.innerAction ?? argsPreview.operation ?? "").toLowerCase();
   $: deleteOperation = /(^|_)(delete|remove|uninstall)(_|$)/.test(`${toolName}_${actionName}`);
   $: createOperation = /(^|_)(create|add|insert|append|prepend|put)(_|$)/.test(`${toolName}_${actionName}`);
   $: firstSummaryLine = summary.split("\n").map((line) => line.trim()).find(Boolean) ?? "";

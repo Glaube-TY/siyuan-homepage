@@ -273,14 +273,9 @@ export async function createTodayDailyNoteForWidget(plugin: any, notebookId?: st
         const docId = normalizeCreatedDailyNoteId(result);
         if (docId) {
             setEnhancedDiaryIndexNotebook(notebook);
-            const indexed = await indexCreatedEnhancedDiaryDocument(notebook, docId).catch((err) => {
+            void indexCreatedEnhancedDiaryDocument(notebook, docId).catch((err) => {
                 console.warn("[enhancedDiaryDoc] index created daily note failed", err);
-                return false;
             });
-            if (!indexed) {
-                console.warn("[enhancedDiaryDoc] indexCreatedEnhancedDiaryDocument returned false after 3 attempts; " +
-                    `diary ${docId} created but not indexed yet, recent-docs delta will pick it up`);
-            }
         }
         return docId;
     } catch (err) {

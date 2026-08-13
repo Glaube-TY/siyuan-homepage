@@ -858,14 +858,23 @@ function buildManageDiaryTaskPreview(tool: NativeTool, args: Record<string, unkn
 
   const argsPreview: Record<string, unknown> = { operation };
   const parts: string[] = [];
+  const sections: Array<{ label: string; value: string }> = [];
+  let createTaskName = "";
 
   switch (operation) {
     case "create": {
       const taskname = typeof task?.taskname === "string" ? task.taskname : "";
+      createTaskName = sanitizePreviewText(taskname, 160);
       argsPreview.taskname = taskname.length > 80 ? `${taskname.slice(0, 77)}...` : taskname;
-      parts.push(`新增任务：${argsPreview.taskname}`);
+      parts.push(`新增任务：${createTaskName || "未提供任务名"}`);
       if (typeof task?.priority === "number") parts.push(`优先级：${priorityLabel(task.priority)}`);
+      if (typeof task?.startDate === "string") parts.push(`开始：${task.startDate}`);
       if (typeof task?.deadline === "string") parts.push(`截止：${task.deadline}`);
+      if (typeof task?.recurrence === "string") parts.push(`重复：${sanitizePreviewText(task.recurrence, 120)}`);
+      if (typeof task?.reminder === "string") parts.push(`提醒：${sanitizePreviewText(task.reminder, 120)}`);
+      if (typeof task?.location === "string") parts.push(`地点：${sanitizePreviewText(task.location, 120)}`);
+      if (Array.isArray(task?.tags) && task.tags.length > 0) parts.push(`标签：${formatTitleList(task.tags, 8)}`);
+      sections.push({ label: "任务详情", value: parts.join("\n") });
       break;
     }
     case "migrate": {
@@ -923,10 +932,11 @@ function buildManageDiaryTaskPreview(tool: NativeTool, args: Record<string, unkn
     risk: operation === "delete" ? "high" : "medium",
     argsPreview,
     operationLabel: operationLabels[operation] ?? `未知操作：${operation}`,
-    targetSummary: blockId || taskId ? `任务 ${blockId || taskId}` : "日记任务",
+    targetSummary: createTaskName || (blockId || taskId ? `任务 ${blockId || taskId}` : "日记任务"),
     impactSummary: parts.join("；"),
     riskReason: operation === "delete" ? "删除任务不可由 Agent 自动回滚。" : undefined,
     warnings: operation === "delete" ? ["删除类日记操作为高风险。"] : undefined,
+    sections,
     summary: parts.join("\n"),
   });
 }
@@ -1470,6 +1480,12 @@ export function buildToolPermissionPreview(tool: NativeTool, args: Record<string
   const nestedArgs = args.args && typeof args.args === "object"
     ? args.args as Record<string, unknown>
     : {};
+  if (tool.name === "diary_task" && action) {
+    if (action === "ensure_structure") return buildManageDiaryStructurePreview(tool, nestedArgs);
+    if (action === "manage_task") return buildManageDiaryTaskPreview(tool, nestedArgs);
+    if (action === "manage_record") return buildManageDiaryRecordPreview(tool, nestedArgs);
+    if (action === "manage_review") return buildManageDiaryReviewPreview(tool, nestedArgs);
+  }
   if (tool.name === "homepage_manage" && action) {
     return buildHomepageManagePreview(tool, nestedArgs, action);
   }
@@ -1546,6 +1562,18 @@ export function buildToolPermissionPreview(tool: NativeTool, args: Record<string
 
   if (tool.name in SIYUAN_ACTION_PREVIEW_TITLES) {
     return buildSiyuanActionPreview(tool, args);
+  }
+
+  if (action && Object.keys(nestedArgs).length > 0) {
+    const safeArgs = redactSensitiveObject(nestedArgs) as Record<string, unknown>;
+    return makePreview({
+      tool,
+      argsPreview: { action, args: safeArgs },
+      operationLabel: action,
+      targetSummary: tool.title,
+      impactSummary: `将执行 ${action} 并写入对应业务数据。`,
+      sections: [{ label: "参数详情", value: JSON.stringify(safeArgs, null, 2) }],
+    });
   }
 
   const argsPreview: Record<string, unknown> = {};
