@@ -59,6 +59,13 @@ const card: HomepageThemeDefinition = {
     access: "vip",
     features: { banner: true, widgetAppearance: "theme-controlled" },
 };
+const technology: HomepageThemeDefinition = {
+    ...classic,
+    id: "builtin.technology",
+    name: "Technology",
+    access: "vip",
+    features: { banner: true, widgetAppearance: "theme-controlled" },
+};
 
 const registry = new HomepageThemeRegistry();
 registry.register(classic);
@@ -66,6 +73,7 @@ registry.register(simple);
 registry.register(paper);
 registry.register(handDrawn);
 registry.register(card);
+registry.register(technology);
 assert.throws(() => registry.register(simple), /已注册/);
 assert.throws(() => registry.register({ ...simple, id: "INVALID ID" }), /非法/);
 assert.throws(() => registry.register({ ...simple, id: "vendor.unsupported", apiVersion: 2 as 1 }), /API 版本/);
@@ -90,6 +98,8 @@ assert.equal(resolve("builtin.hand-drawn", true).effectiveThemeId, "builtin.hand
 assert.equal(resolve("builtin.hand-drawn", false).fallbackReason, "vip_required");
 assert.equal(resolve("builtin.card", true).effectiveThemeId, "builtin.card");
 assert.equal(resolve("builtin.card", false).fallbackReason, "vip_required");
+assert.equal(resolve("builtin.technology", true).effectiveThemeId, "builtin.technology");
+assert.equal(resolve("builtin.technology", false).fallbackReason, "vip_required");
 assert.equal(supportsHomepageThemeBanner(classic), true, "API v1 themes that omit banner capability must keep legacy behavior");
 assert.equal(supportsHomepageThemeBanner({ ...simple, features: { banner: false } }), false, "Themes must be able to disable Banner before resource loading");
 const unsupportedRegistry = {
@@ -308,7 +318,8 @@ assert.doesNotMatch(paperThemeStyleSource, /hp-paper-banner-frame::(?:before|aft
 assert.doesNotMatch(paperThemeStyleSource, /\.hp-paper-banner\s*\{[^}]*clip-path:/s, "Paper Banner image must remain rectangular inside the torn backing paper");
 const paperThemeDefinitionSource = readFileSync("src/homepage/theme/builtins/paper/definition.ts", "utf8");
 assert.match(paperThemeDefinitionSource, /id:\s*"builtin\.paper"/, "Paper workspace must use a stable builtin theme id");
-assert.match(paperThemeDefinitionSource, /thumbnail:\s*paperPreviewThumbnail/, "Paper workspace must provide a real settings preview");
+assert.match(paperThemeDefinitionSource, /name:\s*"纸质"/, "Paper workspace must use the compact Chinese theme name");
+assert.doesNotMatch(paperThemeDefinitionSource, /thumbnail:/, "Theme definitions must not retain unused preview images");
 assert.match(paperThemeDefinitionSource, /features:\s*\{[^}]*banner:\s*true[^}]*widgetAppearance:\s*"theme-controlled"/, "Paper workspace must preserve Banner and control Widget presentation");
 const handDrawnThemeStyleSource = readFileSync("src/homepage/theme/builtins/hand-drawn/hand-drawn.scss", "utf8");
 assert.match(handDrawnThemeStyleSource, /data-hp-theme="builtin\.hand-drawn"/, "Hand-drawn workspace styles must be scoped to its theme id");
@@ -321,8 +332,8 @@ const handDrawnThemeSource = readFileSync("src/homepage/theme/builtins/hand-draw
 assert.match(handDrawnThemeSource, /HomepageBanner/, "Hand-drawn workspace must use the shared Banner primitive");
 assert.match(handDrawnThemeSource, /name="workspace"[\s\S]*name="footer"/, "Hand-drawn workspace must attach the required persistent regions in order");
 const handDrawnThemeDefinitionSource = readFileSync("src/homepage/theme/builtins/hand-drawn/definition.ts", "utf8");
-assert.match(handDrawnThemeDefinitionSource, /name:\s*"手绘风格"/, "Hand-drawn workspace must expose the requested Chinese theme name");
-assert.match(handDrawnThemeDefinitionSource, /thumbnail:\s*handDrawnPreviewThumbnail/, "Hand-drawn workspace must provide a real settings preview");
+assert.match(handDrawnThemeDefinitionSource, /name:\s*"手绘"/, "Hand-drawn workspace must use the compact Chinese theme name");
+assert.doesNotMatch(handDrawnThemeDefinitionSource, /thumbnail:/, "Theme definitions must not retain unused preview images");
 assert.match(handDrawnThemeDefinitionSource, /features:\s*\{[^}]*banner:\s*true[^}]*widgetAppearance:\s*"theme-controlled"/, "Hand-drawn workspace must preserve Banner and control Widget presentation");
 const cardThemeStyleSource = readFileSync("src/homepage/theme/builtins/card/card.scss", "utf8");
 assert.match(cardThemeStyleSource, /data-hp-theme="builtin\.card"/, "Card workspace styles must be scoped to its theme id");
@@ -338,9 +349,22 @@ const cardThemeSource = readFileSync("src/homepage/theme/builtins/card/CardTheme
 assert.match(cardThemeSource, /HomepageBanner/, "Card workspace must use the shared Banner primitive");
 assert.match(cardThemeSource, /name="workspace"[\s\S]*name="footer"/, "Card workspace must attach the required persistent regions in order");
 const cardThemeDefinitionSource = readFileSync("src/homepage/theme/builtins/card/definition.ts", "utf8");
-assert.match(cardThemeDefinitionSource, /name:\s*"纯卡片"/, "Card workspace must expose the requested Chinese theme name");
-assert.match(cardThemeDefinitionSource, /thumbnail:\s*cardPreviewThumbnail/, "Card workspace must provide a real settings preview");
+assert.match(cardThemeDefinitionSource, /name:\s*"卡片"/, "Card workspace must use the compact Chinese theme name");
+assert.doesNotMatch(cardThemeDefinitionSource, /thumbnail:/, "Theme definitions must not retain unused preview images");
 assert.match(cardThemeDefinitionSource, /features:\s*\{[^}]*banner:\s*true[^}]*widgetAppearance:\s*"theme-controlled"/, "Card workspace must preserve Banner and control Widget presentation");
+const technologyThemeStyleSource = readFileSync("src/homepage/theme/builtins/technology/technology.scss", "utf8");
+assert.match(technologyThemeStyleSource, /data-hp-theme="builtin\.technology"/, "Technology workspace styles must be scoped to its theme id");
+assert.match(technologyThemeStyleSource, /--hp-tech-cyan:/, "Technology workspace must expose semantic HUD tokens");
+assert.match(technologyThemeStyleSource, /repeating-linear-gradient/, "Technology workspace must render a restrained scanline layer");
+assert.match(technologyThemeStyleSource, /@container hp-homepage/, "Technology workspace must respond to the actual homepage container");
+assert.doesNotMatch(technologyThemeStyleSource, /https?:\/\//i, "Technology workspace must not depend on remote visual assets");
+const technologyThemeSource = readFileSync("src/homepage/theme/builtins/technology/TechnologyTheme.svelte", "utf8");
+assert.match(technologyThemeSource, /HomepageBanner/, "Technology workspace must reuse the shared Banner primitive");
+assert.match(technologyThemeSource, /name="workspace"[\s\S]*name="footer"/, "Technology workspace must attach the required persistent regions in order");
+const technologyThemeDefinitionSource = readFileSync("src/homepage/theme/builtins/technology/definition.ts", "utf8");
+assert.match(technologyThemeDefinitionSource, /id:\s*"builtin\.technology"/, "Technology workspace must use a stable builtin theme id");
+assert.match(technologyThemeDefinitionSource, /name:\s*"科技"/, "Technology workspace must use the compact Chinese theme name");
+assert.match(technologyThemeDefinitionSource, /access:\s*"vip"/, "Technology workspace must remain a VIP theme");
 assert.equal(resolveHomepageSectionNavigationActiveId({ requestedSectionId: "tasks", activeSectionId: "notes", sectionIds: ["notes", "tasks"] }), "tasks");
 assert.equal(resolveHomepageSectionNavigationActiveId({ activeSectionId: "notes", sectionIds: ["notes", "tasks"] }), "notes");
 assert.equal(resolveHomepageSectionNavigationActiveId({ requestedSectionId: "missing", activeSectionId: "missing", sectionIds: ["notes", "tasks"] }), "notes");
@@ -349,9 +373,10 @@ const sharedSectionsSource = readFileSync("src/homepage/theme/components/shared/
 assert.match(sharedSectionsSource, /aria-selected=\{section\.active\}/, "Section tabs must expose their active state semantically");
 assert.match(sharedSectionsSource, /navigationElement\.scrollTo/, "Section navigation must reveal an off-screen active tab");
 const appearanceTabSource = readFileSync("src/homepage/homepageSetting/tabs/AppearanceSettingsTab.svelte", "utf8");
-assert.match(appearanceTabSource, /theme\.preview\?\.thumbnail/, "Theme settings must render real preview thumbnails when provided");
-assert.match(appearanceTabSource, /theme-card__fallback/, "Theme settings must keep a preview fallback");
-assert.match(appearanceTabSource, /switchingThemeId[\s\S]*theme-card__loading/, "Theme settings must expose a busy preview while a theme is activating");
+assert.doesNotMatch(appearanceTabSource, /theme\.preview|theme-card__preview|theme-card__fallback/, "Theme settings must not render misleading preview images");
+assert.match(appearanceTabSource, /switchingThemeId[\s\S]*theme-card__progress/, "Theme settings must expose compact progress while a theme is activating");
+const builtinThemeDiscoverySource = readFileSync("src/homepage/theme/registry/builtinThemeDiscovery.ts", "utf8");
+assert.match(builtinThemeDiscoverySource, /includes\("\/classic\/"\)/, "Classic must be discovered before paid themes");
 const settingsSource = readFileSync("src/homepage/homepageSetting/homepageSetting.svelte", "utf8");
 assert.match(settingsSource, /HOMEPAGE_THEME_TRANSITION_EVENT/, "Theme settings must subscribe to the runtime transition lifecycle");
 const appearanceOnlyBranch = settingsSource.slice(settingsSource.indexOf("if (appearanceOnly)"), settingsSource.indexOf("let result;"));
@@ -385,7 +410,7 @@ assert.match(
 assert.match(homepageSource, /await plugin\?\.waitForHomepageEntitlementReady\?\.\(\)/, "Initial theme resolution must wait for entitlement readiness");
 assert.match(homepageSource, /hp-initial-region-stage[\s\S]*HomepageThemeRegion name="workspace"[\s\S]*HomepageThemeRegion name="footer"/, "Initial restore must use neutral measurable region anchors instead of a placeholder theme");
 assert.match(homepageSource, /if \(!initialWidgetGridReady\)[\s\S]*await revealInitializedHomepage\(\)/, "The real theme must remain covered until the first widget grid is calibrated");
-assert.match(homepageSource, /if \(themeSupportsBanner\)[\s\S]*resolveBannerImage\(/, "Banner resources must be gated by the effective theme capability");
+assert.match(homepageSource, /themeSupportsBanner[\s\S]*\? resolveBannerImage\(/, "Banner resources must be gated by the effective theme capability");
 const themeActivationRequestSource = homepageSource.slice(
     homepageSource.indexOf("async function requestThemeResolutionActivation"),
     homepageSource.indexOf("function activateThemeResolution"),

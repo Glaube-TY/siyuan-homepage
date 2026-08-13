@@ -54,29 +54,16 @@
             {@const locked = theme.access === "vip" && !advancedEnabled}
             {@const switching = theme.id === switchingThemeId}
             <article class="theme-card" class:theme-card--preferred={theme.id === preferredThemeId} class:theme-card--effective={theme.id === effectiveThemeId} class:theme-card--locked={locked} class:theme-card--switching={switching} aria-busy={switching}>
-                <div class="theme-card__preview">
-                    {#if theme.preview?.thumbnail}
-                        <img src={theme.preview.thumbnail} alt={`${theme.name}主题预览`} />
-                    {:else}
-                        <div class="theme-card__fallback" aria-hidden="true"><span></span><span></span><span></span></div>
-                    {/if}
-                    {#if locked}
-                        <div class="theme-card__lock" aria-label="需要会员权限">
-                            <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="10" width="14" height="10" rx="2"></rect><path d="M8 10V7a4 4 0 0 1 8 0v3"></path></svg>
-                            <strong>VIP 主题</strong>
-                        </div>
-                    {/if}
-                    {#if switching}
-                        <div class="theme-card__loading" aria-hidden="true">
-                            <span class="theme-card__loading-indicator"></span>
-                            <strong>正在准备</strong>
-                        </div>
-                    {/if}
-                </div>
                 <div class="theme-card__head">
                     <strong>{theme.name}</strong>
                     <span class:theme-card__vip={theme.access === "vip"}>{theme.access === "vip" ? "VIP" : "免费"}</span>
                 </div>
+                {#if switching}
+                    <div class="theme-card__progress" aria-hidden="true">
+                        <span class="theme-card__loading-indicator"></span>
+                        <strong>正在准备</strong>
+                    </div>
+                {/if}
                 <p>{theme.description ?? "主页主题"}</p>
                 <div class="theme-card__meta">{theme.author} · v{theme.version}</div>
                 <div class="theme-card__badges" aria-label="主题状态">

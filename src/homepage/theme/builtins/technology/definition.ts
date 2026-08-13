@@ -1,20 +1,20 @@
 import { HOMEPAGE_THEME_API_VERSION } from "../../api/themeApiVersion";
 import type { HomepageThemeDefinition } from "../../api/types";
-import PaperTheme from "./PaperTheme.svelte";
-import { paperWorkspaceWidgetPresentation } from "./widgets/manifest";
+import TechnologyTheme from "./TechnologyTheme.svelte";
+import { technologyWidgetPresentation } from "./widgets/manifest";
 
 export const definition: HomepageThemeDefinition = {
     apiVersion: HOMEPAGE_THEME_API_VERSION,
-    id: "builtin.paper",
-    name: "纸质",
-    description: "带有纸张纤维、归档卡片与印刷层级的温润知识工作区。",
+    id: "builtin.technology",
+    name: "科技",
+    description: "以深海网格、青色信息光与琥珀重点构成克制的未来控制台。",
     version: "1.0.0",
     author: "Glaube-TY",
     access: "vip",
     surfaces: ["desktop-homepage"],
-    renderer: PaperTheme,
-    widgetPresentation: paperWorkspaceWidgetPresentation,
-    preview: { tags: ["VIP", "纸张质感", "归档卡片", "知识工作区"] },
+    renderer: TechnologyTheme,
+    widgetPresentation: technologyWidgetPresentation,
+    preview: { tags: ["VIP", "科技", "HUD", "深海"] },
     features: { banner: true, widgetAppearance: "theme-controlled" },
 };
 

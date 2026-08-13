@@ -6,7 +6,7 @@ import { simpleWorkspaceWidgetPresentation } from "./widgets/manifest";
 export const definition: HomepageThemeDefinition = {
     apiVersion: HOMEPAGE_THEME_API_VERSION,
     id: "builtin.simple-test",
-    name: "简洁工作区",
+    name: "简洁",
     description: "现代、克制的横向知识工作区，让状态、操作、分区与内容保持清晰秩序。",
     version: "1.2.0",
     author: "Glaube-TY",

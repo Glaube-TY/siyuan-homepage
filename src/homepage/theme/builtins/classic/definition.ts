@@ -6,7 +6,7 @@ import { classicWidgetPresentation } from "./widgets/manifest";
 export const definition: HomepageThemeDefinition = {
     apiVersion: HOMEPAGE_THEME_API_VERSION,
     id: "builtin.classic",
-    name: "经典主页",
+    name: "经典",
     description: "完整保留现有主页功能与经典布局的免费主题。",
     version: "1.0.0",
     author: "Glaube-TY",
