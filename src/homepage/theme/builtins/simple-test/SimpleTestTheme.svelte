@@ -8,20 +8,20 @@
     import "./simple-test.scss";
     import "./widgets/index.scss";
 
-    let { identity, status, actions, sections, regions }: HomepageThemeProps = $props();
+    let { identity, status, actions, sections, regions, topLayout }: HomepageThemeProps = $props();
 
 </script>
 
 <div class="hp-theme hp-theme--simple-test">
     <div class="hp-simple-shell">
-        <header class="hp-simple-header" data-hp-context-region="title">
-            <div class="hp-simple-heading">
+        <header class="hp-top-layout hp-simple-header" data-content-layout={topLayout.contentLayout} data-banner-position={topLayout.bannerPosition} data-primary-position={topLayout.primaryPosition} data-banner-content="none" data-align={topLayout.align} data-hp-context-region="title">
+            <div class="hp-top-primary hp-simple-heading">
                 <div class="hp-simple-brand">
                     <HomepageIdentity {identity} />
                 </div>
                 <HomepageStatus {status} />
             </div>
-            <HomepageActions {actions} />
+            <div class="hp-top-actions"><HomepageActions {actions} /></div>
         </header>
 
         <HomepageSections {sections} />

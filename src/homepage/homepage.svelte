@@ -87,7 +87,6 @@
         DEFAULT_BANNER_GLASS_COLOR_MODE,
         DEFAULT_BANNER_GLASS_OPACITY,
         DEFAULT_BANNER_INTEGRATED_COLOR,
-        DEFAULT_HOMEPAGE_TITLE_ALIGN,
         DEFAULT_QUICK_BUTTON_STYLE,
         isComponentSectionsEffective,
         normalizeComponentSections,
@@ -95,7 +94,6 @@
         type BannerGlassColorMode,
         type ComponentSection,
         type ComponentSectionsNavAlign,
-        type HomepageTitleAlign,
         type QuickButtonStyle,
     } from "./homepageSetting/config";
     import type {
@@ -158,6 +156,10 @@
     import { HomepagePersistentRegionManager } from "./theme/runtime/persistentRegionManager";
     import { supportsHomepageThemeBanner } from "./theme/runtime/themeFeatures";
     import { dispatchHomepageThemeTransition } from "./theme/runtime/themeTransitionEvents";
+    import {
+        DEFAULT_HOMEPAGE_TOP_LAYOUT,
+        type HomepageTopLayoutModel,
+    } from "./theme/runtime/topLayout";
     import { createClassicRuntimeAppearanceSettings } from "./theme/builtins/classic/presentationSettings";
     import { syncHomepageWidgetPresentations } from "./theme/widgetPresentation/syncRuntime";
     import { serializeWidgetShellTokens } from "./theme/widgetPresentation/shell";
@@ -182,8 +184,7 @@
     let bannerImage: HTMLImageElement = $state();
     let bannerHeight = $state(300);
     let bannerImgSrc = $state("");
-    let bannerTitleIntegrated = $state(false);
-    let homepageTitleAlign = $state<HomepageTitleAlign>("center");
+    let homepageTopLayout = $state<HomepageTopLayoutModel>({ ...DEFAULT_HOMEPAGE_TOP_LAYOUT });
     let quickButtonStyle = $state<QuickButtonStyle>("default");
     let bannerTitleColor = $state("#ffffff");
     let bannerStatusColor = $state("#ffffff");
@@ -3586,8 +3587,7 @@
         tempTitleIconImage = config.TitleIconImage;
         titleIconType = config.titleIconType;
         pageTitle = config.customTitle;
-        bannerTitleIntegrated = advanced && config.bannerTitleIntegrated;
-        homepageTitleAlign = advanced ? config.homepageTitleAlign : DEFAULT_HOMEPAGE_TITLE_ALIGN;
+        homepageTopLayout = advanced ? config.homepageTopLayout : { ...DEFAULT_HOMEPAGE_TOP_LAYOUT };
         quickButtonStyle = advanced ? config.quickButtonStyle : DEFAULT_QUICK_BUTTON_STYLE;
         bannerTitleColor = advanced ? config.bannerTitleColor : DEFAULT_BANNER_INTEGRATED_COLOR;
         bannerStatusColor = advanced ? config.bannerStatusColor : DEFAULT_BANNER_INTEGRATED_COLOR;
@@ -3901,7 +3901,7 @@
             return Object.freeze({ ...persistedSettings });
         }
         return createClassicRuntimeAppearanceSettings(persistedSettings, {
-            titleAlign: homepageTitleAlign,
+            titleAlign: homepageTopLayout.align,
             quickButtonStyle,
             bannerTitleColor,
             bannerStatusColor,
@@ -3938,7 +3938,7 @@
             enabled: supportsHomepageThemeBanner(themeResolution.definition) && bannerEnabled,
             imageSrc: bannerImgSrc,
             height: bannerHeight,
-            integrated: supportsHomepageThemeBanner(themeResolution.definition) && bannerTitleIntegrated,
+            integrated: supportsHomepageThemeBanner(themeResolution.definition) && homepageTopLayout.bannerContent === "all",
             setImageElement: setThemeBannerImageElement,
             resetPosition: resetThemeBannerPosition,
         }),
@@ -3959,6 +3959,12 @@
             effectiveThemeId: themeResolution.effectiveThemeId,
             fallbackReason: themeResolution.fallbackReason,
             settings: effectiveThemeAppearanceSettings,
+        }),
+        topLayout: Object.freeze({
+            ...homepageTopLayout,
+            bannerContent: supportsHomepageThemeBanner(themeResolution.definition) && bannerEnabled
+                ? homepageTopLayout.bannerContent
+                : "none",
         }),
     }));
     const homepageWidgetShell = $derived(themeResolution.definition.widgetPresentation?.shell);

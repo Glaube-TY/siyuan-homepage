@@ -9,21 +9,19 @@
     import "./hand-drawn.scss";
     import "./widgets/index.scss";
 
-    let { identity, banner, status, actions, sections, regions }: HomepageThemeProps = $props();
+    let { identity, banner, status, actions, sections, regions, topLayout }: HomepageThemeProps = $props();
 </script>
 
 <div class="hp-theme hp-theme--hand-drawn">
     <div class="hp-sketch-shell" class:hp-sketch-shell--without-banner={!banner.enabled}>
-        <header class="hp-sketch-header" data-hp-context-region="title">
-            <div class="hp-sketch-heading">
+        <header class="hp-top-layout hp-sketch-header" data-content-layout={topLayout.contentLayout} data-banner-position={topLayout.bannerPosition} data-primary-position={topLayout.primaryPosition} data-banner-content={topLayout.bannerContent} data-align={topLayout.align} data-hp-context-region="title">
+            <div class="hp-top-primary hp-sketch-heading">
                 <HomepageIdentity {identity} />
                 <HomepageStatus {status} />
             </div>
-            <HomepageActions {actions} />
-        </header>
-
-        {#if banner.enabled}
-            <div class="hp-sketch-banner-stage" data-hp-context-region="banner">
+            <div class="hp-top-actions"><HomepageActions {actions} /></div>
+            {#if banner.enabled}
+            <div class="hp-top-banner hp-sketch-banner-stage" data-hp-context-region="banner">
                 <HomepageBanner
                     {banner}
                     class="hp-sketch-banner"
@@ -37,7 +35,8 @@
                     </svg>
                 </span>
             </div>
-        {/if}
+            {/if}
+        </header>
 
         <HomepageSections {sections} />
 

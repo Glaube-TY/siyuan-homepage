@@ -16,7 +16,8 @@
         type HomepageStatusTextMode,
         type HomepageStatusStatKey,
     } from '@/homepage/status-text-config';
-    import type { BannerGlassColorMode, HomepageTitleAlign, QuickButtonStyle } from '../config';
+    import type { BannerGlassColorMode, QuickButtonStyle } from '../config';
+    import type { HomepageTopLayoutModel } from '@/homepage/theme/runtime/topLayout';
 
     let iconInputEl: HTMLInputElement | null = $state(null);
     let emojiButtonRef: HTMLButtonElement | null = $state(null);
@@ -35,8 +36,7 @@
         tempStatusAiMaxChars: number;
         tempStatusAiStatKeys: HomepageStatusStatKey[];
         tempBannerEnabled: boolean;
-        tempBannerTitleIntegrated: boolean;
-        tempHomepageTitleAlign: HomepageTitleAlign;
+        tempHomepageTopLayout: HomepageTopLayoutModel;
         tempQuickButtonStyle: QuickButtonStyle;
         tempBannerTitleColor: string;
         tempBannerStatusColor: string;
@@ -60,8 +60,7 @@
         onTempStatusAiPromptChange: (value: string) => void;
         onTempStatusAiMaxCharsChange: (value: number) => void;
         onTempStatusAiStatKeysChange: (value: HomepageStatusStatKey[]) => void;
-        onTempBannerTitleIntegratedChange: (value: boolean) => void;
-        onTempHomepageTitleAlignChange: (value: HomepageTitleAlign) => void;
+        onTempHomepageTopLayoutChange: (value: HomepageTopLayoutModel) => void;
         onTempQuickButtonStyleChange: (value: QuickButtonStyle) => void;
         onTempBannerTitleColorChange: (value: string) => void;
         onTempBannerStatusColorChange: (value: string) => void;
@@ -86,8 +85,7 @@
         tempStatusAiMaxChars,
         tempStatusAiStatKeys,
         tempBannerEnabled,
-        tempBannerTitleIntegrated,
-        tempHomepageTitleAlign,
+        tempHomepageTopLayout,
         tempQuickButtonStyle,
         tempBannerTitleColor,
         tempBannerStatusColor,
@@ -111,8 +109,7 @@
         onTempStatusAiPromptChange,
         onTempStatusAiMaxCharsChange,
         onTempStatusAiStatKeysChange,
-        onTempBannerTitleIntegratedChange,
-        onTempHomepageTitleAlignChange,
+        onTempHomepageTopLayoutChange,
         onTempQuickButtonStyleChange,
         onTempBannerTitleColorChange,
         onTempBannerStatusColorChange,
@@ -129,6 +126,10 @@
         { key: "structure", label: "内容结构" },
         { key: "tasks", label: "任务情况" },
     ] as const;
+
+    function updateTopLayout(patch: Partial<HomepageTopLayoutModel>): void {
+        onTempHomepageTopLayoutChange({ ...tempHomepageTopLayout, ...patch });
+    }
 
     function setStatusStatSelected(key: HomepageStatusStatKey, selected: boolean): void {
         const next = new Set(tempStatusAiStatKeys);
@@ -255,34 +256,45 @@
     </SettingRow>
 </SettingSection>
 
-<SettingSection title="标题区域外观">
+<SettingSection title="顶部区域布局">
     {#if !advancedEnabled}
         <div class="title-appearance-vip-note">
             <SiyuanIcon name="vip" size={14} />
-            <span>标题融入横幅、标题对齐、快捷按钮样式和横幅毛玻璃为会员专属。会员过期后会按默认主页样式显示，已保存的设置会保留。</span>
+            <span>顶部区域排布、快捷按钮样式和横幅毛玻璃为会员专属。会员过期后会按默认布局显示，已保存的设置会保留。</span>
         </div>
     {/if}
 
-    <SettingRow
-        title="标题融入横幅"
-        description={!advancedEnabled ? "会员专属，当前按默认样式显示" : tempBannerEnabled ? "开启后，主页标题、状态语和快捷按钮会显示在横幅图片内" : "开启横幅后可用"}
-    >
-        <input
-            type="checkbox"
-            class="b3-switch fn__flex-center"
-            checked={tempBannerEnabled && tempBannerTitleIntegrated}
-            disabled={!advancedEnabled || !tempBannerEnabled}
-            onchange={(e) => onTempBannerTitleIntegratedChange((e.currentTarget as HTMLInputElement).checked)}
-        />
+    <SettingRow title="信息区结构" description="控制标题、状态语和快捷按钮如何分布">
+        <select class="control-sm" value={tempHomepageTopLayout.contentLayout} disabled={!advancedEnabled} onchange={(e) => updateTopLayout({ contentLayout: (e.currentTarget as HTMLSelectElement).value as HomepageTopLayoutModel['contentLayout'] })}>
+            <option value="split">左右分区</option>
+            <option value="inline">同排展示</option>
+            <option value="stacked">依次纵排</option>
+        </select>
     </SettingRow>
 
-    <SettingRow title="标题对齐方式" description={!advancedEnabled ? "会员专属，当前按居中显示" : "同时影响标题、状态语和快捷按钮组"}>
-        <select
-            class="control-sm"
-            value={tempHomepageTitleAlign}
-            disabled={!advancedEnabled}
-            onchange={(e) => onTempHomepageTitleAlignChange((e.currentTarget as HTMLSelectElement).value as HomepageTitleAlign)}
-        >
+    <SettingRow title="横幅位置" description="横幅显示在信息区上方或下方">
+        <select class="control-sm" value={tempHomepageTopLayout.bannerPosition} disabled={!advancedEnabled || !tempBannerEnabled || tempHomepageTopLayout.bannerContent === 'all'} onchange={(e) => updateTopLayout({ bannerPosition: (e.currentTarget as HTMLSelectElement).value as HomepageTopLayoutModel['bannerPosition'] })}>
+            <option value="before">信息区上方</option>
+            <option value="after">信息区下方</option>
+        </select>
+    </SettingRow>
+
+    <SettingRow title="左右顺序" description="交换标题状态区与快捷按钮区的位置">
+        <select class="control-sm" value={tempHomepageTopLayout.primaryPosition} disabled={!advancedEnabled || tempHomepageTopLayout.contentLayout === 'stacked'} onchange={(e) => updateTopLayout({ primaryPosition: (e.currentTarget as HTMLSelectElement).value as HomepageTopLayoutModel['primaryPosition'] })}>
+            <option value="content-first">标题在前</option>
+            <option value="actions-first">按钮在前</option>
+        </select>
+    </SettingRow>
+
+    <SettingRow title="横幅承载" description={!tempBannerEnabled ? "开启横幅后可用" : "可将整个信息区覆盖到横幅中"}>
+        <select class="control-sm" value={tempHomepageTopLayout.bannerContent} disabled={!advancedEnabled || !tempBannerEnabled} onchange={(e) => updateTopLayout({ bannerContent: (e.currentTarget as HTMLSelectElement).value as HomepageTopLayoutModel['bannerContent'] })}>
+            <option value="none">独立显示</option>
+            <option value="all">整体融入横幅</option>
+        </select>
+    </SettingRow>
+
+    <SettingRow title="内容对齐" description="统一控制标题、状态语和快捷按钮的对齐方向">
+        <select class="control-sm" value={tempHomepageTopLayout.align} disabled={!advancedEnabled} onchange={(e) => updateTopLayout({ align: (e.currentTarget as HTMLSelectElement).value as HomepageTopLayoutModel['align'] })}>
             <option value="left">左对齐</option>
             <option value="center">居中</option>
             <option value="right">右对齐</option>
@@ -302,7 +314,7 @@
         </select>
     </SettingRow>
 
-    {#if tempBannerEnabled && tempBannerTitleIntegrated}
+    {#if tempBannerEnabled && tempHomepageTopLayout.bannerContent === "all"}
         <SettingRow title="横幅内标题颜色" description="标题融入横幅时使用">
             <input
                 type="color"

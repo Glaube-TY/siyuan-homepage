@@ -9,19 +9,16 @@
     import "./technology.scss";
     import "./widgets/index.scss";
 
-    let { identity, banner, status, actions, sections, regions }: HomepageThemeProps = $props();
+    let { identity, banner, status, actions, sections, regions, topLayout }: HomepageThemeProps = $props();
 </script>
 
 <div class="hp-theme hp-theme--technology">
     <div class="hp-tech-shell">
-        <header class="hp-tech-header" data-hp-context-region="title">
-            <div class="hp-tech-identity"><HomepageIdentity {identity} /></div>
-            <div class="hp-tech-status"><HomepageStatus {status} /></div>
-            <div class="hp-tech-actions"><HomepageActions {actions} /></div>
-        </header>
-
-        {#if banner.enabled}
-            <div class="hp-tech-banner-panel" data-hp-context-region="banner">
+        <header class="hp-top-layout hp-tech-header" data-content-layout={topLayout.contentLayout} data-banner-position={topLayout.bannerPosition} data-primary-position={topLayout.primaryPosition} data-banner-content={topLayout.bannerContent} data-align={topLayout.align} data-hp-context-region="title">
+            <div class="hp-top-primary"><div class="hp-tech-identity"><HomepageIdentity {identity} /></div><div class="hp-tech-status"><HomepageStatus {status} /></div></div>
+            <div class="hp-top-actions hp-tech-actions"><HomepageActions {actions} /></div>
+            {#if banner.enabled}
+            <div class="hp-top-banner hp-tech-banner-panel" data-hp-context-region="banner">
                 <HomepageBanner
                     {banner}
                     class="hp-tech-banner"
@@ -30,7 +27,8 @@
                     style={`--hp-tech-banner-height: ${banner.height}px;`}
                 />
             </div>
-        {/if}
+            {/if}
+        </header>
 
         <div class="hp-tech-sections"><HomepageSections {sections} /></div>
         <main class="hp-tech-content"><HomepageThemeRegion name="workspace" {regions} class="hp-tech-workspace" /></main>

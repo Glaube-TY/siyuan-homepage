@@ -9,21 +9,19 @@
     import "./paper.scss";
     import "./widgets/index.scss";
 
-    let { identity, banner, status, actions, sections, regions }: HomepageThemeProps = $props();
+    let { identity, banner, status, actions, sections, regions, topLayout }: HomepageThemeProps = $props();
 </script>
 
 <div class="hp-theme hp-theme--paper">
     <div class="hp-paper-sheet" class:hp-paper-sheet--without-banner={!banner.enabled}>
-        <header class="hp-paper-header" data-hp-context-region="title">
-            <div class="hp-paper-heading">
+        <header class="hp-top-layout hp-paper-header" data-content-layout={topLayout.contentLayout} data-banner-position={topLayout.bannerPosition} data-primary-position={topLayout.primaryPosition} data-banner-content={topLayout.bannerContent} data-align={topLayout.align} data-hp-context-region="title">
+            <div class="hp-top-primary hp-paper-heading">
                 <HomepageIdentity {identity} />
                 <HomepageStatus {status} />
             </div>
-            <HomepageActions {actions} />
-        </header>
-
-        {#if banner.enabled}
-            <div class="hp-paper-banner-stage" data-hp-context-region="banner">
+            <div class="hp-top-actions"><HomepageActions {actions} /></div>
+            {#if banner.enabled}
+            <div class="hp-top-banner hp-paper-banner-stage" data-hp-context-region="banner">
                 <span class="hp-paper-banner-clip hp-paper-banner-clip--back" aria-hidden="true">
                     <svg viewBox="0 0 44 84" focusable="false">
                         <path class="hp-paper-banner-clip__inner" d="M15.2 20C16.7 14.7 22.3 11.6 27.6 13.1C32.9 14.7 36 20.2 34.5 25.5L24.7 59.4C23.9 62.3 20.8 64 17.9 63.2C15 62.3 13.3 59.3 14.2 56.3L23.2 25" />
@@ -44,7 +42,8 @@
                     </svg>
                 </span>
             </div>
-        {/if}
+            {/if}
+        </header>
 
         <HomepageSections {sections} />
 

@@ -9,13 +9,13 @@
     import "./card.scss";
     import "./widgets/index.scss";
 
-    let { identity, banner, status, actions, sections, regions }: HomepageThemeProps = $props();
+    let { identity, banner, status, actions, sections, regions, topLayout }: HomepageThemeProps = $props();
 </script>
 
 <div class="hp-theme hp-theme--card">
     <div class="hp-card-shell" class:hp-card-shell--without-banner={!banner.enabled}>
-        <header class="hp-card-header" data-hp-context-region="title">
-            <div class="hp-card-intro">
+        <header class="hp-top-layout hp-card-header" data-content-layout={topLayout.contentLayout} data-banner-position={topLayout.bannerPosition} data-primary-position={topLayout.primaryPosition} data-banner-content={topLayout.bannerContent} data-align={topLayout.align} data-hp-context-region="title">
+            <div class="hp-top-primary hp-card-intro">
                 <div class="hp-card-identity-panel">
                     <HomepageIdentity {identity} />
                 </div>
@@ -23,13 +23,11 @@
                     <HomepageStatus {status} />
                 </div>
             </div>
-            <div class="hp-card-actions-panel">
+            <div class="hp-top-actions hp-card-actions-panel">
                 <HomepageActions {actions} />
             </div>
-        </header>
-
-        {#if banner.enabled}
-            <div class="hp-card-banner-panel" data-hp-context-region="banner">
+            {#if banner.enabled}
+            <div class="hp-top-banner hp-card-banner-panel" data-hp-context-region="banner">
                 <HomepageBanner
                     {banner}
                     class="hp-card-banner"
@@ -38,7 +36,8 @@
                     style={`--hp-card-banner-height: ${banner.height}px;`}
                 />
             </div>
-        {/if}
+            {/if}
+        </header>
 
         <div class="hp-card-sections-panel">
             <HomepageSections {sections} />

@@ -13,7 +13,6 @@ import {
     DEFAULT_BANNER_GLASS_COLOR,
     DEFAULT_BANNER_GLASS_COLOR_MODE,
     DEFAULT_BANNER_GLASS_OPACITY,
-    DEFAULT_HOMEPAGE_TITLE_ALIGN,
     DEFAULT_QUICK_BUTTON_STYLE,
     DEFAULT_BACKGROUND_IMAGE_BLUR,
     DEFAULT_BACKGROUND_IMAGE_OPACITY,
@@ -28,13 +27,11 @@ import {
     normalizeBackgroundImageType,
     normalizeComponentSections,
     normalizeComponentSectionsNavAlign,
-    normalizeHomepageTitleAlign,
     normalizeQuickButtonStyle,
     type BackgroundImageType,
     type BannerGlassColorMode,
     type ComponentSection,
     type ComponentSectionsNavAlign,
-    type HomepageTitleAlign,
     type QuickButtonStyle,
 } from "./homepageSetting/config";
 import { createDefaultButtons, normalizeButtonsList as normalizeButtonsListFromRegistry, type HomepageButtonItem } from "./buttonRegistry";
@@ -58,6 +55,11 @@ import {
     normalizeHomepageAppearanceConfig,
     type HomepageAppearanceConfig,
 } from "./theme/runtime/appearanceConfig";
+import {
+    DEFAULT_HOMEPAGE_TOP_LAYOUT,
+    normalizeHomepageTopLayout,
+    type HomepageTopLayoutModel,
+} from "./theme/runtime/topLayout";
 export type { HomepageButtonItem } from "./buttonRegistry";
 export type { HomepageStatusTextMode } from "./status-text-config";
 
@@ -79,8 +81,7 @@ export interface HomepageConfig {
     TitleIconImage: string | null;
     titleIconType: TitleIconType;
     customTitle: string;
-    bannerTitleIntegrated: boolean;
-    homepageTitleAlign: HomepageTitleAlign;
+    homepageTopLayout: HomepageTopLayoutModel;
     quickButtonStyle: QuickButtonStyle;
     bannerTitleColor: string;
     bannerStatusColor: string;
@@ -216,8 +217,7 @@ const DEFAULT_HOMEPAGE_CONFIG: HomepageConfig = {
     TitleIconImage: null,
     titleIconType: "emoji",
     customTitle: "思源笔记首页",
-    bannerTitleIntegrated: false,
-    homepageTitleAlign: DEFAULT_HOMEPAGE_TITLE_ALIGN,
+    homepageTopLayout: { ...DEFAULT_HOMEPAGE_TOP_LAYOUT },
     quickButtonStyle: DEFAULT_QUICK_BUTTON_STYLE,
     bannerTitleColor: DEFAULT_BANNER_INTEGRATED_COLOR,
     bannerStatusColor: DEFAULT_BANNER_INTEGRATED_COLOR,
@@ -303,8 +303,10 @@ export function normalizeHomepageConfigData(config: any): HomepageConfig {
         TitleIconImage: normalizeStringOrNull(config.TitleIconImage),
         titleIconType: normalizeEnum(config.titleIconType, VALID_TITLE_ICON_TYPES, DEFAULT_HOMEPAGE_CONFIG.titleIconType),
         customTitle: normalizeString(config.customTitle, DEFAULT_HOMEPAGE_CONFIG.customTitle),
-        bannerTitleIntegrated: config.bannerTitleIntegrated === true,
-        homepageTitleAlign: normalizeHomepageTitleAlign(config.homepageTitleAlign),
+        homepageTopLayout: normalizeHomepageTopLayout({
+            ...config.homepageTopLayout,
+            align: config.homepageTopLayout?.align ?? config.homepageTitleAlign,
+        }, config.bannerTitleIntegrated === true),
         quickButtonStyle: normalizeQuickButtonStyle(config.quickButtonStyle),
         bannerTitleColor: normalizeBannerIntegratedColor(config.bannerTitleColor),
         bannerStatusColor: normalizeBannerIntegratedColor(config.bannerStatusColor),

@@ -18,14 +18,13 @@
         normalizeComponentSectionsNavAlign,
         loadHomepageSettingConfig,
         normalizeBannerIntegratedColor,
-        normalizeHomepageTitleAlign,
         normalizeQuickButtonStyle,
         saveHomepageSettingConfig,
         normalizeNotebookOptions,
         normalizeComponentMigrationStatus,
         isComponentSectionsEffective,
     } from "./config"
-    import type { BackgroundImageType, BannerGlassColorMode, ComponentMigrationStatus, ComponentSection, ComponentSectionsNavAlign, HomepageSettingConfig, HomepageTitleAlign, QuickButtonStyle } from "./config"
+    import type { BackgroundImageType, BannerGlassColorMode, ComponentMigrationStatus, ComponentSection, ComponentSectionsNavAlign, HomepageSettingConfig, QuickButtonStyle } from "./config"
     import { createDefaultButtons, normalizeButtons, addButton, reorderButtons, deleteButton, isCoreButton } from "./buttonSettings"
     import { getCurrentDeviceInfo } from "../utils/deviceProfile"
     import {
@@ -108,6 +107,11 @@
     } from "../theme/runtime/appearanceConfig";
     import { createHomepageEntitlementSnapshot } from "../theme/runtime/entitlementResolver";
     import { resolveHomepageTheme } from "../theme/runtime/themeResolver";
+    import {
+        DEFAULT_HOMEPAGE_TOP_LAYOUT,
+        normalizeHomepageTopLayout,
+        type HomepageTopLayoutModel,
+    } from "../theme/runtime/topLayout";
 
     let {
         plugin,
@@ -188,8 +192,7 @@
     let tempTitleIconEmoji = $state("🏠");
     let tempTitleIconImage: string | null = $state(null);
     let tempCustomTitle = $state("思源笔记首页");
-    let tempBannerTitleIntegrated = $state(false);
-    let tempHomepageTitleAlign = $state<HomepageTitleAlign>("center");
+    let tempHomepageTopLayout = $state<HomepageTopLayoutModel>({ ...DEFAULT_HOMEPAGE_TOP_LAYOUT });
     let tempQuickButtonStyle = $state<QuickButtonStyle>("default");
     let tempBannerTitleColor = $state("#ffffff");
     let tempBannerStatusColor = $state("#ffffff");
@@ -571,8 +574,7 @@
             tempTitleIconEmoji,
             tempTitleIconImage,
             tempCustomTitle,
-            tempBannerTitleIntegrated,
-            tempHomepageTitleAlign,
+            tempHomepageTopLayout,
             tempQuickButtonStyle,
             tempBannerTitleColor,
             tempBannerStatusColor,
@@ -914,8 +916,10 @@
             tempTitleIconImage = savedConfig.TitleIconImage || null;
             tempTitleIconStyle = savedConfig.tempTitleIconStyle || "square";
             tempCustomTitle = savedConfig.customTitle || "思源笔记首页";
-            tempBannerTitleIntegrated = bannerEnabled && savedConfig.bannerTitleIntegrated === true;
-            tempHomepageTitleAlign = normalizeHomepageTitleAlign(savedConfig.homepageTitleAlign);
+            tempHomepageTopLayout = normalizeHomepageTopLayout({
+                ...savedConfig.homepageTopLayout,
+                align: savedConfig.homepageTopLayout?.align ?? savedConfig.homepageTitleAlign,
+            }, (savedConfig as HomepageSettingConfig & { bannerTitleIntegrated?: boolean }).bannerTitleIntegrated === true);
             tempQuickButtonStyle = normalizeQuickButtonStyle(savedConfig.quickButtonStyle);
             tempBannerTitleColor = normalizeBannerIntegratedColor(savedConfig.bannerTitleColor);
             tempBannerStatusColor = normalizeBannerIntegratedColor(savedConfig.bannerStatusColor);
@@ -1342,13 +1346,12 @@
             TitleIconEmoji: tempTitleIconEmoji,
             TitleIconImage: tempTitleIconImage,
             customTitle: tempCustomTitle,
-            bannerTitleIntegrated: tempBannerEnabled && tempBannerTitleIntegrated,
-            homepageTitleAlign: normalizeHomepageTitleAlign(tempHomepageTitleAlign),
+            homepageTopLayout: normalizeHomepageTopLayout(tempHomepageTopLayout),
             quickButtonStyle: normalizeQuickButtonStyle(tempQuickButtonStyle),
             bannerTitleColor: normalizeBannerIntegratedColor(tempBannerTitleColor),
             bannerStatusColor: normalizeBannerIntegratedColor(tempBannerStatusColor),
             bannerButtonColor: normalizeBannerIntegratedColor(tempBannerButtonColor),
-            bannerGlassEnabled: tempBannerEnabled && tempBannerTitleIntegrated && tempBannerGlassEnabled,
+            bannerGlassEnabled: tempBannerEnabled && tempHomepageTopLayout.bannerContent === "all" && tempBannerGlassEnabled,
             bannerGlassColorMode: normalizeBannerGlassColorMode(tempBannerGlassColorMode),
             bannerGlassColor: normalizeBannerGlassColor(tempBannerGlassColor),
             bannerGlassOpacity: normalizeBannerGlassOpacity(tempBannerGlassOpacity),
@@ -1641,10 +1644,7 @@
                             bannerRemoteUrl={bannerRemoteUrl}
                             tempBannerHeight={tempBannerHeight}
                             advancedEnabled={advancedEnabled}
-                            onTempBannerEnabledChange={(value) => {
-                                tempBannerEnabled = value;
-                                if (!value) tempBannerTitleIntegrated = false;
-                            }}
+                            onTempBannerEnabledChange={(value) => tempBannerEnabled = value}
                             onBannerGlobalTypeChange={(value) => bannerGlobalType = value}
                             onBingApiTypeChange={(value) => bingApiType = value}
                             onTempBannerTypeChange={(value) => tempBannerType = value}
@@ -1669,8 +1669,7 @@
                             tempStatusAiMaxChars={tempStatusAiMaxChars}
                             tempStatusAiStatKeys={tempStatusAiStatKeys}
                             tempBannerEnabled={tempBannerEnabled}
-                            tempBannerTitleIntegrated={tempBannerTitleIntegrated}
-                            tempHomepageTitleAlign={tempHomepageTitleAlign}
+                            tempHomepageTopLayout={tempHomepageTopLayout}
                             tempQuickButtonStyle={tempQuickButtonStyle}
                             tempBannerTitleColor={tempBannerTitleColor}
                             tempBannerStatusColor={tempBannerStatusColor}
@@ -1694,8 +1693,7 @@
                             onTempStatusAiPromptChange={(value) => tempStatusAiPrompt = value}
                             onTempStatusAiMaxCharsChange={(value) => tempStatusAiMaxChars = value}
                             onTempStatusAiStatKeysChange={(value) => tempStatusAiStatKeys = normalizeStatusAiStatKeys(value)}
-                            onTempBannerTitleIntegratedChange={(value) => tempBannerTitleIntegrated = tempBannerEnabled && value}
-                            onTempHomepageTitleAlignChange={(value) => tempHomepageTitleAlign = normalizeHomepageTitleAlign(value)}
+                            onTempHomepageTopLayoutChange={(value) => tempHomepageTopLayout = normalizeHomepageTopLayout(value)}
                             onTempQuickButtonStyleChange={(value) => tempQuickButtonStyle = normalizeQuickButtonStyle(value)}
                             onTempBannerTitleColorChange={(value) => tempBannerTitleColor = normalizeBannerIntegratedColor(value)}
                             onTempBannerStatusColorChange={(value) => tempBannerStatusColor = normalizeBannerIntegratedColor(value)}

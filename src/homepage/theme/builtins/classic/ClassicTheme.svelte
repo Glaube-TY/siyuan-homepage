@@ -10,7 +10,7 @@
     import "./classic.scss";
     import "./widgets/index.scss";
 
-    let { identity, banner, status, actions, sections, regions, appearance }: HomepageThemeProps = $props();
+    let { identity, banner, status, actions, sections, regions, appearance, topLayout }: HomepageThemeProps = $props();
     let classic = $derived(resolveClassicPresentationSettings(appearance.settings));
 
 </script>
@@ -27,33 +27,21 @@
     class:hp-classic--banner-glass-custom={classic.bannerGlassColorMode === "custom"}
     style={`--homepage-banner-title-color: ${classic.bannerTitleColor}; --homepage-banner-status-color: ${classic.bannerStatusColor}; --homepage-banner-button-color: ${classic.bannerButtonColor}; --homepage-banner-glass-color: ${classic.bannerGlassColor}; --homepage-banner-glass-opacity: ${classic.bannerGlassOpacity}%; --homepage-banner-glass-blur: ${classic.bannerGlassBlur}px;`}
 >
-    {#if banner.enabled}
-        <HomepageBanner
-            {banner}
-            class={`hp-classic-banner${banner.integrated ? " hp-classic-banner--integrated" : ""}`}
-            imageClass="hp-classic-banner__image"
-            resetClass="hp-classic-banner__reset"
-            style={`--hp-classic-banner-height: ${banner.integrated ? "auto" : `${banner.height}px`};`}
-        >
-            <div class="hp-classic-banner__overlay" aria-hidden="true"></div>
-            {#if banner.integrated && classic.bannerGlassEnabled}<div class="hp-classic-banner__glass" aria-hidden="true"></div>{/if}
-            {#if banner.integrated}
-                <div class="hp-classic-banner__content" data-hp-context-region="title">
-                    <HomepageIdentity {identity} />
-                    <HomepageStatus {status} />
-                    <HomepageActions {actions} />
-                </div>
-            {/if}
-        </HomepageBanner>
-    {/if}
-
-    {#if !banner.integrated || !banner.enabled}
-        <header class="hp-classic-header" data-hp-context-region="title">
+    <header class="hp-top-layout hp-classic-header" data-content-layout={topLayout.contentLayout} data-banner-position={topLayout.bannerPosition} data-primary-position={topLayout.primaryPosition} data-banner-content={topLayout.bannerContent} data-align={topLayout.align} data-hp-context-region="title">
+        <div class="hp-top-primary">
             <HomepageIdentity {identity} />
             <HomepageStatus {status} />
+        </div>
+        <div class="hp-top-actions">
             <HomepageActions {actions} />
-        </header>
-    {/if}
+        </div>
+        {#if banner.enabled}
+            <HomepageBanner {banner} class={`hp-top-banner hp-classic-banner${banner.integrated ? " hp-classic-banner--integrated" : ""}`} imageClass="hp-classic-banner__image" resetClass="hp-classic-banner__reset" style={`--hp-classic-banner-height: ${banner.height}px;`}>
+                <div class="hp-classic-banner__overlay" aria-hidden="true"></div>
+                {#if banner.integrated && classic.bannerGlassEnabled}<div class="hp-classic-banner__glass" aria-hidden="true"></div>{/if}
+            </HomepageBanner>
+        {/if}
+    </header>
 
     <HomepageSections {sections} />
     <HomepageThemeRegion name="workspace" {regions} class="hp-classic-workspace" />

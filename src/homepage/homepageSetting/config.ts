@@ -17,10 +17,10 @@ import {
     saveHomepageSharedSettings,
     omitHomepageSharedSettings,
 } from '@/homepage/sharedSettings/homepageSharedSettings';
+import type { HomepageTopLayoutModel } from '@/homepage/theme/runtime/topLayout';
 export type { ComponentMigrationStatus, NotebookOption };
 
 export type DocPreviewMode = "preview" | "wysiwyg";
-export type HomepageTitleAlign = "left" | "center" | "right";
 export type QuickButtonStyle = "default" | "flat" | "glass";
 export type BannerGlassColorMode = "theme" | "custom";
 export type BackgroundImageType = "local" | "remote";
@@ -33,7 +33,6 @@ export interface ComponentSection {
     updatedAt: number;
 }
 
-export const DEFAULT_HOMEPAGE_TITLE_ALIGN: HomepageTitleAlign = "center";
 export const DEFAULT_QUICK_BUTTON_STYLE: QuickButtonStyle = "default";
 export const DEFAULT_BANNER_INTEGRATED_COLOR = "#ffffff";
 export const DEFAULT_BANNER_GLASS_COLOR_MODE: BannerGlassColorMode = "theme";
@@ -44,13 +43,6 @@ export const DEFAULT_BACKGROUND_IMAGE_TYPE: BackgroundImageType = "local";
 export const DEFAULT_BACKGROUND_IMAGE_OPACITY = 35;
 export const DEFAULT_BACKGROUND_IMAGE_BLUR = 0;
 export const DEFAULT_COMPONENT_SECTIONS_NAV_ALIGN: ComponentSectionsNavAlign = "left";
-
-export function normalizeHomepageTitleAlign(value: unknown): HomepageTitleAlign {
-    if (value === "left" || value === "center" || value === "right") {
-        return value;
-    }
-    return DEFAULT_HOMEPAGE_TITLE_ALIGN;
-}
 
 export function normalizeQuickButtonStyle(value: unknown): QuickButtonStyle {
     if (value === "default" || value === "flat" || value === "glass") {
@@ -218,8 +210,8 @@ export interface HomepageSettingConfig {
     TitleIconImage: string | null;
     tempTitleIconStyle: string;
     customTitle: string;
-    bannerTitleIntegrated?: boolean;
-    homepageTitleAlign?: HomepageTitleAlign;
+    homepageTopLayout?: HomepageTopLayoutModel;
+    homepageTitleAlign?: "left" | "center" | "right";
     quickButtonStyle?: QuickButtonStyle;
     bannerTitleColor?: string;
     bannerStatusColor?: string;

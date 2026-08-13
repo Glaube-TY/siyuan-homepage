@@ -1,6 +1,7 @@
 import type { Component } from "svelte";
 import type { HOMEPAGE_THEME_API_VERSION } from "./themeApiVersion";
 import type { WidgetPresentationManifest } from "../widgetPresentation/types";
+import type { HomepageTopLayoutModel } from "../runtime/topLayout";
 
 export type HomepageThemeAccess = "free" | "vip";
 export type HomepageThemeSurface = "desktop-homepage";
@@ -113,6 +114,7 @@ export interface HomepageThemeProps {
     footer: Readonly<HomepageFooterPresentationState>;
     regions: HomepageThemeRegionFacade;
     appearance: Readonly<HomepageThemeAppearanceContext>;
+    topLayout: Readonly<HomepageTopLayoutModel>;
 }
 
 export interface HomepageThemeDefinition {

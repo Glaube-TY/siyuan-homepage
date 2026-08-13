@@ -379,9 +379,6 @@
     .hp-classic-banner__reset:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0, 0, 0, .15); }
 
     .hp-classic-banner--integrated {
-        flex-basis: auto;
-        height: auto;
-        min-height: 0;
         background: linear-gradient(135deg, color-mix(in srgb, var(--b3-theme-primary) 16%, var(--b3-theme-background)), var(--b3-theme-background));
     }
 
@@ -405,37 +402,15 @@
         background: linear-gradient(to top, var(--b3-theme-background, #fff) 0%, color-mix(in srgb, var(--b3-theme-background) 82%, transparent) 12%, rgba(245, 245, 245, 0) 46%);
     }
 
-    .hp-classic-banner__content {
-        position: relative;
-        z-index: 3;
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-        width: 100%;
-        min-width: 0;
-        min-height: 0;
-        padding: 32px 48px 28px;
-        box-sizing: border-box;
-        color: var(--homepage-banner-title-color, #fff);
-        text-align: center;
-    }
+    .hp-classic--banner-integrated .hp-top-primary .hp-identity { max-width: min(100%, 880px); margin-bottom: 6px; }
+    .hp-classic--banner-integrated .hp-status__text--error { color: #ffd4d4; }
+    .hp-classic--banner-integrated .hp-status__refresh,
+    .hp-classic--banner-integrated .hp-action { border-color: color-mix(in srgb, var(--homepage-banner-button-color, #fff) 56%, transparent); background: transparent; box-shadow: none; }
+    .hp-classic--banner-integrated .hp-action:hover,
+    .hp-classic--banner-integrated .hp-action:focus-visible { border-color: color-mix(in srgb, var(--homepage-banner-button-color, #fff) 78%, transparent); background: color-mix(in srgb, var(--homepage-banner-button-color, #fff) 14%, transparent); }
 
-    .hp-classic-banner__content .hp-identity { justify-content: center; max-width: min(100%, 880px); margin-bottom: 6px; }
-    .hp-classic-banner__content .hp-identity__title { color: var(--homepage-banner-title-color, #fff); text-shadow: 0 2px 14px rgba(0, 0, 0, .42); }
-    .hp-classic-banner__content .hp-identity__icon { color: var(--homepage-banner-title-color, #fff); text-shadow: 0 2px 12px rgba(0, 0, 0, .36); }
-    .hp-classic-banner__content .hp-status__text { color: var(--homepage-banner-status-color, #fff); text-shadow: 0 1px 10px rgba(0, 0, 0, .38); }
-    .hp-classic-banner__content .hp-status__text--error { color: #ffd4d4; }
-    .hp-classic-banner__content .hp-status__refresh { border-color: color-mix(in srgb, var(--homepage-banner-button-color, #fff) 56%, transparent); background: transparent; box-shadow: none; color: var(--homepage-banner-button-color, #fff); }
-    .hp-classic-banner__content .hp-actions { margin-top: 16px; padding-bottom: 0; }
-    .hp-classic-banner__content .hp-action { color: var(--homepage-banner-button-color, #fff); border-color: color-mix(in srgb, var(--homepage-banner-button-color, #fff) 56%, transparent); background: transparent; box-shadow: none; }
-    .hp-classic-banner__content .hp-action:hover,
-    .hp-classic-banner__content .hp-action:focus-visible { color: var(--homepage-banner-button-color, #fff); border-color: color-mix(in srgb, var(--homepage-banner-button-color, #fff) 78%, transparent); background: color-mix(in srgb, var(--homepage-banner-button-color, #fff) 14%, transparent); }
-
-    .hp-classic--align-left .hp-classic-header,
-    .hp-classic--align-left .hp-classic-banner__content { align-items: flex-start; text-align: left; }
-    .hp-classic--align-right .hp-classic-header,
-    .hp-classic--align-right .hp-classic-banner__content { align-items: flex-end; text-align: right; }
+    .hp-classic--align-left .hp-classic-header { text-align: left; }
+    .hp-classic--align-right .hp-classic-header { text-align: right; }
     .hp-classic--align-left .hp-identity,
     .hp-classic--align-left .hp-status { justify-content: flex-start; align-self: flex-start; }
     .hp-classic--align-right .hp-identity,
@@ -452,25 +427,22 @@
     .hp-classic--buttons-flat .hp-action { border-color: transparent; background: color-mix(in srgb, var(--b3-theme-primary) 8%, transparent); box-shadow: none; }
     .hp-classic--buttons-flat .hp-action:hover,
     .hp-classic--buttons-flat .hp-action:focus-visible { border-color: transparent; background: color-mix(in srgb, var(--b3-theme-primary) 14%, transparent); color: var(--b3-theme-primary); transform: translateY(-1px); }
-    .hp-classic--buttons-flat .hp-classic-banner__content .hp-action { color: var(--homepage-banner-button-color, #fff); background: transparent; }
-    .hp-classic--buttons-flat .hp-classic-banner__content .hp-action:hover,
-    .hp-classic--buttons-flat .hp-classic-banner__content .hp-action:focus-visible { color: var(--homepage-banner-button-color, #fff); background: color-mix(in srgb, var(--homepage-banner-button-color, #fff) 12%, transparent); }
+    .hp-classic--banner-integrated.hp-classic--buttons-flat .hp-action { background: transparent; }
+    .hp-classic--banner-integrated.hp-classic--buttons-flat .hp-action:hover,
+    .hp-classic--banner-integrated.hp-classic--buttons-flat .hp-action:focus-visible { background: color-mix(in srgb, var(--homepage-banner-button-color, #fff) 12%, transparent); }
 
     .hp-classic--buttons-glass .hp-classic-header .hp-action { border-color: color-mix(in srgb, var(--b3-theme-primary) 28%, var(--b3-border-color)); background: color-mix(in srgb, var(--b3-theme-background) 68%, transparent); box-shadow: 0 8px 24px rgba(0, 0, 0, .08); color: var(--b3-theme-on-surface); backdrop-filter: blur(14px); }
     .hp-classic--buttons-glass .hp-classic-header .hp-action:hover,
     .hp-classic--buttons-glass .hp-classic-header .hp-action:focus-visible { background: color-mix(in srgb, var(--b3-theme-primary) 10%, var(--b3-theme-background)); color: var(--b3-theme-primary); }
-    .hp-classic--buttons-glass .hp-classic-banner__content .hp-action { border-color: color-mix(in srgb, var(--homepage-banner-button-color, #fff) 42%, transparent); background: color-mix(in srgb, var(--homepage-banner-button-color, #fff) 10%, transparent); box-shadow: inset 0 1px 0 color-mix(in srgb, var(--homepage-banner-button-color, #fff) 18%, transparent); color: var(--homepage-banner-button-color, #fff); backdrop-filter: blur(16px) saturate(140%); }
-    .hp-classic--buttons-glass .hp-classic-banner__content .hp-action:hover,
-    .hp-classic--buttons-glass .hp-classic-banner__content .hp-action:focus-visible { border-color: color-mix(in srgb, var(--homepage-banner-button-color, #fff) 62%, transparent); background: color-mix(in srgb, var(--homepage-banner-button-color, #fff) 18%, transparent); color: var(--homepage-banner-button-color, #fff); }
+    .hp-classic--banner-integrated.hp-classic--buttons-glass .hp-action { border-color: color-mix(in srgb, var(--homepage-banner-button-color, #fff) 42%, transparent); background: color-mix(in srgb, var(--homepage-banner-button-color, #fff) 10%, transparent); box-shadow: inset 0 1px 0 color-mix(in srgb, var(--homepage-banner-button-color, #fff) 18%, transparent); backdrop-filter: blur(16px) saturate(140%); }
+    .hp-classic--banner-integrated.hp-classic--buttons-glass .hp-action:hover,
+    .hp-classic--banner-integrated.hp-classic--buttons-glass .hp-action:focus-visible { border-color: color-mix(in srgb, var(--homepage-banner-button-color, #fff) 62%, transparent); background: color-mix(in srgb, var(--homepage-banner-button-color, #fff) 18%, transparent); }
 
     &.background-image-active .hp-classic-header,
     &.background-image-active .hp-classic-workspace .custom-content,
     &.background-image-active .hp-classic-footer .hp-core-footer { background: transparent; }
 
     @media (max-width: 720px) {
-        .hp-classic-banner__content { padding: 24px 18px 22px; }
-        .hp-classic-banner__content .hp-identity__title { font-size: 26px; }
-        .hp-classic-banner__content .hp-actions { margin-top: 12px; }
         .hp-actions__primary { gap: 8px; }
         .hp-action { max-width: 150px; padding: 7px 12px; }
     }
