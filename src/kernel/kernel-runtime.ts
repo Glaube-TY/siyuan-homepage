@@ -6,22 +6,43 @@ import {
   createRobotSettingsKernelStore,
   type RobotSettingsKernelStore,
 } from "../kernel/kernel-stores";
-import { KernelRobotSessionStore, KernelRobotConfirmationStore, KernelRobotHistoryStore, KernelRobotPairingStore } from "../kernel/kernel-kv-stores";
+import {
+  KernelRobotSessionStore,
+  KernelRobotConfirmationStore,
+  KernelRobotHistoryStore,
+  KernelRobotPairingStore,
+} from "../kernel/kernel-kv-stores";
 import { KernelRobotDedup } from "../kernel/kernel-dedup";
 import { RobotSecretVaultStore } from "../features/robot-assistant/security/robot-secret-vault-store";
 import { KernelRobotAgentRuntime } from "../features/robot-assistant/agent/kernel-robot-agent-runtime";
 import { RobotCore } from "../features/robot-assistant/core/robot-core";
 import { KernelAgentHttpTransport } from "../features/kb/services/agent-core/providers/agent-http-transport";
-import { InMemoryRobotProviderManager, type RobotProviderManager } from "../features/robot-assistant/providers/robot-provider-manager";
+import {
+  InMemoryRobotProviderManager,
+  type RobotProviderManager,
+} from "../features/robot-assistant/providers/robot-provider-manager";
 import type { NativeToolRegistry } from "../features/kb/services/agent-core/tools/native-tool-registry";
-import type { RobotAssistantSettings, RobotRuntimeOwner } from "../features/robot-assistant/settings/robot-settings-types";
+import type {
+  RobotAssistantSettings,
+  RobotRuntimeOwner,
+} from "../features/robot-assistant/settings/robot-settings-types";
 import type { RobotModelConfigStore } from "../features/robot-assistant/runtime/robot-model-config";
-import type { NormalizedRobotMessage, RobotOutboundMessage } from "../features/robot-assistant/contracts/robot-message";
-import type { RobotProviderId, RobotProviderRuntimeStatus, RobotStatus } from "../features/robot-assistant/contracts/robot-provider";
+import type {
+  NormalizedRobotMessage,
+  RobotOutboundMessage,
+} from "../features/robot-assistant/contracts/robot-message";
+import type {
+  RobotProviderId,
+  RobotProviderRuntimeStatus,
+  RobotStatus,
+} from "../features/robot-assistant/contracts/robot-provider";
 import type { RobotAdmissionSettings } from "../features/robot-assistant/contracts/robot-pairing";
 import type { RobotPairingCaptureState } from "../features/robot-assistant/contracts/robot-pairing";
 import type { RobotConfirmationOutcome } from "../features/robot-assistant/core/robot-core";
-import { createDefaultRobotAdmission, createDefaultRobotAssistantSettings } from "../features/robot-assistant/settings/robot-settings-types";
+import {
+  createDefaultRobotAdmission,
+  createDefaultRobotAssistantSettings,
+} from "../features/robot-assistant/settings/robot-settings-types";
 import { normalizeV2Settings } from "../features/robot-assistant/settings/robot-settings-migration";
 import { normalizeRobotAgentRuntimeConfig } from "../features/robot-assistant/runtime/robot-model-config";
 import { RobotSessionService } from "../features/robot-assistant/session/robot-session-service";
@@ -51,7 +72,10 @@ export class RobotKernelRuntime {
   private readonly toolRegistry: NativeToolRegistry;
   private readonly isEntitlementAvailable: () => Promise<boolean>;
   /** Electron Provider（飞书 / QQ）状态注册表：由前端 RPC 上报，Kernel 只记录状态不运行。 */
-  private readonly electronProviderStatuses = new Map<RobotProviderId, RobotProviderRuntimeStatus>();
+  private readonly electronProviderStatuses = new Map<
+    RobotProviderId,
+    RobotProviderRuntimeStatus
+  >();
   private readonly core: RobotCore;
   private wechatProvider: WeChatKernelProvider | null = null;
   private statusValue: RobotStatus = "stopped";
@@ -61,7 +85,10 @@ export class RobotKernelRuntime {
   private cancelOwnershipCheck: (() => void) | null = null;
   private disposed = false;
 
-  constructor(private readonly host: RobotKernelHost, options: RobotKernelRuntimeOptions) {
+  constructor(
+    private readonly host: RobotKernelHost,
+    options: RobotKernelRuntimeOptions,
+  ) {
     this.toolRegistry = options.toolRegistry;
     const secretStorage = createKernelSecretStoragePort(host);
     this.secretVault = new RobotSecretVaultStore(secretStorage);
@@ -72,28 +99,36 @@ export class RobotKernelRuntime {
     this.historyStore = new KernelRobotHistoryStore(host);
     this.dedup = new KernelRobotDedup(host);
     this.pairingStore = new KernelRobotPairingStore(host);
-    this.providerManager = options.providerManager ?? new InMemoryRobotProviderManager();
-    this.isEntitlementAvailable = options.isEntitlementAvailable ?? (async () => false);
+    this.providerManager =
+      options.providerManager ?? new InMemoryRobotProviderManager();
+    this.isEntitlementAvailable =
+      options.isEntitlementAvailable ?? (async () => false);
 
     const agentRuntime = new KernelRobotAgentRuntime({
       transport: new KernelAgentHttpTransport(createKernelHttpPort(host)),
       toolRegistry: options.toolRegistry,
       modelConfigStore: this.modelConfigStore,
-      getApiKey: () => (options.getModelApiKey
-        ? options.getModelApiKey()
-        : this.secretVault.readSecret(ROBOT_MODEL_API_KEY_SECRET)),
-      requestConfirmation: (confirmation, promptText) => this.core.requestConfirmation(confirmation, promptText),
+      getApiKey: () =>
+        options.getModelApiKey
+          ? options.getModelApiKey()
+          : this.secretVault.readSecret(ROBOT_MODEL_API_KEY_SECRET),
+      requestConfirmation: (confirmation, promptText) =>
+        this.core.requestConfirmation(confirmation, promptText),
       timeout: (fn, ms) => host.timeout(fn, ms),
     });
 
     this.core = new RobotCore({
       getSettings: async () => this.settings ?? (await this.reloadSettings()),
       isEntitlementAvailable: this.isEntitlementAvailable,
-      getProviderAdmission: async (providerId) => this.getProviderAdmission(providerId as RobotProviderId),
-      getProviderStatus: async (providerId) => this.getProviderStatus(providerId as RobotProviderId),
+      getProviderAdmission: async (providerId) =>
+        this.getProviderAdmission(providerId as RobotProviderId),
+      getProviderStatus: async (providerId) =>
+        this.getProviderStatus(providerId as RobotProviderId),
       getPairingState: async (providerId) => {
         const state = await this.pairingStore.get();
-        return state && state.enabled && state.provider === providerId ? state : null;
+        return state && state.enabled && state.provider === providerId
+          ? state
+          : null;
       },
       capturePairingMessage: (message) => this.capturePairingMessage(message),
       sessionStore: this.sessionStore,
@@ -164,7 +199,9 @@ export class RobotKernelRuntime {
   /** 挂载微信 Kernel Provider（入口在 createRobotKernel 时调用）。 */
   mountWechatProvider(provider: WeChatKernelProvider): void {
     this.wechatProvider = provider;
-    provider.setMessageHandler((message) => this.ingestExternalMessage(message));
+    provider.setMessageHandler((message) =>
+      this.ingestExternalMessage(message),
+    );
     this.providerManager.register(provider);
     this.host.notify("robot.providerStatusChanged", provider.getStatus());
   }
@@ -190,7 +227,9 @@ export class RobotKernelRuntime {
     return this.settings;
   }
 
-  async saveSettings(next: RobotAssistantSettings): Promise<RobotAssistantSettings> {
+  async saveSettings(
+    next: RobotAssistantSettings,
+  ): Promise<RobotAssistantSettings> {
     const previous = this.settings;
     this.settings = normalizeV2Settings(next);
     this.clearInactiveElectronProviderStatuses();
@@ -228,7 +267,10 @@ export class RobotKernelRuntime {
   private isCurrentRuntimeOwner(): boolean {
     const owner = this.settings.runtimeOwner;
     if (!owner?.deviceId) return false;
-    return Boolean(this.runtimeDevice?.deviceId && this.runtimeDevice.deviceId === owner.deviceId);
+    return Boolean(
+      this.runtimeDevice?.deviceId &&
+      this.runtimeDevice.deviceId === owner.deviceId,
+    );
   }
 
   private isMobileRuntimeDevice(): boolean {
@@ -268,7 +310,10 @@ export class RobotKernelRuntime {
     } catch (error) {
       this.host.log.warn({
         status: "entitlement_check_failed",
-        message: error instanceof Error ? error.message.slice(0, 160) : String(error).slice(0, 160),
+        message:
+          error instanceof Error
+            ? error.message.slice(0, 160)
+            : String(error).slice(0, 160),
       });
       return false;
     }
@@ -284,7 +329,9 @@ export class RobotKernelRuntime {
     });
   }
 
-  private async reconcileSelectedProvider(previousProvider: RobotAssistantSettings["activeProvider"]): Promise<void> {
+  private async reconcileSelectedProvider(
+    previousProvider: RobotAssistantSettings["activeProvider"],
+  ): Promise<void> {
     if (!this.wechatProvider) return;
     if (this.settings.activeProvider !== "wechat") {
       await this.wechatProvider.disconnect();
@@ -295,7 +342,8 @@ export class RobotKernelRuntime {
 
   private clearInactiveElectronProviderStatuses(): void {
     for (const providerId of Array.from(this.electronProviderStatuses.keys())) {
-      if (providerId !== this.settings.activeProvider) this.electronProviderStatuses.delete(providerId);
+      if (providerId !== this.settings.activeProvider)
+        this.electronProviderStatuses.delete(providerId);
     }
   }
 
@@ -304,10 +352,15 @@ export class RobotKernelRuntime {
     this.cancelOwnershipCheck?.();
     this.cancelOwnershipCheck = this.host.timeout(() => {
       void this.refreshRuntimeOwnership()
-        .catch((error) => this.host.log.warn({
-          status: "runtime_owner_refresh_failed",
-          message: error instanceof Error ? error.message.slice(0, 160) : String(error).slice(0, 160),
-        }))
+        .catch((error) =>
+          this.host.log.warn({
+            status: "runtime_owner_refresh_failed",
+            message:
+              error instanceof Error
+                ? error.message.slice(0, 160)
+                : String(error).slice(0, 160),
+          }),
+        )
         .finally(() => this.scheduleOwnershipCheck());
     }, 10_000);
   }
@@ -317,7 +370,8 @@ export class RobotKernelRuntime {
     if (JSON.stringify(latest) === JSON.stringify(this.settings)) {
       if (!this.settings.enabled || this.isMobileRuntimeDevice()) return;
       if (!(await this.hasEntitlement())) {
-        if (this.statusValue !== "disabled") await this.disableUnavailableEntitlement();
+        if (this.statusValue !== "disabled")
+          await this.disableUnavailableEntitlement();
         return;
       }
       if (this.isCurrentRuntimeOwner() && this.statusValue === "disabled") {
@@ -362,15 +416,25 @@ export class RobotKernelRuntime {
   private async resolveRuntimeDevice(): Promise<void> {
     try {
       const response = await this.host.siyuanPost("/api/system/getConf", {});
-      const data = response.data && typeof response.data === "object"
-        ? response.data as Record<string, unknown>
-        : {};
-      const conf = data.conf && typeof data.conf === "object" ? data.conf as Record<string, unknown> : {};
-      const system = conf.system && typeof conf.system === "object" ? conf.system as Record<string, unknown> : {};
+      const data =
+        response.data && typeof response.data === "object"
+          ? (response.data as Record<string, unknown>)
+          : {};
+      const conf =
+        data.conf && typeof data.conf === "object"
+          ? (data.conf as Record<string, unknown>)
+          : {};
+      const system =
+        conf.system && typeof conf.system === "object"
+          ? (conf.system as Record<string, unknown>)
+          : {};
       const deviceId = typeof system.id === "string" ? system.id.trim() : "";
-      const container = typeof system.container === "string" ? system.container.trim() : "";
+      const container =
+        typeof system.container === "string" ? system.container.trim() : "";
       const os = typeof system.os === "string" ? system.os.trim() : "";
-      this.mobileRuntimeDevice = /android|ios|iphone|ipad|harmony|mobile/.test(`${container}|${os}`.toLowerCase());
+      this.mobileRuntimeDevice = /android|ios|iphone|ipad|harmony|mobile/.test(
+        `${container}|${os}`.toLowerCase(),
+      );
       if (!deviceId) return;
       this.runtimeDevice = {
         deviceId,
@@ -388,14 +452,26 @@ export class RobotKernelRuntime {
     if (normalized) await this.modelConfigStore.set(normalized);
   }
 
-  async getAgentModelStatus(): Promise<{ configured: boolean; providerId?: string; modelId?: string; providerType?: string }> {
+  async getAgentModelStatus(): Promise<{
+    configured: boolean;
+    providerId?: string;
+    modelId?: string;
+    providerType?: string;
+  }> {
     const snapshot = await this.modelConfigStore.get();
     if (!snapshot) return { configured: false };
-    return { configured: true, providerId: snapshot.providerId, modelId: snapshot.modelId, providerType: snapshot.providerType };
+    return {
+      configured: true,
+      providerId: snapshot.providerId,
+      modelId: snapshot.modelId,
+      providerType: snapshot.providerType,
+    };
   }
 
   getToolCapabilities(): Array<{ name: string; readOnly: boolean }> {
-    return this.toolRegistry.list().map((tool) => ({ name: tool.name, readOnly: tool.readOnly }));
+    return this.toolRegistry
+      .list()
+      .map((tool) => ({ name: tool.name, readOnly: tool.readOnly }));
   }
 
   /** 同步 Agent 模型 API Key 到 Robot Secret Vault（Kernel 不保存明文）。 */
@@ -417,11 +493,20 @@ export class RobotKernelRuntime {
   }
 
   /** 检查飞书 / QQ 当前保存的 App ID 与 App Secret 是否可供运行端使用。 */
-  async validateElectronProviderCredentials(providerId: "feishu" | "qq"): Promise<boolean> {
+  async validateElectronProviderCredentials(
+    providerId: "feishu" | "qq",
+  ): Promise<boolean> {
     const section = this.settings[providerId];
     const appId = typeof section.appId === "string" ? section.appId.trim() : "";
-    const envelope = typeof section.encryptedAppSecret === "string" ? section.encryptedAppSecret.trim() : "";
-    return Boolean(appId && envelope && await this.secretVault.canDecryptExternalSecret(envelope));
+    const envelope =
+      typeof section.encryptedAppSecret === "string"
+        ? section.encryptedAppSecret.trim()
+        : "";
+    return Boolean(
+      appId &&
+      envelope &&
+      (await this.secretVault.canDecryptExternalSecret(envelope)),
+    );
   }
 
   getProviderStatus(providerId: RobotProviderId): RobotProviderRuntimeStatus {
@@ -431,24 +516,39 @@ export class RobotKernelRuntime {
   }
 
   /** 前端注册 / 更新 Electron Provider（飞书 / QQ）状态。Kernel 不运行它们，只记录并通知。 */
-  async updateElectronProviderStatus(providerId: RobotProviderId, status: RobotProviderRuntimeStatus): Promise<void> {
+  async updateElectronProviderStatus(
+    providerId: RobotProviderId,
+    status: RobotProviderRuntimeStatus,
+  ): Promise<void> {
     if (providerId === "wechat") return;
     if (providerId !== this.settings.activeProvider) {
       this.electronProviderStatuses.delete(providerId);
-      this.host.notify("robot.providerStatusChanged", this.getProviderStatus(providerId));
+      this.host.notify(
+        "robot.providerStatusChanged",
+        this.getProviderStatus(providerId),
+      );
       return;
     }
     if (status && status.status === "offline") {
       this.electronProviderStatuses.delete(providerId);
     } else if (status) {
-      this.electronProviderStatuses.set(providerId, { ...status, provider: providerId });
+      this.electronProviderStatuses.set(providerId, {
+        ...status,
+        provider: providerId,
+      });
     }
-    this.host.notify("robot.providerStatusChanged", this.getProviderStatus(providerId));
+    this.host.notify(
+      "robot.providerStatusChanged",
+      this.getProviderStatus(providerId),
+    );
   }
 
   getProviderAdmission(providerId: RobotProviderId): RobotAdmissionSettings {
     const section = this.settings?.[providerId];
-    return (section && "admission" in section ? section.admission : null) ?? createDefaultRobotAdmission();
+    return (
+      (section && "admission" in section ? section.admission : null) ??
+      createDefaultRobotAdmission()
+    );
   }
 
   async ingestExternalMessage(message: NormalizedRobotMessage): Promise<void> {
@@ -468,7 +568,9 @@ export class RobotKernelRuntime {
 
   async getSessions(): Promise<unknown[]> {
     const sessions = await this.sessionStore.list();
-    const activeIds = new Set(Object.values(await this.sessionStore.activeConversationIds()));
+    const activeIds = new Set(
+      Object.values(await this.sessionStore.activeConversationIds()),
+    );
     return sessions.map((session) => ({
       key: session.key,
       conversationId: session.conversationId,
@@ -485,18 +587,41 @@ export class RobotKernelRuntime {
     }));
   }
 
-  async resetSession(key: { provider: string; accountId: string; chatId: string; senderId?: string }): Promise<void> {
+  async resetSession(key: {
+    provider: string;
+    accountId: string;
+    chatId: string;
+    senderId?: string;
+  }): Promise<void> {
     const sessionService = new RobotSessionService(this.sessionStore);
-    await sessionService.create(sessionService.keyFromParts(key), createRobotId(), "新对话");
+    await sessionService.create(
+      sessionService.keyFromParts(key),
+      createRobotId(),
+      "新对话",
+    );
   }
 
-  async activateSession(key: { provider: string; accountId: string; chatId: string; senderId?: string }, conversationId: string): Promise<boolean> {
+  async activateSession(
+    key: {
+      provider: string;
+      accountId: string;
+      chatId: string;
+      senderId?: string;
+    },
+    conversationId: string,
+  ): Promise<boolean> {
     const sessionService = new RobotSessionService(this.sessionStore);
-    return sessionService.activate(sessionService.keyFromParts(key), conversationId);
+    return sessionService.activate(
+      sessionService.keyFromParts(key),
+      conversationId,
+    );
   }
 
   async renameSession(conversationId: string, title: string): Promise<boolean> {
-    return new RobotSessionService(this.sessionStore).rename(conversationId, title);
+    return new RobotSessionService(this.sessionStore).rename(
+      conversationId,
+      title,
+    );
   }
 
   async deleteSession(conversationId: string): Promise<boolean> {
@@ -505,7 +630,10 @@ export class RobotKernelRuntime {
 
   // ── 配对捕获（Provider-independent，方案 §Robot Admission / 白名单） ──
 
-  async startPairing(provider: RobotProviderId, ttlMs = 2 * 60 * 1000): Promise<RobotPairingCaptureState> {
+  async startPairing(
+    provider: RobotProviderId,
+    ttlMs = 2 * 60 * 1000,
+  ): Promise<RobotPairingCaptureState> {
     if (provider !== this.settings.activeProvider) {
       throw new Error("只能捕获当前使用机器人的消息，请先在总体设置中切换渠道");
     }
@@ -530,14 +658,21 @@ export class RobotKernelRuntime {
   }
 
   /** 被 RobotCore 在捕获模式下调用；返回 true 表示已捕获并消费该消息。 */
-  async capturePairingMessage(message: NormalizedRobotMessage): Promise<boolean> {
+  async capturePairingMessage(
+    message: NormalizedRobotMessage,
+  ): Promise<boolean> {
     const state = await this.pairingStore.get();
     if (!state?.enabled || state.provider !== message.provider) return false;
     if (Date.now() > state.expiresAt) {
       await this.cancelPairing();
       return false;
     }
-    if (message.chatType !== "private" || message.messageType !== "text" || message.isFromBot) return false;
+    if (
+      message.chatType !== "private" ||
+      message.messageType !== "text" ||
+      message.isFromBot
+    )
+      return false;
 
     const next: RobotPairingCaptureState = {
       ...state,
@@ -561,10 +696,15 @@ export class RobotKernelRuntime {
     return true;
   }
 
-  async approvePairing(provider: RobotProviderId, senderId?: string, chatId?: string): Promise<{ ok: boolean; errorCode?: string }> {
+  async approvePairing(
+    provider: RobotProviderId,
+    senderId?: string,
+    chatId?: string,
+  ): Promise<{ ok: boolean; errorCode?: string }> {
     const state = await this.pairingStore.get();
     if (!state?.enabled) return { ok: false, errorCode: "no_active_pairing" };
-    if (state.provider !== provider) return { ok: false, errorCode: "pairing_provider_mismatch" };
+    if (state.provider !== provider)
+      return { ok: false, errorCode: "pairing_provider_mismatch" };
 
     const next: RobotAssistantSettings = { ...this.settings };
     if (provider === "wechat") {
@@ -574,8 +714,10 @@ export class RobotKernelRuntime {
         allowedSenderIds: [...section.admission.allowedSenderIds],
         allowedChatIds: [...section.admission.allowedChatIds],
       };
-      if (senderId && !admission.allowedSenderIds.includes(senderId)) admission.allowedSenderIds.push(senderId);
-      if (chatId && !admission.allowedChatIds.includes(chatId)) admission.allowedChatIds.push(chatId);
+      if (senderId && !admission.allowedSenderIds.includes(senderId))
+        admission.allowedSenderIds.push(senderId);
+      if (chatId && !admission.allowedChatIds.includes(chatId))
+        admission.allowedChatIds.push(chatId);
       next.wechat = { ...section, admission };
     } else if (provider === "feishu") {
       const section = next.feishu;
@@ -584,8 +726,10 @@ export class RobotKernelRuntime {
         allowedSenderIds: [...section.admission.allowedSenderIds],
         allowedChatIds: [...section.admission.allowedChatIds],
       };
-      if (senderId && !admission.allowedSenderIds.includes(senderId)) admission.allowedSenderIds.push(senderId);
-      if (chatId && !admission.allowedChatIds.includes(chatId)) admission.allowedChatIds.push(chatId);
+      if (senderId && !admission.allowedSenderIds.includes(senderId))
+        admission.allowedSenderIds.push(senderId);
+      if (chatId && !admission.allowedChatIds.includes(chatId))
+        admission.allowedChatIds.push(chatId);
       next.feishu = { ...section, admission };
     } else if (provider === "qq") {
       const section = next.qq;
@@ -594,8 +738,10 @@ export class RobotKernelRuntime {
         allowedSenderIds: [...section.admission.allowedSenderIds],
         allowedChatIds: [...section.admission.allowedChatIds],
       };
-      if (senderId && !admission.allowedSenderIds.includes(senderId)) admission.allowedSenderIds.push(senderId);
-      if (chatId && !admission.allowedChatIds.includes(chatId)) admission.allowedChatIds.push(chatId);
+      if (senderId && !admission.allowedSenderIds.includes(senderId))
+        admission.allowedSenderIds.push(senderId);
+      if (chatId && !admission.allowedChatIds.includes(chatId))
+        admission.allowedChatIds.push(chatId);
       next.qq = { ...section, admission };
     } else {
       return { ok: false, errorCode: "unknown_provider" };
@@ -613,36 +759,73 @@ export class RobotKernelRuntime {
 
   // ── 挂起确认（方案 §Kernel RPC: robot.confirm / robot.cancelConfirmation） ──
 
-  async confirmConfirmation(confirmationId: string): Promise<{ ok: boolean; outcome?: RobotConfirmationOutcome; errorCode?: string }> {
+  async confirmConfirmation(
+    confirmationId: string,
+  ): Promise<{
+    ok: boolean;
+    outcome?: RobotConfirmationOutcome;
+    errorCode?: string;
+  }> {
     const outcome = await this.core.approvePendingConfirmation(confirmationId);
     if (!outcome) return { ok: false, errorCode: "no_pending_confirmation" };
     this.host.notify("robot.confirmationChanged", { confirmationId, outcome });
     return { ok: true, outcome };
   }
 
-  async cancelConfirmation(confirmationId: string): Promise<{ ok: boolean; outcome?: RobotConfirmationOutcome; errorCode?: string }> {
+  async cancelConfirmation(
+    confirmationId: string,
+  ): Promise<{
+    ok: boolean;
+    outcome?: RobotConfirmationOutcome;
+    errorCode?: string;
+  }> {
     const outcome = await this.core.cancelPendingConfirmation(confirmationId);
     if (!outcome) return { ok: false, errorCode: "no_pending_confirmation" };
-    this.host.notify("robot.confirmationChanged", { confirmationId, outcome: "rejected" });
+    this.host.notify("robot.confirmationChanged", {
+      confirmationId,
+      outcome: "rejected",
+    });
     return { ok: true, outcome: "rejected" };
   }
 
-  sendAutomationMessage(message: RobotOutboundMessage): Promise<{ ok: boolean; errorCode?: string; message?: string }> {
+  sendAutomationMessage(
+    message: RobotOutboundMessage,
+  ): Promise<{
+    ok: boolean;
+    forwardedToClient?: boolean;
+    errorCode?: string;
+    message?: string;
+  }> {
     return this.sendOutbound(message);
   }
 
-  private async sendOutbound(message: RobotOutboundMessage): Promise<{ ok: boolean; errorCode?: string; message?: string }> {
+  private async sendOutbound(
+    message: RobotOutboundMessage,
+  ): Promise<{
+    ok: boolean;
+    forwardedToClient?: boolean;
+    errorCode?: string;
+    message?: string;
+  }> {
     if (this.statusValue !== "running") {
-      return { ok: false, errorCode: "runtime_not_active", message: "当前设备不是机器人运行设备" };
+      return {
+        ok: false,
+        errorCode: "runtime_not_active",
+        message: "当前设备不是机器人运行设备",
+      };
     }
     if (message.provider !== this.settings.activeProvider) {
-      return { ok: false, errorCode: "provider_not_active", message: "该渠道当前未接入机器人内核" };
+      return {
+        ok: false,
+        errorCode: "provider_not_active",
+        message: "该渠道当前未接入机器人内核",
+      };
     }
     const result = await this.providerManager.send(message);
     if (!result.ok && result.forwardedToClient) {
       // Electron Provider（飞书 / QQ）由前端监听 robot.outbound 转发。
       this.host.notify("robot.outbound", message);
-      return { ok: true };
+      return { ok: true, forwardedToClient: true };
     }
     if (!result.ok) {
       this.host.log.error({
@@ -668,4 +851,3 @@ export class RobotKernelRuntime {
     await this.host.dispose?.();
   }
 }
-

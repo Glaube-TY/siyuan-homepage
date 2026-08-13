@@ -11,14 +11,22 @@
  */
 
 import { RobotKernelClient } from "./robot-kernel-client";
-import { loadElectronProviderModule, type ElectronProviderApi, type ElectronProviderModule } from "./robot-electron-provider-loader";
+import {
+  loadElectronProviderModule,
+  type ElectronProviderApi,
+  type ElectronProviderModule,
+} from "./robot-electron-provider-loader";
 import {
   resolveElectronProviderCredentials,
   type ElectronCredentialStoragePort,
 } from "./robot-electron-credentials";
 import type { RobotAssistantSettings } from "../settings/robot-settings-types";
 import type { RobotProviderId } from "../contracts/robot-provider";
-import type { NormalizedRobotMessage, RobotOutboundMessage } from "../contracts/robot-message";
+import {
+  ROBOT_OUTBOUND_RESULT_EVENT,
+  type NormalizedRobotMessage,
+  type RobotOutboundMessage,
+} from "../contracts/robot-message";
 
 export interface RobotClientRuntimeLogger {
   info?(entry: { status?: string; provider?: string; message?: string }): void;
@@ -33,12 +41,17 @@ export interface RobotClientRuntimeDeps {
   storage: ElectronCredentialStoragePort;
   isElectron(): boolean;
   /** Provider bundle 加载器（测试注入用；缺省走 window.require 实现）。 */
-  loadProviderModule?(providerId: "feishu" | "qq"): Promise<ElectronProviderModule | null>;
+  loadProviderModule?(
+    providerId: "feishu" | "qq",
+  ): Promise<ElectronProviderModule | null>;
   logger?: RobotClientRuntimeLogger;
 }
 
 export class RobotClientRuntime {
-  private readonly providers = new Map<"feishu" | "qq", { api: ElectronProviderApi }>();
+  private readonly providers = new Map<
+    "feishu" | "qq",
+    { api: ElectronProviderApi }
+  >();
   private readonly unsubscribes: Array<() => void> = [];
   private started = false;
   private settings: RobotAssistantSettings | null = null;
@@ -55,12 +68,16 @@ export class RobotClientRuntime {
     }
     this.started = true;
 
-    this.unsubscribes.push(this.deps.kernel.subscribe("robot.outbound", (payload) => {
-      void this.handleOutbound(payload);
-    }));
-    this.unsubscribes.push(this.deps.kernel.subscribe("robot.statusChanged", () => {
-      void this.refreshElectronProviders();
-    }));
+    this.unsubscribes.push(
+      this.deps.kernel.subscribe("robot.outbound", (payload) => {
+        void this.handleOutbound(payload);
+      }),
+    );
+    this.unsubscribes.push(
+      this.deps.kernel.subscribe("robot.statusChanged", () => {
+        void this.refreshElectronProviders();
+      }),
+    );
     await this.refreshElectronProviders();
   }
 
@@ -92,17 +109,26 @@ export class RobotClientRuntime {
     if (!this.started || !this.deps.isElectron()) return;
     let settings: RobotAssistantSettings | null = null;
     try {
-      const runtime = (await this.deps.kernel.call("robot.getStatus")) as { status?: string } | null;
+      const runtime = (await this.deps.kernel.call("robot.getStatus")) as {
+        status?: string;
+      } | null;
       if (!runtime || runtime.status !== "running") {
         for (const providerId of Array.from(this.providers.keys())) {
           await this.unregisterElectronProvider(providerId);
         }
         return;
       }
-      const raw = (await this.deps.kernel.call("robot.getSettings")) as { ok?: boolean; settings?: RobotAssistantSettings };
-      settings = raw && typeof raw === "object" && raw.settings && typeof raw.settings === "object"
-        ? raw.settings
-        : null;
+      const raw = (await this.deps.kernel.call("robot.getSettings")) as {
+        ok?: boolean;
+        settings?: RobotAssistantSettings;
+      };
+      settings =
+        raw &&
+        typeof raw === "object" &&
+        raw.settings &&
+        typeof raw.settings === "object"
+          ? raw.settings
+          : null;
     } catch {
       this.deps.logger?.warn?.({ status: "get_settings_failed" });
       return;
@@ -111,7 +137,10 @@ export class RobotClientRuntime {
     this.settings = settings;
 
     const enabled = new Set<"feishu" | "qq">();
-    if (settings.activeProvider === "feishu" || settings.activeProvider === "qq") {
+    if (
+      settings.activeProvider === "feishu" ||
+      settings.activeProvider === "qq"
+    ) {
       enabled.add(settings.activeProvider);
     }
 
@@ -127,12 +156,17 @@ export class RobotClientRuntime {
     }
   }
 
-  private async registerElectronProvider(providerId: "feishu" | "qq"): Promise<void> {
+  private async registerElectronProvider(
+    providerId: "feishu" | "qq",
+  ): Promise<void> {
     const module = this.deps.loadProviderModule
       ? await this.deps.loadProviderModule(providerId)
       : await loadElectronProviderModule(this.deps.pluginName, providerId);
     if (!module) {
-      this.deps.logger?.warn?.({ provider: providerId, status: "electron_runtime_unavailable" });
+      this.deps.logger?.warn?.({
+        provider: providerId,
+        status: "electron_runtime_unavailable",
+      });
       await this.reportProviderStatus(providerId, {
         provider: providerId,
         runtimeKind: "electron",
@@ -143,9 +177,16 @@ export class RobotClientRuntime {
       return;
     }
 
-    const credentials = await resolveElectronProviderCredentials(this.deps.storage, this.settings, providerId);
+    const credentials = await resolveElectronProviderCredentials(
+      this.deps.storage,
+      this.settings,
+      providerId,
+    );
     if (!credentials) {
-      this.deps.logger?.warn?.({ provider: providerId, status: "not_configured" });
+      this.deps.logger?.warn?.({
+        provider: providerId,
+        status: "not_configured",
+      });
       await this.reportProviderStatus(providerId, {
         provider: providerId,
         runtimeKind: "electron",
@@ -158,9 +199,16 @@ export class RobotClientRuntime {
 
     let api: ElectronProviderApi;
     try {
-      api = module.create({ appId: credentials.appId, appSecret: credentials.appSecret, accountId: credentials.appId });
+      api = module.create({
+        appId: credentials.appId,
+        appSecret: credentials.appSecret,
+        accountId: credentials.appId,
+      });
     } catch {
-      this.deps.logger?.error?.({ provider: providerId, status: "create_failed" });
+      this.deps.logger?.error?.({
+        provider: providerId,
+        status: "create_failed",
+      });
       await this.reportProviderStatus(providerId, {
         provider: providerId,
         runtimeKind: "electron",
@@ -182,10 +230,15 @@ export class RobotClientRuntime {
     } catch {
       // connect 内部会设置 status=error；继续上报其状态
     }
-    await this.reportProviderStatus(providerId, api.getStatus() as Record<string, unknown>);
+    await this.reportProviderStatus(
+      providerId,
+      api.getStatus() as Record<string, unknown>,
+    );
   }
 
-  private async unregisterElectronProvider(providerId: "feishu" | "qq"): Promise<void> {
+  private async unregisterElectronProvider(
+    providerId: "feishu" | "qq",
+  ): Promise<void> {
     const entry = this.providers.get(providerId);
     if (entry) {
       try {
@@ -209,9 +262,15 @@ export class RobotClientRuntime {
     const provider = (raw as { provider?: unknown }).provider;
     if (provider !== this.settings?.activeProvider) return;
     try {
-      await this.deps.kernel.call("robot.ingestExternalMessage", raw as NormalizedRobotMessage);
+      await this.deps.kernel.call(
+        "robot.ingestExternalMessage",
+        raw as NormalizedRobotMessage,
+      );
     } catch (error) {
-      this.deps.logger?.error?.({ status: "ingest_failed", message: error instanceof Error ? error.message : String(error) });
+      this.deps.logger?.error?.({
+        status: "ingest_failed",
+        message: error instanceof Error ? error.message : String(error),
+      });
     }
   }
 
@@ -220,23 +279,61 @@ export class RobotClientRuntime {
     if (!message || typeof message !== "object") return;
     if (message.provider !== "feishu" && message.provider !== "qq") return;
     const provider = this.providers.get(message.provider);
-    if (!provider) return;
+    if (!provider) {
+      this.reportOutboundResult(message, false, "机器人 Provider 未连接。");
+      return;
+    }
     try {
       await provider.api.sendText({
         chatId: message.chatId,
         text: message.text,
-        ...(message.replyToMessageId ? { replyToMessageId: message.replyToMessageId } : {}),
+        ...(message.replyToMessageId
+          ? { replyToMessageId: message.replyToMessageId }
+          : {}),
         ...(message.contextToken ? { contextToken: message.contextToken } : {}),
       });
+      this.reportOutboundResult(message, true);
     } catch (error) {
-      this.deps.logger?.error?.({ provider: message.provider, status: "send_failed", message: error instanceof Error ? error.message : String(error) });
+      this.deps.logger?.error?.({
+        provider: message.provider,
+        status: "send_failed",
+        message: error instanceof Error ? error.message : String(error),
+      });
+      this.reportOutboundResult(
+        message,
+        false,
+        error instanceof Error ? error.message : String(error),
+      );
     }
   }
 
-  private async reportProviderStatus(providerId: RobotProviderId, status: Record<string, unknown>): Promise<void> {
+  private reportOutboundResult(
+    message: RobotOutboundMessage,
+    ok: boolean,
+    error?: string,
+  ): void {
+    if (!message.deliveryId) return;
+    window.dispatchEvent(
+      new CustomEvent(ROBOT_OUTBOUND_RESULT_EVENT, {
+        detail: {
+          deliveryId: message.deliveryId,
+          ok,
+          ...(error ? { error } : {}),
+        },
+      }),
+    );
+  }
+
+  private async reportProviderStatus(
+    providerId: RobotProviderId,
+    status: Record<string, unknown>,
+  ): Promise<void> {
     if (!this.deps.kernel.available) return;
     try {
-      await this.deps.kernel.call("robot.registerElectronProvider", { provider: providerId, status });
+      await this.deps.kernel.call("robot.registerElectronProvider", {
+        provider: providerId,
+        status,
+      });
     } catch {
       // 状态上报失败不阻断
     }

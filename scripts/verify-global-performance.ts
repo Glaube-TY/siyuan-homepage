@@ -50,6 +50,9 @@ async function verifySourceContracts(): Promise<void> {
     assert.match(musicPlayer, /const provider = sourceProvider/);
     assert.match(musicPlayer, /provider !== sourceProvider/);
     assert.match(musicPlayer, /runMetadataQueue\(token\)[\s\S]*\.catch\(/);
+    const automationPanel = await read("src/homepage/homepageSetting/tabs/AutomationCenterSettingsPanel.svelte");
+    assert.match(automationPanel, /refreshRobotRoutes\(true\)/);
+    assert.match(automationPanel, /trigger\.kind === "once" && state\.lastCompletedAt/);
 
     const timedateFiles = [
         "_classic.svelte",

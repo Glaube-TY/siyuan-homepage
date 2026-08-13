@@ -45,6 +45,8 @@ export interface NormalizedRobotMessage {
 
 /** 统一出站消息。 */
 export interface RobotOutboundMessage {
+  /** Electron Provider 回传实际发送结果时使用；普通会话消息不需要。 */
+  deliveryId?: string;
   provider: RobotProviderId;
   accountId: string;
   chatId: string;
@@ -54,5 +56,7 @@ export interface RobotOutboundMessage {
   text: string;
   kind: "text" | "confirmation" | "status" | "error";
 }
+
+export const ROBOT_OUTBOUND_RESULT_EVENT = "robot-outbound-result";
 
 export const ROBOT_TEXT_UNSUPPORTED_REPLY = "当前机器人助手暂支持文本消息。";
