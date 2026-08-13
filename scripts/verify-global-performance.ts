@@ -47,6 +47,9 @@ async function verifySourceContracts(): Promise<void> {
     assert.match(carousel, /init="false"/);
     assert.match(carousel, /swiper\.injectStyles = swiperStyles/);
     assert.match(musicPlayer, /howler\/dist\/howler\.core\.min\.js/);
+    assert.match(musicPlayer, /const provider = sourceProvider/);
+    assert.match(musicPlayer, /provider !== sourceProvider/);
+    assert.match(musicPlayer, /runMetadataQueue\(token\)[\s\S]*\.catch\(/);
 
     const timedateFiles = [
         "_classic.svelte",
@@ -69,8 +72,8 @@ async function verifySourceContracts(): Promise<void> {
         ["countdown-notify", "loadCountdownNotifySettings"],
     ]) {
         const source = await read(`src/features/${feature}/${feature}-scheduler.ts`);
-        assert.equal(source.match(new RegExp(`${loader}\\(\\)`, "g"))?.length, 1, `${feature} 每轮只能读取一次设置`);
-        assert.match(source, /scanOnce\(runState\.settings\)/, `${feature} 应复用调度检查读取的设置`);
+        assert.match(source, new RegExp(`load: ${loader}`), `${feature} 应把设置读取交给共享调度器`);
+        assert.match(source, /scan: run\w+NotifyScan/, `${feature} 应复用共享调度器传入的同一份设置`);
     }
 }
 

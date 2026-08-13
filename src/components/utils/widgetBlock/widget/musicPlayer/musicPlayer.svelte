@@ -1054,9 +1054,15 @@
         if (metadataQueueRunning) return;
         metadataQueueRunning = true;
         const token = loadToken;
-        runMetadataQueue(token).finally(() => {
-            metadataQueueRunning = false;
-        });
+        void runMetadataQueue(token)
+            .catch((error) => {
+                if (token === loadToken) metadataQueue = [];
+                if (token === loadToken && !destroyed) console.warn("[music-player] 元数据加载失败", error);
+            })
+            .finally(() => {
+                metadataQueueRunning = false;
+                if (metadataQueue.length > 0 && !destroyed) ensureMetadataQueueRunning();
+            });
     }
 
     interface IndexProgressInit {
@@ -1354,7 +1360,6 @@
     async function runMetadataQueue(token: number) {
         while (metadataQueue.length > 0) {
             if (token !== loadToken || destroyed) {
-                metadataQueue = [];
                 return;
             }
             const item = metadataQueue.shift();
@@ -1367,17 +1372,21 @@
             if (item.mode === "light" && (level === "light" || level === "full")) continue;
             if (item.mode === "full" && level === "full" && !needsFullMetadataForCurrentOptions(track)) continue;
 
-            if (track.sourceKind === "subsonic" && sourceProvider) {
+            const provider = sourceProvider;
+            if (track.sourceKind === "subsonic" && provider) {
                 if (item.mode === "full") {
                     if (showLyrics && track.lyricsStatus === "pending") {
                         track.lyricsStatus = "loading";
-                        const lyrics = await sourceProvider.loadLyrics(track);
+                        const lyrics = await provider.loadLyrics(track);
+                        if (token !== loadToken || destroyed || provider !== sourceProvider) return;
                         track.lyrics = lyrics.lines;
                         track.unsyncedLyricsText = lyrics.unsyncedText;
                         track.lyricsStatus = lyrics.lines.length || lyrics.unsyncedText ? "loaded" : "none";
                     }
                     if (showCover && !track.coverObjectUrl) {
-                        track.coverObjectUrl = await sourceProvider.loadCover(track, item.index === currentTrackIndex ? 512 : 256);
+                        const cover = await provider.loadCover(track, item.index === currentTrackIndex ? 512 : 256);
+                        if (token !== loadToken || destroyed || provider !== sourceProvider) return;
+                        track.coverObjectUrl = cover;
                     }
                 }
                 track.metadataLoadLevel = item.mode === "full" ? "full" : "light";
@@ -1397,7 +1406,6 @@
             }
 
             if (token !== loadToken || destroyed) {
-                metadataQueue = [];
                 return;
             }
 
@@ -1412,7 +1420,6 @@
             }
 
             if (token !== loadToken || destroyed) {
-                metadataQueue = [];
                 return;
             }
 
@@ -1816,6 +1823,8 @@
     async function retryCloudConnection(): Promise<void> {
         if (cloudRetrying || sourceMode !== "subsonic") return;
         cloudRetrying = true;
+        loadToken++;
+        metadataQueue = [];
         cloudQueueSaveScheduler.cancel();
         sourceProvider?.destroy();
         sourceProvider = null;
