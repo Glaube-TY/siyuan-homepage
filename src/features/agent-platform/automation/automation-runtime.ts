@@ -8,7 +8,11 @@ import {
   runAgentProfile,
 } from "@/features/kb/services/agent-workbench";
 import type { AgentWorkbenchEvent } from "@/features/kb/services/agent-workbench/contracts/turn-event";
-import { createBackgroundJobAgentProfile } from "../agent-profile";
+import {
+  createBackgroundJobAgentProfile,
+  KNOWLEDGE_CHAT_AGENT_PROFILE_ID,
+  ROBOT_AGENT_PROFILE_ID,
+} from "../agent-profile";
 import {
   createAutomationRunId,
   type AutomationJobDefinition,
@@ -37,6 +41,7 @@ import { kbSessionStore } from "@/features/kb/stores/kb-session-store";
 import { ROBOT_OUTBOUND_RESULT_EVENT } from "@/features/robot-assistant/contracts/robot-message";
 import { restoreKbChatSessions } from "@/features/kb/services/agent-workbench/storage/chat-session-facade";
 import type { ChatMessage } from "@/features/kb/types/chat";
+import { RobotSettingsClient } from "@/features/robot-assistant/settings/robot-settings-client";
 
 export const AUTOMATION_RUNTIME_CHANGED_EVENT = "automation-runtime-changed";
 const TASK_ID = "automation-jobs";
@@ -264,8 +269,21 @@ async function executeAgent(
   const events: AgentWorkbenchEvent[] = [];
   let checkpointWrite = Promise.resolve();
   const conversationContext = await loadConversationContext(job, goal);
+  let allowedToolNames = execution.allowedToolNames;
+  if (job.output.replyTarget?.kind === "robot") {
+    const client = new RobotSettingsClient(new RobotKernelClient(getPluginKernelPort(getNotebrainPlugin())));
+    const settings = await client.getSettings();
+    allowedToolNames = Object.entries(settings.robotToolPolicy.tools)
+      .filter(([, policy]) => policy.remoteAllowed)
+      .map(([name]) => name);
+  }
   const profile = createBackgroundJobAgentProfile({
     ...execution,
+    profileId:
+      job.output.replyTarget?.kind === "robot"
+        ? ROBOT_AGENT_PROFILE_ID
+        : KNOWLEDGE_CHAT_AGENT_PROFILE_ID,
+    allowedToolNames,
     maxToolCalls: execution.budget.maxToolCalls,
     conversationAccess: Boolean(conversationContext),
   });
@@ -282,6 +300,7 @@ async function executeAgent(
       turnId: runId,
       abortSignal: controller.signal,
       maxToolCalls: execution.budget.maxToolCalls,
+      unattendedWritePolicy: execution.unattendedWritePolicy ?? "safe",
       onWorkbenchEvent(event) {
         events.push(event);
         if (

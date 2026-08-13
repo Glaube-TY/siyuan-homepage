@@ -35,6 +35,7 @@ export class DefaultToolPermissionGate implements ToolPermissionGate {
   constructor(
     private readonly bridge: ToolConfirmationBridge = new RegisteredConfirmationBridge(),
     autoAllowedToolNames?: string[],
+    private readonly unattendedWritePolicy: "deny" | "safe" = "deny",
   ) {
     this.autoAllowedNames = new Set(autoAllowedToolNames ?? []);
   }
@@ -123,9 +124,19 @@ export class DefaultToolPermissionGate implements ToolPermissionGate {
       return { decision: { type: "allow" }, preview };
     }
 
+    if (this.unattendedWritePolicy === "safe") {
+      return { decision: decideUnattendedWrite(preview), preview };
+    }
+
     // Default: show confirmation dialog
     params.onPermissionRequired?.(preview);
     const decision = await this.bridge.request(preview);
     return { decision, preview };
   }
+}
+
+export function decideUnattendedWrite(preview: ToolPermissionPreview): ToolPermissionDecision {
+  return preview.risk === "high"
+    ? { type: "deny", reason: "无人值守任务禁止执行高风险写操作。", reasonCode: "automation_high_risk_write_denied" }
+    : { type: "allow" };
 }

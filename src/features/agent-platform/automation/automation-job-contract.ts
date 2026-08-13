@@ -22,6 +22,7 @@ const agentExecutionSchema = z
     allowedToolNames: uniqueShortIdsSchema,
     allowedActionNames: uniqueShortIdsSchema,
     memoryAccess: z.enum(["none", "read"]),
+    unattendedWritePolicy: z.enum(["deny", "safe"]).optional(),
     budget: z
       .object({
         maxTokens: z.number().int().min(1).max(1_000_000),

@@ -75,6 +75,8 @@ export interface RunAgentProfileParams<TResult> {
   onCheckpoint?: (checkpoint: AgentRunCheckpoint) => void;
   resumeCheckpoint?: AgentRunCheckpoint;
   maxToolCalls?: number;
+  /** 已由用户保存任务预授权的无人值守写入；高风险操作仍拒绝。 */
+  unattendedWritePolicy?: "deny" | "safe";
   kbSettings?: Awaited<ReturnType<typeof getKbSettings>>;
   validateFinalAnswer?: (answer: string, observations: readonly ToolResultEntry[]) => string | undefined;
   finalize: (context: AgentProfileFinalizeContext) => Promise<{
@@ -565,6 +567,7 @@ export async function runAgentProfile<TResult>(
           : undefined,
       ),
       autoAllowedToolNames,
+      unattendedWritePolicy: params.unattendedWritePolicy,
       abortSignal: params.abortSignal,
       maxToolCalls: params.maxToolCalls ?? settings.agentMaxToolCallsPerTurn ?? agentProfile.execution.defaultMaxToolCalls,
       validateFinalAnswer: params.validateFinalAnswer

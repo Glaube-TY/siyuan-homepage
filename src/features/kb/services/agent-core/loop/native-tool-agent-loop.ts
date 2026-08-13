@@ -48,6 +48,7 @@ export interface NativeToolAgentLoopOptions {
   bridge?: ToolConfirmationBridge;
   /** Tool names that skip confirmation dialog (still go through preview & safety guards). */
   autoAllowedToolNames?: string[];
+  unattendedWritePolicy?: "deny" | "safe";
   abortSignal?: AbortSignal;
   onEvent?: (event: AgentStreamEvent) => void;
   /** 返回重写指令时丢弃当前草稿并重新生成一次最终回答。 */
@@ -468,6 +469,7 @@ export class NativeToolAgentLoop {
         stepOffset: steps,
         bridge: this.bridge,
         autoAllowedToolNames: this.options.autoAllowedToolNames,
+        unattendedWritePolicy: this.options.unattendedWritePolicy,
         stormBreaker: this.stormBreaker,
         onEvent: (event) => {
           if (event.type === "permission_required") {

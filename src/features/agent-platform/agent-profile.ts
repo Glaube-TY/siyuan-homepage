@@ -218,12 +218,31 @@ const BACKGROUND_SAFE_ACTIONS: Readonly<Record<string, readonly string[]>> = Obj
 });
 
 export function createBackgroundJobAgentProfile(input: {
+  profileId?: string;
   allowedToolNames: readonly string[];
   allowedActionNames: readonly string[];
   memoryAccess: "none" | "read";
   maxToolCalls: number;
   conversationAccess?: boolean;
 }): AgentProfile {
+  if (input.profileId && input.profileId !== BACKGROUND_JOB_AGENT_PROFILE_ID) {
+    const source = getAgentProfile(input.profileId);
+    const requestedNames = new Set(input.allowedToolNames);
+    const names = requestedNames.size === 0 || source.permissions.tools.names === "*"
+      ? source.permissions.tools.names
+      : source.permissions.tools.names.filter((name) => requestedNames.has(name));
+    return Object.freeze({
+      ...source,
+      id: BACKGROUND_JOB_AGENT_PROFILE_ID,
+      label: "后台自动化任务",
+      permissions: Object.freeze({
+        ...source.permissions,
+        tools: Object.freeze({ names, actions: source.permissions.tools.actions }),
+        memory: Object.freeze({ ...source.permissions.memory, write: source.permissions.memory.write }),
+      }),
+      execution: Object.freeze({ defaultMaxToolCalls: Math.max(0, input.maxToolCalls) }),
+    });
+  }
   const names = [...new Set(input.allowedToolNames)].filter((name) => BACKGROUND_SAFE_ACTIONS[name]);
   const requestedActions = new Set(input.allowedActionNames);
   const actions = Object.fromEntries(names.map((name) => [name,
