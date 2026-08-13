@@ -34,6 +34,7 @@
   import TimedateSet from "./widget/timedate/timedateSet.svelte";
   import VisualChartSet from "./widget/visualChart/visualChartSet.svelte";
   import GlobalCalendarSet from "./widget/globalCalendar/GlobalCalendarSet.svelte";
+  import HabitTrackerSet from "./widget/habitTracker/HabitTrackerSet.svelte";
   import WeatherSet from "./widget/weather/weatherSet.svelte";
   import WebviewSet from "./widget/webview/webviewSet.svelte";
   import TasksPlusSet from "./widget/tasksPlus/tasksPlusSet.svelte";
@@ -343,6 +344,8 @@
   // 可视化图表相关
   let visualChartType: string = $state("progressBar");
   let globalCalendarConfig = $state<GlobalCalendarConfig>(structuredClone(DEFAULT_GLOBAL_CALENDAR_CONFIG));
+  let habitTrackerTitle = $state("习惯打卡");
+  let habitTrackerMaxVisible = $state(5);
 
   // 数据库图表相关
   let databaseChartID: string = $state("");
@@ -457,6 +460,7 @@
         "reviewDocs",
         "stikynot",
         "enhancedDiary",
+        "habitTracker",
       ].includes(contentType)
     ) {
       return "note";
@@ -770,6 +774,9 @@
         visualChartType = parsedData.data?.visualChartType || visualChartType;
       } else if (parsedData.type === "globalCalendar") {
         globalCalendarConfig = normalizeGlobalCalendarConfig(parsedData.data);
+      } else if (parsedData.type === "habitTracker") {
+        habitTrackerTitle = parsedData.data?.title || "习惯打卡";
+        habitTrackerMaxVisible = Math.max(2, Math.min(10, Number(parsedData.data?.maxVisible) || 5));
       } else if (parsedData.type === "musicPlayer") {
         musicFolderPath = parsedData.data?.musicFolderPath || "";
         autoPlay = parsedData.data?.autoPlay || false;
@@ -1048,6 +1055,7 @@
           <option value="favorites">收藏文档</option>
           <option value="TaskMan">任务管理</option>
           <option value="TaskManPlus">任务管理Plus</option>
+          <option value="habitTracker">习惯打卡👑</option>
           <option value="latest-docs">最近文档</option>
           <option value="recent-journals">最近日记</option>
           <option value="quick-notes">快速笔记</option>
@@ -1124,6 +1132,8 @@
             bind:tasksPlusSelectedNotebookIds
             {notebooks}
           />
+        {:else if selectedContentType === "habitTracker"}
+          <HabitTrackerSet bind:title={habitTrackerTitle} bind:maxVisible={habitTrackerMaxVisible} />
         {:else if selectedContentType === "quick-notes"}
           <QuickNotesSet bind:quickNotesTitle bind:quickNotesSort />
         {:else if selectedContentType === "stikynot"}
@@ -1221,7 +1231,7 @@
           <option value="heatmap">热力图</option>
           <option value="sql">SQL 查询</option>
           <option value="visualChart">可视化图表</option>
-          <option value="globalCalendar">全局日历</option>
+          <option value="globalCalendar">全局日历👑</option>
           <!-- <option value="databaseChart">数据库图表👑</option> -->
           <option value="statisticalCard">统计卡片👑</option>
         </select>
@@ -1248,7 +1258,7 @@
         {:else if selectedContentType === "visualChart"}
           <VisualChartSet bind:visualChartType />
         {:else if selectedContentType === "globalCalendar"}
-          <GlobalCalendarSet bind:config={globalCalendarConfig} />
+          <GlobalCalendarSet bind:config={globalCalendarConfig} {advancedEnabled} />
           <!-- {:else if selectedContentType === "databaseChart"}
                     <DatabaseChartSet
                         {plugin}
@@ -1475,6 +1485,10 @@
       disabled={isSaving}
       onclick={async () => {
         if (isSaving) return;
+        if (["globalCalendar", "habitTracker"].includes(selectedContentType) && !advancedEnabled) {
+          showMessage(`${selectedContentType === "globalCalendar" ? "全局日历" : "习惯打卡"}为高级会员专属组件，请开通后再配置`, 4000);
+          return;
+        }
         if (selectedContentType === "countdown" && !advancedEnabled) {
           showMessage(
             "纪念日组件为高级会员专属功能，请在「主页设置」→「会员服务」中开通后使用",
@@ -1798,6 +1812,13 @@
               ...globalCalendarConfig,
               sources: { ...globalCalendarConfig.sources },
             },
+          };
+        } else if (selectedContentType === "habitTracker") {
+          contentTypeJson = {
+            activeTab: activeTab,
+            type: "habitTracker",
+            instanceId: currentBlockId,
+            data: { title: habitTrackerTitle.trim() || "习惯打卡", maxVisible: Math.max(2, Math.min(10, Number(habitTrackerMaxVisible) || 5)) },
           };
         } else if (selectedContentType === "musicPlayer") {
           const existingMusicPlayerData =

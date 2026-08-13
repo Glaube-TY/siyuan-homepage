@@ -201,7 +201,7 @@ function collectSourceFiles(directory: string): string[] {
 
 const definitionSource = readFileSync("src/components/utils/widgetBlock/widgetDefinitionRegistry.ts", "utf8");
 const registeredTypes = [...definitionSource.matchAll(/defineWidget\(\{ type: "([^"]+)"/g)].map((match) => match[1]);
-assert.equal(registeredTypes.length, 37, "所有现有 Widget 都必须进入统一 Definition Registry");
+assert.equal(registeredTypes.length, 38, "所有现有 Widget 都必须进入统一 Definition Registry");
 assert.equal(new Set(registeredTypes).size, registeredTypes.length, "Widget Definition type 必须唯一");
 for (const type of ["latest-docs", "favorites", "recent-journals", "TaskMan", "notebrain"]) {
     assert.ok(registeredTypes.includes(type), `Definition Registry 缺少 ${type}`);
@@ -212,7 +212,7 @@ for (const capability of ["semanticLabel", "semanticIcon", "supportedPlacements"
 
 const registeredScopes = [...definitionSource.matchAll(/defineWidget\(\{ type: "([^"]+)", kind: "[^"]+", category: "[^"]+", scope: "(full|chrome|native)"/g)]
     .map((match) => [match[1], match[2]] as const);
-assert.equal(registeredScopes.length, 37, "全部 37 个 Widget 必须显式声明 Presentation Scope");
+assert.equal(registeredScopes.length, 38, "全部 Widget 必须显式声明 Presentation Scope");
 const scopeByType = new Map(registeredScopes);
 const expectedFull = ["latest-docs", "favorites", "recent-journals", "TaskMan", "HOT", "childDocs", "conditionDocs", "quick-notes", "TaskManPlus"];
 const expectedChrome = ["sql", "constellation", "reviewDocs", "fixedAssets"];
@@ -230,7 +230,7 @@ assert.match(mountSource, /getWidgetDefinition/, "Widget 挂载必须经过统�
 assert.match(mountSource, /applyWidgetPresentation\(target, definition, placement, contentData\)/, "Widget 挂载必须把实例配置交给 Presentation 内容形态解析器");
 assert.match(definitionSource, /timedate\.dial/, "时间日期 Widget 必须声明表盘内容形态语义");
 const registeredCategories = [...definitionSource.matchAll(/defineWidget\(\{ type: "([^"]+)", kind: "[^"]+", category: "([^"]+)"/g)];
-assert.equal(registeredCategories.length, 37, "全部 37 个 Widget 必须显式声明主题呈现类别");
+assert.equal(registeredCategories.length, 38, "全部 Widget 必须显式声明主题呈现类别");
 for (const categoryName of ["collection", "metrics", "visualization", "editorial", "media", "control", "embedded", "workspace", "intrinsic"]) {
     assert.ok(registeredCategories.some((match) => match[2] === categoryName), `呈现类别 ${categoryName} 必须有组件注册`);
 }

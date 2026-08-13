@@ -2,11 +2,15 @@
   import SettingSection from "@/libs/components/SettingSection.svelte";
   import SettingRow from "@/libs/components/SettingRow.svelte";
   import type { GlobalCalendarConfig } from "@/features/global-calendar/global-calendar-types";
+  import AdvancedFeatureLock from "../common/AdvancedFeatureLock.svelte";
 
-  interface Props { config?: GlobalCalendarConfig }
-  let { config = $bindable() }: Props = $props();
+  interface Props { config?: GlobalCalendarConfig; advancedEnabled?: boolean }
+  let { config = $bindable(), advancedEnabled = false }: Props = $props();
 </script>
 
+{#if !advancedEnabled}
+  <AdvancedFeatureLock title="全局日历" subtitle="高级会员专属组件" icon="calendar" compact />
+{:else}
 <SettingSection title="日历显示">
   <SettingRow title="组件标题">
     <input class="control-lg" type="text" bind:value={config.title} />
@@ -65,3 +69,4 @@
     <input type="checkbox" class="b3-switch fn__flex-center" bind:checked={config.sources.schedule} />
   </SettingRow>
 </SettingSection>
+{/if}

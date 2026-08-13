@@ -14,6 +14,7 @@
   } from "@/features/global-calendar/global-calendar-types";
   import GlobalCalendarChart from "./GlobalCalendarChart.svelte";
   import GlobalCalendarDetailDialog from "./GlobalCalendarDetailDialog.svelte";
+  import AdvancedFeatureLock from "../common/AdvancedFeatureLock.svelte";
 
   interface Props {
     plugin: any;
@@ -36,6 +37,7 @@
   let root: HTMLDivElement;
   let width = $state(360);
   let height = $state(320);
+  let advancedEnabled = $state(false);
 
   const monthLabel = $derived(`${year} 年 ${month + 1} 月`);
   const compact = $derived(width < 330 || height < 285 || placement === "mobile");
@@ -48,6 +50,7 @@
   });
 
   async function reload(): Promise<void> {
+    if (!advancedEnabled) { loading = false; return; }
     const token = ++loadToken;
     loading = true;
     const range = getCalendarMonthRange(year, month);
@@ -71,6 +74,7 @@
   }
 
   function openDetail(): void {
+    if (!advancedEnabled) return;
     const mobile = isMobileFrontend();
     let ref: ReturnType<typeof svelteDialog>;
     ref = svelteDialog({
@@ -92,16 +96,25 @@
   }
 
   onMount(() => {
+    const enabled = () => { advancedEnabled = true; void reload(); };
+    const disabled = () => { advancedEnabled = false; events = []; };
+    window.addEventListener("homepage-advanced-ready", enabled);
+    window.addEventListener("homepage-advanced-unavailable", disabled);
+    advancedEnabled = Boolean(plugin?.ADVANCED);
+    void reload();
     const observer = new ResizeObserver(([entry]) => {
       width = Math.round(entry.contentRect.width);
       height = Math.round(entry.contentRect.height);
     });
     observer.observe(root);
-    return () => observer.disconnect();
+    return () => { observer.disconnect(); window.removeEventListener("homepage-advanced-ready", enabled); window.removeEventListener("homepage-advanced-unavailable", disabled); };
   });
 </script>
 
 <div class="global-calendar-widget" bind:this={root} data-widget-part="root" class:compact>
+  {#if !advancedEnabled}
+    <AdvancedFeatureLock compact title="全局日历" subtitle="高级会员专属" icon="calendar" />
+  {:else}
   <header class="widget-header" data-widget-part="header">
     <WidgetSemanticTitle
       widgetType="globalCalendar"
@@ -134,6 +147,7 @@
     <button type="button" class="source-warning" title="部分数据来源读取失败，点击重试" onclick={reload}>
       <SiyuanIcon name="warning" size={13} />部分来源未载入
     </button>
+  {/if}
   {/if}
 </div>
 
