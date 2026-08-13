@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { AI_KNOWLEDGE_BASE_SUB_TABS } from "../src/homepage/homepageSetting/aiKnowledgeBaseTabs";
 import { NOTIFICATION_CENTER_SUB_TABS } from "../src/homepage/homepageSetting/notificationCenterTabs";
 import { ROBOT_ASSISTANT_SUB_TABS } from "../src/homepage/homepageSetting/robotAssistantTabs";
@@ -44,5 +45,16 @@ assert.ok(searchHomepageSettings("横幅").some((entry) => entry.mainTab === "ho
 assert.ok(searchHomepageSettings("划词").some((entry) => entry.mainTab === "aiKnowledgeBase" && entry.subTab === "selection"));
 assert.ok(searchHomepageSettings("机器人").some((entry) => entry.mainTab === "robotAssistant"));
 assert.ok(searchHomepageSettings("通知").some((entry) => entry.mainTab === "notifyBridge"));
+
+const kbSettingsPanelSource = readFileSync(
+    "src/features/kb/components/panels/kb-settings-panel.svelte",
+    "utf8",
+);
+assert.ok(kbSettingsPanelSource.includes("modelOnly && settingsLoaded"), "主页模型设置必须启用自动保存");
+assert.match(
+    kbSettingsPanelSource,
+    /\{#if !modelOnly\}[\s\S]*?<div class="settings-header">[\s\S]*?保存设置[\s\S]*?\{\/if\}/,
+    "主页模型设置不应显示重复标题栏和手动保存按钮",
+);
 
 console.log(`Homepage settings experience verified: ${registry.length} searchable entries.`);

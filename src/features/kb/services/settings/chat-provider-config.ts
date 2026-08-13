@@ -89,7 +89,7 @@ export function normalizeId(value: unknown): string {
  * 只允许已知类型，非法值回退到 "openai-compatible"
  */
 export function normalizeProviderType(type: unknown): KbChatProviderType {
-  const knownTypes: KbChatProviderType[] = ["kimi-api", "kimi-coding", "mimo-api", "mimo-coding-plan", "deepseek-api", "openai-compatible"];
+  const knownTypes: KbChatProviderType[] = ["kimi-api", "kimi-coding", "mimo-api", "mimo-coding-plan", "deepseek-api", "opencode-go", "opencode-zen", "openai-compatible"];
   const normalized = String(type || "").trim().toLowerCase() as KbChatProviderType;
   return knownTypes.includes(normalized) ? normalized : "openai-compatible";
 }
@@ -119,6 +119,9 @@ function normalizeProviderTypeByKnownPreset(provider: Partial<KbChatProviderConf
 
   if (combined.indexOf("deepseek-api") >= 0) return "deepseek-api";
   if (combined.indexOf("deepseek") >= 0) return "deepseek-api";
+
+  if (combined.indexOf("opencode-go") >= 0 || baseUrl.indexOf("opencode.ai/zen/go/") >= 0) return "opencode-go";
+  if (combined.indexOf("opencode-zen") >= 0 || baseUrl.indexOf("opencode.ai/zen/") >= 0) return "opencode-zen";
 
   if (id === "openai-compatible" || id.startsWith("openai-compatible-")) {
     return "openai-compatible";

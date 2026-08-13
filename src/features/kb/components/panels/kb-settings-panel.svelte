@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onDestroy, onMount } from "svelte";
   import type { KbSettings } from "../../types/settings";
   import { DEFAULT_KB_SETTINGS } from "../../constants/default-settings";
   import { getKbSettings, saveKbSettings } from "../../services/settings/kb-settings-service";
@@ -44,6 +44,11 @@
   let activeTab: TabId = modelOnly ? "model" : "basic";
   let mobileView: "list" | "detail" = "list";
   const MOBILE_HIDDEN_TAB_IDS = new Set<TabId>(["agentWorkspace"]);
+  const AUTO_SAVE_DELAY_MS = 600;
+  let autoSaveTimer: ReturnType<typeof setTimeout> | null = null;
+  let autoSaveTask: Promise<void> = Promise.resolve();
+  let settingsLoaded = false;
+  let lastSavedSignature = "";
 
   $: visibleTabs = TABS.filter((tab) =>
     (modelOnly ? tab.id === "model" : tab.id !== "model")
@@ -56,10 +61,61 @@
   onMount(async () => {
     try {
       settings = await getKbSettings();
+      lastSavedSignature = JSON.stringify(settings);
+      settingsLoaded = true;
+    } catch (e: any) {
+      saveMessage = `加载设置失败: ${e.message}`;
+      saveMessageType = "error";
     } finally {
       loading = false;
     }
   });
+
+  $: if (modelOnly && settingsLoaded && !loading) {
+    settings;
+    scheduleAutoSave();
+  }
+
+  onDestroy(() => {
+    if (autoSaveTimer) clearTimeout(autoSaveTimer);
+    if (modelOnly && settingsLoaded && JSON.stringify(settings) !== lastSavedSignature) {
+      void queueAutoSave(structuredClone(settings), JSON.stringify(settings));
+    }
+  });
+
+  function scheduleAutoSave(): void {
+    const signature = JSON.stringify(settings);
+    if (signature === lastSavedSignature) return;
+    if (autoSaveTimer) clearTimeout(autoSaveTimer);
+    const draft = structuredClone(settings);
+    autoSaveTimer = setTimeout(() => {
+      autoSaveTimer = null;
+      void queueAutoSave(draft, signature);
+    }, AUTO_SAVE_DELAY_MS);
+  }
+
+  function queueAutoSave(draft: KbSettings, signature: string): Promise<void> {
+    autoSaveTask = autoSaveTask
+      .catch(() => undefined)
+      .then(async () => {
+        if (signature === lastSavedSignature) return;
+        saving = true;
+        saveMessage = "自动保存中...";
+        saveMessageType = "success";
+        try {
+          const mergedSettings = await saveKbSettings(draft);
+          lastSavedSignature = JSON.stringify(mergedSettings);
+          if (JSON.stringify(settings) === signature) settings = mergedSettings;
+          saveMessage = "已自动保存";
+        } catch (e: any) {
+          saveMessage = `自动保存失败: ${e.message}`;
+          saveMessageType = "error";
+        } finally {
+          saving = false;
+        }
+      });
+    return autoSaveTask;
+  }
 
   async function handleSave() {
     saving = true;
@@ -163,35 +219,40 @@
 
       <!-- 右侧内容 -->
       <div class="settings-main" class:mobile-hidden={mobile && mobileView !== "detail"}>
-        <!-- 顶部操作栏 -->
-        <div class="settings-header">
-          {#if mobile}
-            <button type="button" class="mobile-back-btn" on:click={backToMobileList} aria-label="返回设置分类">
-              <SiyuanIcon name="iconLeft" size={16} />
-            </button>
-          {/if}
-          <div class="header-title">{TABS.find((t) => t.id === activeTab)?.label ?? ""}</div>
-          <div class="header-actions">
-            {#if saveMessage}
-              <span class="save-message" class:success={saveMessageType === "success"} class:error={saveMessageType === "error"}>{saveMessage}</span>
-            {/if}
-            <button
-              type="button"
-              class="save-btn"
-              disabled={saving}
-              on:click={handleSave}
-            >
-              {saving ? "保存中..." : "保存设置"}
-            </button>
+        {#if !modelOnly}
+          <!-- 顶部操作栏 -->
+          <div class="settings-header">
             {#if mobile}
-              <button type="button" class="mobile-close-btn" on:click={() => close?.()} aria-label="关闭设置">
-                <SiyuanIcon name="iconClose" size={14} />
+              <button type="button" class="mobile-back-btn" on:click={backToMobileList} aria-label="返回设置分类">
+                <SiyuanIcon name="iconLeft" size={16} />
               </button>
             {/if}
+            <div class="header-title">{TABS.find((t) => t.id === activeTab)?.label ?? ""}</div>
+            <div class="header-actions">
+              {#if saveMessage}
+                <span class="save-message" class:success={saveMessageType === "success"} class:error={saveMessageType === "error"}>{saveMessage}</span>
+              {/if}
+              <button
+                type="button"
+                class="save-btn"
+                disabled={saving}
+                on:click={handleSave}
+              >
+                {saving ? "保存中..." : "保存设置"}
+              </button>
+              {#if mobile}
+                <button type="button" class="mobile-close-btn" on:click={() => close?.()} aria-label="关闭设置">
+                  <SiyuanIcon name="iconClose" size={14} />
+                </button>
+              {/if}
+            </div>
           </div>
-        </div>
+        {/if}
 
         <div class="main-content">
+          {#if modelOnly && saveMessageType === "error" && saveMessage}
+            <div class="model-save-error">{saveMessage}</div>
+          {/if}
           <div class="tab-container">
             {#if activeTab === "basic"}
               <BasicSettingsTab bind:settings />
@@ -442,6 +503,12 @@
     &.error {
       color: var(--b3-theme-error);
     }
+  }
+
+  .model-save-error {
+    margin-bottom: $kb-space-md;
+    color: var(--b3-theme-error);
+    font-size: $kb-fs-md;
   }
 
   .mobile-hidden {

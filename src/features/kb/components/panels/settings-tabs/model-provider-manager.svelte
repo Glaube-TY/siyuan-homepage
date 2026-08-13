@@ -568,7 +568,7 @@
   }
 
   function requiresApiKeyForDiscovery(provider: KbChatProviderConfig): boolean {
-    return ["kimi-api", "kimi-coding", "mimo-api", "mimo-coding-plan", "deepseek-api"].includes(provider.type);
+    return ["kimi-api", "kimi-coding", "mimo-api", "mimo-coding-plan", "deepseek-api", "opencode-go", "opencode-zen"].includes(provider.type);
   }
 
   function requiresBaseUrlForDiscovery(provider: KbChatProviderConfig): boolean {
@@ -673,6 +673,10 @@
         return "默认 https://token-plan-cn.xiaomimimo.com/v1，不要填 /chat/completions 完整路径";
       case "deepseek-api":
         return "默认 https://api.deepseek.com/v1，不要填 /chat/completions 完整路径";
+      case "opencode-go":
+        return "默认 https://opencode.ai/zen/go/v1，使用 Go 套餐 API Key";
+      case "opencode-zen":
+        return "默认 https://opencode.ai/zen/v1，使用 Zen API Key";
       case "openai-compatible":
         return "必填，通常填到 /v1，不要填到 /chat/completions";
       default:
@@ -698,6 +702,10 @@
         return "MiMo Coding Plan API Key";
       case "deepseek-api":
         return "DeepSeek API Key";
+      case "opencode-go":
+        return "OpenCode Go API Key";
+      case "opencode-zen":
+        return "OpenCode Zen API Key";
       case "openai-compatible":
         return "API Key（可留空）";
       default:

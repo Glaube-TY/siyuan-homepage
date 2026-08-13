@@ -27,6 +27,8 @@ import type { ToolContract } from "../src/features/kb/services/agent-workbench/c
 import { buildAgentSystemPrompt } from "../src/features/kb/services/agent-core/prompts/system-prefix";
 import { createAgentSurfaceCapabilitySnapshot } from "../src/features/agent-platform/agent-surface-capability";
 import { findAggregateToolMeta } from "../src/features/kb/services/agent-workbench/tools/aggregate/aggregate-tool-metadata";
+import { isCompatibleOpenCodeModel } from "../src/features/kb/services/qa/model-list-discovery";
+import { resolveProviderProfile } from "../src/features/kb/services/qa/provider-profile";
 import {
   collectTemporaryWorkbenches,
   HOMEPAGE_WORKBENCH_TOOL_NAME,
@@ -132,6 +134,14 @@ assert.deepEqual(editorSelection.permissions.contextSources, ["editor-selection"
 assert.equal(editorSelection.execution.defaultMaxToolCalls, 0);
 assert.equal(agentProfileAllowsContext(editorSelection, "homepage-statistics"), false);
 assert.equal(agentProfileHasCapability(editorSelection, "tools"), false);
+
+const openCodeGoProfile = resolveProviderProfile("opencode-go");
+assert.equal(openCodeGoProfile.providerFamily, "opencode");
+assert.equal(openCodeGoProfile.providerRequestStrategy, "chat_completions");
+assert.equal(isCompatibleOpenCodeModel({ type: "opencode-go" } as any, "deepseek-v4-flash"), true);
+assert.equal(isCompatibleOpenCodeModel({ type: "opencode-go" } as any, "gpt-5.6-luna"), false);
+assert.equal(isCompatibleOpenCodeModel({ type: "opencode-zen" } as any, "minimax-m3"), true);
+assert.equal(isCompatibleOpenCodeModel({ type: "opencode-zen" } as any, "claude-opus-4-6"), false);
 
 assert.throws(() => registerAgentProfile({
   ...homepageStatus,

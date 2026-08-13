@@ -3,7 +3,7 @@
  */
 
 /** 聊天模型提供商类型 */
-export type KbChatProviderType = "kimi-api" | "kimi-coding" | "mimo-api" | "mimo-coding-plan" | "deepseek-api" | "openai-compatible";
+export type KbChatProviderType = "kimi-api" | "kimi-coding" | "mimo-api" | "mimo-coding-plan" | "deepseek-api" | "opencode-go" | "opencode-zen" | "openai-compatible";
 
 /** Provider/native Agent 请求兼容性配置 */
 export type ProviderNativeAgentCompatibility = {

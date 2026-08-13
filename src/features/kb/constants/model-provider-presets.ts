@@ -2,7 +2,7 @@
  * 模型提供商预设
  * 用于 UI 添加新提供商时的模板
  *
- * 内置入口：MiMo API / MiMo Coding Plan / DeepSeek API / Kimi API / Kimi Coding / 自定义
+ * 内置入口：MiMo API / MiMo Coding Plan / DeepSeek API / Kimi API / Kimi Coding / OpenCode Go / OpenCode Zen / 自定义
  * 底层统一 OpenAI-compatible 协议
  */
 
@@ -133,6 +133,48 @@ export const MODEL_PROVIDER_PRESETS: ModelProviderPreset[] = [
         {
           id: "kimi-for-coding",
           name: "Kimi for Coding",
+          temperature: 0.3,
+          default: true,
+          enabled: true,
+        },
+      ],
+    },
+  },
+  {
+    id: "opencode-go",
+    label: "OpenCode Go",
+    description: "OpenCode Go 套餐接口，自动填入官方 BaseURL",
+    provider: {
+      name: "OpenCode Go",
+      type: "opencode-go",
+      baseUrl: "https://opencode.ai/zen/go/v1",
+      apiKey: "",
+      enabled: true,
+      models: [
+        {
+          id: "deepseek-v4-flash",
+          name: "DeepSeek V4 Flash",
+          temperature: 0.3,
+          default: true,
+          enabled: true,
+        },
+      ],
+    },
+  },
+  {
+    id: "opencode-zen",
+    label: "OpenCode Zen",
+    description: "OpenCode Zen 按量接口，自动填入官方 BaseURL",
+    provider: {
+      name: "OpenCode Zen",
+      type: "opencode-zen",
+      baseUrl: "https://opencode.ai/zen/v1",
+      apiKey: "",
+      enabled: true,
+      models: [
+        {
+          id: "deepseek-v4-flash",
+          name: "DeepSeek V4 Flash",
           temperature: 0.3,
           default: true,
           enabled: true,

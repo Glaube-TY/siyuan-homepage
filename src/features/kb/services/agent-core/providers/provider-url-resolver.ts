@@ -47,6 +47,8 @@ export const PROVIDER_DEFAULT_BASE_URLS: Partial<Record<KbChatProviderType, stri
   "deepseek-api": "https://api.deepseek.com/v1",
   "mimo-api": "https://api.xiaomimimo.com/v1",
   "mimo-coding-plan": "https://token-plan-cn.xiaomimimo.com/v1",
+  "opencode-go": "https://opencode.ai/zen/go/v1",
+  "opencode-zen": "https://opencode.ai/zen/v1",
 };
 
 export function resolveOpenAICompatibleBaseUrlForProvider(provider: KbChatProviderConfig): string {

@@ -100,6 +100,8 @@ const PROVIDER_DISPLAY_NAMES: Record<string, string> = {
   "mimo-api": "MiMo API",
   "mimo-coding-plan": "MiMo Coding Plan",
   "deepseek-api": "DeepSeek API",
+  "opencode-go": "OpenCode Go",
+  "opencode-zen": "OpenCode Zen",
   "openai-compatible": "自定义接口",
 };
 
@@ -116,7 +118,7 @@ export function createChatModelFromProvider(
     throw new Error(`提供商 "${providerName}" 的模型 ID 为空`);
   }
 
-  if (["kimi-api", "kimi-coding", "mimo-api", "mimo-coding-plan", "deepseek-api", "openai-compatible"].includes(providerType) && !apiKey) {
+  if (["kimi-api", "kimi-coding", "mimo-api", "mimo-coding-plan", "deepseek-api", "opencode-go", "opencode-zen", "openai-compatible"].includes(providerType) && !apiKey) {
     throw new Error(`${PROVIDER_DISPLAY_NAMES[providerType] || providerType} API Key 不能为空`);
   }
 

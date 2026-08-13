@@ -105,8 +105,31 @@ const PROVIDER_DISCOVERY_NAMES: Record<string, string> = {
   "mimo-api": "MiMo API",
   "mimo-coding-plan": "MiMo Coding Plan",
   "deepseek-api": "DeepSeek API",
+  "opencode-go": "OpenCode Go",
+  "opencode-zen": "OpenCode Zen",
   "openai-compatible": "自定义接口",
 };
+
+// OpenCode 的 /models 同时返回 Responses、Anthropic 与 Gemini 原生协议模型；
+// 当前 Provider 仅走官方 chat/completions 端点，不能把其他协议模型误报为可用。
+const OPENCODE_CHAT_COMPLETIONS_MODELS: Record<"opencode-go" | "opencode-zen", ReadonlySet<string>> = {
+  "opencode-go": new Set([
+    "grok-4.5", "glm-5.2", "glm-5.1", "kimi-k3", "kimi-k2.7-code", "kimi-k2.6",
+    "deepseek-v4-pro", "deepseek-v4-flash", "mimo-v2.5", "mimo-v2.5-pro", "hy3",
+  ]),
+  "opencode-zen": new Set([
+    "grok-4.5", "grok-build-0.1", "deepseek-v4-pro", "deepseek-v4-flash",
+    "minimax-m3", "minimax-m2.7", "minimax-m2.5", "glm-5.2", "glm-5.1", "glm-5",
+    "kimi-k3", "kimi-k2.7-code", "kimi-k2.6", "kimi-k2.5", "big-pickle",
+    "mimo-v2.5-free", "laguna-s-2.1-free", "ling-3.0-flash-free", "north-mini-code-free",
+    "nemotron-3-ultra-free", "deepseek-v4-flash-free",
+  ]),
+};
+
+export function isCompatibleOpenCodeModel(provider: KbChatProviderConfig, modelId: string): boolean {
+  if (provider.type !== "opencode-go" && provider.type !== "opencode-zen") return true;
+  return OPENCODE_CHAT_COMPLETIONS_MODELS[provider.type].has(modelId);
+}
 
 export async function discoverOpenAICompatibleModelsForProvider(
   provider: KbChatProviderConfig
@@ -159,7 +182,7 @@ export async function discoverOpenAICompatibleModelsForProvider(
   }
 
   const chatModels: DiscoveredModel[] = raw
-    .filter((m: { id: string }) => isLikelyChatModelId(provider.type, m.id))
+    .filter((m: { id: string }) => isLikelyChatModelId(provider.type, m.id) && isCompatibleOpenCodeModel(provider, m.id))
     .map((m: { id: string }) => {
       if (isKimiProviderType(provider.type)) {
         const priorityInfo = KIMI_MODEL_PRIORITY[m.id] ?? { priority: 50, isLegacy: false };
@@ -197,6 +220,8 @@ export async function discoverProviderModels(provider: KbChatProviderConfig): Pr
     case "mimo-api":
     case "mimo-coding-plan":
     case "deepseek-api":
+    case "opencode-go":
+    case "opencode-zen":
     case "openai-compatible":
       return discoverOpenAICompatibleModelsForProvider(provider);
     default:
