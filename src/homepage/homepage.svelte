@@ -1263,11 +1263,22 @@
         const container = getComponentSectionContainer(sectionId);
         if (!container) return false;
 
-        const saved = await saveLayout(plugin, container, {
+        const runtimeState = sectionRuntimeStates.get(sectionId);
+        const uiBaseRevision = runtimeState?.layoutRevision ?? 0;
+        if (uiBaseRevision <= 0) return false;
+
+        const result = await saveLayoutWithResult(plugin, container, {
             ...options,
             committedWidgetIds: [widgetId],
+            expectedLayoutRevision: uiBaseRevision,
         });
-        return saved;
+        if (!result.success) return false;
+
+        const current = sectionRuntimeStates.get(sectionId);
+        if (current && current.layoutRevision === uiBaseRevision) {
+            setSectionRuntimeState(sectionId, { ...current, layoutRevision: result.layoutRevision });
+        }
+        return true;
     }
 
     async function invokeHomepageButton(item: ButtonItem): Promise<void> {

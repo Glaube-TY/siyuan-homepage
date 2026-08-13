@@ -19,17 +19,8 @@ export function addCustomBlock(
         },
     });
 
-    // 桌面端新增组件后直接进入内容选择，避免用户误把空草稿当成已创建组件。
-    requestAnimationFrame(() => {
-        const contentButton = widget?.element?.querySelector?.(".block-content-button");
-        if (
-            widget?.element?.isConnected
-            && widget.element.dataset.widgetDraft === "true"
-            && contentButton instanceof HTMLButtonElement
-        ) {
-            contentButton.click();
-        }
-    });
+    // 空白组件也是用户已经创建的组件：先写配置与布局，再允许拖动。
+    void widget.persistInitialEmptyContent();
 
     return widget;
 }

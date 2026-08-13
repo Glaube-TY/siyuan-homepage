@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import {
+  buildHabitAnalytics,
   currentHabitStreak,
   habitProgress,
   isHabitDue,
@@ -25,9 +26,29 @@ assert.equal(isHabitDue(habit, new Date("2026-08-14T00:00:00")), true);
 assert.equal(isHabitDue(habit, new Date("2026-08-15T00:00:00")), false);
 assert.equal(habitProgress(habit, 15), 0.5);
 assert.equal(habitProgress(habit, 60), 1);
-assert.equal(currentHabitStreak(habit, [
-  { habitId: habit.id, date: "2026-08-14", value: 30, updatedAt: "" },
-  { habitId: habit.id, date: "2026-08-12", value: 30, updatedAt: "" },
-], new Date("2026-08-14T00:00:00")), 2);
+assert.equal(
+  currentHabitStreak(
+    habit,
+    [
+      { habitId: habit.id, date: "2026-08-14", value: 30, updatedAt: "" },
+      { habitId: habit.id, date: "2026-08-12", value: 30, updatedAt: "" },
+    ],
+    new Date("2026-08-14T00:00:00"),
+  ),
+  2,
+);
+
+const analytics = buildHabitAnalytics(
+  [habit],
+  [
+    { habitId: habit.id, date: "2026-08-14", value: 30, updatedAt: "" },
+    { habitId: habit.id, date: "2026-08-12", value: 15, updatedAt: "" },
+  ],
+  new Date("2026-08-14T00:00:00"),
+  3,
+);
+assert.deepEqual(analytics.dailyRates, [50, 0, 100]);
+assert.equal(analytics.completed, 1);
+assert.equal(analytics.rate, 75);
 
 console.log("Habit tracker verification passed.");

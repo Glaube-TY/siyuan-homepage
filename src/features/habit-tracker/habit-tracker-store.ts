@@ -43,14 +43,16 @@ interface HabitTrackerFile extends SharedRevisionedFile {
   logs: HabitLog[];
 }
 
-export const HABIT_COLORS = [
-  "blue",
-  "green",
-  "amber",
-  "violet",
-  "rose",
-  "cyan",
+export const HABIT_COLOR_OPTIONS = [
+  { value: "blue", label: "湖蓝", hex: "#4f86e8" },
+  { value: "green", label: "青绿", hex: "#34a66f" },
+  { value: "amber", label: "琥珀", hex: "#d69a31" },
+  { value: "violet", label: "罗兰紫", hex: "#8b6de0" },
+  { value: "rose", label: "玫瑰", hex: "#d9667d" },
+  { value: "cyan", label: "湖青", hex: "#2ba3ad" },
 ] as const;
+
+export const HABIT_COLORS = HABIT_COLOR_OPTIONS.map((option) => option.value);
 
 export {
   currentHabitStreak,

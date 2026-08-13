@@ -118,6 +118,7 @@ export class WidgetBlock {
     private isNewInstance: boolean;
     /** 当前 WidgetBlock 的新组件草稿配置是否已经持久化（create 成功）。用于布局提交失败后可安全重试。 */
     private draftConfigPersisted: boolean = false;
+    private initialEmptyCommit: Promise<boolean> | null = null;
 
     constructor(
         plugin: any,
@@ -201,6 +202,63 @@ export class WidgetBlock {
      */
     public hasMountedContent(): boolean {
         return this.mountedWidget !== null && this.element.dataset.widgetMountState === "ready";
+    }
+
+    /**
+     * 新增组件立即落成一个合法的空文字组件，避免未配置草稿在布局恢复时被丢弃。
+     * 布局写入完成前禁用拖动，保证首次拖动使用最新 revision。
+     */
+    public persistInitialEmptyContent(): Promise<boolean> {
+        if (!this.isNewInstance) return Promise.resolve(true);
+        if (this.initialEmptyCommit) return this.initialEmptyCommit;
+
+        this.initialEmptyCommit = this.commitInitialEmptyContent()
+            .finally(() => {
+                this.initialEmptyCommit = null;
+            });
+        return this.initialEmptyCommit;
+    }
+
+    private async commitInitialEmptyContent(): Promise<boolean> {
+        const dragHandle = this.element.querySelector<HTMLButtonElement>(".drag-handle");
+        if (dragHandle) dragHandle.disabled = true;
+        const emptyConfig = {
+            activeTab: "custom",
+            type: "custom-text",
+            instanceId: this.id,
+            data: [{ customText: "" }],
+        };
+
+        try {
+            if (!this.draftConfigPersisted) {
+                await saveWidgetContentPreservingSize(
+                    this.plugin,
+                    this.id,
+                    emptyConfig,
+                    this.runtimeOptions.deviceViewContext!,
+                    this.element,
+                    true,
+                );
+                this.draftConfigPersisted = true;
+            }
+
+            if (this.runtimeOptions.onFirstContentCommitted) {
+                const committed = await this.runtimeOptions.onFirstContentCommitted(this.id, this.runtimeOptions);
+                if (!committed) throw new Error(this.element.parentElement?.dataset.layoutSaveError || "主页布局写入失败");
+            }
+
+            this.updateContent(JSON.stringify(emptyConfig));
+            this.isNewInstance = false;
+            this.draftConfigPersisted = false;
+            delete this.element.dataset.widgetDraft;
+            return true;
+        } catch (error) {
+            const reason = error instanceof Error ? error.message : String(error);
+            showMessage(`空白组件保存失败：${reason}`, 5000, "error");
+            return false;
+        } finally {
+            if (dragHandle?.isConnected) dragHandle.disabled = false;
+        }
     }
 
     public isRuntimeForSection(sectionId: string | null, context: DeviceViewContext): boolean {
