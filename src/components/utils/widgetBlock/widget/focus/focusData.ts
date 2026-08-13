@@ -30,15 +30,27 @@ export interface FocusDetailedStatistics extends FocusStatistics {
 }
 
 export type FocusSessionStatus = "completed" | "cancelled";
+export type FocusSegmentType = "focus" | "short_break" | "long_break";
+export type FocusBindingKind = "task" | "project" | "habit";
+
+export interface FocusBindingSnapshot {
+    kind: FocusBindingKind;
+    id: string;
+    title: string;
+    projectId?: string;
+    projectTitle?: string;
+}
 
 export interface FocusSessionRecord {
     id: string;
     startedAt: string;
     endedAt: string;
     localDate: string;
+    segmentType: FocusSegmentType;
     plannedSeconds: number;
-    actualFocusSeconds: number;
+    actualSeconds: number;
     status: FocusSessionStatus;
+    binding?: FocusBindingSnapshot;
 }
 
 export interface FocusIndexFile extends SharedRevisionedFile {
@@ -48,6 +60,8 @@ export interface FocusIndexFile extends SharedRevisionedFile {
     totalFocusTimes: number;
     completedSessions: number;
     cancelledSessions: number;
+    completedBreaks: number;
+    cancelledBreaks: number;
 }
 
 export interface FocusSessionsYearFile extends SharedRevisionedFile {
@@ -97,6 +111,8 @@ export function createEmptyFocusIndexFile(): FocusIndexFile {
         totalFocusTimes: 0,
         completedSessions: 0,
         cancelledSessions: 0,
+        completedBreaks: 0,
+        cancelledBreaks: 0,
     };
 }
 
@@ -137,7 +153,21 @@ export function normalizeFocusIndexFile(raw: unknown): FocusIndexFile {
         totalFocusTimes: integerCount(value.totalFocusTimes),
         completedSessions: integerCount(value.completedSessions),
         cancelledSessions: integerCount(value.cancelledSessions),
+        completedBreaks: integerCount(value.completedBreaks),
+        cancelledBreaks: integerCount(value.cancelledBreaks),
     };
+}
+
+function normalizeBinding(value: unknown): FocusBindingSnapshot | undefined {
+    if (value == null) return undefined;
+    if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("番茄钟绑定对象无效");
+    const input = value as Record<string, unknown>;
+    const kind = String(input.kind || "");
+    const id = typeof input.id === "string" ? input.id.trim() : "";
+    const title = typeof input.title === "string" ? input.title.trim() : "";
+    if (!(["task", "project", "habit"] as string[]).includes(kind) || !id || !title) throw new Error("番茄钟绑定关键字段无效");
+    const text = (key: string) => typeof input[key] === "string" && String(input[key]).trim() ? String(input[key]).trim() : undefined;
+    return { kind: kind as FocusBindingKind, id, title, projectId: text("projectId"), projectTitle: text("projectTitle") };
 }
 
 function normalizeFocusSession(raw: unknown, expectedYear: number): FocusSessionRecord {
@@ -146,10 +176,17 @@ function normalizeFocusSession(raw: unknown, expectedYear: number): FocusSession
     const text = (key: string) => typeof value[key] === "string" ? String(value[key]).trim() : "";
     const localDate = text("localDate");
     const status = text("status");
+    const segmentType = text("segmentType");
+    const startedAt = Date.parse(text("startedAt"));
+    const endedAt = Date.parse(text("endedAt"));
+    const plannedSeconds = integerCount(value.plannedSeconds);
+    const actualSeconds = integerCount(value.actualSeconds);
     if (!text("id") || !text("startedAt") || !text("endedAt")
         || !/^\d{4}-\d{2}-\d{2}$/.test(localDate) || Number(localDate.slice(0, 4)) !== expectedYear
         || !["completed", "cancelled"].includes(status)
-        || !Number.isFinite(Date.parse(text("startedAt"))) || !Number.isFinite(Date.parse(text("endedAt")))) {
+        || !["focus", "short_break", "long_break"].includes(segmentType)
+        || !Number.isFinite(startedAt) || !Number.isFinite(endedAt) || endedAt < startedAt
+        || plannedSeconds > 86400 || actualSeconds > 86400 || actualSeconds > Math.ceil((endedAt - startedAt) / 1000) + 60) {
         throw new Error("番茄钟会话关键字段无效");
     }
     return {
@@ -157,9 +194,11 @@ function normalizeFocusSession(raw: unknown, expectedYear: number): FocusSession
         startedAt: text("startedAt"),
         endedAt: text("endedAt"),
         localDate,
-        plannedSeconds: integerCount(value.plannedSeconds),
-        actualFocusSeconds: integerCount(value.actualFocusSeconds),
+        segmentType: segmentType as FocusSegmentType,
+        plannedSeconds,
+        actualSeconds,
         status: status as FocusSessionStatus,
+        binding: normalizeBinding(value.binding),
     };
 }
 
@@ -187,7 +226,8 @@ export function normalizeFocusSessionsYearFile(raw: unknown, expectedYear: numbe
 function sessionEquals(left: FocusSessionRecord, right: FocusSessionRecord): boolean {
     return left.id === right.id && left.startedAt === right.startedAt && left.endedAt === right.endedAt
         && left.localDate === right.localDate && left.plannedSeconds === right.plannedSeconds
-        && left.actualFocusSeconds === right.actualFocusSeconds && left.status === right.status;
+        && left.segmentType === right.segmentType && left.actualSeconds === right.actualSeconds
+        && left.status === right.status && JSON.stringify(left.binding) === JSON.stringify(right.binding);
 }
 
 function validateFocusYearFile(actual: FocusSessionsYearFile, expected: FocusSessionsYearFile): void {
@@ -205,14 +245,16 @@ export function validateFocusIndex(actual: FocusIndexFile, expected: FocusIndexF
         || actual.totalFocusTime !== expected.totalFocusTime
         || actual.totalFocusTimes !== expected.totalFocusTimes
         || actual.completedSessions !== expected.completedSessions
-        || actual.cancelledSessions !== expected.cancelledSessions) {
+        || actual.cancelledSessions !== expected.cancelledSessions
+        || actual.completedBreaks !== expected.completedBreaks
+        || actual.cancelledBreaks !== expected.cancelledBreaks) {
         throw new Error("番茄钟索引写入后业务数据校验失败");
     }
 }
 
 function isFocusIndexConsistent(index: FocusIndexFile): boolean {
     const sessionCount = index.years.reduce((sum, year) => sum + (index.yearCounts[String(year)] || 0), 0);
-    return sessionCount === index.completedSessions + index.cancelledSessions
+    return sessionCount === index.completedSessions + index.cancelledSessions + index.completedBreaks + index.cancelledBreaks
         && index.totalFocusTimes === index.completedSessions
         && index.totalFocusTime >= 0;
 }
@@ -220,7 +262,7 @@ function isFocusIndexConsistent(index: FocusIndexFile): boolean {
 export async function listFocusSessionYears(): Promise<number[]> {
     const years: number[] = [];
     for (const entry of await readSharedWidgetDirectoryChecked("focus")) {
-        const match = entry.name.match(/^focus-sessions-(\d{4})\.json$/);
+        const match = entry.name.match(/^focus-sessions-v2-(\d{4})\.json$/);
         if (!match) continue;
         if (entry.isDir) throw new Error(`番茄钟年度明细路径不是文件：${entry.name}`);
         years.push(Number(match[1]));
@@ -235,6 +277,8 @@ export async function rebuildFocusIndexFromFiles(options: { dispatch?: boolean }
     const yearCounts: Record<string, number> = {};
     let completedSessions = 0;
     let cancelledSessions = 0;
+    let completedBreaks = 0;
+    let cancelledBreaks = 0;
     let completedSeconds = 0;
     for (const year of years) {
         const file = await loadSharedJson(getFocusSessionsFile(year), (raw) => normalizeFocusSessionsYearFile(raw, year));
@@ -242,9 +286,12 @@ export async function rebuildFocusIndexFromFiles(options: { dispatch?: boolean }
         const sessions = file.sessions;
         yearCounts[String(year)] = sessions.length;
         for (const session of sessions) {
-            if (session.status === "completed") {
+            if (session.segmentType !== "focus") {
+                if (session.status === "completed") completedBreaks += 1;
+                else cancelledBreaks += 1;
+            } else if (session.status === "completed") {
                 completedSessions += 1;
-                completedSeconds += session.actualFocusSeconds;
+                completedSeconds += session.actualSeconds;
             } else {
                 cancelledSessions += 1;
             }
@@ -260,6 +307,8 @@ export async function rebuildFocusIndexFromFiles(options: { dispatch?: boolean }
             index.yearCounts = yearCounts;
             index.completedSessions = completedSessions;
             index.cancelledSessions = cancelledSessions;
+            index.completedBreaks = completedBreaks;
+            index.cancelledBreaks = cancelledBreaks;
             index.totalFocusTime = completedSeconds;
             index.totalFocusTimes = completedSessions;
         },
@@ -381,10 +430,13 @@ export async function appendFocusSession(session: FocusSessionRecord): Promise<F
                 mutate: (draft) => {
                     draft.years = Array.from(new Set([...draft.years, year])).sort();
                     draft.yearCounts[String(year)] = (draft.yearCounts[String(year)] || 0) + 1;
-                    if (normalized.status === "completed") {
+                    if (normalized.segmentType !== "focus") {
+                        if (normalized.status === "completed") draft.completedBreaks += 1;
+                        else draft.cancelledBreaks += 1;
+                    } else if (normalized.status === "completed") {
                         draft.completedSessions += 1;
                         draft.totalFocusTimes += 1;
-                        draft.totalFocusTime += normalized.actualFocusSeconds;
+                        draft.totalFocusTime += normalized.actualSeconds;
                     } else {
                         draft.cancelledSessions += 1;
                     }

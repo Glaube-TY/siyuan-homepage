@@ -460,7 +460,6 @@
         "reviewDocs",
         "stikynot",
         "enhancedDiary",
-        "habitTracker",
       ].includes(contentType)
     ) {
       return "note";
@@ -487,6 +486,7 @@
     if (
       [
         "focus",
+        "habitTracker",
         "countdown",
         "weather",
         "timedate",
@@ -1055,7 +1055,6 @@
           <option value="favorites">收藏文档</option>
           <option value="TaskMan">任务管理</option>
           <option value="TaskManPlus">任务管理Plus</option>
-          <option value="habitTracker">习惯打卡👑</option>
           <option value="latest-docs">最近文档</option>
           <option value="recent-journals">最近日记</option>
           <option value="quick-notes">快速笔记</option>
@@ -1132,8 +1131,6 @@
             bind:tasksPlusSelectedNotebookIds
             {notebooks}
           />
-        {:else if selectedContentType === "habitTracker"}
-          <HabitTrackerSet bind:title={habitTrackerTitle} bind:maxVisible={habitTrackerMaxVisible} />
         {:else if selectedContentType === "quick-notes"}
           <QuickNotesSet bind:quickNotesTitle bind:quickNotesSort />
         {:else if selectedContentType === "stikynot"}
@@ -1299,7 +1296,8 @@
       <div class="content-type-select">
         <label for="content-type">选择组件：</label>
         <select id="content-type" bind:value={selectedContentType}>
-          <option value="focus">番茄钟</option>
+          <option value="focus">高级番茄钟👑</option>
+          <option value="habitTracker">习惯打卡👑</option>
           <option value="countdown">纪念日👑</option>
           <option value="weather">今日天气</option>
           <option value="timedate">时钟</option>
@@ -1385,6 +1383,8 @@
             bind:focusLocalImage
             bind:breakLocalImage
           />
+        {:else if selectedContentType === "habitTracker"}
+          <HabitTrackerSet bind:title={habitTrackerTitle} bind:maxVisible={habitTrackerMaxVisible} />
         {:else if selectedContentType === "musicPlayer"}
           <MusicPlayerSet
             {plugin}
@@ -1485,8 +1485,9 @@
       disabled={isSaving}
       onclick={async () => {
         if (isSaving) return;
-        if (["globalCalendar", "habitTracker"].includes(selectedContentType) && !advancedEnabled) {
-          showMessage(`${selectedContentType === "globalCalendar" ? "全局日历" : "习惯打卡"}为高级会员专属组件，请开通后再配置`, 4000);
+        if (["globalCalendar", "habitTracker", "focus"].includes(selectedContentType) && !advancedEnabled) {
+          const label = selectedContentType === "globalCalendar" ? "全局日历" : selectedContentType === "habitTracker" ? "习惯打卡" : "高级番茄钟";
+          showMessage(`${label}为高级会员专属组件，请开通后再配置`, 4000);
           return;
         }
         if (selectedContentType === "countdown" && !advancedEnabled) {

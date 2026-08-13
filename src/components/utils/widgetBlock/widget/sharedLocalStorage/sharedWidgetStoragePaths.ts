@@ -7,7 +7,7 @@ export type SharedWidgetStore =
   | "fixed-assets"
   | "review-docs";
 
-export const FOCUS_INDEX_FILE = "focus/focus-index.json";
+export const FOCUS_INDEX_FILE = "focus/focus-index-v2.json";
 export const CYBMOK_INDEX_FILE = "cybmok/cybmok-index.json";
 export const COUNTDOWN_EVENTS_FILE = "countdown/countdown-events.json";
 export const COUNTDOWN_CENTER_SETTINGS_FILE =
@@ -32,13 +32,13 @@ export const REVIEW_LOG_INDEX_SCHEMA = "siyuan-homepage-review-log-index";
 export const REVIEW_LOGS_SCHEMA = "siyuan-homepage-review-logs";
 
 export const SHARED_WIDGET_DATA_VERSION = 1;
-export const FOCUS_INDEX_VERSION = 1;
-export const FOCUS_SESSION_VERSION = 1;
+export const FOCUS_INDEX_VERSION = 2;
+export const FOCUS_SESSION_VERSION = 2;
 export const CYBMOK_INDEX_VERSION = 1;
 export const CYBMOK_BATCH_VERSION = 1;
 
 export function getFocusSessionsFile(year: number): string {
-  return `focus/focus-sessions-${year}.json`;
+  return `focus/focus-sessions-v2-${year}.json`;
 }
 
 export function getCYBMOKBatchesFile(year: number): string {

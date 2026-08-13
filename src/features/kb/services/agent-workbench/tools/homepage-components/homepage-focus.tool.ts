@@ -15,7 +15,8 @@ import { alwaysAvailable, homepageComponentFailure } from "./homepage-component-
 
 const date = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 const statsSchema = z.object({ startDate: date.optional(), endDate: date.optional() }).strict().refine((value) => Boolean(value.startDate) === Boolean(value.endDate), "startDate 与 endDate 必须同时提供");
-const recordSchema = z.object({ startedAt: z.string().datetime({ offset: true }), endedAt: z.string().datetime({ offset: true }), plannedSeconds: z.number().int().min(0).max(86400), actualFocusSeconds: z.number().int().min(0).max(86400), status: z.enum(["completed", "cancelled"]) }).strict();
+const bindingSchema = z.object({ kind: z.enum(["task", "project", "habit"]), id: z.string().min(1).max(256), title: z.string().min(1).max(160), projectId: z.string().max(256).optional(), projectTitle: z.string().max(160).optional() }).strict();
+const recordSchema = z.object({ startedAt: z.string().datetime({ offset: true }), endedAt: z.string().datetime({ offset: true }), plannedSeconds: z.number().int().min(0).max(86400), actualFocusSeconds: z.number().int().min(0).max(86400), status: z.enum(["completed", "cancelled"]), binding: bindingSchema.optional() }).strict();
 
 export function createHomepageFocusActionTools(): Array<{ action: "stats" | "record_session"; tool: ToolContract }> {
   const stats: ToolContract = {
@@ -33,14 +34,13 @@ export function createHomepageFocusActionTools(): Array<{ action: "stats" | "rec
         if (elapsedSeconds < 0) throw new Error("endedAt 不能早于 startedAt");
         if (elapsedSeconds > 86400) throw new Error("单次专注会话不能超过 24 小时");
         if (input.actualFocusSeconds > elapsedSeconds + 60) throw new Error("实际专注时长不能明显超过起止时间范围");
-        if (input.status === "cancelled" && input.actualFocusSeconds !== 0) throw new Error("cancelled 会话的 actualFocusSeconds 必须为 0");
         const runtimeId = createRuntimeUuid();
         const id = `focus-agent-${runtimeId}`;
-        const session: FocusSessionRecord = { id, startedAt: toFocusSecondTimestamp(started), endedAt: toFocusSecondTimestamp(ended), localDate: getLocalFocusDate(started), plannedSeconds: input.plannedSeconds, actualFocusSeconds: input.actualFocusSeconds, status: input.status };
+        const session: FocusSessionRecord = { id, startedAt: toFocusSecondTimestamp(started), endedAt: toFocusSecondTimestamp(ended), localDate: getLocalFocusDate(started), segmentType: "focus", plannedSeconds: input.plannedSeconds, actualSeconds: input.actualFocusSeconds, status: input.status, binding: input.binding };
         const totals = await appendFocusSession(session);
         const verified = (await loadFocusSessionsForYear(started.getFullYear())).find((item) => item.id === id);
         if (!verified) return { ok: false, data: null, error: { code: "focus_write_unverified", message: "专注会话写入后未能重新读取验证。", recoverable: false } };
-        return { ok: true, data: { sessionId: id, actualFocusSeconds: verified.actualFocusSeconds, date: verified.localDate, status: verified.status, newTotals: totals } };
+        return { ok: true, data: { sessionId: id, actualFocusSeconds: verified.actualSeconds, date: verified.localDate, status: verified.status, newTotals: totals } };
       } catch (error) { return homepageComponentFailure(error, "focus_record_failed", "补记专注会话失败。"); }
     },
     summarizeResult: (result) => result.ok ? "专注会话已记录。" : result.error?.message ?? "记录失败。",

@@ -5,7 +5,7 @@ const DISPLAY_ONLY_TYPES = new Set(["weather", "HOT", "News", "constellation", "
 const ADVANCED_TYPES = new Set([
   "accounting", "almanac", "constellation", "countdown", "countdownTimer", "CYBMOK",
   "databaseChart", "enhancedDiary", "fixedAssets", "heatmap", "historyDays", "musicPlayer",
-  "News", "PicCaro", "reviewDocs", "statisticalCard", "stikynot",
+  "News", "PicCaro", "reviewDocs", "statisticalCard", "stikynot", "focus", "globalCalendar", "habitTracker",
 ]);
 const SINGLETON_TYPES = new Set(["musicPlayer"]);
 
