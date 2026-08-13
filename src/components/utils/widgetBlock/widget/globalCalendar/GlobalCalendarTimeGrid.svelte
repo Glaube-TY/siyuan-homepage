@@ -25,8 +25,10 @@
   const allDaySegments = $derived(buildCalendarRangeSegments(allDay.filter((event) => (isCalendarRangeEvent(event) && (!hideFullyScheduledTasks || !isTaskFullyScheduled(event))) || event.source === "countdown"), dates));
   const dateMarkers = $derived(allDay.filter(isCalendarDateMarker));
   let selection = $state<{ date: string; anchor: number; start: number; end: number; pointerId: number } | null>(null);
+  let resizePreview = $state<{ id: string; startTime: string; endTime: string; top: number; height: number } | null>(null);
 
   function eventStyle(event: GlobalCalendarEvent): string {
+    if (resizePreview?.id === event.id) return `top:${resizePreview.top}px;height:${resizePreview.height}px;--event-color:${calendarEventColor(event, taskColorMode)}`;
     const start = new Date(event.startAt!); const end = event.endAt ? new Date(event.endAt) : new Date(start.getTime() + 60 * 60000);
     const top = Math.max(0, ((start.getHours() * 60 + start.getMinutes()) - workdayStart * 60) / SLOT * rowHeight);
     const height = Math.max(rowHeight, (end.getTime() - start.getTime()) / 60000 / SLOT * rowHeight);
@@ -36,7 +38,7 @@
     const color = calendarEventColor(segment.event, taskColorMode);
     return `grid-column:${segment.startColumn}/span ${segment.span};grid-row:${segment.lane + 1};--event-color:${color}`;
   }
-  function compactEvent(event: GlobalCalendarEvent): boolean { return Boolean(event.startAt && event.endAt && new Date(event.endAt).getTime() - new Date(event.startAt).getTime() <= SLOT * 60000); }
+  function compactEvent(event: GlobalCalendarEvent): boolean { return resizePreview?.id === event.id ? resizePreview.height <= rowHeight : Boolean(event.startAt && event.endAt && new Date(event.endAt).getTime() - new Date(event.startAt).getTime() <= SLOT * 60000); }
   function startDrag(dom: DragEvent, event: GlobalCalendarEvent): void { dom.dataTransfer?.setData("text/calendar-event", event.id); if (dom.dataTransfer) dom.dataTransfer.effectAllowed = "move"; }
   function drop(dom: DragEvent, date: string, time: string): void { dom.preventDefault(); const id = dom.dataTransfer?.getData("text/calendar-event"); const event = events.find((item) => item.id === id); if (event) void onMove(event, date, time); }
   function boundaryIndex(dom: PointerEvent): number { const rect = (dom.currentTarget as HTMLElement).getBoundingClientRect(); return Math.max(0, Math.min(slots.length, Math.round((dom.clientY - rect.top) / rowHeight))); }
@@ -64,10 +66,14 @@
   function resizeStart(dom: PointerEvent, event: GlobalCalendarEvent, edge: "start" | "end"): void {
     if (!event.editable || !event.endAt) return; dom.preventDefault(); dom.stopPropagation();
     const startY = dom.clientY; const originalStart = new Date(event.startAt!); const originalEnd = new Date(event.endAt); let nextStart = originalStart; let nextEnd = originalEnd;
-    const move = (pointer: PointerEvent) => { const steps = Math.round((pointer.clientY - startY) / rowHeight); const lower = workdayStart * 60; const upper = workdayEnd * 60; const startMinutes = originalStart.getHours() * 60 + originalStart.getMinutes(); const endMinutes = originalEnd.getHours() * 60 + originalEnd.getMinutes(); const minutes = edge === "start" ? Math.max(lower, Math.min(endMinutes - SLOT, startMinutes + steps * SLOT)) : Math.min(upper, Math.max(startMinutes + SLOT, endMinutes + steps * SLOT)); const next = new Date(originalStart); next.setHours(Math.floor(minutes / 60), minutes % 60, 0, 0); if (edge === "start") nextStart = next; else nextEnd = next; };
-    const cleanup = () => { window.removeEventListener("pointerup", up); window.removeEventListener("pointercancel", cancel); window.removeEventListener("pointermove", move); };
-    const up = () => { cleanup(); void onResize(event, nextStart.toTimeString().slice(0, 5), nextEnd.toTimeString().slice(0, 5)); };
-    const cancel = () => cleanup();
+    const root = document.documentElement; const previousSelect = root.style.userSelect;
+    root.classList.add("calendar-resizing"); root.style.userSelect = "none";
+    const updatePreview = () => { const startMinutes = nextStart.getHours() * 60 + nextStart.getMinutes(); const endMinutes = nextEnd.getHours() * 60 + nextEnd.getMinutes(); resizePreview = { id: event.id, startTime: nextStart.toTimeString().slice(0, 5), endTime: nextEnd.toTimeString().slice(0, 5), top: Math.max(0, (startMinutes - workdayStart * 60) / SLOT * rowHeight), height: Math.max(rowHeight, (endMinutes - startMinutes) / SLOT * rowHeight) }; };
+    updatePreview();
+    const move = (pointer: PointerEvent) => { pointer.preventDefault(); const steps = Math.round((pointer.clientY - startY) / rowHeight); const lower = workdayStart * 60; const upper = workdayEnd * 60; const startMinutes = originalStart.getHours() * 60 + originalStart.getMinutes(); const endMinutes = originalEnd.getHours() * 60 + originalEnd.getMinutes(); const minutes = edge === "start" ? Math.max(lower, Math.min(endMinutes - SLOT, startMinutes + steps * SLOT)) : Math.min(upper, Math.max(startMinutes + SLOT, endMinutes + steps * SLOT)); const next = new Date(originalStart); next.setHours(Math.floor(minutes / 60), minutes % 60, 0, 0); if (edge === "start") nextStart = next; else nextEnd = next; updatePreview(); };
+    const cleanup = () => { window.removeEventListener("pointerup", up); window.removeEventListener("pointercancel", cancel); window.removeEventListener("pointermove", move); root.classList.remove("calendar-resizing"); root.style.userSelect = previousSelect; };
+    const up = () => { cleanup(); const preview = resizePreview; void Promise.resolve().then(() => onResize(event, preview?.startTime ?? nextStart.toTimeString().slice(0, 5), preview?.endTime ?? nextEnd.toTimeString().slice(0, 5))).finally(() => { if (resizePreview?.id === event.id) resizePreview = null; }); };
+    const cancel = () => { cleanup(); resizePreview = null; };
     window.addEventListener("pointermove", move); window.addEventListener("pointerup", up, { once: true });
     window.addEventListener("pointercancel", cancel, { once: true });
   }
@@ -82,8 +88,8 @@
       {#each slots as time}<button type="button" class="slot" aria-label={`${date} ${time} 新建日程`} ondragover={(event) => event.preventDefault()} ondrop={(event) => drop(event, date, time)} onclick={(event) => event.detail === 0 && onCreate(date, time)}></button>{/each}
       {#if selection?.date === date}<div class="time-selection" style={`top:${selection.start * rowHeight}px;height:${(selection.end - selection.start) * rowHeight}px`}><span>{boundaryTime(selection.start)}–{boundaryTime(selection.end)}</span></div>{/if}
       {#each timed.filter((event) => event.date === date) as event (event.id)}
-        <button type="button" class="timed-event" class:compact={compactEvent(event)} draggable={event.editable} style={eventStyle(event)} ondragstart={(dom) => startDrag(dom, event)} onclick={(dom) => { dom.stopPropagation(); onOpenEvent(event); }}>
-          <strong>{event.title}</strong><small>{event.startAt?.slice(11,16)}–{event.endAt?.slice(11,16)}</small>
+        <button type="button" class="timed-event" class:compact={compactEvent(event)} class:resizing={resizePreview?.id === event.id} draggable={event.editable && resizePreview?.id !== event.id} style={eventStyle(event)} ondragstart={(dom) => startDrag(dom, event)} onclick={(dom) => { dom.stopPropagation(); onOpenEvent(event); }}>
+          <strong>{event.title}</strong><small>{resizePreview?.id === event.id ? resizePreview.startTime : event.startAt?.slice(11,16)}–{resizePreview?.id === event.id ? resizePreview.endTime : event.endAt?.slice(11,16)}</small>
           {#if event.editable}<span class="resize-handle top" role="separator" aria-label="拖动调整开始时间" aria-orientation="horizontal" onpointerdown={(dom) => resizeStart(dom, event, "start")}></span><span class="resize-handle bottom" role="separator" aria-label="拖动调整结束时间" aria-orientation="horizontal" onpointerdown={(dom) => resizeStart(dom, event, "end")}></span>{/if}
         </button>
       {/each}
@@ -114,9 +120,11 @@
   .time-selection { position: absolute; z-index: 3; right: 4px; left: 4px; display: grid; min-height: var(--row-height); place-items: start; padding: 5px 7px; border: 1px solid color-mix(in srgb, var(--b3-theme-primary) 46%, var(--b3-border-color)); border-radius: 7px; color: var(--b3-theme-primary); background: color-mix(in srgb, var(--b3-theme-primary) 15%, var(--b3-theme-surface)); box-sizing: border-box; pointer-events: none; }
   .time-selection span { font-size: 10px; font-weight: 650; }
   .timed-event { position: absolute; z-index: 2; right: 4px; left: 4px; min-height: 24px; padding: 5px 7px; border: 1px solid color-mix(in srgb, var(--event-color) 34%, var(--b3-border-color)); border-radius: 7px; color: color-mix(in srgb, var(--event-color) 88%, var(--b3-theme-on-background)); background: color-mix(in srgb, var(--event-color) 17%, var(--b3-theme-surface)); box-shadow: 0 3px 9px color-mix(in srgb, var(--event-color) 16%, transparent); box-sizing: border-box; font: inherit; text-align: left; cursor: pointer; overflow: hidden; }
+  .timed-event.resizing { z-index: 4; box-shadow: 0 7px 18px color-mix(in srgb, var(--event-color) 25%, transparent); }
   .timed-event strong, .timed-event small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } .timed-event strong { font-size: 11px; } .timed-event small { color: var(--b3-theme-on-surface-light); font-size: 9px; }
   .timed-event.compact { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 5px; padding-block: 3px; }
-  .resize-handle { position: absolute; z-index: 2; right: 0; left: 0; height: 7px; cursor: ns-resize; }
+  .resize-handle { position: absolute; z-index: 2; right: 0; left: 0; height: 20%; min-height: 9px; cursor: ns-resize; touch-action: none; }
   .resize-handle.top { top: 0; }
   .resize-handle.bottom { bottom: 0; }
+  :global(html.calendar-resizing *) { cursor: ns-resize !important; }
 </style>
