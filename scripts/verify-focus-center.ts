@@ -1,5 +1,11 @@
 import assert from "node:assert/strict";
 import { buildFocusCenterAnalytics } from "../src/components/utils/widgetBlock/widget/focus/focusCenterAnalytics";
+import { normalizeFocusBinding } from "../src/components/utils/widgetBlock/widget/focus/focusBinding";
+
+assert.deepEqual(
+  normalizeFocusBinding({ kind: "task", id: "t1", title: "写报告", projectId: undefined, projectTitle: undefined }),
+  { kind: "task", id: "t1", title: "写报告" },
+);
 
 const sessions = [
   { id: "1", startedAt: "2026-08-13T01:00:00Z", endedAt: "2026-08-13T01:25:00Z", localDate: "2026-08-13", segmentType: "focus", plannedSeconds: 1500, actualSeconds: 1500, status: "completed", binding: { kind: "task", id: "t1", title: "写报告", projectId: "p1", projectTitle: "主页插件" } },

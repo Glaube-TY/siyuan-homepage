@@ -2,7 +2,10 @@
   import { mount, onDestroy, onMount } from "svelte";
   import { getFrontend, showMessage } from "siyuan";
   import { svelteDialog } from "@/libs/dialog";
-  import SiyuanIcon from "@/components/utils/shared/SiyuanIcon.svelte";
+  import Play from "@lucide/svelte/icons/play";
+  import Pause from "@lucide/svelte/icons/pause";
+  import Square from "@lucide/svelte/icons/square";
+  import Settings from "@lucide/svelte/icons/settings";
   import AdvancedFeatureLock from "../common/AdvancedFeatureLock.svelte";
   import { getImage } from "@/components/tools/getImage";
   import { createRuntimeUuid } from "@/libs/runtime-id";
@@ -16,6 +19,7 @@
     flushPendingFocusSessions, getLocalFocusDate, loadFocusStatistics, queueFocusSession, toFocusSecondTimestamp,
     type FocusBindingSnapshot, type FocusSegmentType, type FocusSessionRecord,
   } from "./focusData";
+  import { normalizeFocusBinding } from "./focusBinding";
 
   interface Props { plugin: any; contentTypeJson?: string; runtimeContext?: WidgetRuntimeContext }
   let { plugin, contentTypeJson = "{}", runtimeContext = {} }: Props = $props();
@@ -52,7 +56,6 @@
   let unregisterFlusher: (() => void) | null = null;
 
   const isBreak = $derived(segmentType !== "focus");
-  const segmentLabel = $derived(segmentType === "focus" ? "专注" : segmentType === "long_break" ? "长休息" : "短休息");
   const totalSeconds = $derived(durationMinutes(segmentType) * 60);
   const progress = $derived(totalSeconds ? Math.max(0, Math.min(1, 1 - timeLeft / totalSeconds)) : 0);
   const radius = $derived(config.timerFontSize * 18);
@@ -104,7 +107,7 @@
     if (recordStartedAt === null) {
       recordStartedAt = now;
       plannedSeconds = Math.round(durationMinutes(segmentType) * 60);
-      segmentBinding = segmentType === "focus" && binding ? structuredClone(binding) : undefined;
+      segmentBinding = segmentType === "focus" && binding ? { ...binding } : undefined;
     }
     clearHandles();
     isRunning = true;
@@ -155,18 +158,29 @@
     config = { focusDuration: Math.max(5, Math.min(180, Number(next.focusDuration) || 25)), shortBreakDuration: Math.max(1, Math.min(60, Number(next.shortBreakDuration) || 5)), longBreakDuration: Math.max(5, Math.min(90, Number(next.longBreakDuration) || 15)), longBreakEvery: Math.max(2, Math.min(12, Math.round(Number(next.longBreakEvery) || 4))), autoStartBreak: next.autoStartBreak, autoStartFocus: next.autoStartFocus, timerStyle: next.timerStyle, timerFontSize: Math.max(1, Math.min(10, Number(next.timerFontSize) || 3)), showFocusInfo: next.showFocusInfo };
     await saveRuntimeConfig(); reset("focus");
   }
-  async function changeBinding(next?: FocusBindingSnapshot): Promise<void> { binding = next ? structuredClone(next) : undefined; await saveRuntimeConfig(); }
+  async function applySetup(next: FocusTimerConfig, nextBinding?: FocusBindingSnapshot): Promise<void> {
+    const previousBinding = binding ? { ...binding } : undefined;
+    binding = normalizeFocusBinding(nextBinding);
+    try {
+      await saveConfig(next);
+    } catch (error) {
+      binding = previousBinding;
+      throw error;
+    }
+  }
   async function saveRuntimeConfig(): Promise<void> {
     if (!runtimeContext.deviceViewContext || !content.instanceId) throw new Error("番茄钟缺少设备视图上下文");
-    content.data = { ...savedWidgetData, ...content.data, ...config, focusBinding: binding };
-    savedWidgetData = structuredClone(content.data);
-    await saveWidgetInstanceConfig(runtimeContext.deviceViewContext, content.instanceId, content);
+    content.data = { ...savedWidgetData, ...$state.snapshot(content.data), ...config };
+    if (binding) content.data.focusBinding = { ...binding };
+    else delete content.data.focusBinding;
+    savedWidgetData = structuredClone($state.snapshot(content.data));
+    await saveWidgetInstanceConfig(runtimeContext.deviceViewContext, content.instanceId, $state.snapshot(content));
   }
   function openCenter(): void {
     if (!advancedEnabled) return;
     const mobile = getFrontend().includes("mobile");
     let ref: ReturnType<typeof svelteDialog>;
-    ref = svelteDialog({ title: "", width: mobile ? "100vw" : "calc(100vw - 32px)", height: mobile ? "100dvh" : "calc(100vh - 40px)", constructor: (container) => mount(FocusCenterDialog, { target: container, props: { plugin, config: { ...config }, binding, onBindingChange: changeBinding, onSaveConfig: saveConfig, onClose: () => ref.close() } }) });
+    ref = svelteDialog({ title: "", width: mobile ? "calc(100vw - 16px)" : "min(1120px, calc(100vw - 48px))", height: mobile ? "calc(100dvh - 20px)" : "min(820px, calc(100vh - 56px))", constructor: (container) => mount(FocusCenterDialog, { target: container, props: { plugin, config: { ...config }, binding: binding ? { ...binding } : undefined, onApply: applySetup, onStart: startTimer, onClose: () => ref.close() } }) });
     ref.dialog.element.classList.add("focus-center-dialog-host");
   }
   async function refreshStats(): Promise<void> { const stats = await loadFocusStatistics(); totalFocusTime = stats.totalFocusTime; totalFocusTimes = stats.totalFocusTimes; }
@@ -182,7 +196,7 @@
     savedWidgetData = saved?.data && typeof saved.data === "object" ? structuredClone(saved.data) : {};
     const source = { ...data, ...(saved?.data || {}) };
     config = { focusDuration: Number(source.focusDuration) || defaultConfig.focusDuration, shortBreakDuration: Number(source.shortBreakDuration) || defaultConfig.shortBreakDuration, longBreakDuration: Number(source.longBreakDuration) || defaultConfig.longBreakDuration, longBreakEvery: Number(source.longBreakEvery) || defaultConfig.longBreakEvery, autoStartBreak: source.autoStartBreak !== false, autoStartFocus: source.autoStartFocus === true, timerStyle: String(source.timerStyle || defaultConfig.timerStyle), timerFontSize: Number(source.timerFontSize) || defaultConfig.timerFontSize, showFocusInfo: source.showFocusInfo === true };
-    binding = source.focusBinding && typeof source.focusBinding === "object" ? structuredClone(source.focusBinding) : undefined;
+    binding = normalizeFocusBinding(source.focusBinding);
     reset("focus");
     if (advancedEnabled) await refreshStats().catch((error) => console.warn("[focus] 统计读取失败", error));
     unsubscribe = subscribeSharedWidgetDataUpdated("focus", () => void refreshStats().catch(() => undefined));
@@ -214,21 +228,24 @@
 {:else}
   <div class="timer" style:background-image={`url(${isBreak ? (breakImageType === "remote" ? breakBgImage : breakLocalImage) : (focusImageType === "remote" ? focusBgImage : focusLocalImage)})`}>
     <div class="veil"></div>
-    <button class="center-entry" type="button" title="打开番茄钟中心" onclick={openCenter}><SiyuanIcon name="settings" size={16} /></button>
     <div class="content">
-      <span class="mode">{segmentLabel}</span>
       {#if binding && segmentType === "focus"}<button class="binding" type="button" onclick={openCenter}>{binding.title}</button>{/if}
       <div class="display {config.timerStyle}" style:font-size={`${config.timerFontSize}rem`}>
         {#if config.timerStyle === "circular-progress"}
           <svg width={radius * 2 + 18} height={radius * 2 + 18} viewBox={`0 0 ${radius * 2 + 18} ${radius * 2 + 18}`}><circle class="track" cx={radius + 9} cy={radius + 9} r={radius}></circle><circle class="progress" cx={radius + 9} cy={radius + 9} r={radius} style:stroke-dasharray={circumference} style:stroke-dashoffset={circumference * (1 - progress)}></circle><text x={radius + 9} y={radius + 12}>{formatTime(timeLeft)}</text></svg>
         {:else}{formatTime(timeLeft)}{/if}
       </div>
-      <div class="controls"><button type="button" title={isRunning ? "暂停" : "开始"} onclick={isRunning ? pauseTimer : startTimer}><SiyuanIcon name={isRunning ? "pause" : "play"} size={17} /></button><button type="button" title="停止" onclick={stopTimer}><SiyuanIcon name="stop" size={17} /></button><button type="button" title="番茄钟中心" onclick={openCenter}><SiyuanIcon name="overview" size={17} /></button></div>
+      <div class="controls">
+        <button type="button" title="开始" disabled={isRunning} onclick={startTimer}><Play size={17} /></button>
+        <button type="button" title="暂停" disabled={!isRunning} onclick={pauseTimer}><Pause size={17} /></button>
+        <button type="button" title="停止" onclick={stopTimer}><Square size={16} /></button>
+        <button type="button" title="番茄钟中心" onclick={openCenter}><Settings size={17} /></button>
+      </div>
       {#if config.showFocusInfo}<small class="stats">{totalFocusTimes} 轮 · {formatDuration(totalFocusTime)}</small>{/if}
     </div>
   </div>
 {/if}
 
 <style>
-  .timer{position:relative;width:100%;height:100%;min-width:0;min-height:0;overflow:hidden;border-radius:12px;background-size:cover;background-position:center;color:var(--b3-theme-on-background)}.veil{position:absolute;inset:0;background:color-mix(in srgb,var(--b3-theme-background) 26%,transparent);backdrop-filter:blur(2px)}.content{position:relative;z-index:1;width:100%;height:100%;box-sizing:border-box;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:7px;padding:18px}.center-entry{position:absolute;z-index:2;top:8px;right:42px;display:grid;place-items:center;width:30px;height:30px;border:0;border-radius:9px;background:color-mix(in srgb,var(--b3-theme-surface) 82%,transparent);color:inherit;cursor:pointer;opacity:.84}.mode{font-size:11px;letter-spacing:.12em;color:var(--b3-theme-on-surface)}.binding{max-width:70%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;border:0;border-radius:999px;padding:4px 10px;background:color-mix(in srgb,var(--b3-theme-primary) 14%,var(--b3-theme-surface));color:var(--b3-theme-primary);cursor:pointer}.display{font-weight:750;line-height:1;text-align:center}.display.classic{padding:9px 16px;border-radius:14px;background:color-mix(in srgb,var(--b3-theme-surface) 84%,transparent);color:var(--b3-theme-primary)}.display.modern{padding:9px 16px;border-radius:11px;background:color-mix(in srgb,#18202a 90%,transparent);color:#f4f7fb}.display.rounded{padding:10px 20px;border-radius:999px;background:color-mix(in srgb,var(--b3-theme-surface) 88%,transparent);color:var(--b3-theme-primary)}.display.digital-clock{padding:9px 15px;border-radius:10px;background:#101923;color:#55d8df;font-family:ui-monospace,monospace;letter-spacing:.05em}.display.circular-progress{background:transparent}.display svg{display:block;overflow:visible}.display circle{fill:none;stroke-width:7}.display .track{stroke:color-mix(in srgb,var(--b3-theme-surface) 72%,transparent)}.display .progress{stroke:var(--b3-theme-primary);stroke-linecap:round;transform:rotate(-90deg);transform-origin:center;transition:stroke-dashoffset .25s linear}.display text{fill:currentColor;text-anchor:middle;dominant-baseline:middle;font-size:16px}.controls{display:flex;gap:7px;opacity:0;transform:translateY(3px);transition:.18s}.timer:hover .controls,.timer:focus-within .controls{opacity:1;transform:none}.controls button{display:grid;place-items:center;width:34px;height:34px;border:0;border-radius:50%;background:color-mix(in srgb,var(--b3-theme-surface) 82%,transparent);color:var(--b3-theme-primary);cursor:pointer}.stats{position:absolute;bottom:8px;border-radius:999px;padding:4px 9px;background:color-mix(in srgb,var(--b3-theme-surface) 76%,transparent);color:var(--b3-theme-on-surface)}@container(max-height:210px){.mode,.binding,.stats{display:none}.content{gap:4px}.controls{opacity:1}}@media(prefers-reduced-motion:reduce){.controls,.display .progress{transition:none}}
+  .timer{position:relative;width:100%;height:100%;min-width:0;min-height:0;overflow:hidden;border-radius:12px;background-size:cover;background-position:center;color:var(--b3-theme-on-background)}.veil{position:absolute;inset:0;background:color-mix(in srgb,var(--b3-theme-background) 26%,transparent);backdrop-filter:blur(2px)}.content{position:relative;z-index:1;width:100%;height:100%;box-sizing:border-box;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:7px;padding:18px}.binding{max-width:78%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;border:0;border-radius:999px;padding:4px 10px;background:color-mix(in srgb,var(--b3-theme-primary) 14%,var(--b3-theme-surface));color:var(--b3-theme-primary);cursor:pointer}.display{font-weight:750;line-height:1;text-align:center}.display.classic{padding:9px 16px;border-radius:14px;background:color-mix(in srgb,var(--b3-theme-surface) 84%,transparent);color:var(--b3-theme-primary)}.display.modern{padding:9px 16px;border-radius:11px;background:color-mix(in srgb,#18202a 90%,transparent);color:#f4f7fb}.display.rounded{padding:10px 20px;border-radius:999px;background:color-mix(in srgb,var(--b3-theme-surface) 88%,transparent);color:var(--b3-theme-primary)}.display.digital-clock{padding:9px 15px;border-radius:10px;background:#101923;color:#55d8df;font-family:ui-monospace,monospace;letter-spacing:.05em}.display.circular-progress{background:transparent}.display svg{display:block;overflow:visible}.display circle{fill:none;stroke-width:7}.display .track{stroke:color-mix(in srgb,var(--b3-theme-surface) 72%,transparent)}.display .progress{stroke:var(--b3-theme-primary);stroke-linecap:round;transform:rotate(-90deg);transform-origin:center;transition:stroke-dashoffset .25s linear}.display text{fill:currentColor;text-anchor:middle;dominant-baseline:middle;font-size:16px}.controls{display:flex;gap:7px;opacity:0;transform:translateY(3px);transition:.18s}.timer:hover .controls,.timer:focus-within .controls{opacity:1;transform:none}.controls button{display:grid;place-items:center;width:34px;height:34px;border:0;border-radius:50%;background:color-mix(in srgb,var(--b3-theme-surface) 82%,transparent);color:var(--b3-theme-primary);cursor:pointer}.controls button:disabled{opacity:.38;cursor:not-allowed}.stats{position:absolute;bottom:8px;border-radius:999px;padding:4px 9px;background:color-mix(in srgb,var(--b3-theme-surface) 76%,transparent);color:var(--b3-theme-on-surface)}@container(max-height:210px){.stats{display:none}.content{gap:4px}.controls{opacity:1}}@media(prefers-reduced-motion:reduce){.controls,.display .progress{transition:none}}
 </style>

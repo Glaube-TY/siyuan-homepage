@@ -17,7 +17,9 @@ import {
     FOCUS_SESSIONS_SCHEMA,
     getFocusSessionsFile,
 } from "../sharedLocalStorage/sharedWidgetStoragePaths";
+import { normalizeFocusBinding, type FocusBindingSnapshot } from "./focusBinding";
 export { summarizeFocusSessions } from "./focusSessionAnalytics";
+export type { FocusBindingKind, FocusBindingSnapshot } from "./focusBinding";
 
 export interface FocusStatistics {
     totalFocusTime: number;
@@ -31,15 +33,6 @@ export interface FocusDetailedStatistics extends FocusStatistics {
 
 export type FocusSessionStatus = "completed" | "cancelled";
 export type FocusSegmentType = "focus" | "short_break" | "long_break";
-export type FocusBindingKind = "task" | "project" | "habit";
-
-export interface FocusBindingSnapshot {
-    kind: FocusBindingKind;
-    id: string;
-    title: string;
-    projectId?: string;
-    projectTitle?: string;
-}
 
 export interface FocusSessionRecord {
     id: string;
@@ -158,18 +151,6 @@ export function normalizeFocusIndexFile(raw: unknown): FocusIndexFile {
     };
 }
 
-function normalizeBinding(value: unknown): FocusBindingSnapshot | undefined {
-    if (value == null) return undefined;
-    if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("番茄钟绑定对象无效");
-    const input = value as Record<string, unknown>;
-    const kind = String(input.kind || "");
-    const id = typeof input.id === "string" ? input.id.trim() : "";
-    const title = typeof input.title === "string" ? input.title.trim() : "";
-    if (!(["task", "project", "habit"] as string[]).includes(kind) || !id || !title) throw new Error("番茄钟绑定关键字段无效");
-    const text = (key: string) => typeof input[key] === "string" && String(input[key]).trim() ? String(input[key]).trim() : undefined;
-    return { kind: kind as FocusBindingKind, id, title, projectId: text("projectId"), projectTitle: text("projectTitle") };
-}
-
 function normalizeFocusSession(raw: unknown, expectedYear: number): FocusSessionRecord {
     if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new Error("番茄钟会话记录无效");
     const value = raw as Record<string, unknown>;
@@ -198,7 +179,7 @@ function normalizeFocusSession(raw: unknown, expectedYear: number): FocusSession
         plannedSeconds,
         actualSeconds,
         status: status as FocusSessionStatus,
-        binding: normalizeBinding(value.binding),
+        binding: normalizeFocusBinding(value.binding),
     };
 }
 
