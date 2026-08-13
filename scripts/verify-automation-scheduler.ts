@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { nextScheduledAt, resolveDueOccurrence } from "../src/features/agent-platform/automation/automation-schedule";
-import { bindAutomationRobotResult } from "../src/features/agent-platform/automation/automation-robot-route";
+import { bindAutomationRobotResult, decodeAutomationRobotRoute, encodeAutomationRobotRoute } from "../src/features/agent-platform/automation/automation-robot-route";
 import type { AutomationJobDefinition } from "../src/features/agent-platform/automation/automation-job-contract";
 
 const shanghai = "Asia/Shanghai";
@@ -31,15 +31,20 @@ const now = createdAt + 3.5 * 3_600_000;
 const due = resolveDueOccurrence(job, undefined, now);
 assert.equal(due.scheduledAt, createdAt + 3 * 3_600_000, "latest 补发只运行最近一次到期实例");
 assert.equal(due.nextRunAt, createdAt + 4 * 3_600_000, "补发后应保留下一次正式计划");
+assert.deepEqual(
+  decodeAutomationRobotRoute(encodeAutomationRobotRoute({ provider: "feishu", accountId: "account", chatId: "chat", senderId: "sender" })),
+  { provider: "feishu", accountId: "account", chatId: "chat", senderId: "sender" },
+  "机器人自动化路由应保留具体发送者会话",
+);
 
 assert.deepEqual(
-  bindAutomationRobotResult({ action: "create", args: { robotRouteRef: "model-route" } }, "current-route"),
-  { action: "create", args: { robotRouteRef: "current-route" } },
+  bindAutomationRobotResult({ action: "create", args: { robotRouteRef: "model-route" } }, "current-route", "current-conversation"),
+  { action: "create", args: { robotRouteRef: "current-route", robotConversationId: "current-conversation" } },
   "机器人创建任务时必须由运行时覆盖模型提供的机器人路由",
 );
 assert.deepEqual(
-  bindAutomationRobotResult({ action: "create", args: { name: "每日早报" } }, "current-route"),
-  { action: "create", args: { name: "每日早报", robotRouteRef: "current-route" } },
+  bindAutomationRobotResult({ action: "create", args: { name: "每日早报" } }, "current-route", "current-conversation"),
+  { action: "create", args: { name: "每日早报", robotRouteRef: "current-route", robotConversationId: "current-conversation" } },
   "机器人只说自然语言时也必须自动补齐当前会话投递目标",
 );
 

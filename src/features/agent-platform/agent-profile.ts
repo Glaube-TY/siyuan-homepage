@@ -222,6 +222,7 @@ export function createBackgroundJobAgentProfile(input: {
   allowedActionNames: readonly string[];
   memoryAccess: "none" | "read";
   maxToolCalls: number;
+  conversationAccess?: boolean;
 }): AgentProfile {
   const names = [...new Set(input.allowedToolNames)].filter((name) => BACKGROUND_SAFE_ACTIONS[name]);
   const requestedActions = new Set(input.allowedActionNames);
@@ -232,6 +233,7 @@ export function createBackgroundJobAgentProfile(input: {
   if (names.some((name) => actions[name].length === 0)) throw new Error("后台 Agent 工具必须明确授权至少一个只读 action。");
   const capabilities: AgentCapabilityId[] = ["tools", "siyuan"];
   const contextSources: AgentContextSourceId[] = ["knowledge"];
+  if (input.conversationAccess) { capabilities.push("conversation"); contextSources.push("conversation"); }
   if (memoryRead) { capabilities.push("global-memory"); contextSources.push("global-memory"); }
   return Object.freeze({
     schemaVersion: AGENT_PROFILE_SCHEMA_VERSION,

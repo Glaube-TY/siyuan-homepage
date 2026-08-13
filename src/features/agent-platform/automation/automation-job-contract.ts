@@ -52,14 +52,26 @@ export const automationReplyTargetSchema = z.discriminatedUnion("kind", [
     .object({
       kind: z.literal("robot"),
       routeRef: z.string().trim().min(1).max(500),
+      conversationMode: z.enum(["new", "existing"]).default("existing"),
+      conversationId: shortIdSchema.optional(),
     })
     .strict(),
   z
     .object({
       kind: z.literal("kb-conversation"),
-      conversationId: shortIdSchema,
+      conversationMode: z.enum(["new", "existing"]).default("existing"),
+      conversationId: shortIdSchema.optional(),
     })
-    .strict(),
+    .strict()
+    .superRefine((target, context) => {
+      if (target.conversationMode === "existing" && !target.conversationId) {
+        context.addIssue({
+          code: "custom",
+          path: ["conversationId"],
+          message: "发送到已有本地对话时必须选择对话。",
+        });
+      }
+    }),
 ]);
 
 const outputSchema = z

@@ -180,6 +180,39 @@ export async function registerRobotKernelRpc(
         : {}),
     });
   });
+  rpc("robot.recordAutomationConversation", async (payload) => {
+    const value =
+      payload && typeof payload === "object"
+        ? (payload as Record<string, unknown>)
+        : {};
+    const provider = value.provider;
+    const conversationMode = value.conversationMode;
+    if (
+      (provider !== "wechat" && provider !== "feishu" && provider !== "qq") ||
+      (conversationMode !== "new" && conversationMode !== "existing") ||
+      typeof value.accountId !== "string" ||
+      typeof value.chatId !== "string" ||
+      typeof value.jobName !== "string" ||
+      typeof value.goal !== "string" ||
+      typeof value.content !== "string"
+    )
+      return { ok: false, errorCode: "invalid_automation_conversation" };
+    return runtime.recordAutomationConversation({
+      provider,
+      accountId: value.accountId,
+      chatId: value.chatId,
+      conversationMode,
+      jobName: value.jobName,
+      goal: value.goal,
+      content: value.content,
+      ...(typeof value.senderId === "string"
+        ? { senderId: value.senderId }
+        : {}),
+      ...(typeof value.conversationId === "string"
+        ? { conversationId: value.conversationId }
+        : {}),
+    });
+  });
 
   rpc("robot.getSessions", () => runtime.getSessions());
   rpc("robot.resetSession", async (payload) => {

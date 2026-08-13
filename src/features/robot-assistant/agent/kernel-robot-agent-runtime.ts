@@ -168,7 +168,7 @@ export class KernelRobotAgentRuntime implements RobotAgentRuntime {
 
   private bindAutomationRoute(tool: NativeTool, input: RobotAgentTurnInput): NativeTool {
     const routeRef = encodeAutomationRobotRoute(input);
-    const bind = (args: Record<string, unknown>) => bindAutomationRobotResult(args, routeRef);
+    const bind = (args: Record<string, unknown>) => bindAutomationRobotResult(args, routeRef, input.conversationId);
     return {
       ...tool,
       execute: (args, context) => tool.execute(bind(args), context),

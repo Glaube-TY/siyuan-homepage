@@ -12,7 +12,15 @@
 
   type Kind = "agent" | "monitor";
   type TriggerKind = "once" | "daily" | "weekly" | "monthly" | "interval" | "sensor";
-  interface TargetOption { value: string; label: string }
+  type TargetChannel = "none" | "kb" | "robot";
+  type ConversationMode = "new" | "existing";
+  interface TargetOption {
+    value: string;
+    label: string;
+    searchText: string;
+    conversationId: string;
+    routeRef?: string;
+  }
 
   let { job: initialJob, copyFrom: initialCopy, onSaved, onCancel } = $props<{
     job?: AutomationJobDefinition;
@@ -40,10 +48,21 @@
   let agentKnowledge = $state(base?.task.execution.allowedToolNames.includes("siyuan_kb") ?? true);
   let agentDiary = $state(base?.task.execution.allowedToolNames.includes("diary_task") ?? true);
   let agentMemory = $state(base?.task.execution.memoryAccess === "read");
-  let targetOptions = $state<TargetOption[]>([]);
-  let targetValue = $state(targetToValue(base?.output.replyTarget));
+  const initialTarget = base?.output.replyTarget;
+  let targetChannel = $state<TargetChannel>(initialTarget?.kind === "robot" ? "robot" : initialTarget?.kind === "kb-conversation" ? "kb" : "none");
+  let conversationMode = $state<ConversationMode>(initialTarget?.conversationMode ?? "existing");
+  let localTargets = $state<TargetOption[]>([]);
+  let robotTargets = $state<TargetOption[]>([]);
+  let selectedConversationId = $state(initialTarget?.conversationId ?? "");
+  let selectedRobotRoute = $state(initialTarget?.kind === "robot" ? initialTarget.routeRef : "");
+  let targetSearch = $state("");
+  let targetsLoading = $state(false);
   let saving = $state(false);
   let error = $state("");
+  let visibleTargets = $derived((targetChannel === "robot" ? robotTargets : localTargets).filter((option) => {
+    const query = targetSearch.trim().toLocaleLowerCase();
+    return !query || option.searchText.includes(query);
+  }));
 
   function localDateTimeValue(timestamp: number): string {
     const date = new Date(timestamp - new Date(timestamp).getTimezoneOffset() * 60_000);
@@ -54,41 +73,78 @@
     return provider === "wechat" ? "微信" : provider === "feishu" ? "飞书" : provider === "qq" ? "QQ" : provider;
   }
 
-  function targetToValue(target?: AutomationReplyTarget): string {
-    return target?.kind === "robot" ? `robot:${target.routeRef}` : target?.kind === "kb-conversation" ? `kb:${target.conversationId}` : "";
+  function buildReplyTarget(): AutomationReplyTarget | undefined {
+    if (targetChannel === "none") return undefined;
+    if (targetChannel === "kb") {
+      if (conversationMode === "new") return { kind: "kb-conversation", conversationMode: "new" };
+      if (!selectedConversationId) throw new Error("请选择一个本地 AI 对话。");
+      return { kind: "kb-conversation", conversationMode: "existing", conversationId: selectedConversationId };
+    }
+    const option = robotTargets.find((item) => item.conversationId === selectedConversationId);
+    const routeRef = conversationMode === "existing" ? option?.routeRef : selectedRobotRoute || option?.routeRef;
+    if (!routeRef) throw new Error("请选择接收结果的机器人会话。");
+    if (conversationMode === "existing" && !option) throw new Error("请选择一个已有机器人对话。");
+    return {
+      kind: "robot",
+      routeRef,
+      conversationMode,
+      ...(conversationMode === "existing" ? { conversationId: option!.conversationId } : {}),
+    };
   }
 
-  function valueToTarget(value: string): AutomationReplyTarget | undefined {
-    if (value.startsWith("robot:")) return { kind: "robot", routeRef: value.slice(6) };
-    if (value.startsWith("kb:")) return { kind: "kb-conversation", conversationId: value.slice(3) };
+  function setTargetChannel(channel: TargetChannel): void {
+    targetChannel = channel;
+    targetSearch = "";
+    if (channel === "none") return;
+    const options = channel === "robot" ? robotTargets : localTargets;
+    const selected = options.find((item) => item.conversationId === selectedConversationId);
+    if (!selected) selectedConversationId = options[0]?.conversationId ?? "";
+    if (channel === "robot" && !selectedRobotRoute) selectedRobotRoute = options[0]?.routeRef ?? "";
+  }
+
+  function selectTarget(option: TargetOption): void {
+    selectedConversationId = option.conversationId;
+    if (option.routeRef) selectedRobotRoute = option.routeRef;
   }
 
   async function refreshTargets(): Promise<void> {
-    const options: TargetOption[] = [];
-    const snapshot = await restoreKbChatSessions().catch(() => null);
-    for (const conversation of snapshot?.conversations ?? []) {
-      options.push({ value: `kb:${conversation.id}`, label: `本地 AI · ${conversation.title}` });
-    }
-    const kernel = new RobotKernelClient(getPluginKernelPort(getNotebrainPlugin()));
-    if (kernel.available) {
-      const client = new RobotSettingsClient(kernel);
-      const [sessions, settings] = await Promise.all([client.getSessions(), client.getSettings()]);
-      const seen = new Set<string>();
-      for (const item of sessions) {
-        const key = item.key && typeof item.key === "object" ? item.key as Record<string, unknown> : {};
-        const provider = typeof key.provider === "string" ? key.provider : "";
-        const accountId = typeof key.accountId === "string" ? key.accountId : "";
-        const chatId = typeof key.chatId === "string" ? key.chatId : "";
-        if (provider !== settings.activeProvider || !accountId || !chatId) continue;
-        const routeRef = encodeAutomationRobotRoute({ provider: provider as "wechat" | "feishu" | "qq", accountId, chatId });
-        const value = `robot:${routeRef}`;
-        if (seen.has(value)) continue;
-        seen.add(value);
-        const title = typeof item.title === "string" && item.title.trim() ? item.title.trim() : "机器人会话";
-        options.push({ value, label: `${item.active === true ? "默认 · " : ""}${providerLabel(provider)} · ${title}` });
+    targetsLoading = true;
+    try {
+      const snapshot = await restoreKbChatSessions().catch(() => null);
+      localTargets = (snapshot?.conversations ?? []).map((conversation) => ({
+        value: conversation.id,
+        conversationId: conversation.id,
+        label: conversation.title,
+        searchText: `${conversation.title} ${conversation.id}`.toLocaleLowerCase(),
+      }));
+      const kernel = new RobotKernelClient(getPluginKernelPort(getNotebrainPlugin()));
+      const nextRobotTargets: TargetOption[] = [];
+      if (kernel.available) {
+        const client = new RobotSettingsClient(kernel);
+        const sessions = await client.getSessions();
+        for (const item of sessions) {
+          const key = item.key && typeof item.key === "object" ? item.key as Record<string, unknown> : {};
+          const provider = typeof key.provider === "string" ? key.provider : "";
+          const accountId = typeof key.accountId === "string" ? key.accountId : "";
+          const chatId = typeof key.chatId === "string" ? key.chatId : "";
+          const senderId = typeof key.senderId === "string" ? key.senderId : undefined;
+          const conversationId = typeof item.conversationId === "string" ? item.conversationId : "";
+          if (!conversationId || !accountId || !chatId || !["wechat", "feishu", "qq"].includes(provider)) continue;
+          const routeRef = encodeAutomationRobotRoute({ provider: provider as "wechat" | "feishu" | "qq", accountId, chatId, ...(senderId ? { senderId } : {}) });
+          const title = typeof item.title === "string" && item.title.trim() ? item.title.trim() : "机器人会话";
+          const label = `${item.active === true ? "默认 · " : ""}${providerLabel(provider)} · ${title}`;
+          nextRobotTargets.push({ value: conversationId, conversationId, routeRef, label, searchText: `${label} ${conversationId}`.toLocaleLowerCase() });
+        }
       }
+      robotTargets = nextRobotTargets;
+      if (targetChannel === "robot") {
+        const selected = robotTargets.find((item) => item.conversationId === selectedConversationId)
+          ?? robotTargets.find((item) => item.routeRef === selectedRobotRoute);
+        if (selected) selectTarget(selected);
+      }
+    } finally {
+      targetsLoading = false;
     }
-    targetOptions = options;
   }
 
   async function save(): Promise<void> {
@@ -118,7 +174,7 @@
         memoryAccess: agentMemory ? "read" as const : "none" as const,
         budget: source?.task.execution.budget ?? { maxTokens: 30_000, maxToolCalls: 12, maxDurationMs: 300_000 },
       };
-      const replyTarget = valueToTarget(targetValue);
+      const replyTarget = buildReplyTarget();
       const next: AutomationJobDefinition = {
         schemaVersion: 1, jobId: current?.jobId ?? createAutomationJobId(), revision: current ? current.revision + 1 : 1,
         name: name.trim(), enabled: source?.enabled ?? true, source: current?.source ?? { surface: "settings" }, trigger,
@@ -152,14 +208,55 @@
     {#if triggerKind === "interval" || triggerKind === "sensor"}<label><span>检查间隔（分钟）</span><input class="b3-text-field" type="number" min="1" max="10080" bind:value={intervalMinutes} /></label>{/if}
     {#if triggerKind === "sensor"}<label><span>心跳检测器</span><select class="b3-select" bind:value={sensorId}>{#each sensors as sensor}<option value={sensor.id}>{sensor.label}</option>{/each}</select></label>{/if}
     <label class="wide"><span>执行目标</span><textarea class="b3-text-field" rows="5" bind:value={content}></textarea></label>
-    <fieldset class="capability-panel wide"><legend>可读取范围</legend><label><input type="checkbox" bind:checked={agentKnowledge} />知识库</label><label><input type="checkbox" bind:checked={agentDiary} />任务与日记</label><label><input type="checkbox" bind:checked={agentMemory} />全局记忆</label></fieldset>
-    <label class="wide"><span>结果发送到</span><select class="b3-select" bind:value={targetValue}><option value="">仅保存运行记录</option>{#each targetOptions as option (option.value)}<option value={option.value}>{option.label}</option>{/each}{#if targetValue && !targetOptions.some((option) => option.value === targetValue)}<option value={targetValue}>已绑定的会话</option>{/if}</select></label>
+    <fieldset class="capability-panel wide"><legend>可读取范围</legend><div class="capability-options"><label><input type="checkbox" bind:checked={agentKnowledge} />知识库</label><label><input type="checkbox" bind:checked={agentDiary} />任务与日记</label><label><input type="checkbox" bind:checked={agentMemory} />全局记忆</label></div></fieldset>
+    <fieldset class="target-panel wide">
+      <legend>结果发送到</legend>
+      <div class="segmented" role="group" aria-label="发送渠道">
+        <button type="button" class:active={targetChannel === "none"} onclick={() => setTargetChannel("none")}>仅运行记录</button>
+        <button type="button" class:active={targetChannel === "kb"} onclick={() => setTargetChannel("kb")}>本地 AI</button>
+        <button type="button" class:active={targetChannel === "robot"} onclick={() => setTargetChannel("robot")}>机器人</button>
+      </div>
+      {#if targetChannel !== "none"}
+        <div class="segmented mode" role="group" aria-label="会话方式">
+          <button type="button" class:active={conversationMode === "new"} onclick={() => { conversationMode = "new"; targetSearch = ""; }}>每次新建对话</button>
+          <button type="button" class:active={conversationMode === "existing"} onclick={() => conversationMode = "existing"}>选择已有对话</button>
+        </div>
+        {#if conversationMode === "new" && targetChannel === "robot"}
+          <div class="target-copy">从已有机器人会话中选择接收位置；每次运行都会创建独立的 Agent 上下文。</div>
+        {/if}
+        {#if conversationMode === "existing" || targetChannel === "robot"}
+          <label class="target-search">
+            <span>搜索{targetChannel === "robot" ? "机器人" : "本地"}对话</span>
+            <input class="b3-text-field" type="search" bind:value={targetSearch} placeholder="输入标题或会话 ID" />
+          </label>
+          <div class="target-list" role="listbox" aria-label="选择对话">
+            {#if targetsLoading}
+              <div class="target-empty">正在读取会话…</div>
+            {:else if visibleTargets.length === 0}
+              <div class="target-empty">没有找到可用对话</div>
+            {:else}
+              {#each visibleTargets as option (option.value)}
+                <button
+                  type="button"
+                  role="option"
+                  aria-selected={selectedConversationId === option.conversationId}
+                  class:selected={selectedConversationId === option.conversationId}
+                  onclick={() => selectTarget(option)}
+                >
+                  <span>{option.label}</span><small>{option.conversationId}</small>
+                </button>
+              {/each}
+            {/if}
+          </div>
+        {/if}
+      {/if}
+    </fieldset>
   </div>
   {#if error}<div class="error" role="alert">{error}</div>{/if}
   <footer><button type="button" class="b3-button b3-button--cancel" onclick={onCancel}>取消</button><button type="submit" class="b3-button b3-button--text" disabled={saving}>{saving ? "保存中…" : initialJob ? "保存修改" : "创建任务"}</button></footer>
 </form>
 
 <style>
-  .editor{display:flex;flex:1;min-height:0;flex-direction:column;padding:16px;overflow:auto;box-sizing:border-box}.form-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}.form-grid>label{display:flex;flex-direction:column;gap:6px;font-size:12px}.form-grid .wide{grid-column:1/-1}.form-grid input,.form-grid select,.form-grid textarea{box-sizing:border-box;width:100%}.form-grid input:not([type="checkbox"]),.form-grid select{min-height:34px}.capability-panel{display:flex;align-items:center;gap:18px;margin:0;padding:10px 12px;border:1px solid var(--b3-border-color);border-radius:8px}.capability-panel label{display:flex;align-items:center;gap:5px}.error{margin-top:12px;color:var(--b3-theme-error);font-size:12px}footer{display:flex;justify-content:flex-end;gap:8px;margin-top:16px;padding-top:12px;border-top:1px solid var(--b3-border-color)}
-  @media(max-width:760px){.form-grid{grid-template-columns:1fr}.capability-panel{align-items:flex-start;flex-direction:column;gap:8px}}
+  .editor{display:flex;flex:1;min-height:0;flex-direction:column;padding:16px;overflow:auto;box-sizing:border-box}.form-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}.form-grid>label{display:flex;flex-direction:column;gap:6px;font-size:12px}.form-grid .wide{grid-column:1/-1}.form-grid input,.form-grid select,.form-grid textarea{box-sizing:border-box;width:100%}.form-grid input:not([type="checkbox"]),.form-grid select{min-height:34px}.capability-panel,.target-panel{min-width:0;margin:0;padding:10px 12px;border:1px solid var(--b3-border-color);border-radius:8px;box-sizing:border-box}.capability-options{display:flex;align-items:center;flex-wrap:wrap;gap:10px 20px}.capability-options label{display:inline-flex;align-items:center;flex:0 0 auto;gap:5px;white-space:nowrap;writing-mode:horizontal-tb}.capability-options input{width:auto}.target-panel{display:flex;flex-direction:column;gap:10px}.segmented{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:4px;padding:3px;background:var(--b3-theme-background);border-radius:7px}.segmented.mode{grid-template-columns:repeat(2,minmax(0,1fr))}.segmented button{min-height:32px;border:0;border-radius:5px;background:transparent;color:var(--b3-theme-on-surface);cursor:pointer}.segmented button:hover{background:var(--b3-list-hover)}.segmented button.active{background:var(--b3-theme-surface);color:var(--b3-theme-primary);box-shadow:0 1px 3px rgb(0 0 0 / .12)}.target-copy{font-size:12px;color:var(--b3-theme-on-surface-light)}.target-search{display:flex;flex-direction:column;gap:6px;font-size:12px}.target-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;max-height:190px;overflow:auto;padding:2px}.target-list>button{display:flex;min-width:0;min-height:46px;flex-direction:column;align-items:flex-start;justify-content:center;gap:2px;padding:7px 10px;border:1px solid var(--b3-border-color);border-radius:7px;background:var(--b3-theme-surface);color:var(--b3-theme-on-surface);text-align:left;cursor:pointer}.target-list>button:hover{background:var(--b3-list-hover)}.target-list>button.selected{border-color:var(--b3-theme-primary);background:var(--b3-theme-primary-lightest)}.target-list span,.target-list small{display:block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.target-list small{color:var(--b3-theme-on-surface-light)}.target-empty{grid-column:1/-1;padding:20px;text-align:center;color:var(--b3-theme-on-surface-light)}.error{margin-top:12px;color:var(--b3-theme-error);font-size:12px}footer{display:flex;justify-content:flex-end;gap:8px;margin-top:16px;padding-top:12px;border-top:1px solid var(--b3-border-color)}
+  @media(max-width:760px){.form-grid{grid-template-columns:1fr}.target-list{grid-template-columns:1fr}.segmented{grid-template-columns:1fr}}
 </style>

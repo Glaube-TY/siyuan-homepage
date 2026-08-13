@@ -32,6 +32,7 @@ const createSchema = z
     trigger: automationTriggerSchema,
     task: automationTaskSchema,
     robotRouteRef: z.string().trim().min(1).max(500).optional(),
+    robotConversationId: id.optional(),
     enabled: z.boolean().default(true),
   })
   .strict();
@@ -43,6 +44,7 @@ const updateSchema = z
     trigger: automationTriggerSchema.optional(),
     task: automationTaskSchema.optional(),
     robotRouteRef: z.string().trim().min(1).max(500).nullable().optional(),
+    robotConversationId: id.nullable().optional(),
     enabled: z.boolean().optional(),
   })
   .strict();
@@ -154,10 +156,19 @@ export function createAutomationManageTool(
         (await options.resolveRunnerDeviceId?.())?.trim() ||
         getNotificationDeviceId();
       const replyTarget = args.robotRouteRef
-        ? { kind: "robot" as const, routeRef: args.robotRouteRef }
-      : options.source.surface !== "远程机器人对话" && options.source.conversationId
+        ? {
+            kind: "robot" as const,
+            routeRef: args.robotRouteRef,
+            conversationMode: "existing" as const,
+            ...(args.robotConversationId
+              ? { conversationId: args.robotConversationId }
+              : {}),
+          }
+        : options.source.surface !== "远程机器人对话" &&
+            options.source.conversationId
           ? {
               kind: "kb-conversation" as const,
+              conversationMode: "existing" as const,
               conversationId: options.source.conversationId,
             }
           : undefined;
@@ -222,6 +233,10 @@ export function createAutomationManageTool(
                       replyTarget: {
                         kind: "robot" as const,
                         routeRef: args.robotRouteRef,
+                        conversationMode: "existing" as const,
+                        ...(args.robotConversationId
+                          ? { conversationId: args.robotConversationId }
+                          : {}),
                       },
                     }
                   : {},

@@ -852,7 +852,8 @@ export function createKbSessionStore(
     },
 
     appendAutomationResult: async (input: {
-      conversationId: string;
+      conversationId?: string;
+      createNew?: boolean;
       runId: string;
       jobName: string;
       goal: string;
@@ -861,9 +862,15 @@ export function createKbSessionStore(
       await hydrateConversations();
       let found = false;
       update((state) => {
-        const target = state.conversations.find(
-          (item) => item.id === input.conversationId,
-        );
+        const created = input.createNew
+          ? {
+              ...createDefaultConversation(),
+              title: input.jobName.slice(0, 80),
+            }
+          : undefined;
+        const target =
+          created ??
+          state.conversations.find((item) => item.id === input.conversationId);
         if (!target) return state;
         found = true;
         const sourceMessages =
@@ -891,9 +898,12 @@ export function createKbSessionStore(
             isComplete: true,
           },
         ];
-        const conversations = state.conversations.map((item) =>
-          item.id === target.id ? { ...item, messages, updatedAt: now } : item,
-        );
+        const updatedTarget = { ...target, messages, updatedAt: now };
+        const conversations = created
+          ? [...state.conversations, updatedTarget]
+          : state.conversations.map((item) =>
+              item.id === target.id ? updatedTarget : item,
+            );
         return target.id === state.activeConversationId
           ? { ...state, messages, conversations }
           : { ...state, conversations };

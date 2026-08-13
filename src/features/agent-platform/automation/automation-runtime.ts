@@ -3,7 +3,10 @@ import {
   notificationLockName,
   withNotificationLock,
 } from "@/features/notification-center/notification-center-locks";
-import { runAgentProfile } from "@/features/kb/services/agent-workbench";
+import {
+  buildConversationContext,
+  runAgentProfile,
+} from "@/features/kb/services/agent-workbench";
 import type { AgentWorkbenchEvent } from "@/features/kb/services/agent-workbench/contracts/turn-event";
 import { createBackgroundJobAgentProfile } from "../agent-profile";
 import {
@@ -32,6 +35,8 @@ import {
 import { inspectAgentRunResume } from "@/features/kb/services/agent-core/session/agent-run-checkpoint";
 import { kbSessionStore } from "@/features/kb/stores/kb-session-store";
 import { ROBOT_OUTBOUND_RESULT_EVENT } from "@/features/robot-assistant/contracts/robot-message";
+import { restoreKbChatSessions } from "@/features/kb/services/agent-workbench/storage/chat-session-facade";
+import type { ChatMessage } from "@/features/kb/types/chat";
 
 export const AUTOMATION_RUNTIME_CHANGED_EVENT = "automation-runtime-changed";
 const TASK_ID = "automation-jobs";
@@ -76,7 +81,10 @@ async function deliver(
   if (!target) return;
   if (target.kind === "kb-conversation") {
     await kbSessionStore.appendAutomationResult({
-      conversationId: target.conversationId,
+      ...(target.conversationId
+        ? { conversationId: target.conversationId }
+        : {}),
+      createNew: target.conversationMode === "new",
       runId,
       jobName: job.name,
       goal: job.task.execution.goal,
@@ -135,6 +143,92 @@ async function deliver(
     }
     if (result.forwardedToClient) await forwarded;
     else abort.abort();
+    const recorded = await client.call<{ ok?: boolean; message?: string }>(
+      "robot.recordAutomationConversation",
+      {
+        ...route,
+        conversationMode: target.conversationMode,
+        ...(target.conversationId
+          ? { conversationId: target.conversationId }
+          : {}),
+        jobName: job.name,
+        goal: job.task.execution.goal,
+        content,
+      },
+    );
+    if (!recorded?.ok)
+      throw new Error(recorded?.message || "机器人会话记录失败。");
+  }
+}
+
+async function loadConversationContext(
+  job: AutomationJobDefinition,
+  goal: string,
+) {
+  const target = job.output.replyTarget;
+  if (!target || target.conversationMode !== "existing") return undefined;
+  if (target.kind === "kb-conversation" && target.conversationId) {
+    const snapshot = await restoreKbChatSessions();
+    const conversation = snapshot?.conversations.find(
+      (item) => item.id === target.conversationId,
+    );
+    if (!conversation) throw new Error("绑定的本地 AI 会话不存在或已被删除。");
+    return buildConversationContext({
+      messages: conversation.messages,
+      stageSummaries: conversation.stageSummaries,
+      currentQuestion: goal,
+      compressedContextSummary: conversation.compressedContextSummary,
+      compressionState: conversation.compressionState,
+    });
+  }
+  if (target.kind === "robot") {
+    const client = new RobotKernelClient(
+      getPluginKernelPort(getNotebrainPlugin()),
+    );
+    if (!client.available) throw new Error("机器人运行设备当前不可用。");
+    const sessions = await client.call<unknown[]>("robot.getSessions");
+    const route = decodeAutomationRobotRoute(target.routeRef);
+    const session = (Array.isArray(sessions) ? sessions : []).find((item) => {
+      if (!item || typeof item !== "object") return false;
+      const value = item as Record<string, unknown>;
+      if (target.conversationId)
+        return value.conversationId === target.conversationId;
+      const key =
+        value.key && typeof value.key === "object"
+          ? (value.key as Record<string, unknown>)
+          : {};
+      return (
+        key.provider === route.provider &&
+        key.accountId === route.accountId &&
+        key.chatId === route.chatId &&
+        (!route.senderId || key.senderId === route.senderId) &&
+        value.active === true
+      );
+    }) as Record<string, unknown> | undefined;
+    if (!session) throw new Error("绑定的机器人会话不存在或已被删除。");
+    const messages = (
+      Array.isArray(session.messages) ? session.messages : []
+    ).flatMap((item, index): ChatMessage[] => {
+      if (!item || typeof item !== "object") return [];
+      const value = item as Record<string, unknown>;
+      if (
+        (value.role !== "user" && value.role !== "assistant") ||
+        typeof value.content !== "string"
+      )
+        return [];
+      const createdAt =
+        typeof value.createdAt === "number" ? value.createdAt : Date.now();
+      return [
+        {
+          id: `robot-${String(session.conversationId)}-${index}`,
+          role: value.role,
+          content: value.content,
+          createdAt,
+          ...(value.role === "assistant" ? { isComplete: true } : {}),
+        } as ChatMessage,
+      ];
+    });
+    return buildConversationContext({ messages, currentQuestion: goal });
   }
 }
 
@@ -169,16 +263,22 @@ async function executeAgent(
   );
   const events: AgentWorkbenchEvent[] = [];
   let checkpointWrite = Promise.resolve();
+  const conversationContext = await loadConversationContext(job, goal);
   const profile = createBackgroundJobAgentProfile({
     ...execution,
     maxToolCalls: execution.budget.maxToolCalls,
+    conversationAccess: Boolean(conversationContext),
   });
   try {
     const outcome = await runAgentProfile({
       profile,
       question: goal,
+      conversationContext,
       mode: "whole_kb",
-      conversationId: `automation-${job.jobId}`,
+      conversationId:
+        job.output.replyTarget?.conversationMode === "existing"
+          ? (job.output.replyTarget.conversationId ?? `automation-${job.jobId}`)
+          : `automation-${job.jobId}-${runId}`,
       turnId: runId,
       abortSignal: controller.signal,
       maxToolCalls: execution.budget.maxToolCalls,
@@ -253,7 +353,8 @@ async function recoverInterruptedRun(
       console.error("[automation-runtime] 恢复投递失败", error);
     }
     await automationJobStore.deleteCheckpoint(run.runId);
-    const recoveredFailed = run.status === "failed" || run.delivery?.status === "failed";
+    const recoveredFailed =
+      run.status === "failed" || run.delivery?.status === "failed";
     const failures = recoveredFailed ? state.consecutiveFailures + 1 : 0;
     const blocked = failures >= job.policy.maxConsecutiveFailures;
     const manual = run.occurrenceKey.includes(":manual:");

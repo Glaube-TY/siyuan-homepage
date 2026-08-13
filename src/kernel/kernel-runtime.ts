@@ -759,9 +759,7 @@ export class RobotKernelRuntime {
 
   // ── 挂起确认（方案 §Kernel RPC: robot.confirm / robot.cancelConfirmation） ──
 
-  async confirmConfirmation(
-    confirmationId: string,
-  ): Promise<{
+  async confirmConfirmation(confirmationId: string): Promise<{
     ok: boolean;
     outcome?: RobotConfirmationOutcome;
     errorCode?: string;
@@ -772,9 +770,7 @@ export class RobotKernelRuntime {
     return { ok: true, outcome };
   }
 
-  async cancelConfirmation(
-    confirmationId: string,
-  ): Promise<{
+  async cancelConfirmation(confirmationId: string): Promise<{
     ok: boolean;
     outcome?: RobotConfirmationOutcome;
     errorCode?: string;
@@ -788,9 +784,7 @@ export class RobotKernelRuntime {
     return { ok: true, outcome: "rejected" };
   }
 
-  sendAutomationMessage(
-    message: RobotOutboundMessage,
-  ): Promise<{
+  sendAutomationMessage(message: RobotOutboundMessage): Promise<{
     ok: boolean;
     forwardedToClient?: boolean;
     errorCode?: string;
@@ -799,9 +793,75 @@ export class RobotKernelRuntime {
     return this.sendOutbound(message);
   }
 
-  private async sendOutbound(
-    message: RobotOutboundMessage,
-  ): Promise<{
+  async recordAutomationConversation(input: {
+    provider: RobotProviderId;
+    accountId: string;
+    chatId: string;
+    senderId?: string;
+    conversationMode: "new" | "existing";
+    conversationId?: string;
+    jobName: string;
+    goal: string;
+    content: string;
+  }): Promise<{ ok: true; conversationId: string }> {
+    const key = {
+      provider: input.provider,
+      accountId: input.accountId,
+      chatId: input.chatId,
+      ...(input.senderId ? { senderId: input.senderId } : {}),
+    };
+    const service = new RobotSessionService(this.sessionStore);
+    let session =
+      input.conversationMode === "existing" && input.conversationId
+        ? (await this.sessionStore.list()).find(
+            (item) => item.conversationId === input.conversationId,
+          )
+        : undefined;
+    if (
+      session &&
+      (session.key.provider !== key.provider ||
+        session.key.accountId !== key.accountId ||
+        session.key.chatId !== key.chatId ||
+        (session.key.senderId ?? "") !== (key.senderId ?? ""))
+    ) {
+      throw new Error("机器人会话与投递路由不匹配。");
+    }
+    if (!session && input.conversationMode === "existing") {
+      session = await this.sessionStore.get(key);
+    }
+    if (!session) {
+      session = await service.create(key, createRobotId(), input.jobName);
+    } else if (input.conversationMode === "existing") {
+      await service.activate(session.key, session.conversationId);
+    }
+    const now = Date.now();
+    const userText = `[自动化任务] ${input.jobName}\n${input.goal}`.slice(
+      0,
+      4000,
+    );
+    const answer = input.content.slice(0, 8000);
+    session.recentMessages.push({
+      role: "user",
+      content: userText,
+      createdAt: now,
+    });
+    session.recentMessages.push({
+      role: "assistant",
+      content: answer,
+      createdAt: now,
+    });
+    session.recentMessages = session.recentMessages.slice(-200);
+    session.agentMessages = [
+      ...(session.agentMessages ?? []),
+      { role: "user" as const, content: userText },
+      { role: "assistant" as const, content: answer },
+    ].slice(-200);
+    await service.save(session, now);
+    this.host.notify("robot.sessionsChanged", {});
+    return { ok: true, conversationId: session.conversationId };
+  }
+
+  private async sendOutbound(message: RobotOutboundMessage): Promise<{
     ok: boolean;
     forwardedToClient?: boolean;
     errorCode?: string;

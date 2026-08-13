@@ -61,7 +61,13 @@ const reminder: AutomationJobDefinition = {
     maxRetries: 1,
     maxConsecutiveFailures: 3,
   },
-  output: { replyTarget: { kind: "robot", routeRef: "robot-route-a" } },
+  output: {
+    replyTarget: {
+      kind: "robot",
+      routeRef: "robot-route-a",
+      conversationMode: "existing",
+    },
+  },
   createdAt: now,
   updatedAt: now,
 };
@@ -71,6 +77,27 @@ const store = new AutomationJobStore(storage);
 await store.saveJob(reminder);
 assert.equal((await store.getJob(reminder.jobId))?.name, reminder.name);
 assert.equal((await store.listJobs()).length, 1);
+assert.equal(
+  automationJobDefinitionSchema.parse({
+    ...reminder,
+    output: { replyTarget: { kind: "robot", routeRef: "legacy-route" } },
+  }).output.replyTarget?.conversationMode,
+  "existing",
+  "未写会话方式的当前任务应按已有会话读取",
+);
+assert.equal(
+  automationJobDefinitionSchema.safeParse({
+    ...reminder,
+    output: {
+      replyTarget: {
+        kind: "kb-conversation",
+        conversationMode: "new",
+      },
+    },
+  }).success,
+  true,
+  "每次新建本地会话不需要预先绑定会话 ID",
+);
 
 const revised = {
   ...reminder,
