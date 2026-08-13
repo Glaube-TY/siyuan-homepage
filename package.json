@@ -40,7 +40,8 @@
     "verify:agent-context": "node --loader ts-node/esm --experimental-specifier-resolution=node scripts/verify-agent-context-recovery.ts",
     "verify:agent-ui": "node --loader ts-node/esm --experimental-specifier-resolution=node scripts/verify-agent-execution-ui.ts",
     "verify:automation-storage": "node --loader ts-node/esm --experimental-specifier-resolution=node scripts/verify-automation-job-storage.ts",
-    "verify:automation-scheduler": "node --loader ts-node/esm --experimental-specifier-resolution=node scripts/verify-automation-scheduler.ts"
+    "verify:automation-scheduler": "node --loader ts-node/esm --experimental-specifier-resolution=node scripts/verify-automation-scheduler.ts",
+    "verify:global-calendar": "node --loader ts-node/esm --experimental-specifier-resolution=node scripts/verify-global-calendar.ts"
   },
   "devDependencies": {
     "@eslint/js": "^9.17.0",

@@ -16,6 +16,7 @@ import TaskManPlus from "./widget/tasksPlus/tasksPlus.svelte";
 import quickNotes from "./widget/quickNotes/quickNotes.svelte";
 import dailyQuote from "./widget/dailyQuote/dailyQuote.svelte";
 import visualChart from "./widget/visualChart/visualChart.svelte";
+import globalCalendar from "./widget/globalCalendar/globalCalendar.svelte";
 import musicPlayer from "./widget/musicPlayer/musicPlayer.svelte";
 import Stikynot from "./widget/stikynot/stikynot.svelte";
 import News from "./widget/News/News.svelte";
@@ -222,6 +223,7 @@ const BUILTIN_WIDGET_DEFINITIONS: readonly WidgetDefinition[] = Object.freeze([
     defineWidget({ type: "quick-notes", kind: "note", category: "collection", scope: "full", component: quickNotes, label: "快速笔记", icon: "note", plugin: true }),
     defineWidget({ type: "dailyQuote", kind: "utility", category: "editorial", scope: "native", component: dailyQuote, label: "每日一句", icon: "utility", plugin: true }),
     defineWidget({ type: "visualChart", kind: "chart", category: "visualization", scope: "native", component: visualChart, label: "可视化图表", icon: "chart", plugin: true, variants: ["visualchart.progress", "visualchart.tag-cloud"], contentVariant: dataVariant("visualChartType", { progressBar: "visualchart.progress", tagCloud: "visualchart.tag-cloud" }, "visualchart.progress") }),
+    defineWidget({ type: "globalCalendar", kind: "calendar", category: "visualization", scope: "full", component: globalCalendar, label: "全局日历", icon: "calendar", plugin: true }),
     defineWidget({ type: "musicPlayer", kind: "media", category: "media", scope: "native", component: musicPlayer, label: "音乐播放器", icon: "media", plugin: true, placements: ["homepage", "sidebar", "mobile", "mobile-runtime", "preview", "dock"] }),
     defineWidget({ type: "stikynot", kind: "note", category: "editorial", scope: "native", component: Stikynot, label: "便签", icon: "note", plugin: true, variants: ["stikynot.plain", "stikynot.textured"], contentVariant: (content) => {
         const style = contentData(content).stikynotStyle;

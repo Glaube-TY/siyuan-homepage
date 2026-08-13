@@ -9,6 +9,7 @@ import {
 import {
     CalendarComponent,
     DataZoomComponent,
+    GraphicComponent,
     GridComponent,
     LegendComponent,
     MarkLineComponent,
@@ -27,6 +28,7 @@ echarts.use([
     ScatterChart,
     CalendarComponent,
     DataZoomComponent,
+    GraphicComponent,
     GridComponent,
     LegendComponent,
     MarkLineComponent,

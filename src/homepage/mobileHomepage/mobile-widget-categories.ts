@@ -31,7 +31,7 @@ export const MOBILE_WIDGET_CATEGORIES: MobileWidgetCategory[] = [
     {
         id: "data",
         label: "数据",
-        types: ["statisticalCard", "heatmap", "visualChart", "databaseChart", "sql"],
+        types: ["globalCalendar", "statisticalCard", "heatmap", "visualChart", "databaseChart", "sql"],
     },
     {
         id: "tools",
@@ -60,6 +60,14 @@ export const MOBILE_WIDGET_CATEGORIES: MobileWidgetCategory[] = [
 ];
 
 export const MOBILE_WIDGET_CATALOG: MobileWidgetCatalogItem[] = [
+    {
+        type: "globalCalendar",
+        label: "全局日历",
+        description: "汇总任务、日记和重要日期",
+        category: "data",
+        activeTab: "visualization",
+        common: true,
+    },
     {
         type: "statisticalCard",
         label: "统计卡片",

@@ -33,6 +33,7 @@
   import StikynotSet from "./widget/stikynot/stikynotSet.svelte";
   import TimedateSet from "./widget/timedate/timedateSet.svelte";
   import VisualChartSet from "./widget/visualChart/visualChartSet.svelte";
+  import GlobalCalendarSet from "./widget/globalCalendar/GlobalCalendarSet.svelte";
   import WeatherSet from "./widget/weather/weatherSet.svelte";
   import WebviewSet from "./widget/webview/webviewSet.svelte";
   import TasksPlusSet from "./widget/tasksPlus/tasksPlusSet.svelte";
@@ -65,6 +66,11 @@
   import type { NotebookOption } from "./widget/common/componentMigrationTypes";
   import type { DeviceViewContext } from "@/homepage/deviceView/deviceViewTypes";
   import { loadWidgetInstanceConfig } from "@/homepage/deviceView/widgetInstanceRepository";
+  import {
+    DEFAULT_GLOBAL_CALENDAR_CONFIG,
+    normalizeGlobalCalendarConfig,
+    type GlobalCalendarConfig,
+  } from "@/features/global-calendar/global-calendar-types";
   // import DatabaseChartSet from "./widget/databaseChart/databaseChartSet.svelte";
 
   interface Props {
@@ -336,6 +342,7 @@
 
   // 可视化图表相关
   let visualChartType: string = $state("progressBar");
+  let globalCalendarConfig = $state<GlobalCalendarConfig>(structuredClone(DEFAULT_GLOBAL_CALENDAR_CONFIG));
 
   // 数据库图表相关
   let databaseChartID: string = $state("");
@@ -466,6 +473,7 @@
         "heatmap",
         "sql",
         "visualChart",
+        "globalCalendar",
         "databaseChart",
         "statisticalCard",
       ].includes(contentType)
@@ -760,6 +768,8 @@
         dailyQuoteLocalBg = parsedData.data?.dailyQuoteLocalBg || "";
       } else if (parsedData.type === "visualChart") {
         visualChartType = parsedData.data?.visualChartType || visualChartType;
+      } else if (parsedData.type === "globalCalendar") {
+        globalCalendarConfig = normalizeGlobalCalendarConfig(parsedData.data);
       } else if (parsedData.type === "musicPlayer") {
         musicFolderPath = parsedData.data?.musicFolderPath || "";
         autoPlay = parsedData.data?.autoPlay || false;
@@ -1211,6 +1221,7 @@
           <option value="heatmap">热力图</option>
           <option value="sql">SQL 查询</option>
           <option value="visualChart">可视化图表</option>
+          <option value="globalCalendar">全局日历</option>
           <!-- <option value="databaseChart">数据库图表👑</option> -->
           <option value="statisticalCard">统计卡片👑</option>
         </select>
@@ -1236,6 +1247,8 @@
           />
         {:else if selectedContentType === "visualChart"}
           <VisualChartSet bind:visualChartType />
+        {:else if selectedContentType === "globalCalendar"}
+          <GlobalCalendarSet bind:config={globalCalendarConfig} />
           <!-- {:else if selectedContentType === "databaseChart"}
                     <DatabaseChartSet
                         {plugin}
@@ -1774,6 +1787,16 @@
             instanceId: currentBlockId,
             data: {
               visualChartType,
+            },
+          };
+        } else if (selectedContentType === "globalCalendar") {
+          contentTypeJson = {
+            activeTab: activeTab,
+            type: "globalCalendar",
+            instanceId: currentBlockId,
+            data: {
+              ...globalCalendarConfig,
+              sources: { ...globalCalendarConfig.sources },
             },
           };
         } else if (selectedContentType === "musicPlayer") {

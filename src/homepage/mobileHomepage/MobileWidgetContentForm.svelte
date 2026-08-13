@@ -43,6 +43,10 @@
     PROTYLE_OUTER_PADDING_OPTIONS,
     type ProtyleDisplayPreset,
   } from "@/components/utils/widgetBlock/widget/protyle/protyleDisplayConfig";
+  import {
+    DEFAULT_GLOBAL_CALENDAR_CONFIG,
+    normalizeGlobalCalendarConfig,
+  } from "@/features/global-calendar/global-calendar-types";
 
   interface Props {
     plugin: any;
@@ -296,6 +300,12 @@
       visualChart: {
         visualChartType: "progressBar",
       },
+      globalCalendar: {
+        ...structuredClone(DEFAULT_GLOBAL_CALENDAR_CONFIG),
+        calendarSourceTasks: true,
+        calendarSourceDiary: true,
+        calendarSourceCountdown: true,
+      },
       databaseChart: {
         databaseChartID: "",
         databaseChartType: "line",
@@ -481,6 +491,15 @@
       next.customBlockId = source?.customBlockId || "";
       const hasSavedConfig = Boolean(source && typeof source === "object" && Object.keys(source).length > 0);
       Object.assign(next, normalizeProtyleDisplayConfig(source, hasSavedConfig ? "standard" : "compact"));
+    }
+
+    if (type === "globalCalendar") {
+      const calendar = normalizeGlobalCalendarConfig(source);
+      Object.assign(next, calendar, {
+        calendarSourceTasks: calendar.sources.tasks,
+        calendarSourceDiary: calendar.sources.diary,
+        calendarSourceCountdown: calendar.sources.countdown,
+      });
     }
 
     if (type === "latest-docs") {
@@ -955,6 +974,17 @@
             ),
           }),
         };
+      case "globalCalendar": {
+        const calendar = normalizeGlobalCalendarConfig({
+          ...form,
+          sources: {
+            tasks: normalizeBoolean(form.calendarSourceTasks, true),
+            diary: normalizeBoolean(form.calendarSourceDiary, true),
+            countdown: normalizeBoolean(form.calendarSourceCountdown, true),
+          },
+        });
+        return { ...base, data: withExistingData(calendar) };
+      }
       case "musicPlayer":
         return {
           ...base,
@@ -1700,6 +1730,28 @@
               option("tagCloud", "标签云图"),
             ],
           },
+        ];
+      case "globalCalendar":
+        return [
+          { key: "title", type: "text", label: "组件标题" },
+          {
+            key: "weekStartsOn",
+            type: "select",
+            label: "每周起始日",
+            options: [option(1, "星期一"), option(0, "星期日")],
+          },
+          { key: "showAdjacentDays", type: "switch", label: "显示相邻月份日期" },
+          { key: "showEventCount", type: "switch", label: "显示每日事项数量" },
+          { key: "maxPreviewEvents", type: "number", label: "首页每日预览数", min: 1, max: 8 },
+          {
+            key: "defaultDetailView",
+            type: "select",
+            label: "详细页默认视图",
+            options: [option("month", "月历"), option("agenda", "日程")],
+          },
+          { key: "calendarSourceTasks", type: "switch", label: "显示任务" },
+          { key: "calendarSourceDiary", type: "switch", label: "显示强化日记" },
+          { key: "calendarSourceCountdown", type: "switch", label: "显示纪念日与倒数日" },
         ];
       case "databaseChart":
         return [
