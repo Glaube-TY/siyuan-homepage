@@ -274,6 +274,9 @@ const themeIndexSource = readFileSync("src/homepage/theme/index.ts", "utf8");
 for (const primitive of ["HomepageThemeRegion", "HomepageIdentity", "HomepageBanner", "HomepageStatus", "HomepageActions", "HomepageSections"]) {
     assert.match(themeIndexSource, new RegExp(`\\b${primitive}\\b`), `Theme entry does not export primitive: ${primitive}`);
 }
+const sharedBannerSource = readFileSync("src/homepage/theme/components/shared/HomepageBanner.svelte", "utf8");
+assert.match(sharedBannerSource, /banner\.integrated && banner\.glassEnabled/, "Integrated banner glass must live in the shared banner primitive");
+assert.match(sharedBannerSource, /hp-banner__glass/, "Shared banner primitive must render the glass layer for every banner theme");
 
 const homepageStyleSource = readFileSync("src/homepage/style/homepage.scss", "utf8");
 assert.doesNotMatch(homepageStyleSource, /_workspace-header|_plugin-footer|_top-banner/, "Core stylesheet still imports Classic presentation partials");

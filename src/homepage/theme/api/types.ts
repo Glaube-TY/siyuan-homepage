@@ -50,6 +50,11 @@ export interface HomepageBannerModel {
     imageSrc: string;
     height: number;
     integrated: boolean;
+    glassEnabled: boolean;
+    glassColorMode: "theme" | "custom";
+    glassColor: string;
+    glassOpacity: number;
+    glassBlur: number;
     imageElement?: HTMLImageElement;
     setImageElement(element: HTMLImageElement | undefined): void;
     resetPosition(): Promise<void>;

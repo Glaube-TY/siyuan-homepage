@@ -384,19 +384,6 @@
 
     .hp-classic-banner--integrated .hp-classic-banner__image { position: absolute; inset: 0; }
 
-    .hp-classic-banner__glass {
-        position: absolute;
-        inset: 0;
-        z-index: 1;
-        background: color-mix(in srgb, var(--b3-theme-background) var(--homepage-banner-glass-opacity, 18%), transparent);
-        backdrop-filter: blur(var(--homepage-banner-glass-blur, 12px)) saturate(135%);
-        pointer-events: none;
-    }
-
-    .hp-classic--banner-glass-custom .hp-classic-banner__glass {
-        background: color-mix(in srgb, var(--homepage-banner-glass-color, #fff) var(--homepage-banner-glass-opacity, 18%), transparent);
-    }
-
     .hp-classic-banner--integrated .hp-classic-banner__overlay {
         z-index: 2;
         background: linear-gradient(to top, var(--b3-theme-background, #fff) 0%, color-mix(in srgb, var(--b3-theme-background) 82%, transparent) 12%, rgba(245, 245, 245, 0) 46%);

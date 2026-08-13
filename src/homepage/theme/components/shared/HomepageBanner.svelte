@@ -36,6 +36,14 @@
         class={`hp-banner__image ${imageClass}`.trim()}
         aria-hidden="true"
     />
+    {#if banner.integrated && banner.glassEnabled}
+        <div
+            class="hp-banner__glass"
+            class:hp-banner__glass--custom={banner.glassColorMode === "custom"}
+            style={`--homepage-banner-glass-color: ${banner.glassColor}; --homepage-banner-glass-opacity: ${banner.glassOpacity}%; --homepage-banner-glass-blur: ${banner.glassBlur}px;`}
+            aria-hidden="true"
+        ></div>
+    {/if}
     {@render children?.()}
     <button
         class={`hp-banner__reset ${resetClass}`.trim()}
@@ -45,3 +53,28 @@
         onclick={() => void banner.resetPosition()}
     >↺</button>
 </section>
+
+<style>
+    .hp-banner__glass {
+        position: absolute;
+        inset: 0;
+        z-index: 1;
+        background: color-mix(
+            in srgb,
+            var(--hp-surface, var(--b3-theme-background, #fff))
+                var(--homepage-banner-glass-opacity, 18%),
+            transparent
+        );
+        backdrop-filter: blur(var(--homepage-banner-glass-blur, 12px)) saturate(135%);
+        pointer-events: none;
+    }
+
+    .hp-banner__glass--custom {
+        background: color-mix(
+            in srgb,
+            var(--homepage-banner-glass-color, #fff)
+                var(--homepage-banner-glass-opacity, 18%),
+            transparent
+        );
+    }
+</style>
