@@ -33,7 +33,14 @@
       <option value="day">日视图</option>
       <option value="year">年视图</option>
       <option value="agenda">日程</option>
-      <option value="gantt">甘特图</option>
+    </select>
+  </SettingRow>
+  <SettingRow title="任务卡片配色">
+    <select class="control-md" bind:value={config.taskColorMode}>
+      <option value="theme">跟随主题</option>
+      <option value="gradient">多彩梯度</option>
+      <option value="priority">按优先级</option>
+      <option value="urgency">按临期程度</option>
     </select>
   </SettingRow>
   <SettingRow title="日程开始小时">

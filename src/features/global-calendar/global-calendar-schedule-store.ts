@@ -80,6 +80,9 @@ export function normalizeSchedule(value: unknown): GlobalCalendarSchedule {
       ? cleanText(raw.color)
       : COLORS[0],
     projectTitle: cleanText(raw.projectTitle) || undefined,
+    linkedTaskId: cleanText(raw.linkedTaskId) || undefined,
+    linkedTaskStartDate: parseCalendarDate(cleanText(raw.linkedTaskStartDate)) ? cleanText(raw.linkedTaskStartDate) : undefined,
+    linkedTaskEndDate: parseCalendarDate(cleanText(raw.linkedTaskEndDate)) ? cleanText(raw.linkedTaskEndDate) : undefined,
     recurrence: normalizeRecurrence(raw.recurrence),
     createdAt: cleanText(raw.createdAt) || now,
     updatedAt: cleanText(raw.updatedAt) || now,
@@ -177,7 +180,9 @@ export function expandGlobalCalendarSchedules(
         date,
         title: schedule.title,
         subtitle:
-          schedule.kind === "course"
+          schedule.linkedTaskId
+            ? [schedule.startTime, "任务执行", schedule.note].filter(Boolean).join(" · ")
+            : schedule.kind === "course"
             ? [schedule.startTime, schedule.location, "课程"]
                 .filter(Boolean)
                 .join(" · ")
@@ -188,7 +193,7 @@ export function expandGlobalCalendarSchedules(
           : schedule.endDate ? `${schedule.date}T00:00:00` : undefined,
         endAt: schedule.endTime ? `${date}T${schedule.endTime}:00` : schedule.endDate ? `${schedule.endDate}T23:59:00` : undefined,
         allDay: schedule.allDay || !schedule.startTime,
-        entityId: schedule.id,
+        entityId: schedule.linkedTaskId || schedule.id,
         projectTitle: schedule.projectTitle,
         color: schedule.color,
         editable: true,

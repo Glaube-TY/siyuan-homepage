@@ -48,46 +48,24 @@ const builtInProviders: GlobalCalendarProvider[] = [
         const title = cleanTaskTitle(task.taskname || task.markdown);
         const startDate = task.parsed.startDate;
         const deadline = task.parsed.deadline;
-        if (startDate && inRange(startDate, start, end)) {
-          events.push({
-            id: `task:${task.id}:start`,
-            source: "tasks",
-            date: startDate,
-            title,
-            subtitle: deadline === startDate ? "任务" : "开始",
-            entityId: task.id,
-            startAt: `${startDate}T00:00:00`,
-            endAt: `${deadline || startDate}T23:59:00`,
-            allDay: true,
-            projectId: project.visibleProjectTargetId,
-            projectTitle:
-              project.visibleProjectReference?.replace(/^📁\s*/, "") ||
-              undefined,
-            target: { kind: "block", id: task.id },
-          });
-        }
-        if (
-          deadline &&
-          deadline !== startDate &&
-          inRange(deadline, start, end)
-        ) {
-          events.push({
-            id: `task:${task.id}:deadline`,
-            source: "tasks",
-            date: deadline,
-            title,
-            subtitle: "截止",
-            entityId: task.id,
-            startAt: `${startDate || deadline}T00:00:00`,
-            endAt: `${deadline}T23:59:00`,
-            allDay: true,
-            projectId: project.visibleProjectTargetId,
-            projectTitle:
-              project.visibleProjectReference?.replace(/^📁\s*/, "") ||
-              undefined,
-            target: { kind: "block", id: task.id },
-          });
-        }
+        const eventStart = startDate || deadline;
+        const eventEnd = deadline || startDate;
+        if (!eventStart || !eventEnd || eventEnd < formatCalendarDate(start) || eventStart > formatCalendarDate(end)) continue;
+        events.push({
+          id: `task:${task.id}`,
+          source: "tasks",
+          date: eventStart,
+          title,
+          subtitle: project.visibleProjectReference?.replace(/^📁\s*/, "") || "任务",
+          entityId: task.id,
+          startAt: `${eventStart}T00:00:00`,
+          endAt: `${eventEnd}T23:59:00`,
+          allDay: true,
+          priorityLevel: Math.min(4, (task.parsed.priority?.match(/❗/g) || []).length),
+          projectId: project.visibleProjectTargetId,
+          projectTitle: project.visibleProjectReference?.replace(/^📁\s*/, "") || undefined,
+          target: { kind: "block", id: task.id },
+        });
       }
       return events;
     },

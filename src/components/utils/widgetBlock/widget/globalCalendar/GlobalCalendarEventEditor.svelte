@@ -6,27 +6,29 @@
   interface Props {
     initialDate: string;
     initialTime?: string;
+    initialEndTime?: string;
     schedule?: GlobalCalendarSchedule | null;
     onSave: (value: Partial<GlobalCalendarSchedule> & Pick<GlobalCalendarSchedule, "title" | "date">) => void | Promise<void>;
     onDelete?: () => void | Promise<void>;
     onClose: () => void;
   }
-  let { initialDate, initialTime = "09:00", schedule = null, onSave, onDelete, onClose }: Props = $props();
-  const initial = untrack(() => ({ schedule, initialDate, initialTime }));
+  let { initialDate, initialTime = "09:00", initialEndTime, schedule = null, onSave, onDelete, onClose }: Props = $props();
+  const initial = untrack(() => ({ schedule, initialDate, initialTime, initialEndTime }));
+  const initialRecurrence = initial.schedule?.recurrence || { kind: "none" as const };
   let title = $state(initial.schedule?.title || "");
   let kind = $state<"schedule" | "course">(initial.schedule?.kind || "schedule");
   let date = $state(initial.schedule?.date || initial.initialDate);
   let endDate = $state(initial.schedule?.endDate || "");
   let startTime = $state(initial.schedule?.startTime || initial.initialTime);
-  let endTime = $state(initial.schedule?.endTime || addHour(initial.initialTime));
+  let endTime = $state(initial.schedule?.endTime || initial.initialEndTime || addHour(initial.initialTime));
   let allDay = $state(initial.schedule?.allDay || false);
   let location = $state(initial.schedule?.location || "");
   let note = $state(initial.schedule?.note || "");
   let projectTitle = $state(initial.schedule?.projectTitle || "");
   let color = $state(initial.schedule?.color || GLOBAL_CALENDAR_COLORS[0]);
-  let recurrenceKind = $state(initial.schedule?.recurrence.kind || "none");
-  let until = $state(initial.schedule?.recurrence.kind !== "none" ? initial.schedule.recurrence.until || "" : "");
-  let weekdays = $state<number[]>(initial.schedule?.recurrence.kind === "weekly" ? [...initial.schedule.recurrence.weekdays] : [new Date(`${initial.schedule?.date || initial.initialDate}T00:00:00`).getDay()]);
+  let recurrenceKind = $state(initialRecurrence.kind);
+  let until = $state(initialRecurrence.kind !== "none" ? initialRecurrence.until || "" : "");
+  let weekdays = $state<number[]>(initialRecurrence.kind === "weekly" ? [...initialRecurrence.weekdays] : [new Date(`${initial.schedule?.date || initial.initialDate}T00:00:00`).getDay()]);
   let saving = $state(false);
 
   function addHour(value: string): string {
@@ -76,7 +78,7 @@
       {#if recurrenceKind !== "none"}<label>重复至<input type="date" min={date} bind:value={until} /></label>{/if}
       {#if recurrenceKind === "weekly"}<fieldset class="wide"><legend>星期</legend><div class="weekday-options">{#each [1,2,3,4,5,6,0] as day}<button type="button" class:active={weekdays.includes(day)} onclick={() => toggleWeekday(day)}>{["日","一","二","三","四","五","六"][day]}</button>{/each}</div></fieldset>{/if}
       <label>地点<input maxlength="120" bind:value={location} /></label>
-      <label>项目<input maxlength="120" placeholder="可选，用于甘特图分组" bind:value={projectTitle} /></label>
+      <label>项目<input maxlength="120" placeholder="可选，用于日历归类" bind:value={projectTitle} /></label>
       <label class="wide">备注<textarea rows="3" maxlength="500" bind:value={note}></textarea></label>
     </div>
     <footer>{#if schedule && onDelete}<button type="button" class="danger" onclick={onDelete}>删除</button>{/if}<span></span><button type="button" onclick={onClose}>取消</button><button type="submit" class="primary" disabled={saving || !title.trim()}>{saving ? "保存中…" : "保存"}</button></footer>

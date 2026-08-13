@@ -9,7 +9,12 @@ export type GlobalCalendarBuiltInSource =
   (typeof GLOBAL_CALENDAR_SOURCES)[number];
 export type GlobalCalendarSource = string;
 export type GlobalCalendarDetailView =
-  "month" | "week" | "day" | "year" | "agenda" | "gantt";
+  "month" | "week" | "day" | "year" | "agenda";
+export type GlobalCalendarTaskColorMode =
+  | "theme"
+  | "gradient"
+  | "priority"
+  | "urgency";
 
 export interface GlobalCalendarConfig {
   title: string;
@@ -19,6 +24,7 @@ export interface GlobalCalendarConfig {
   showEventCount: boolean;
   maxPreviewEvents: number;
   defaultDetailView: GlobalCalendarDetailView;
+  taskColorMode: GlobalCalendarTaskColorMode;
   workdayStart: number;
   workdayEnd: number;
 }
@@ -40,6 +46,7 @@ export interface GlobalCalendarEvent {
   entityId?: string;
   projectId?: string;
   projectTitle?: string;
+  priorityLevel?: number;
   color?: string;
   editable?: boolean;
   target?:
@@ -61,6 +68,9 @@ export interface GlobalCalendarSchedule {
   location?: string;
   color: string;
   projectTitle?: string;
+  linkedTaskId?: string;
+  linkedTaskStartDate?: string;
+  linkedTaskEndDate?: string;
   recurrence: GlobalCalendarRecurrence;
   createdAt: string;
   updatedAt: string;
@@ -79,6 +89,7 @@ export const DEFAULT_GLOBAL_CALENDAR_CONFIG: GlobalCalendarConfig = {
   showEventCount: true,
   maxPreviewEvents: 3,
   defaultDetailView: "month",
+  taskColorMode: "gradient",
   workdayStart: 7,
   workdayEnd: 22,
 };
@@ -123,10 +134,14 @@ export function normalizeGlobalCalendarConfig(
       "day",
       "year",
       "agenda",
-      "gantt",
     ].includes(String(input.defaultDetailView))
       ? (input.defaultDetailView as GlobalCalendarDetailView)
       : "month",
+    taskColorMode: ["theme", "gradient", "priority", "urgency"].includes(
+      String(input.taskColorMode),
+    )
+      ? (input.taskColorMode as GlobalCalendarTaskColorMode)
+      : DEFAULT_GLOBAL_CALENDAR_CONFIG.taskColorMode,
     workdayStart: clampHour(
       input.workdayStart,
       DEFAULT_GLOBAL_CALENDAR_CONFIG.workdayStart,
