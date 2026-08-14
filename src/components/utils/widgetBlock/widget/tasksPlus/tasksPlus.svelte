@@ -315,6 +315,7 @@
                             class="task-name"
                             data-widget-part="primary"
                             onclick={() => openDocs(plugin, task.id, 1)}
+                            title={task.taskname || "未命名任务"}
                         >
                             {task.taskname || "未命名任务"}
                         </button>
@@ -408,7 +409,9 @@
         display: flex;
         flex: 1;
         flex-direction: column;
+        min-width: 0;
         min-height: 0;
+        overflow: hidden;
     }
 
     .content-display {
@@ -437,16 +440,20 @@
             display: flex;
             flex-direction: column;
             gap: 0.5rem;
+            min-width: 0;
             min-height: 0;
 
             .task-item {
+                display: block;
+                flex: 0 0 auto;
+                min-width: 0;
+                min-height: 0;
                 padding: 0.75rem;
                 background-color: var(--b3-theme-surface);
                 border-radius: 6px;
                 transition: background-color 0.2s ease;
                 width: 100%;
                 box-sizing: border-box;
-                min-height: fit-content;
 
                 &:hover {
                     background-color: var(--b3-list-hover);
@@ -455,14 +462,17 @@
                 }
 
                 .checkbox-label {
-                    display: flex;
-                    align-items: center;
+                    display: grid;
+                    grid-template-columns: auto minmax(0, 1fr);
+                    align-items: start;
                     gap: 0.5rem;
+                    min-width: 0;
                     cursor: pointer;
                 }
 
                 .task-checkbox {
-                    margin: 0;
+                    flex: 0 0 auto;
+                    margin: 2px 0 0;
                     accent-color: var(--b3-theme-primary);
                 }
 
@@ -475,10 +485,11 @@
                     font-weight: bold;
                     text-align: left;
                     cursor: pointer;
-                    flex-grow: 1;
-                    word-break: break-word;
-                    overflow-wrap: break-word;
-                    white-space: normal;
+                    display: block;
+                    min-width: 0;
+                    overflow: hidden;
+                    text-overflow: ellipsis;
+                    white-space: nowrap;
                     line-height: 1.4;
 
                     &:hover {
@@ -487,25 +498,40 @@
                 }
 
                 .tasks-details {
-                    margin-top: 0.75rem;
+                    display: flex;
+                    flex-direction: column;
+                    gap: 0.25rem;
+                    min-width: 0;
+                    width: auto;
+                    margin-top: 0.375rem;
+                    padding-left: 1.5rem;
+                    overflow: hidden;
+                    box-sizing: border-box;
                     font-size: 0.9em;
-                    width: 100%;
+                    white-space: normal;
 
                     .meta-row {
                         display: flex;
-                        gap: 0.8rem;
+                        gap: 0.25rem 0.5rem;
                         flex-wrap: wrap;
-                        margin-bottom: 0.4rem;
-                        align-items: flex-start;
+                        min-width: 0;
+                        margin: 0;
+                        align-items: center;
+                    }
+
+                    .meta-row:empty {
+                        display: none;
                     }
 
                     .date-group {
                         display: flex;
-                        gap: 1rem;
+                        flex-wrap: wrap;
+                        gap: 0.5rem;
+                        min-width: 0;
                     }
 
                     .tags {
-                        margin-top: 0.6rem;
+                        margin-top: 0;
                         display: flex;
                         gap: 0.4rem;
                         flex-wrap: wrap;
@@ -520,9 +546,13 @@
                     }
 
                     .hpath {
-                        margin-top: 0.8rem;
+                        min-width: 0;
+                        margin-top: 0;
+                        overflow: hidden;
                         font-size: 0.85em;
                         opacity: 0.7;
+                        text-overflow: ellipsis;
+                        white-space: nowrap;
                     }
                 }
             }

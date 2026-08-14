@@ -1,12 +1,7 @@
 .homepage-container[data-hp-theme="builtin.paper"] {
     .widget-block[data-widget-presentation="paper.workspace.taskman"][data-widget-placement="homepage"][data-widget-presentation-scope="full"] {
         [data-widget-part="root"] { padding: var(--hp-widget-space-3); }
-        .task-header { justify-content: flex-start; gap: var(--hp-widget-space-2); }
-        .task-content { min-width: 0; margin-left: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .checkbox-label input { accent-color: var(--hp-paper-accent); }
-        .task-created-time,
-        .task-source { margin-top: var(--hp-widget-space-1); padding-left: 28px; }
-        .task-source { max-width: 100%; overflow: hidden; box-sizing: border-box; text-overflow: ellipsis; white-space: nowrap; }
     }
 
     :is(
@@ -92,16 +87,8 @@
     }
 
     .widget-block[data-widget-presentation="paper.workspace.taskman-plus"][data-widget-placement="homepage"][data-widget-presentation-scope="full"] {
-        [data-widget-part="body"] { display: flex; flex-direction: column; }
-        [data-widget-part="primary"] {
-            min-width: 0;
-            overflow: hidden;
-            color: var(--hp-paper-ink);
-            font: inherit;
-            font-weight: 560;
-            text-overflow: ellipsis;
-            white-space: nowrap;
-        }
+        [data-widget-part="body"] { overflow: hidden; }
+        [data-widget-part="primary"] { color: var(--hp-paper-ink); font-weight: 560; }
         [data-widget-part="meta"] { color: var(--hp-paper-ink-muted); }
         .task-checkbox { accent-color: var(--hp-paper-accent); }
     }

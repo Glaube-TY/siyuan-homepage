@@ -330,6 +330,7 @@
                                 tabindex="0"
                                 role="button"
                                 aria-label={task.content}
+                                title={task.content}
                             >
                                 {task.content}
                             </div>
@@ -359,6 +360,7 @@
         display: flex;
         flex: 1;
         flex-direction: column;
+        min-width: 0;
         min-height: 0;
     }
 
@@ -372,8 +374,11 @@
 
         .task-list {
             display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+            grid-template-columns: repeat(auto-fit, minmax(min(100%, 250px), 1fr));
             grid-gap: 1rem;
+            flex: 1;
+            min-width: 0;
+            min-height: 0;
             list-style: none;
             padding-left: 0;
             margin: 0;
@@ -381,6 +386,8 @@
         }
 
         .task-item {
+            flex: 0 0 auto;
+            min-width: 0;
             padding: 0.5rem 0.75rem;
             background-color: var(--b3-theme-surface);
             border-radius: 6px;
@@ -406,9 +413,14 @@
         .task-created-time,
         .task-source {
             display: block;
+            max-width: 100%;
             margin-top: 0.3rem;
             font-size: 12px;
             padding-left: 2rem;
+            overflow: hidden;
+            box-sizing: border-box;
+            text-overflow: ellipsis;
+            white-space: nowrap;
         }
 
         .checkbox-label {
@@ -419,18 +431,23 @@
         }
 
         .task-header {
-            display: flex;
+            display: grid;
+            grid-template-columns: auto minmax(0, 1fr);
             align-items: center;
-            justify-content: space-between;
+            gap: 0.5rem;
+            min-width: 0;
             width: 100%;
         }
 
         .task-content {
-            flex-grow: 1;
-            margin-left: 0.5rem;
+            min-width: 0;
+            margin-left: 0;
+            overflow: hidden;
             color: var(--b3-theme-primary);
             cursor: pointer;
             font-weight: bold;
+            text-overflow: ellipsis;
+            white-space: nowrap;
         }
 
         .task-content:hover {

@@ -98,21 +98,8 @@
     }
 
     .widget-block[data-widget-presentation="simple.workspace.taskman-plus"][data-widget-placement="homepage"][data-widget-presentation-scope="full"] {
-        [data-widget-part="body"] {
-            display: flex;
-            flex-direction: column;
-        }
-
-        [data-widget-part="primary"] {
-            min-width: 0;
-            overflow: hidden;
-            color: var(--hp-text);
-            font: inherit;
-            font-weight: 560;
-            text-overflow: ellipsis;
-            white-space: nowrap;
-        }
-
+        [data-widget-part="body"] { overflow: hidden; }
+        [data-widget-part="primary"] { color: var(--hp-text); font-weight: 560; }
         [data-widget-part="meta"] { color: var(--hp-text-muted); }
         .task-checkbox { accent-color: var(--hp-accent); }
     }

@@ -266,6 +266,13 @@ for (const relativePath of [
     );
 }
 
+const recentTasksSource = readFileSync("src/components/utils/widgetBlock/widget/tasks/recentTasks.svelte", "utf8");
+const tasksPlusSource = readFileSync("src/components/utils/widgetBlock/widget/tasksPlus/tasksPlus.svelte", "utf8");
+assert.match(recentTasksSource, /\.task-list[\s\S]*minmax\(min\(100%,\s*250px\),\s*1fr\)/, "任务管理列表必须允许网格列收缩到组件宽度");
+assert.match(recentTasksSource, /\.task-item[\s\S]*?flex:\s*0 0 auto/, "任务管理任务项不得在滚动容器中收缩");
+assert.match(tasksPlusSource, /\.task-item[\s\S]*?flex:\s*0 0 auto/, "任务管理 Plus 任务项不得在滚动容器中收缩");
+assert.match(tasksPlusSource, /\.tasks-details[\s\S]*?white-space:\s*normal/, "任务管理 Plus 元数据必须保留独立多行布局");
+
 for (const relativePath of [
     "src/components/utils/widgetBlock/widget/sql/sql.svelte",
     "src/components/utils/widgetBlock/widget/constellation/constellation.svelte",
@@ -375,8 +382,6 @@ assert.doesNotMatch(cardWidgetThemeStyles, /data-hp-widget-shell="card\.elevated
 for (const presentation of ["recent-journals", "review-docs", "enhanced-diary", "native.weather", "native.stikynot", "native.statistical-card", "native.almanac"]) {
     assert.match(cardWidgetThemeStyles, new RegExp(`card\\.workspace\\.${presentation}`), `纯卡片主题缺少 ${presentation} 的专项适配`);
 }
-assert.match(cardWidgetThemeStyles, /card\.workspace\.taskman-plus[\s\S]*flex:\s*0 0 auto/, "任务管理 Plus 的多行任务项不得在滚动容器中收缩重叠");
-assert.match(cardWidgetThemeStyles, /card\.workspace\.taskman-plus[\s\S]*white-space:\s*normal/, "任务管理 Plus 元数据必须恢复独立的多行布局上下文");
 
 const classicDefinition = readFileSync("src/homepage/theme/builtins/classic/definition.ts", "utf8");
 const simpleDefinition = readFileSync("src/homepage/theme/builtins/simple-test/definition.ts", "utf8");
