@@ -23,7 +23,6 @@ const BUSINESS_TOOL_BY_TYPE: Readonly<Record<string, HomepageBusinessCapability>
   "recent-journals": { businessTool: "siyuan_kb", allowedActions: ["list_by_time", "get_doc_info", "read_docs"], supported: true, reusedExistingTool: true },
   childDocs: { businessTool: "siyuan_kb", allowedActions: ["search", "get_doc_info", "read_docs", "outline"], supported: true, reusedExistingTool: true },
   conditionDocs: { businessTool: "siyuan_kb", allowedActions: ["search", "get_doc_info", "read_docs"], supported: true, reusedExistingTool: true },
-  databaseChart: { businessTool: "siyuan_database", allowedActions: ["list", "read", "find_rows", "extra_read"], supported: true, reusedExistingTool: true },
   visualChart: { businessTool: "siyuan_database", allowedActions: ["list", "read", "find_rows", "extra_read"], supported: true, reusedExistingTool: true },
   sql: { businessTool: "siyuan_database", allowedActions: ["list", "read", "find_rows", "extra_read"], supported: true, reusedExistingTool: true },
 };

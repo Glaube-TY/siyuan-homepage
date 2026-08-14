@@ -32,7 +32,10 @@
   import StatisticalCardSet from "./widget/statisticalCard/statisticalCardSet.svelte";
   import StikynotSet from "./widget/stikynot/stikynotSet.svelte";
   import TimedateSet from "./widget/timedate/timedateSet.svelte";
-  import VisualChartSet from "./widget/visualChart/visualChartSet.svelte";
+  import {
+    createDefaultVisualChartConfig,
+    visualChartConfigFromWidgetContent,
+  } from "@/features/visual-chart/visual-chart-config";
   import GlobalCalendarSet from "./widget/globalCalendar/GlobalCalendarSet.svelte";
   import HabitTrackerSet from "./widget/habitTracker/HabitTrackerSet.svelte";
   import WeatherSet from "./widget/weather/weatherSet.svelte";
@@ -72,7 +75,6 @@
     normalizeGlobalCalendarConfig,
     type GlobalCalendarConfig,
   } from "@/features/global-calendar/global-calendar-types";
-  // import DatabaseChartSet from "./widget/databaseChart/databaseChartSet.svelte";
 
   interface Props {
     // 弹窗接收的 props
@@ -341,30 +343,9 @@
   let columnOrder: string = $state("");
   let hiddenFields: string = $state("");
 
-  // 可视化图表相关
-  let visualChartType: string = $state("progressBar");
   let globalCalendarConfig = $state<GlobalCalendarConfig>(structuredClone(DEFAULT_GLOBAL_CALENDAR_CONFIG));
   let habitTrackerTitle = $state("习惯打卡");
   let habitTrackerMaxVisible = $state(5);
-
-  // 数据库图表相关
-  let databaseChartID: string = $state("");
-  let databaseChartType: string = $state("line");
-  let databaseChartTitle: string = $state("");
-  let databaseChartLineType: string = $state("XY");
-  let databaseChartLineXAxisSource: string = $state("");
-  let databaseChartLineXAxisTitle: string = $state("");
-  let databaseChartLineYAxisSource: string[] = $state([]);
-  let databaseChartLineYAxisTitle: string = $state("");
-  let databaseChartLineCountColumn: string = $state("");
-  let databaseChartLineCountXAxisTitle: string = $state("");
-  let databaseChartLineCountYAxisTitle: string = $state("");
-  let databaseChartLineSmooth: boolean = $state(false);
-  let databaseChartLineCountSort: string = $state("none");
-  let databaseChartLineMarkPoint: string = $state("circle");
-  let databaseChartLineMarkPointSize: number = $state(8);
-  let databaseChartLineStyle: string = $state("solid");
-  let databaseChartLineWidth: number = $state(2);
 
   // 统计卡片相关
   let statisticalCardTitle: string = $state("统计卡片");
@@ -477,7 +458,6 @@
         "sql",
         "visualChart",
         "globalCalendar",
-        "databaseChart",
         "statisticalCard",
       ].includes(contentType)
     ) {
@@ -770,8 +750,6 @@
         dailyQuoteRemoteBg =
           parsedData.data?.dailyQuoteRemoteBg || dailyQuoteRemoteBg;
         dailyQuoteLocalBg = parsedData.data?.dailyQuoteLocalBg || "";
-      } else if (parsedData.type === "visualChart") {
-        visualChartType = parsedData.data?.visualChartType || visualChartType;
       } else if (parsedData.type === "globalCalendar") {
         globalCalendarConfig = normalizeGlobalCalendarConfig(parsedData.data);
       } else if (parsedData.type === "habitTracker") {
@@ -805,54 +783,6 @@
         stikynotStyle = parsedData.data?.stikynotStyle || "";
       } else if (parsedData.type === "News") {
         NewsType = parsedData.data?.NewsType || NewsType;
-      } else if (parsedData.type === "databaseChart") {
-        databaseChartID = parsedData.data?.databaseChartID || databaseChartID;
-        databaseChartType =
-          parsedData.data?.databaseChartType || databaseChartType;
-        databaseChartTitle =
-          parsedData.data?.databaseChartTitle || databaseChartTitle;
-
-        databaseChartLineType =
-          parsedData.data?.databaseChartLineType || databaseChartLineType;
-
-        databaseChartLineXAxisSource =
-          parsedData.data?.databaseChartLineXAxisSource ||
-          databaseChartLineXAxisSource;
-        databaseChartLineXAxisTitle =
-          parsedData.data?.databaseChartLineXAxisTitle ||
-          databaseChartLineXAxisTitle;
-        databaseChartLineYAxisSource =
-          parsedData.data?.databaseChartLineYAxisSource ||
-          databaseChartLineYAxisSource;
-        databaseChartLineYAxisTitle =
-          parsedData.data?.databaseChartLineYAxisTitle ||
-          databaseChartLineYAxisTitle;
-
-        databaseChartLineCountColumn =
-          parsedData.data?.databaseChartLineCountColumn ||
-          databaseChartLineCountColumn;
-        databaseChartLineCountXAxisTitle =
-          parsedData.data?.databaseChartLineCountXAxisTitle ||
-          databaseChartLineCountXAxisTitle;
-        databaseChartLineCountYAxisTitle =
-          parsedData.data?.databaseChartLineCountYAxisTitle ||
-          databaseChartLineCountYAxisTitle;
-
-        databaseChartLineSmooth =
-          parsedData.data?.databaseChartLineSmooth || databaseChartLineSmooth;
-        databaseChartLineCountSort =
-          parsedData.data?.databaseChartLineCountSort ||
-          databaseChartLineCountSort;
-        databaseChartLineMarkPoint =
-          parsedData.data?.databaseChartLineMarkPoint ||
-          databaseChartLineMarkPoint;
-        databaseChartLineMarkPointSize =
-          parsedData.data?.databaseChartLineMarkPointSize ||
-          databaseChartLineMarkPointSize;
-        databaseChartLineWidth =
-          parsedData.data?.databaseChartLineWidth || databaseChartLineWidth;
-        databaseChartLineStyle =
-          parsedData.data?.databaseChartLineStyle || databaseChartLineStyle;
       } else if (parsedData.type === "childDocs") {
         childDocsTitle = parsedData.data?.childDocsTitle || childDocsTitle;
         childDocsPrefix = parsedData.data?.childDocsPrefix || childDocsPrefix;
@@ -1227,9 +1157,8 @@
         <select id="content-type" bind:value={selectedContentType}>
           <option value="heatmap">热力图</option>
           <option value="sql">SQL 查询</option>
-          <option value="visualChart">可视化图表</option>
+          <option value="visualChart" disabled={!advancedEnabled}>可视化图表👑</option>
           <option value="globalCalendar">全局日历👑</option>
-          <!-- <option value="databaseChart">数据库图表👑</option> -->
           <option value="statisticalCard">统计卡片👑</option>
         </select>
       </div>
@@ -1253,31 +1182,15 @@
             bind:hiddenFields
           />
         {:else if selectedContentType === "visualChart"}
-          <VisualChartSet bind:visualChartType />
+          <div class="widget-console-notice">
+            <SiyuanIcon name="overview" size={22} />
+            <div>
+              <strong>可视化图表使用独立工作台配置</strong>
+              <span>添加组件后，在主页点击图表右上角的设置按钮，即可连接数据库、SQL、文档信息或手动数据，并实时编辑图表样式。</span>
+            </div>
+          </div>
         {:else if selectedContentType === "globalCalendar"}
           <GlobalCalendarSet bind:config={globalCalendarConfig} {advancedEnabled} />
-          <!-- {:else if selectedContentType === "databaseChart"}
-                    <DatabaseChartSet
-                        {plugin}
-                        {advancedEnabled}
-                        bind:databaseChartID
-                        bind:databaseChartTitle
-                        bind:databaseChartType
-                        bind:databaseChartLineType
-                        bind:databaseChartLineXAxisSource
-                        bind:databaseChartLineXAxisTitle
-                        bind:databaseChartLineYAxisSource
-                        bind:databaseChartLineYAxisTitle
-                        bind:databaseChartLineCountColumn
-                        bind:databaseChartLineCountXAxisTitle
-                        bind:databaseChartLineCountYAxisTitle
-                        bind:databaseChartLineSmooth
-                        bind:databaseChartLineWidth
-                        bind:databaseChartLineStyle
-                        bind:databaseChartLineMarkPoint
-                        bind:databaseChartLineMarkPointSize
-                        bind:databaseChartLineCountSort
-                    /> -->
         {:else if selectedContentType === "statisticalCard"}
           <StatisticalCardSet
             {advancedEnabled}
@@ -1485,8 +1398,14 @@
       disabled={isSaving}
       onclick={async () => {
         if (isSaving) return;
-        if (["globalCalendar", "habitTracker", "focus"].includes(selectedContentType) && !advancedEnabled) {
-          const label = selectedContentType === "globalCalendar" ? "全局日历" : selectedContentType === "habitTracker" ? "习惯打卡" : "高级番茄钟";
+        if (["globalCalendar", "habitTracker", "focus", "visualChart"].includes(selectedContentType) && !advancedEnabled) {
+          const label = selectedContentType === "globalCalendar"
+            ? "全局日历"
+            : selectedContentType === "habitTracker"
+              ? "习惯打卡"
+              : selectedContentType === "visualChart"
+                ? "可视化图表"
+                : "高级番茄钟";
           showMessage(`${label}为高级会员专属组件，请开通后再配置`, 4000);
           return;
         }
@@ -1796,12 +1715,25 @@
             },
           };
         } else if (selectedContentType === "visualChart") {
+          const existingVisualChartData =
+            loadedWidgetConfig?.type === "visualChart" &&
+            loadedWidgetConfig?.data &&
+            !Array.isArray(loadedWidgetConfig.data)
+              ? loadedWidgetConfig.data
+              : {};
+          const existingVisualChart = loadedWidgetConfig
+            ? visualChartConfigFromWidgetContent(loadedWidgetConfig)
+            : createDefaultVisualChartConfig();
           contentTypeJson = {
             activeTab: activeTab,
             type: "visualChart",
             instanceId: currentBlockId,
             data: {
-              visualChartType,
+              ...existingVisualChartData,
+              visualChartType: existingVisualChart.chartType,
+              visualChart:
+                existingVisualChartData.visualChart ||
+                existingVisualChart,
             },
           };
         } else if (selectedContentType === "globalCalendar") {
@@ -1866,37 +1798,6 @@
             type: "News",
             instanceId: currentBlockId,
             data: { NewsType },
-          };
-        } else if (selectedContentType === "databaseChart") {
-          contentTypeJson = {
-            activeTab: activeTab,
-            type: "databaseChart",
-            instanceId: currentBlockId,
-            data: {
-              databaseChartID,
-              databaseChartType,
-              databaseChartTitle,
-              databaseChartLineType,
-              databaseChartLineXAxisSource,
-              databaseChartLineXAxisTitle,
-              databaseChartLineYAxisSource: Array.isArray(
-                databaseChartLineYAxisSource,
-              )
-                ? databaseChartLineYAxisSource
-                : databaseChartLineYAxisSource
-                  ? [databaseChartLineYAxisSource]
-                  : [],
-              databaseChartLineYAxisTitle,
-              databaseChartLineCountColumn,
-              databaseChartLineCountXAxisTitle,
-              databaseChartLineCountYAxisTitle,
-              databaseChartLineSmooth,
-              databaseChartLineWidth,
-              databaseChartLineStyle,
-              databaseChartLineCountSort,
-              databaseChartLineMarkPoint,
-              databaseChartLineMarkPointSize,
-            },
           };
         } else if (selectedContentType === "childDocs") {
           contentTypeJson = {
@@ -2101,6 +2002,21 @@
 
 <style lang="scss">
   @use "./contentSettingStyle/contentSetting.scss" as *;
+
+  .widget-console-notice {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 16px;
+    border: 1px solid color-mix(in srgb, var(--b3-theme-primary) 24%, var(--b3-border-color));
+    border-radius: 12px;
+    background: color-mix(in srgb, var(--b3-theme-primary) 7%, var(--b3-theme-surface));
+    color: var(--b3-theme-primary);
+
+    div { min-width: 0; display: flex; flex-direction: column; gap: 5px; }
+    strong { font-size: 14px; color: var(--b3-theme-on-background); }
+    span { font-size: 12px; line-height: 1.6; color: var(--b3-theme-on-surface); }
+  }
 
   // 共享布局类 - 限定在插件设置容器内，避免污染思源全局样式
   .settings-container :global(.setting-panel) {

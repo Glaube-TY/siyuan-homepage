@@ -21,7 +21,6 @@ import habitTracker from "./widget/habitTracker/habitTracker.svelte";
 import musicPlayer from "./widget/musicPlayer/musicPlayer.svelte";
 import Stikynot from "./widget/stikynot/stikynot.svelte";
 import News from "./widget/News/News.svelte";
-import databaseChart from "./widget/databaseChart/databaseChart.svelte";
 import childDocs from "./widget/childDocs/childDocs.svelte";
 import constellation from "./widget/constellation/constellation.svelte";
 import historyDays from "./widget/historyDays/historyDays.svelte";
@@ -36,6 +35,8 @@ import reviewDocs from "./widget/reviewDocs/reviewDocs.svelte";
 import enhancedDiary from "./widget/enhancedDiary/enhancedDiary.svelte";
 import accounting from "./widget/accounting/accounting.svelte";
 import KbPremiumGatePanel from "@/features/kb/components/panels/kb-premium-gate-panel.svelte";
+import { visualChartContextMenuActions } from "./widget/visualChart/openVisualChartConsole";
+import type { WidgetContextMenuAction } from "./widgetContextMenuActions";
 import {
     WIDGET_PRESENTATION_CONTRACT_VERSION,
     type WidgetDefinition,
@@ -71,9 +72,14 @@ type DefinitionInput = {
     placements?: readonly WidgetPlacement[];
     contentVariant?: WidgetContentVariantResolver;
     variants?: readonly string[];
+    contextMenuActions?: readonly WidgetContextMenuAction[];
 };
 
-function defineWidget(input: DefinitionInput): WidgetDefinition {
+export interface RegisteredWidgetDefinition extends WidgetDefinition {
+    readonly contextMenuActions?: readonly WidgetContextMenuAction[];
+}
+
+function defineWidget(input: DefinitionInput): RegisteredWidgetDefinition {
     const historicalDefaultTitles = getHistoricalWidgetTitles(input.type);
     return Object.freeze({
         type: input.type,
@@ -99,10 +105,13 @@ function defineWidget(input: DefinitionInput): WidgetDefinition {
             : undefined,
         presentationVariants: input.variants ? Object.freeze([...input.variants]) : undefined,
         resolveContentVariant: input.contentVariant,
+        contextMenuActions: input.contextMenuActions
+            ? Object.freeze([...input.contextMenuActions])
+            : undefined,
     });
 }
 
-export function validateWidgetDefinition(definition: WidgetDefinition): void {
+export function validateWidgetDefinition(definition: RegisteredWidgetDefinition): void {
     if (!WIDGET_TYPE_PATTERN.test(definition.type)) throw new Error(`非法 Widget type: ${definition.type}`);
     if (!definition.semanticLabel.trim()) throw new Error(`Widget ${definition.type} 缺少 semanticLabel`);
     if (!WIDGET_PRESENTATION_CATEGORIES.has(definition.presentationCategory)) {
@@ -140,6 +149,15 @@ export function validateWidgetDefinition(definition: WidgetDefinition): void {
             if (!PRESENTATION_VARIANT_PATTERN.test(variant) || !variant.startsWith(`${definition.type.toLowerCase()}.`)) {
                 throw new Error(`Widget ${definition.type} 声明了非法展示变体: ${variant}`);
             }
+        }
+    }
+    if (definition.contextMenuActions) {
+        const ids = definition.contextMenuActions.map((action) => action.id);
+        if (new Set(ids).size !== ids.length) throw new Error(`Widget ${definition.type} 重复声明右键动作`);
+        for (const action of definition.contextMenuActions) {
+            if (!/^[a-z0-9][a-z0-9._-]{2,95}$/.test(action.id)) throw new Error(`Widget ${definition.type} 声明了非法右键动作 ID: ${action.id}`);
+            if (typeof action.label === "string" && !action.label.trim()) throw new Error(`Widget ${definition.type} 的右键动作 ${action.id} 缺少名称`);
+            if (typeof action.execute !== "function") throw new Error(`Widget ${definition.type} 的右键动作 ${action.id} 缺少执行器`);
         }
     }
 }
@@ -187,20 +205,33 @@ const resolveCountdownContentVariant: WidgetContentVariantResolver = (content) =
         : "countdown.list";
 };
 
-export class WidgetDefinitionRegistry {
-    readonly #definitions = new Map<string, WidgetDefinition>();
+const resolveVisualChartVariant: WidgetContentVariantResolver = (content) => {
+    const data = contentData(content);
+    const visualChart = data.visualChart && typeof data.visualChart === "object" && !Array.isArray(data.visualChart)
+        ? data.visualChart as Record<string, unknown>
+        : {};
+    const type = String(visualChart.chartType || data.visualChartType || "bar");
+    if (type === "progress" || type === "progressBar") return "visualchart.progress";
+    if (type === "tagCloud" || type === "wordCloud") return "visualchart.tag-cloud";
+    if (["pie", "donut", "gauge", "sunburst"].includes(type)) return "visualchart.circular";
+    if (["heatmap", "funnel", "radar", "treemap"].includes(type)) return "visualchart.advanced";
+    return "visualchart.cartesian";
+};
 
-    register(definition: WidgetDefinition): void {
+export class WidgetDefinitionRegistry {
+    readonly #definitions = new Map<string, RegisteredWidgetDefinition>();
+
+    register(definition: RegisteredWidgetDefinition): void {
         validateWidgetDefinition(definition);
         if (this.#definitions.has(definition.type)) throw new Error(`Widget type 已注册: ${definition.type}`);
         this.#definitions.set(definition.type, definition);
     }
 
-    get(type: string): WidgetDefinition | undefined {
+    get(type: string): RegisteredWidgetDefinition | undefined {
         return this.#definitions.get(type);
     }
 
-    list(): readonly WidgetDefinition[] {
+    list(): readonly RegisteredWidgetDefinition[] {
         return Object.freeze([...this.#definitions.values()]);
     }
 }
@@ -223,7 +254,7 @@ const BUILTIN_WIDGET_DEFINITIONS: readonly WidgetDefinition[] = Object.freeze([
     defineWidget({ type: "TaskManPlus", kind: "task", category: "collection", scope: "full", component: TaskManPlus, label: "任务管理 Plus", icon: "tasks", plugin: true }),
     defineWidget({ type: "quick-notes", kind: "note", category: "collection", scope: "full", component: quickNotes, label: "快速笔记", icon: "note", plugin: true }),
     defineWidget({ type: "dailyQuote", kind: "utility", category: "editorial", scope: "native", component: dailyQuote, label: "每日一句", icon: "utility", plugin: true }),
-    defineWidget({ type: "visualChart", kind: "chart", category: "visualization", scope: "native", component: visualChart, label: "可视化图表", icon: "chart", plugin: true, variants: ["visualchart.progress", "visualchart.tag-cloud"], contentVariant: dataVariant("visualChartType", { progressBar: "visualchart.progress", tagCloud: "visualchart.tag-cloud" }, "visualchart.progress") }),
+    defineWidget({ type: "visualChart", kind: "chart", category: "visualization", scope: "native", component: visualChart, label: "可视化图表", icon: "chart", plugin: true, variants: ["visualchart.cartesian", "visualchart.circular", "visualchart.advanced", "visualchart.progress", "visualchart.tag-cloud"], contentVariant: resolveVisualChartVariant, contextMenuActions: visualChartContextMenuActions }),
     defineWidget({ type: "globalCalendar", kind: "calendar", category: "visualization", scope: "full", component: globalCalendar, label: "全局日历", icon: "calendar", plugin: true }),
     defineWidget({ type: "habitTracker", kind: "task", category: "collection", scope: "full", component: habitTracker, label: "习惯打卡", icon: "task.list", plugin: true }),
     defineWidget({ type: "musicPlayer", kind: "media", category: "media", scope: "native", component: musicPlayer, label: "音乐播放器", icon: "media", plugin: true, placements: ["homepage", "sidebar", "mobile", "mobile-runtime", "preview", "dock"] }),
@@ -232,7 +263,6 @@ const BUILTIN_WIDGET_DEFINITIONS: readonly WidgetDefinition[] = Object.freeze([
         return typeof style === "string" && style !== "default" ? "stikynot.textured" : "stikynot.plain";
     } }),
     defineWidget({ type: "News", kind: "list", category: "collection", scope: "native", component: News, label: "新闻资讯", icon: "list", plugin: true }),
-    defineWidget({ type: "databaseChart", kind: "chart", category: "visualization", scope: "native", component: databaseChart, label: "数据库图表", icon: "chart", plugin: true, variants: ["databasechart.line", "databasechart.bar", "databasechart.pie", "databasechart.scatter"], contentVariant: dataVariant("databaseChartType", { line: "databasechart.line", bar: "databasechart.bar", pie: "databasechart.pie", point: "databasechart.scatter" }, "databasechart.line") }),
     defineWidget({ type: "childDocs", kind: "list", category: "collection", scope: "full", component: childDocs, label: "子文档", icon: "documents", plugin: true }),
     defineWidget({ type: "constellation", kind: "stat", category: "editorial", scope: "chrome", component: constellation, label: "星座运势", icon: "stat", plugin: true }),
     defineWidget({ type: "historyDays", kind: "list", category: "collection", scope: "native", component: historyDays, label: "历史上的今天", icon: "list", plugin: true, variants: ["historydays.list", "historydays.image"], contentVariant: dataVariant("historyDaysType", { list: "historydays.list", img: "historydays.image" }, "historydays.list") }),
@@ -252,10 +282,10 @@ const BUILTIN_WIDGET_DEFINITIONS: readonly WidgetDefinition[] = Object.freeze([
 export const widgetDefinitionRegistry = new WidgetDefinitionRegistry();
 for (const definition of BUILTIN_WIDGET_DEFINITIONS) widgetDefinitionRegistry.register(definition);
 
-export function getWidgetDefinition(type: string): WidgetDefinition | undefined {
+export function getWidgetDefinition(type: string): RegisteredWidgetDefinition | undefined {
     return widgetDefinitionRegistry.get(type);
 }
 
-export function listWidgetDefinitions(): readonly WidgetDefinition[] {
+export function listWidgetDefinitions(): readonly RegisteredWidgetDefinition[] {
     return widgetDefinitionRegistry.list();
 }

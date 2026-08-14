@@ -19,7 +19,6 @@ const WIDGET_TYPE_TO_ACTIVE_TAB: Record<string, ValidActiveTab> = {
     "heatmap": "visualization",
     "sql": "visualization",
     "visualChart": "visualization",
-    "databaseChart": "visualization",
     "statisticalCard": "visualization",
     "focus": "tool",
     "countdown": "tool",

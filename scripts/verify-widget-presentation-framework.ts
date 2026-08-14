@@ -201,7 +201,7 @@ function collectSourceFiles(directory: string): string[] {
 
 const definitionSource = readFileSync("src/components/utils/widgetBlock/widgetDefinitionRegistry.ts", "utf8");
 const registeredTypes = [...definitionSource.matchAll(/defineWidget\(\{ type: "([^"]+)"/g)].map((match) => match[1]);
-assert.equal(registeredTypes.length, 38, "所有现有 Widget 都必须进入统一 Definition Registry");
+assert.equal(registeredTypes.length, 37, "所有现有 Widget 都必须进入统一 Definition Registry");
 assert.equal(new Set(registeredTypes).size, registeredTypes.length, "Widget Definition type 必须唯一");
 for (const type of ["latest-docs", "favorites", "recent-journals", "TaskMan", "notebrain"]) {
     assert.ok(registeredTypes.includes(type), `Definition Registry 缺少 ${type}`);
@@ -212,13 +212,13 @@ for (const capability of ["semanticLabel", "semanticIcon", "supportedPlacements"
 
 const registeredScopes = [...definitionSource.matchAll(/defineWidget\(\{ type: "([^"]+)", kind: "[^"]+", category: "[^"]+", scope: "(full|chrome|native)"/g)]
     .map((match) => [match[1], match[2]] as const);
-assert.equal(registeredScopes.length, 38, "全部 Widget 必须显式声明 Presentation Scope");
+assert.equal(registeredScopes.length, 37, "全部 Widget 必须显式声明 Presentation Scope");
 const scopeByType = new Map(registeredScopes);
 const expectedFull = ["latest-docs", "favorites", "recent-journals", "TaskMan", "HOT", "childDocs", "conditionDocs", "quick-notes", "TaskManPlus"];
 const expectedChrome = ["sql", "constellation", "reviewDocs", "fixedAssets"];
 for (const type of expectedFull) assert.equal(scopeByType.get(type), "full", `${type} 必须归类为 full`);
 for (const type of expectedChrome) assert.equal(scopeByType.get(type), "chrome", `${type} 必须归类为 chrome`);
-assert.equal([...scopeByType.values()].filter((scope) => scope === "native").length, 23, "必须保留 23 个 native Widget");
+assert.equal([...scopeByType.values()].filter((scope) => scope === "native").length, 22, "必须保留 22 个 native Widget");
 assert.match(definitionSource, /semanticParts: input\.scope !== "native"/, "full/chrome 必须启用 semanticParts，native 必须保持关闭");
 
 const mountSource = readFileSync("src/components/utils/widgetBlock/widgetMountRegistry.ts", "utf8");
@@ -230,11 +230,11 @@ assert.match(mountSource, /getWidgetDefinition/, "Widget 挂载必须经过统�
 assert.match(mountSource, /applyWidgetPresentation\(target, definition, placement, contentData\)/, "Widget 挂载必须把实例配置交给 Presentation 内容形态解析器");
 assert.match(definitionSource, /timedate\.dial/, "时间日期 Widget 必须声明表盘内容形态语义");
 const registeredCategories = [...definitionSource.matchAll(/defineWidget\(\{ type: "([^"]+)", kind: "[^"]+", category: "([^"]+)"/g)];
-assert.equal(registeredCategories.length, 38, "全部 Widget 必须显式声明主题呈现类别");
+assert.equal(registeredCategories.length, 37, "全部 Widget 必须显式声明主题呈现类别");
 for (const categoryName of ["collection", "metrics", "visualization", "editorial", "media", "control", "embedded", "workspace", "intrinsic"]) {
     assert.ok(registeredCategories.some((match) => match[2] === categoryName), `呈现类别 ${categoryName} 必须有组件注册`);
 }
-for (const variantName of ["recent-journals.calendar", "countdown.timeline", "custom-protyle.immersive", "timedate.dial", "visualchart.tag-cloud", "databasechart.pie", "historydays.image", "almanac.traditional"]) {
+for (const variantName of ["recent-journals.calendar", "countdown.timeline", "custom-protyle.immersive", "timedate.dial", "visualchart.tag-cloud", "visualchart.progress", "historydays.image", "almanac.traditional"]) {
     assert.ok(definitionSource.includes(variantName), `缺少主题展示变体 ${variantName}`);
 }
 

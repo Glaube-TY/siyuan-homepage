@@ -47,6 +47,10 @@
     DEFAULT_GLOBAL_CALENDAR_CONFIG,
     normalizeGlobalCalendarConfig,
   } from "@/features/global-calendar/global-calendar-types";
+  import {
+    createDefaultVisualChartConfig,
+    visualChartConfigFromWidgetContent,
+  } from "@/features/visual-chart/visual-chart-config";
 
   interface Props {
     plugin: any;
@@ -298,32 +302,14 @@
         heatmapCountType: "block",
       },
       visualChart: {
-        visualChartType: "progressBar",
+        visualChartType: "bar",
+        visualChart: createDefaultVisualChartConfig(),
       },
       globalCalendar: {
         ...structuredClone(DEFAULT_GLOBAL_CALENDAR_CONFIG),
         calendarSourceTasks: true,
         calendarSourceDiary: true,
         calendarSourceCountdown: true,
-      },
-      databaseChart: {
-        databaseChartID: "",
-        databaseChartType: "line",
-        databaseChartTitle: "",
-        databaseChartLineType: "XY",
-        databaseChartLineXAxisSource: "",
-        databaseChartLineXAxisTitle: "",
-        databaseChartLineYAxisSourceText: "",
-        databaseChartLineYAxisTitle: "",
-        databaseChartLineCountColumn: "",
-        databaseChartLineCountXAxisTitle: "",
-        databaseChartLineCountYAxisTitle: "",
-        databaseChartLineSmooth: false,
-        databaseChartLineCountSort: "none",
-        databaseChartLineMarkPoint: "circle",
-        databaseChartLineMarkPointSize: 8,
-        databaseChartLineStyle: "solid",
-        databaseChartLineWidth: 2,
       },
       sql: {
         sqlTitle: "SQL 查询结果",
@@ -479,13 +465,6 @@
 
   function normalizeLoadedForm(type: string, source: any): FormState {
     const next = { ...createDefaultForm(type), ...(source || {}) };
-
-    if (type === "databaseChart") {
-      const ySource = source?.databaseChartLineYAxisSource;
-      next.databaseChartLineYAxisSourceText = Array.isArray(ySource)
-        ? ySource.join(",")
-        : normalizeString(ySource, next.databaseChartLineYAxisSourceText);
-    }
 
     if (type === "custom-protyle") {
       next.customBlockId = source?.customBlockId || "";
@@ -965,13 +944,14 @@
           }),
         };
       case "visualChart":
+        const visualChart = existingConfig?.type === "visualChart"
+          ? visualChartConfigFromWidgetContent(existingConfig)
+          : createDefaultVisualChartConfig();
         return {
           ...base,
           data: withExistingData({
-            visualChartType: normalizeString(
-              form.visualChartType,
-              "progressBar",
-            ),
+            visualChartType: visualChart.chartType,
+            visualChart,
           }),
         };
       case "globalCalendar": {
@@ -1015,67 +995,6 @@
           ...base,
           data: withExistingData({
             NewsType: normalizeString(form.NewsType, "daily-news-bulletin"),
-          }),
-        };
-      case "databaseChart":
-        return {
-          ...base,
-          data: withExistingData({
-            databaseChartID: normalizeString(form.databaseChartID),
-            databaseChartType: normalizeString(form.databaseChartType, "line"),
-            databaseChartTitle: normalizeString(form.databaseChartTitle),
-            databaseChartLineType: normalizeString(
-              form.databaseChartLineType,
-              "XY",
-            ),
-            databaseChartLineXAxisSource: normalizeString(
-              form.databaseChartLineXAxisSource,
-            ),
-            databaseChartLineXAxisTitle: normalizeString(
-              form.databaseChartLineXAxisTitle,
-            ),
-            databaseChartLineYAxisSource: normalizeString(
-              form.databaseChartLineYAxisSourceText,
-            )
-              .split(",")
-              .map((item) => item.trim())
-              .filter(Boolean),
-            databaseChartLineYAxisTitle: normalizeString(
-              form.databaseChartLineYAxisTitle,
-            ),
-            databaseChartLineCountColumn: normalizeString(
-              form.databaseChartLineCountColumn,
-            ),
-            databaseChartLineCountXAxisTitle: normalizeString(
-              form.databaseChartLineCountXAxisTitle,
-            ),
-            databaseChartLineCountYAxisTitle: normalizeString(
-              form.databaseChartLineCountYAxisTitle,
-            ),
-            databaseChartLineSmooth: normalizeBoolean(
-              form.databaseChartLineSmooth,
-              false,
-            ),
-            databaseChartLineWidth: normalizeNumber(
-              form.databaseChartLineWidth,
-              2,
-            ),
-            databaseChartLineStyle: normalizeString(
-              form.databaseChartLineStyle,
-              "solid",
-            ),
-            databaseChartLineCountSort: normalizeString(
-              form.databaseChartLineCountSort,
-              "none",
-            ),
-            databaseChartLineMarkPoint: normalizeString(
-              form.databaseChartLineMarkPoint,
-              "circle",
-            ),
-            databaseChartLineMarkPointSize: normalizeNumber(
-              form.databaseChartLineMarkPointSize,
-              8,
-            ),
           }),
         };
       case "childDocs":
@@ -1322,9 +1241,9 @@
 
   async function submit(): Promise<void> {
     if (isSaving) return;
-    if (widgetType === "countdown" && !plugin?.ADVANCED) {
+    if (["countdown", "visualChart"].includes(widgetType) && !plugin?.ADVANCED) {
       showMessage(
-        "纪念日组件为高级会员专属功能，请开通会员后使用。已有本地数据不会被删除。",
+        `${widgetType === "countdown" ? "纪念日" : "可视化图表"}组件为高级会员专属功能，请开通会员后使用。已有本地数据不会被删除。`,
         4000,
       );
       return;
@@ -1722,13 +1641,10 @@
       case "visualChart":
         return [
           {
-            key: "visualChartType",
-            type: "select",
-            label: "图表类型",
-            options: [
-              option("progressBar", "进度条"),
-              option("tagCloud", "标签云图"),
-            ],
+            key: "visualChartConsoleInfo",
+            type: "info",
+            label: "使用独立图表工作台",
+            description: "添加后在主页点击图表右上角的设置按钮，统一配置数据源、字段映射、样式与动态刷新。",
           },
         ];
       case "globalCalendar":
@@ -1752,41 +1668,6 @@
           { key: "calendarSourceTasks", type: "switch", label: "显示任务" },
           { key: "calendarSourceDiary", type: "switch", label: "显示强化日记" },
           { key: "calendarSourceCountdown", type: "switch", label: "显示纪念日与倒数日" },
-        ];
-      case "databaseChart":
-        return [
-          {
-            key: "databaseChartID",
-            type: "text",
-            label: "数据库 ID",
-          },
-          titleField("databaseChartTitle", "数据库图表"),
-          {
-            key: "databaseChartType",
-            type: "select",
-            label: "图表类型",
-            options: [
-              option("line", "折线图"),
-              option("bar", "柱状图"),
-              option("pie", "饼图"),
-            ],
-          },
-          {
-            key: "databaseChartLineXAxisSource",
-            type: "text",
-            label: "X 轴字段",
-          },
-          {
-            key: "databaseChartLineYAxisSourceText",
-            type: "text",
-            label: "Y 轴字段",
-            description: "多个字段用英文逗号分隔",
-          },
-          {
-            key: "databaseChartLineSmooth",
-            type: "switch",
-            label: "平滑曲线",
-          },
         ];
       case "sql":
         return [

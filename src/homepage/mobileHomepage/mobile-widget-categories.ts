@@ -31,7 +31,7 @@ export const MOBILE_WIDGET_CATEGORIES: MobileWidgetCategory[] = [
     {
         id: "data",
         label: "数据",
-        types: ["globalCalendar", "statisticalCard", "heatmap", "visualChart", "databaseChart", "sql"],
+        types: ["globalCalendar", "statisticalCard", "heatmap", "visualChart", "sql"],
     },
     {
         id: "tools",
@@ -171,7 +171,7 @@ export const MOBILE_WIDGET_CATALOG: MobileWidgetCatalogItem[] = [
     {
         type: "visualChart",
         label: "可视化图表",
-        description: "展示进度、折线等图表",
+        description: "连接数据库、SQL、文档等数据生成动态图表",
         category: "data",
         activeTab: "visualization",
     },
@@ -216,13 +216,6 @@ export const MOBILE_WIDGET_CATALOG: MobileWidgetCatalogItem[] = [
         description: "进入增强日记工作区",
         category: "docs",
         activeTab: "note",
-    },
-    {
-        type: "databaseChart",
-        label: "数据库图表",
-        description: "基于数据库字段生成图表",
-        category: "data",
-        activeTab: "visualization",
     },
     {
         type: "focus",

@@ -1514,7 +1514,6 @@ const WIDGET_TYPE_DISPLAY_NAMES: Record<string, string> = {
     "heatmap": "热力图",
     "sql": "SQL 查询",
     "visualChart": "可视化图表",
-    "databaseChart": "数据库图表",
     "statisticalCard": "统计卡片",
     "conditionDocs": "条件文档",
     "quick-notes": "快速笔记",

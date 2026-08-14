@@ -42,7 +42,8 @@
     "verify:automation-storage": "node --loader ts-node/esm --experimental-specifier-resolution=node scripts/verify-automation-job-storage.ts",
     "verify:automation-scheduler": "node --loader ts-node/esm --experimental-specifier-resolution=node scripts/verify-automation-scheduler.ts",
     "verify:global-calendar": "node --loader ts-node/esm --experimental-specifier-resolution=node scripts/verify-global-calendar.ts",
-    "verify:habit-tracker": "node --loader ts-node/esm --experimental-specifier-resolution=node scripts/verify-habit-tracker.ts"
+    "verify:habit-tracker": "node --loader ts-node/esm --experimental-specifier-resolution=node scripts/verify-habit-tracker.ts",
+    "verify:visual-chart": "node --loader ts-node/esm --experimental-specifier-resolution=node scripts/verify-visual-chart.ts"
   },
   "devDependencies": {
     "@eslint/js": "^9.17.0",

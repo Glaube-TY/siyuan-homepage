@@ -13,6 +13,12 @@ import { createWidgetInstanceId, loadWidgetInstanceConfig } from "@/homepage/dev
 import { getCurrentDeviceViewContext } from "@/homepage/deviceView/deviceViewContext";
 import type { DeviceViewContext } from "@/homepage/deviceView/deviceViewTypes";
 import { applyWidgetAppearanceCompatibility } from "@/homepage/theme/widgetAppearance/widgetAppearanceCompat";
+import { getWidgetDefinition } from "./widgetDefinitionRegistry";
+import {
+    resolveWidgetContextMenuActionLabel,
+    resolveWidgetContextMenuActions,
+    type WidgetContextMenuActionContext,
+} from "./widgetContextMenuActions";
 
 // 内部交互控件和显式声明的区域保留自己的右键行为。
 // 第三方组件可在任意容器上添加 data-widget-native-context-menu 作为逃生口。
@@ -440,6 +446,29 @@ export class WidgetBlock {
             disabled: this.isNewInstance && !this.draftConfigPersisted,
             click: () => void this.refreshContent(),
         });
+
+        const widgetType = this.element.dataset.widgetType || "";
+        const definition = widgetType ? getWidgetDefinition(widgetType) : undefined;
+        const actionContext = definition?.contextMenuActions?.length
+            ? this.createContextMenuActionContext(widgetType)
+            : null;
+        const widgetActions = actionContext
+            ? resolveWidgetContextMenuActions(definition?.contextMenuActions, actionContext)
+            : [];
+        if (actionContext && widgetActions.length) {
+            menu.addSeparator();
+            for (const action of widgetActions) {
+                menu.addItem({
+                    ...(action.icon ? { icon: action.icon } : {}),
+                    label: resolveWidgetContextMenuActionLabel(action, actionContext),
+                    disabled: action.disabled?.(actionContext) === true,
+                    click: () => void Promise.resolve(action.execute(actionContext)).catch((error) => {
+                        const message = error instanceof Error ? error.message : String(error);
+                        showMessage(`组件操作失败：${message}`, 5000, "error");
+                    }),
+                });
+            }
+        }
         menu.addSeparator();
         menu.addItem({
             icon: "iconTheme",
@@ -461,6 +490,30 @@ export class WidgetBlock {
             y: openedFromKeyboard ? rect.top + 8 : clientY,
             isLeft: false,
         });
+    }
+
+    private createContextMenuActionContext(widgetType: string): WidgetContextMenuActionContext {
+        return {
+            widgetType,
+            widgetId: this.id,
+            plugin: this.plugin,
+            element: this.element,
+            placement: "homepage",
+            deviceViewContext: this.runtimeOptions.deviceViewContext!,
+            hasPersistedConfig: !this.isNewInstance || this.draftConfigPersisted,
+            loadConfig: () => loadWidgetInstanceConfig(this.runtimeOptions.deviceViewContext!, this.id),
+            saveConfig: async (config) => {
+                await saveWidgetContentPreservingSize(
+                    this.plugin,
+                    this.id,
+                    config,
+                    this.runtimeOptions.deviceViewContext!,
+                    this.element,
+                );
+                this.updateContent(JSON.stringify(config), { refreshReason: "settings" });
+            },
+            refresh: () => this.refreshContent(),
+        };
     }
 
     private resolveAppearancePolicy(): "theme-controlled" | "user-configurable" {

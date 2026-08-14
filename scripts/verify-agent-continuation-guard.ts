@@ -12,11 +12,11 @@ import { OPENAI_COMPATIBLE_CAPABILITIES } from "../src/features/kb/services/agen
 import { NativeToolRegistry } from "../src/features/kb/services/agent-core/tools/native-tool-registry";
 
 const repeated = [
-  "从当前结果中只能看到 focus 组件位于 databaseChart 之后、PicCaro 之前，但这还不足以确定分类，因此我准备继续查看它的完整信息并核对 categoryId 字段。",
+  "从当前结果中只能看到 focus 组件位于 visualChart 之后、PicCaro 之前，但这还不足以确定分类，因此我准备继续查看它的完整信息并核对 categoryId 字段。",
   "当前主页只有 accounting 和 musicPlayer 两个组件，为了整理每个分类下的全部组件，我还需要把组件目录与现有布局逐项进行比对，然后继续完成添加操作。",
-  "从当前结果中只能看到 focus 组件位于 databaseChart 之后、PicCaro 之前，但这还不足以确定分类，因此我准备继续查看它的完整信息并核对 categoryId 字段。",
+  "从当前结果中只能看到 focus 组件位于 visualChart 之后、PicCaro 之前，但这还不足以确定分类，因此我准备继续查看它的完整信息并核对 categoryId 字段。",
   "当前主页只有 accounting 和 musicPlayer 两个组件，为了整理每个分类下的全部组件，我还需要把组件目录与现有布局逐项进行比对，然后继续完成添加操作。",
-  "从当前结果中只能看到 focus 组件位于 databaseChart 之后、PicCaro 之前，但这还不足以确定分类，因此我准备继续查看它的完整信息并核对 categoryId 字段。",
+  "从当前结果中只能看到 focus 组件位于 visualChart 之后、PicCaro 之前，但这还不足以确定分类，因此我准备继续查看它的完整信息并核对 categoryId 字段。",
   "当前主页只有 accounting 和 musicPlayer 两个组件，为了整理每个分类下的全部组件，我还需要把组件目录与现有布局逐项进行比对，然后继续完成添加操作。",
 ].join("\n\n");
 assert.equal(
