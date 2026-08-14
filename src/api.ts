@@ -154,7 +154,15 @@ function readWindowSiyuanIdentity(): Pick<SiyuanCloudIdentity, "userId" | "userN
 
 export async function getSiyuanCloudIdentity(): Promise<SiyuanCloudIdentity> {
     try {
-        const response = await requestRaw("/api/setting/getCloudUser", {});
+        let timer: number | undefined;
+        const response = await Promise.race([
+            requestRaw("/api/setting/getCloudUser", {}),
+            new Promise<never>((_, reject) => {
+                timer = window.setTimeout(() => reject(new Error("getCloudUser timeout")), 5000);
+            }),
+        ]).finally(() => {
+            if (typeof timer === "number") window.clearTimeout(timer);
+        });
         if (response?.code === 0) {
             const identity = readCloudIdentityFromResponse(response.data);
             if (identity.userId) {

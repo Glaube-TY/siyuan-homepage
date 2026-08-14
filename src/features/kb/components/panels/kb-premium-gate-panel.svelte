@@ -3,6 +3,10 @@
     import KbMainPanel from "./kb-main-panel.svelte";
     import AdvancedFeatureLock from "@/components/utils/widgetBlock/widget/common/AdvancedFeatureLock.svelte";
     import SiyuanIcon from "@/components/utils/shared/SiyuanIcon.svelte";
+    import {
+        getHomepageEntitlementSnapshot,
+        subscribeHomepageEntitlement,
+    } from "@/features/entitlement/homepage-entitlement";
 
     interface Props {
         plugin: any;
@@ -13,25 +17,12 @@
 
     let { plugin, placement = "tab", onOpenSettings, onClose }: Props = $props();
 
-    let advanced = $state(false);
+    let advanced = $state(getHomepageEntitlementSnapshot().advanced);
 
     onMount(() => {
-        advanced = !!plugin.ADVANCED;
-
-        const handleAdvancedReady = () => {
-            advanced = true;
-        };
-        const handleAdvancedUnavailable = () => {
-            advanced = false;
-        };
-
-        window.addEventListener("homepage-advanced-ready", handleAdvancedReady);
-        window.addEventListener("homepage-advanced-unavailable", handleAdvancedUnavailable);
-
-        return () => {
-            window.removeEventListener("homepage-advanced-ready", handleAdvancedReady);
-            window.removeEventListener("homepage-advanced-unavailable", handleAdvancedUnavailable);
-        };
+        return subscribeHomepageEntitlement((snapshot) => {
+            advanced = snapshot.advanced;
+        });
     });
 </script>
 

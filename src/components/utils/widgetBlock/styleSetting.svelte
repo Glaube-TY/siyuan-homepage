@@ -1,5 +1,9 @@
 <script lang="ts">
     import { onMount } from "svelte";
+    import {
+        getHomepageEntitlementSnapshot,
+        subscribeHomepageEntitlement,
+    } from "@/features/entitlement/homepage-entitlement";
     import { showMessage } from "siyuan";
     import { saveLayout, type HomepageLayoutRuntimeOptions } from "./utils/layout-handler";
     import {
@@ -70,10 +74,11 @@
     let availableTargetSections = $derived(
         componentSections.filter((section) => section.id !== layoutRuntimeOptions.sectionId)
     );
+    let advancedEnabled = $state(getHomepageEntitlementSnapshot().advanced);
     let effectiveComponentSectionsEnabled = $derived(
         isComponentSectionsEffective(
             { componentSectionsEnabled, componentSections },
-            Boolean(plugin?.ADVANCED),
+            advancedEnabled,
         ),
     );
     let canMigrateToSection = $derived(
@@ -238,6 +243,10 @@
         colSize = size.colSize;
 
     });
+
+    onMount(() => subscribeHomepageEntitlement((snapshot) => {
+        advancedEnabled = snapshot.advanced;
+    }));
 </script>
 
 <div class="settings-group">

@@ -13,14 +13,23 @@ export function openReviewNotifySettingsDialog(advancedEnabled: boolean): void {
     return;
   }
   let close = () => undefined;
+  const closeOnEntitlementUnavailable = () => close();
+  window.addEventListener("homepage-advanced-unavailable", closeOnEntitlementUnavailable);
   const width = window.matchMedia("(max-width: 600px)").matches
     ? "calc(100vw - 24px)"
     : "min(920px, calc(100vw - 32px))";
-  const ref = svelteDialog({
-    title: "复习通知",
-    width,
-    height: "min(86vh, 900px)",
-    constructor: (container) => mount(ReviewNotifySettingsDialog, { target: container, props: { advancedEnabled, onClose: () => close() } }),
-  });
+  let ref: ReturnType<typeof svelteDialog>;
+  try {
+    ref = svelteDialog({
+      title: "复习通知",
+      width,
+      height: "min(86vh, 900px)",
+      callback: () => window.removeEventListener("homepage-advanced-unavailable", closeOnEntitlementUnavailable),
+      constructor: (container) => mount(ReviewNotifySettingsDialog, { target: container, props: { advancedEnabled, onClose: () => close() } }),
+    });
+  } catch (error) {
+    window.removeEventListener("homepage-advanced-unavailable", closeOnEntitlementUnavailable);
+    throw error;
+  }
   close = ref.close;
 }

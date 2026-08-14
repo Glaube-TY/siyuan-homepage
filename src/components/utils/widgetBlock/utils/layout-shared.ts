@@ -1,4 +1,5 @@
 import type { Plugin } from 'siyuan';
+import { isHomepageEntitlementGranted } from "@/features/entitlement/homepage-entitlement";
 import { classifyWidgetAppearance } from "@/homepage/theme/widgetAppearance/widgetAppearanceCompat";
 import { canSaveLayoutFromRestoreState } from "./layout-save-guard";
 import { isDesktopDeviceProfileEnabled } from "@/homepage/utils/deviceProfile";
@@ -587,7 +588,7 @@ function normalizeSectionId(sectionId: string | null | undefined): string | null
 async function isRuntimeComponentSectionsEnabled(plugin: Plugin, fixedContext?: DeviceViewContext): Promise<boolean> {
     const context = fixedContext ?? await getReadyContext(plugin, "desktop-homepage");
     const config = (await readDeviceViewSettings(context))?.config || null;
-    return isComponentSectionsEffective(config, Boolean((plugin as any)?.ADVANCED));
+    return isComponentSectionsEffective(config, isHomepageEntitlementGranted());
 }
 
 function getDeviceProfile(

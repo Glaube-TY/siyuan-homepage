@@ -2,6 +2,10 @@
     import { onMount } from "svelte";
     import { showMessage } from "siyuan";
     import {
+        getHomepageEntitlementSnapshot,
+        subscribeHomepageEntitlement,
+    } from "@/features/entitlement/homepage-entitlement";
+    import {
         loadUserLayoutTemplates,
         saveCurrentDeviceAsLayoutTemplate,
         applyUserLayoutTemplateToCurrentDevice,
@@ -24,7 +28,7 @@
 
     let { plugin }: Props = $props();
 
-    let advancedEnabled = $derived(plugin.ADVANCED);
+    let advancedEnabled = $state(getHomepageEntitlementSnapshot().advanced);
     let loading = $state(true);
     let currentTargetType = $state<"homepage" | "section">("homepage");
     let currentColumns = $state<number | null>(null);
@@ -70,31 +74,31 @@
         await refreshSelectedPreview(t);
     }
 
-    onMount(async () => {
+    async function initializeTemplateCenter(): Promise<void> {
+        loading = true;
+        loadError = null;
         try {
-            if (!advancedEnabled) {
-                loading = false;
-                return;
-            }
-
-            const context = getCurrentDeviceViewContext(plugin, "desktop-homepage");
-            const target = await resolveCurrentLayoutTarget(plugin, context);
-            currentTargetType = target.targetType;
-            currentColumns = target.columns;
-            userLayoutTemplates = await loadUserLayoutTemplates(plugin);
-            for (const t of userLayoutTemplates) {
-                userLayoutAvailabilityMap[t.id] = await getUserLayoutTemplateAvailability(plugin, t, context, target);
-            }
-            selectedTemplate = userLayoutTemplates[0] ?? null;
-            if (selectedTemplate) {
-                await refreshSelectedPreview(selectedTemplate);
-            }
+            await refreshTemplateCenterState({ keepSelection: false });
         } catch (error: any) {
             loadError = error?.message || "加载失败";
             showMessage(`模板中心加载失败: ${loadError}`, 5000, "error");
         } finally {
             loading = false;
         }
+    }
+
+    onMount(() => {
+        let initialized = false;
+        return subscribeHomepageEntitlement((snapshot) => {
+            advancedEnabled = snapshot.advanced;
+            if (snapshot.advanced && !initialized) {
+                initialized = true;
+                void initializeTemplateCenter();
+            } else if (!snapshot.advanced) {
+                initialized = false;
+                loading = false;
+            }
+        });
     });
 
     async function refreshTemplateCenterState(options?: { keepSelection?: boolean }) {

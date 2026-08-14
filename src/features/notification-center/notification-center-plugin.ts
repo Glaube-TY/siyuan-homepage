@@ -1,4 +1,5 @@
 import { setKbSensitiveSecretCryptoPlugin } from "@/features/kb/services/settings/kb-sensitive-secret-crypto";
+import { isHomepageEntitlementGranted } from "@/features/entitlement/homepage-entitlement";
 
 let pluginInstance: any = null;
 
@@ -15,7 +16,7 @@ export function getNotificationCenterPlugin(): any {
 }
 
 export function isNotificationCenterFeatureAvailable(): boolean {
-  return pluginInstance?.ADVANCED === true;
+  return pluginInstance !== null && isHomepageEntitlementGranted();
 }
 
 export function assertNotificationCenterFeatureAvailable(): void {

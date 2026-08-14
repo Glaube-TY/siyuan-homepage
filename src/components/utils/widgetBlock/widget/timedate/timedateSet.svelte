@@ -1,4 +1,9 @@
 <script lang="ts">
+    import { onMount } from "svelte";
+    import {
+        getHomepageEntitlementSnapshot,
+        subscribeHomepageEntitlement,
+    } from "@/features/entitlement/homepage-entitlement";
     import ImageSourceSetting from "../../shared/ImageSourceSetting.svelte";
     import SettingSection from "@/libs/components/SettingSection.svelte";
     import SettingRow from "@/libs/components/SettingRow.svelte";
@@ -102,7 +107,11 @@
         dial9ShowSecond = $bindable(true)
     }: Props = $props();
 
-    let advancedEnabled = $derived(Boolean(plugin?.ADVANCED));
+    let advancedEnabled = $state(getHomepageEntitlementSnapshot().advanced);
+
+    onMount(() => subscribeHomepageEntitlement((snapshot) => {
+        advancedEnabled = snapshot.advanced;
+    }));
 </script>
 
 <SettingSection>

@@ -2,6 +2,10 @@
   import { onMount } from "svelte";
   import { showMessage } from "siyuan";
   import {
+    getHomepageEntitlementSnapshot,
+    subscribeHomepageEntitlement,
+  } from "@/features/entitlement/homepage-entitlement";
+  import {
     archiveCountdownCategory,
     archiveCountdownEvent,
     bulkUpdateCountdownEvents,
@@ -82,7 +86,7 @@
   let editorEvent = $state<CountdownEventRecord | undefined>(undefined);
   let editorOpen = $state(false);
   let refreshVersion = $state(0);
-  const advancedEnabled = $derived(Boolean(plugin?.ADVANCED));
+  let advancedEnabled = $state(getHomepageEntitlementSnapshot().advanced);
   const models = $derived(
     data
       ? queryCountdownWidgetEvents(
@@ -366,6 +370,9 @@
     tab = initialTab;
     let unsubData = () => {};
     let unsubSettings = () => {};
+    const unsubEntitlement = subscribeHomepageEntitlement((snapshot) => {
+      advancedEnabled = snapshot.advanced;
+    });
     let stopDay = () => {};
     const handleNotifySettingsChanged = () => {
       if (advancedEnabled) void reloadNotify();
@@ -401,6 +408,7 @@
     return () => {
       unsubData();
       unsubSettings();
+      unsubEntitlement();
       stopDay();
       window.removeEventListener(
         COUNTDOWN_NOTIFY_SETTINGS_CHANGED_EVENT,

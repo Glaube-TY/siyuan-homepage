@@ -14,6 +14,10 @@ import {
     type HomepageStatusStatKey,
 } from "../status-text-config";
 import { loadStatsDataResult } from "./stats-loader";
+import {
+    ensureHomepageEntitlementGranted,
+    resolveHomepageEntitlementMessage,
+} from "@/features/entitlement/homepage-entitlement";
 
 export interface HomepageStatusAiConfig {
     prompt: string;
@@ -168,11 +172,11 @@ export async function generateHomepageStatusText(params: {
     facts?: HomepageStatusFacts;
     abortSignal?: AbortSignal;
 }): Promise<GenerateHomepageStatusTextResult> {
-    if (!params.plugin?.ADVANCED) {
+    if (!await ensureHomepageEntitlementGranted(params.plugin)) {
         return {
             ok: false,
             reason: "not_premium",
-            message: "AI 智能生成状态语是会员专属功能",
+            message: resolveHomepageEntitlementMessage("AI 智能生成状态语"),
         };
     }
 

@@ -3,6 +3,12 @@
     import * as advanced from "../../components/tools/advanced";
     import { showMessage } from "siyuan";
     import { createRuntimeId } from "@/libs/runtime-id";
+    import {
+        denyHomepageEntitlement,
+        getHomepageEntitlementSnapshot,
+        grantHomepageEntitlement,
+        subscribeHomepageEntitlement,
+    } from "@/features/entitlement/homepage-entitlement";
 
     import "./homepageSettingStyle/homepageSetting.scss"
     import type { HomepageSettingProps, ButtonItem, HomepageSettingMainTab, HomepageSettingSubTab, WidgetsSettingsState, WidgetsSettingsActions, StylesSettingsState, StylesSettingsActions, ButtonSettingsActions } from "./types"
@@ -1016,7 +1022,7 @@
         tempBannerEnabled = bannerEnabled;
         tempBannerType = bannerType;
         tempBannerHeight = bannerHeight;
-        advancedEnabled = plugin.ADVANCED;
+        advancedEnabled = getHomepageEntitlementSnapshot().advanced;
 
         await refreshStatusAiModelSummary();
         window.addEventListener(KB_SETTINGS_CHANGED_EVENT, handleKbSettingsChanged);
@@ -1031,6 +1037,11 @@
             SHARED_SETTINGS_POLL_MS,
         );
     });
+
+    onMount(() => subscribeHomepageEntitlement((snapshot) => {
+        advancedEnabled = snapshot.advanced;
+        activated = snapshot.advanced;
+    }));
 
     onDestroy(() => {
         if (autoSaveTimer) {
@@ -1231,8 +1242,10 @@
         showMessage("✅激活成功！");
         activated = true;
         advancedEnabled = true;
-        plugin.ADVANCED = true;
-        window.dispatchEvent(new CustomEvent("homepage-advanced-ready"));
+        if (activationResult.userInfo) {
+            grantHomepageEntitlement(plugin, activationResult.userInfo);
+        }
+        void plugin.refreshHomepageEntitlement?.();
         void refreshStatusAiModelSummary();
     }
 
@@ -1247,8 +1260,8 @@
         activated = result.valid === true;
         if (activated) {
             advancedEnabled = true;
-            plugin.ADVANCED = true;
-            window.dispatchEvent(new CustomEvent("homepage-advanced-ready"));
+            if (result.userInfo) grantHomepageEntitlement(plugin, result.userInfo);
+            void plugin.refreshHomepageEntitlement?.();
             void refreshStatusAiModelSummary();
         }
     }
@@ -1258,8 +1271,8 @@
         activationResult = { valid: false, code: -1, error: "会员授权已取消" };
         activated = false;
         advancedEnabled = false;
-        plugin.ADVANCED = false;
-        window.dispatchEvent(new CustomEvent("homepage-advanced-unavailable"));
+        denyHomepageEntitlement(plugin, "会员授权已取消");
+        void plugin.refreshHomepageEntitlement?.();
         void refreshStatusAiModelSummary();
     }
 

@@ -2,33 +2,33 @@ import type { RobotKernelHost } from "./kernel-host";
 import { isSignedLicense, verifySignedLicense } from "../components/tools/licenseSy2";
 
 const LICENSE_KEY = "license.syhomepage";
-const CACHE_TTL_MS = 5 * 60 * 1000;
+const LICENSE_READ_TIMEOUT_MS = 8_000;
 
 /**
  * Kernel 会员校验：直接读取与前端相同的签名许可证文件并使用同一公钥验签。
  * 不信任可编辑的 ADVANCED/remainingDays 布尔或展示字段。
  */
 export class KernelEntitlementService {
-  private cached: { available: boolean; checkedAt: number } | null = null;
-
-  constructor(private readonly host: RobotKernelHost, private readonly now = () => Date.now()) {}
+  constructor(private readonly host: RobotKernelHost) {}
 
   async isAvailable(): Promise<boolean> {
-    const now = this.now();
-    if (this.cached && now - this.cached.checkedAt < CACHE_TTL_MS) return this.cached.available;
-    const available = await this.verifyLocalLicense();
-    // 仅缓存已通过的许可证。用户刚完成会员激活时应能立即启用机器人，
-    // 不能被激活前的 negative cache 再阻塞数分钟。
-    this.cached = available ? { available, checkedAt: now } : null;
-    return available;
+    return this.verifyLocalLicense();
   }
 
   invalidate(): void {
-    this.cached = null;
+    // 保留兼容接口；授权不再缓存，每次敏感调用都读取并验签当前文件。
   }
 
   private async verifyLocalLicense(): Promise<boolean> {
-    const raw = await this.host.storage.get(LICENSE_KEY);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const raw = await Promise.race([
+      this.host.storage.get(LICENSE_KEY),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error("kernel license read timeout")), LICENSE_READ_TIMEOUT_MS);
+      }),
+    ]).finally(() => {
+      if (timer !== undefined) clearTimeout(timer);
+    }).catch(() => null);
     if (!raw) return false;
     try {
       const data = JSON.parse(raw) as Record<string, unknown>;

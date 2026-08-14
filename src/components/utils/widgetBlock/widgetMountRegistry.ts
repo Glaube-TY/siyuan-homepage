@@ -3,6 +3,7 @@ import type { DeviceViewContext } from "@/homepage/deviceView/deviceViewTypes";
 import { applyWidgetPresentation } from "@/homepage/theme/widgetPresentation/runtime";
 import type { WidgetPlacement } from "@/homepage/theme/widgetPresentation/types";
 import { getWidgetDefinition } from "./widgetDefinitionRegistry";
+import WidgetRuntimeHost from "./WidgetRuntimeHost.svelte";
 
 export interface WidgetRuntimeContext {
     placement?: WidgetPlacement;
@@ -68,8 +69,12 @@ export function mountWidgetContent(
 
     const selectedComponent = presentation.renderer ?? definition.component;
     const existingNodes = new Set(target.childNodes);
+    const hostProps = (component: typeof selectedComponent) => ({
+        component,
+        componentProps: props,
+    });
     try {
-        return mount(selectedComponent, { target, props });
+        return mount(WidgetRuntimeHost, { target, props: hostProps(selectedComponent) });
     } catch (error) {
         console.error("[WidgetPresentation] Widget renderer 挂载失败", {
             themeId: presentation.themeId,
@@ -83,6 +88,6 @@ export function mountWidgetContent(
         for (const node of Array.from(target.childNodes)) {
             if (!existingNodes.has(node)) node.remove();
         }
-        return mount(definition.component, { target, props });
+        return mount(WidgetRuntimeHost, { target, props: hostProps(definition.component) });
     }
 }

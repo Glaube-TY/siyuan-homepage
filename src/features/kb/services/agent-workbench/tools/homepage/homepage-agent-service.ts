@@ -1,4 +1,5 @@
 import type { Plugin } from "siyuan";
+import { isHomepageEntitlementGranted } from "@/features/entitlement/homepage-entitlement";
 import { createRuntimeUuid } from "@/libs/runtime-id";
 import { getCurrentDeviceViewContext } from "@/homepage/deviceView/deviceViewContext";
 import { ensureCurrentDeviceViewReady } from "@/homepage/deviceView/deviceViewReadiness";
@@ -200,7 +201,7 @@ export class HomepageAgentService {
       safelyWritable: consistency.ok && !hasUnresolvedOrMissing,
       structuralWritesSafe: consistency.ok,
       widgetConfigWritesSafe: !hasUnresolvedOrMissing,
-      advancedEnabled: Boolean((state.plugin as Plugin & { ADVANCED?: boolean }).ADVANCED),
+      advancedEnabled: isHomepageEntitlementGranted(),
       warnings,
     };
   }
@@ -303,7 +304,7 @@ export class HomepageAgentService {
 
   async listWidgetTypes(surface?: HomepageAgentSurface, categoryId?: string): Promise<HomepageAgentReadResult> {
     const state = await this.read(surface);
-    const advancedEnabled = Boolean((state.plugin as Plugin & { ADVANCED?: boolean }).ADVANCED);
+    const advancedEnabled = isHomepageEntitlementGranted();
     const existing = await this.listWidgets(state.surface);
     const existingTypes = new Set(((existing.widgets as Array<{ type: string }>) ?? []).map((item) => item.type));
     const categorySource = surfaceCategorySource(state.surface);
@@ -366,7 +367,7 @@ export class HomepageAgentService {
     if (!descriptor || !descriptor.supportedSurfaces.includes(state.surface)) {
       throw new HomepageAgentServiceError("widget_type_unsupported", `当前主页不支持组件 ${widgetType}。`);
     }
-    const advancedEnabled = Boolean((state.plugin as Plugin & { ADVANCED?: boolean }).ADVANCED);
+    const advancedEnabled = isHomepageEntitlementGranted();
     const existing = await this.listWidgets(state.surface);
     const existingTypes = new Set(((existing.widgets as Array<{ type: string }>) ?? []).map((item) => item.type));
     const available = !descriptor.advancedRequired || advancedEnabled;
@@ -475,7 +476,7 @@ export class HomepageAgentService {
     const descriptor = getHomepageAgentWidgetDescriptor(input.widgetType);
     if (!descriptor || !descriptor.supportedSurfaces.includes(state.surface)) throw new HomepageAgentServiceError("widget_type_unsupported", `当前主页不支持组件 ${input.widgetType}。`);
     if (descriptor.label !== input.expectedLabel) throw new HomepageAgentServiceError("widget_type_conflict", `组件名称已变化：预期 ${input.expectedLabel}，当前为 ${descriptor.label}。`);
-    if (descriptor.advancedRequired && !(state.plugin as Plugin & { ADVANCED?: boolean }).ADVANCED) throw new HomepageAgentServiceError("advanced_feature_unavailable", `组件 ${descriptor.label} 需要高级功能。`);
+    if (descriptor.advancedRequired && !isHomepageEntitlementGranted()) throw new HomepageAgentServiceError("advanced_feature_unavailable", `组件 ${descriptor.label} 需要高级功能。`);
     const currentOrder = normalizeLayoutItems(state.profile?.order ?? state.snapshot.layout.layout.order);
     if (descriptor.singleton) {
       for (const item of currentOrder) {
@@ -491,7 +492,7 @@ export class HomepageAgentService {
       }
     }
     const widgetId = createWidgetInstanceId();
-    const config = createHomepageWidgetConfig(input.widgetType, widgetId, input.initialConfig ?? {}, { advancedEnabled: Boolean((state.plugin as Plugin & { ADVANCED?: boolean }).ADVANCED) });
+    const config = createHomepageWidgetConfig(input.widgetType, widgetId, input.initialConfig ?? {}, { advancedEnabled: isHomepageEntitlementGranted() });
     const created = await createWidgetInstanceConfig(state.context, widgetId, config);
     let layoutCommitted = false;
     try {
@@ -547,7 +548,7 @@ export class HomepageAgentService {
     const type = normalizeType(current.config);
     if (type !== input.expectedType) throw new HomepageAgentServiceError("widget_type_conflict", `组件类型已变化：预期 ${input.expectedType}，当前为 ${type}。`);
     if (current.revision !== input.expectedWidgetRevision) throw new HomepageAgentServiceError("widget_revision_conflict", `组件配置已变化：预期 revision ${input.expectedWidgetRevision}，当前为 ${current.revision}。`);
-    const advancedEnabled = Boolean((state.plugin as Plugin & { ADVANCED?: boolean }).ADVANCED);
+    const advancedEnabled = isHomepageEntitlementGranted();
     let expectedValues: Record<string, unknown>;
     try {
       expectedValues = validateAndNormalizeHomepageWidgetPatch(type, input.expectedValues, { advancedEnabled });

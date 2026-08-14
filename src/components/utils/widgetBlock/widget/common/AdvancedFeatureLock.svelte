@@ -1,5 +1,11 @@
 <script lang="ts">
+    import { onMount } from "svelte";
     import SiyuanIcon from "@/components/utils/shared/SiyuanIcon.svelte";
+    import {
+        getHomepageEntitlementSnapshot,
+        subscribeHomepageEntitlement,
+        type HomepageEntitlementStatus,
+    } from "@/features/entitlement/homepage-entitlement";
 
     interface Props {
         title: string;
@@ -53,13 +59,24 @@
     }
 
     const resolvedIcon = $derived(resolveFeatureLockIcon(icon));
+    let entitlementStatus = $state<HomepageEntitlementStatus>(getHomepageEntitlementSnapshot().status);
+
+    onMount(() => subscribeHomepageEntitlement((snapshot) => {
+        entitlementStatus = snapshot.status;
+    }));
 
     // compact 模式下精简展示
     const visibleHighlights = $derived(compact ? highlights.slice(0, 2) : highlights);
     const visibleFeatures = $derived(compact ? features.slice(0, 2) : features);
-    const ctaText = $derived(
-        compact ? "高级会员专属 · 在会员服务中开通" : "请在「主页设置」→「会员服务」中开通高级会员后使用"
-    );
+    const ctaText = $derived(entitlementStatus === "pending"
+        ? "正在校验会员状态…"
+        : entitlementStatus === "error"
+            ? "会员状态暂时无法确认，将自动重试"
+            : entitlementStatus === "granted"
+                ? "会员状态已恢复，正在加载功能…"
+                : compact
+                    ? "高级会员专属 · 在会员服务中开通"
+                    : "请在「主页设置」→「会员服务」中开通高级会员后使用");
 </script>
 
 <div class="feature-lock" class:compact>

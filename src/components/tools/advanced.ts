@@ -20,15 +20,29 @@ export interface VIPIdentity {
 
 // 所有 license.syhomepage 的写入共用同一条队列，避免旧快照覆盖新 SH。
 let licenseMutationTail: Promise<void> = Promise.resolve();
+const LICENSE_STORAGE_TIMEOUT_MS = 12_000;
+
+function withLicenseStorageTimeout<T>(operation: Promise<T>, label: string): Promise<T> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    return Promise.race([
+        operation,
+        new Promise<never>((_, reject) => {
+            timer = setTimeout(() => reject(new Error(`${label} timeout`)), LICENSE_STORAGE_TIMEOUT_MS);
+        }),
+    ]).finally(() => {
+        if (timer !== undefined) clearTimeout(timer);
+    });
+}
 
 function runLicenseMutation<T>(task: () => Promise<T>): Promise<T> {
-    const result = licenseMutationTail.then(task, task);
+    const actualResult = licenseMutationTail.then(task, task);
     // 队列本身始终恢复为可执行状态；调用方仍收到本任务的真实结果或异常。
-    licenseMutationTail = result.then(
+    // 超时只结束调用方等待，不跳过仍在运行的写入，避免并发覆盖授权文件。
+    licenseMutationTail = actualResult.then(
         () => undefined,
         () => undefined,
     );
-    return result;
+    return withLicenseStorageTimeout(actualResult, "license mutation");
 }
 
 function makeVerifyCode(): string {
@@ -188,7 +202,10 @@ function isApiErrorResponse(data: unknown): boolean {
  */
 export async function readSavedActivationCodeState(plugin: any): Promise<SavedActivationCodeState> {
     try {
-        const data = await plugin.loadData("license.syhomepage");
+        const data = await withLicenseStorageTimeout(
+            plugin.loadData("license.syhomepage"),
+            "license read",
+        );
         if (data == null) return { status: "missing" };
 
         // 思源 Plugin.loadData() 首次读取不存在的文件时，内部缓存为空字符串，不会抛异常。
@@ -204,7 +221,7 @@ export async function readSavedActivationCodeState(plugin: any): Promise<SavedAc
 
         if (typeof data !== "object" || Array.isArray(data)) return { status: "error" };
 
-        const code = data.ActivationCode;
+        const code = (data as Record<string, unknown>).ActivationCode;
         if (code == null || code === "") return { status: "missing" };
         if (typeof code !== "string") return { status: "error" };
 
@@ -249,6 +266,7 @@ export interface ActivateLicenseServerManagementOptions {
     serverManagedServiceOrigin: string;
     redemptionCodeHash?: string;
     redemptionCodeHint?: string;
+    expectedCurrentLicense?: string;
 }
 
 export interface SavedLicenseManagementState {
@@ -406,10 +424,19 @@ export async function activateLicense(
         return result;
     }
 
+    let licenseChangedWhileQueued = false;
     try {
         await runLicenseMutation(async () => {
             // 获取写入权后读取最新数据，避免旧登记任务覆盖刚兑换的新 SH。
             const oldData = (await plugin.loadData("license.syhomepage")) || {};
+            const expectedCurrentLicense = String(serverManagement?.expectedCurrentLicense || "").trim();
+            const currentLicense = typeof oldData?.ActivationCode === "string"
+                ? oldData.ActivationCode.trim()
+                : "";
+            if (expectedCurrentLicense && currentLicense !== expectedCurrentLicense) {
+                licenseChangedWhileQueued = true;
+                return;
+            }
             const hasServerManagement = Boolean(
                 serverManagement?.serverManagedSource &&
                 serverManagement.serverManagedServiceOrigin,
@@ -449,6 +476,10 @@ export async function activateLicense(
             51,
             "激活码已通过验证，但本地授权保存失败，请检查思源数据目录写入权限后重试。"
         );
+    }
+
+    if (licenseChangedWhileQueued) {
+        return invalid(53, "本地会员授权已发生变化，未覆盖新的授权。");
     }
 
     return result;

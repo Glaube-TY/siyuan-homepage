@@ -3,7 +3,10 @@
   import { showMessage } from "siyuan";
   import SettingRow from "@/libs/components/SettingRow.svelte";
   import SettingSection from "@/libs/components/SettingSection.svelte";
-  import { isNotificationCenterFeatureAvailable } from "@/features/notification-center";
+  import {
+    getHomepageEntitlementSnapshot,
+    subscribeHomepageEntitlement,
+  } from "@/features/entitlement/homepage-entitlement";
   import TaskNotifySettingsForm from "@/features/task-notify/components/TaskNotifySettingsForm.svelte";
   import EnhancedDiaryNotifyRuleEditor from "./EnhancedDiaryNotifyRuleEditor.svelte";
   import { DEFAULT_ENHANCED_DIARY_NOTIFY_SETTINGS } from "../constants";
@@ -18,7 +21,7 @@
   let loading = $state(true);
   let saving = $state(false);
   let loadError = $state<string | null>(null);
-  const advancedEnabled = $derived(isNotificationCenterFeatureAvailable());
+  let advancedEnabled = $state(getHomepageEntitlementSnapshot().advanced);
   const disabled = $derived(!advancedEnabled || loading || saving || loadError !== null);
   const categories: Record<EnhancedDiaryNotifyRuleType, Category> = {
     today_diary_missing: "review", yesterday_review_missing: "review", weekly_review_reminder: "review",
@@ -48,7 +51,12 @@
     catch (error) { showMessage(error instanceof Error ? error.message : "保存失败。", 5000, "error"); }
     finally { saving = false; }
   }
-  onMount(() => { void reload(); });
+  onMount(() => {
+    void reload();
+    return subscribeHomepageEntitlement((snapshot) => {
+      advancedEnabled = snapshot.advanced;
+    });
+  });
 </script>
 
 <div class="shp-notification-settings-panel">

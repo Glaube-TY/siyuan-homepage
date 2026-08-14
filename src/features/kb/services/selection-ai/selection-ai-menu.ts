@@ -6,12 +6,18 @@ import { openSelectionAiActionMenu } from "./selection-ai-action-menu-controller
 import { captureSelectionAiContext, applySelectionAiSkillTextLimit } from "./selection-ai-selection";
 import { getRecentSelectionAiToolbarAnchorRect } from "./selection-ai-toolbar-pointer-tracker";
 import type { SelectionAiAction, SelectionAiContext, SelectionAiRect, SelectionAiSkill, SelectionAiToolbarSettings } from "./selection-ai-types";
+import {
+  ensureHomepageEntitlementGranted,
+  isHomepageEntitlementGranted,
+  resolveHomepageEntitlementMessage,
+} from "@/features/entitlement/homepage-entitlement";
 
 const TOOLBAR_MENU_NAME = "shp-selection-ai-menu";
 const TOOLBAR_ACTION_NAME_PREFIX = "shp-selection-ai-";
 
 export interface SelectionAiPluginHost {
   openKbDock?: () => void | Promise<boolean>;
+  waitForHomepageEntitlementReady?: () => Promise<void>;
   ADVANCED?: boolean;
 }
 
@@ -38,8 +44,8 @@ async function handleAskAction(
   context: SelectionAiContext,
   skill?: SelectionAiSkill
 ): Promise<void> {
-  if (plugin.ADVANCED !== true) {
-    showMessage("编辑器工具栏 AI 是会员专属功能，请在「主页设置」→「会员服务」中开通后使用", 3000);
+  if (!await ensureHomepageEntitlementGranted(plugin)) {
+    showMessage(resolveHomepageEntitlementMessage("编辑器工具栏 AI"), 4000, "error");
     return;
   }
 
@@ -60,15 +66,15 @@ async function handleAskAction(
   }, "dock");
 }
 
-function runSelectionActionWithContext(options: {
+async function runSelectionActionWithContext(options: {
   skill: SelectionAiSkill;
   plugin: SelectionAiPluginHost;
   context: SelectionAiContext;
   settings: SelectionAiToolbarSettings;
   anchorRect?: SelectionAiRect;
-}): void {
-  if (options.plugin.ADVANCED !== true) {
-    showMessage("编辑器工具栏 AI 是会员专属功能，请在「主页设置」→「会员服务」中开通后使用", 3000);
+}): Promise<void> {
+  if (!await ensureHomepageEntitlementGranted(options.plugin)) {
+    showMessage(resolveHomepageEntitlementMessage("编辑器工具栏 AI"), 4000, "error");
     return;
   }
 
@@ -92,17 +98,17 @@ function runSelectionActionWithContext(options: {
     },
     settings: options.settings,
     anchorRect: options.anchorRect ?? context.selectionRect,
-    advancedEnabled: options.plugin.ADVANCED === true,
+    advancedEnabled: isHomepageEntitlementGranted(),
   });
 }
 
-export function openSelectionAiMenu(options: {
+export async function openSelectionAiMenu(options: {
   plugin: SelectionAiPluginHost;
   protyle: Protyle;
   settings: SelectionAiToolbarSettings;
-}): void {
-  if (options.plugin.ADVANCED !== true) {
-    showMessage("编辑器工具栏 AI 是会员专属功能，请在「主页设置」→「会员服务」中开通后使用", 3000);
+}): Promise<void> {
+  if (!await ensureHomepageEntitlementGranted(options.plugin)) {
+    showMessage(resolveHomepageEntitlementMessage("编辑器工具栏 AI"), 4000, "error");
     return;
   }
 
@@ -124,7 +130,7 @@ export function openSelectionAiMenu(options: {
     skills: enabledSkills,
     anchorRect,
     onSelect: (skill) => {
-      runSelectionActionWithContext({
+      void runSelectionActionWithContext({
         skill,
         plugin: options.plugin,
         context,
@@ -148,7 +154,7 @@ export function createSelectionAiToolbarItems(options: {
       tip: "划词AI菜单",
       tipPosition: "n",
       click: (protyle: Protyle) => {
-        openSelectionAiMenu({ ...options, protyle });
+        void openSelectionAiMenu({ ...options, protyle });
       },
     },
   ];

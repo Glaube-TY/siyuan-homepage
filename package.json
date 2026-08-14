@@ -45,7 +45,8 @@
     "verify:habit-tracker": "node --loader ts-node/esm --experimental-specifier-resolution=node scripts/verify-habit-tracker.ts",
     "verify:visual-chart": "node --loader ts-node/esm --experimental-specifier-resolution=node scripts/verify-visual-chart.ts",
     "verify:mobile-homepage": "node --loader ts-node/esm --experimental-specifier-resolution=node scripts/verify-mobile-homepage.ts",
-    "verify:mobile-dialogs": "node --loader ts-node/esm --experimental-specifier-resolution=node scripts/verify-mobile-dialog-framework.ts"
+    "verify:mobile-dialogs": "node --loader ts-node/esm --experimental-specifier-resolution=node scripts/verify-mobile-dialog-framework.ts",
+    "verify:entitlement": "node --loader ts-node/esm --experimental-specifier-resolution=node scripts/verify-homepage-entitlement.ts"
   },
   "devDependencies": {
     "@eslint/js": "^9.17.0",

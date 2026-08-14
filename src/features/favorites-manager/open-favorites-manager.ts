@@ -2,14 +2,14 @@ import { mount } from "svelte";
 import { showMessage } from "siyuan";
 import { isSiyuanMobileFrontend, svelteDialog } from "@/libs/dialog";
 import FavoritesManagerDialog from "./components/FavoritesManagerDialog.svelte";
+import {
+    ensureHomepageEntitlementGranted,
+    resolveHomepageEntitlementMessage,
+} from "@/features/entitlement/homepage-entitlement";
 
 export async function openFavoritesManagerDialog(plugin: any): Promise<void> {
-    if (!plugin?.ADVANCED) {
-        showMessage(
-            "收藏文档管理与分组为 VIP 专属功能。已有分组和组件设置会完整保留，开通或续费后可继续使用。",
-            5000,
-            "info",
-        );
+    if (!await ensureHomepageEntitlementGranted(plugin)) {
+        showMessage(resolveHomepageEntitlementMessage("收藏文档管理与分组"), 5000, "error");
         return;
     }
     try {

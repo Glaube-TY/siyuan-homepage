@@ -2,6 +2,10 @@
     import { onMount } from "svelte";
     import { showMessage } from "siyuan";
     import {
+        getHomepageEntitlementSnapshot,
+        subscribeHomepageEntitlement,
+    } from "@/features/entitlement/homepage-entitlement";
+    import {
         getReviewTargetInfo,
         markReviewTarget,
         readCurrentReviewAttrs,
@@ -45,7 +49,11 @@
     let priority = $state<Exclude<ReviewPriority, "">>("medium");
     let note = $state("");
 
-    const advancedEnabled = $derived(Boolean(plugin?.ADVANCED));
+    let advancedEnabled = $state(getHomepageEntitlementSnapshot().advanced);
+
+    onMount(() => subscribeHomepageEntitlement((snapshot) => {
+        advancedEnabled = snapshot.advanced;
+    }));
 
     onMount(async () => {
         try {
