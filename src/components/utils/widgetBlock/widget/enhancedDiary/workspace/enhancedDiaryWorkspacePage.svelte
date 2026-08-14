@@ -1,7 +1,7 @@
 <script lang="ts">
     import { onMount } from "svelte";
-    import { Dialog, getFrontend, showMessage } from "siyuan";
-    import { constrainDialogToViewport } from "@/libs/dialog";
+    import { showMessage } from "siyuan";
+    import { simpleDialog } from "@/libs/dialog";
     import WorkspaceHeader from "./components/WorkspaceHeader.svelte";
     import WorkspaceSidebar, { type WorkspaceTab } from "./components/WorkspaceSidebar.svelte";
     import { getWorkspaceReviewFields, isEnhancedDiaryTaskManagementEnabled } from "../enhancedDiaryTemplateFieldMapping";
@@ -1599,24 +1599,25 @@
                 resolve(value);
             }
 
-            const frontend = getFrontend();
-            const mobileDialog = mobile || frontend === "mobile" || frontend === "browser-mobile" || frontend.includes("mobile");
-            const dialog = new Dialog({
-                title: "取消跳过",
-                content: `<div style="padding:12px 0;">请选择取消跳过后的状态。</div>
+            const content = document.createElement("div");
+            content.innerHTML = `<div style="padding:12px 0;">请选择取消跳过后的状态。</div>
                     <div style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;">
                         <button class="b3-button b3-button--outline" data-mode="pending">恢复为未完成</button>
                         <button class="b3-button b3-button--outline" data-mode="completed">直接标记完成</button>
                         <button class="b3-button b3-button--outline" data-mode="cancel">取消</button>
-                    </div>`,
-                width: mobileDialog ? "calc(100vw - 24px)" : "420px",
-                destroyCallback: () => finish(null),
-            } as any);
-            constrainDialogToViewport(dialog);
+                    </div>`;
+            const result = simpleDialog({
+                title: "取消跳过",
+                ele: content,
+                width: "420px",
+                callback: () => finish(null),
+                mobilePresentation: "prompt",
+            });
+            const { dialog } = result;
             dialog.element.classList.add("enhanced-diary-workspace-child-dialog", "enhanced-diary-workspace-child-dialog--compact");
-            if (mobileDialog) dialog.element.classList.add("enhanced-diary-workspace-child-dialog--mobile");
+            if (result.mobile) dialog.element.classList.add("enhanced-diary-workspace-child-dialog--mobile");
 
-            dialog.element.querySelectorAll("button[data-mode]").forEach((button) => {
+            content.querySelectorAll("button[data-mode]").forEach((button) => {
                 button.addEventListener("click", () => {
                     const mode = (button as HTMLButtonElement).getAttribute("data-mode");
                     if (mode === "pending") finish("pending");

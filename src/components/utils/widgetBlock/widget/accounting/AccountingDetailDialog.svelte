@@ -294,7 +294,7 @@
                     <p>{records.length} 条未归档流水 · {formatAccountingCurrency(summary.balance, effectiveCurrency)} 结余</p>
                 </div>
             </div>
-            <button type="button" class="dialog-close" onclick={onClose} title="关闭">
+            <button type="button" class="dialog-close" onclick={onClose} title="关闭" aria-label="关闭记账">
                 <AccountingIcon name="close" size={18} />
             </button>
         </header>
@@ -482,8 +482,8 @@
     }
 
     .dialog-close {
-        width: 2rem;
-        height: 2rem;
+        width: 2.75rem;
+        height: 2.75rem;
         display: inline-flex;
         align-items: center;
         justify-content: center;

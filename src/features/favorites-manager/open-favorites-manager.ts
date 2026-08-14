@@ -1,16 +1,7 @@
 import { mount } from "svelte";
-import { getFrontend, showMessage } from "siyuan";
-import { svelteDialog } from "@/libs/dialog";
+import { showMessage } from "siyuan";
+import { isSiyuanMobileFrontend, svelteDialog } from "@/libs/dialog";
 import FavoritesManagerDialog from "./components/FavoritesManagerDialog.svelte";
-
-function isMobile(): boolean {
-    const frontend = getFrontend();
-    return (
-        frontend === "mobile" ||
-        frontend === "browser-mobile" ||
-        frontend.includes("mobile")
-    );
-}
 
 export async function openFavoritesManagerDialog(plugin: any): Promise<void> {
     if (!plugin?.ADVANCED) {
@@ -22,12 +13,13 @@ export async function openFavoritesManagerDialog(plugin: any): Promise<void> {
         return;
     }
     try {
-        const mobile = isMobile();
+        const mobile = isSiyuanMobileFrontend();
         let ref: ReturnType<typeof svelteDialog>;
         ref = svelteDialog({
             title: "",
-            width: mobile ? "100vw" : "min(900px, calc(100vw - 32px))",
-            height: mobile ? "100dvh" : "min(650px, calc(100vh - 48px))",
+            mobileCloseControl: "content",
+            width: "min(900px, calc(100vw - 32px))",
+            height: "min(650px, calc(100vh - 48px))",
             constructor: (container) =>
                 mount(FavoritesManagerDialog, {
                     target: container,

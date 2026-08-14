@@ -1,5 +1,5 @@
 import { mount } from "svelte";
-import { getFrontend, showMessage } from "siyuan";
+import { showMessage } from "siyuan";
 import { svelteDialog } from "@/libs/dialog";
 import AccountingDetailDialog from "./AccountingDetailDialog.svelte";
 import { DEFAULT_ACCOUNTING_CONFIG } from "./accountingConstants";
@@ -9,11 +9,6 @@ import type { AccountingAppSettings } from "./accountingSettings";
 import type { AccountingAccountLoadResult } from "./accountingTypes";
 
 export type AccountingDetailTab = "overview" | "transactions" | "record" | "analytics" | "settings" | "assets";
-
-function isMobileFrontend(): boolean {
-    const frontEnd = getFrontend();
-    return frontEnd === "mobile" || frontEnd === "browser-mobile" || frontEnd.includes("mobile");
-}
 
 export async function openAccountingDetailDialogFromPlugin(
     plugin: any,
@@ -27,13 +22,13 @@ export async function openAccountingDetailDialogFromPlugin(
     try {
         const appSettings: AccountingAppSettings = await loadAccountingSettings(plugin);
         const accountResult: AccountingAccountLoadResult = await loadAccountingAccounts(plugin);
-        const mobile = isMobileFrontend();
         let dialog: ReturnType<typeof svelteDialog>;
 
         dialog = svelteDialog({
             title: "",
-            width: mobile ? "100vw" : "min(980px, calc(100vw - 32px))",
-            height: mobile ? "100dvh" : "min(760px, calc(100vh - 64px))",
+            mobileCloseControl: "content",
+            width: "min(980px, calc(100vw - 32px))",
+            height: "min(760px, calc(100vh - 64px))",
             constructor: (containerEl: HTMLElement) => {
                 return mount(AccountingDetailDialog, {
                     target: containerEl,
@@ -53,7 +48,7 @@ export async function openAccountingDetailDialogFromPlugin(
         });
 
         dialog.dialog.element.classList.add("accounting-detail-dialog-host");
-        if (mobile) {
+        if (dialog.mobile) {
             dialog.dialog.element.classList.add("accounting-detail-dialog-host--mobile");
         }
     } catch {

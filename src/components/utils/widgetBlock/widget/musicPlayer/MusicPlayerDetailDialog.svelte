@@ -224,7 +224,7 @@
                 {/if}
             </div>
         {/if}
-        <button class="detail-close" onclick={onClose} title="关闭"><MusicPlayerIcon name="close" size={18} /></button>
+        <button class="detail-close" onclick={onClose} title="关闭" aria-label="关闭音乐播放器"><MusicPlayerIcon name="close" size={18} /></button>
     </div>
 
     <div class="detail-mobile-tabs" aria-label="详细播放器页面">
@@ -588,6 +588,8 @@
             }
 
             .detail-close {
+                min-width: 44px;
+                min-height: 44px;
                 background: var(--mp-button-bg);
                 border: 1px solid var(--mp-button-border);
                 font-size: 1.1rem;

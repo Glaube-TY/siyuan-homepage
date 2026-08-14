@@ -1,27 +1,3 @@
-.enhanced-diary-workspace-mobile-dialog .b3-dialog__container {
-    width: 100vw !important;
-    max-width: 100vw !important;
-    height: 100vh !important;
-    height: 100dvh !important;
-    max-height: 100vh !important;
-    max-height: 100dvh !important;
-    margin: 0 !important;
-    border-radius: 0 !important;
-    overflow: hidden;
-}
-
-.enhanced-diary-workspace-mobile-dialog .b3-dialog__header {
-    display: none;
-}
-
-.enhanced-diary-workspace-mobile-dialog .dialog-content {
-    flex: 1 1 auto;
-    height: auto !important;
-    min-height: 0;
-    padding: 0 !important;
-    overflow: hidden !important;
-}
-
 .workspace-page--mobile {
     --wk-mobile-nav-height: 70px;
     width: 100% !important;
@@ -206,7 +182,7 @@
 }
 
 .workspace-page--mobile .command-palette header {
-    padding-top: max(12px, env(safe-area-inset-top));
+    padding-top: max(12px, var(--siyuan-homepage-mobile-safe-area-top, env(safe-area-inset-top)));
 }
 
 .workspace-page--mobile .command-palette input {
@@ -556,7 +532,7 @@
 
 .enhanced-diary-workspace-child-dialog--mobile .b3-dialog__header {
     flex: 0 0 auto;
-    padding-top: max(8px, env(safe-area-inset-top));
+    padding-top: max(8px, var(--siyuan-homepage-mobile-safe-area-top, env(safe-area-inset-top)));
 }
 
 .enhanced-diary-workspace-child-dialog--mobile .dialog-content {

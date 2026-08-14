@@ -202,7 +202,7 @@
         <button type="button" class:active={view === "agenda"} onclick={() => (view = "agenda")}>日程</button>
       </div>
       <button type="button" class="create-button" onclick={() => createEvent()}>＋ 新建</button>
-      <button type="button" class="icon-button close-button" title="关闭" aria-label="关闭" onclick={onClose}>
+      <button type="button" class="icon-button close-button" title="关闭" aria-label="关闭全局日历" onclick={onClose}>
         <SiyuanIcon name="close" size={18} />
       </button>
     </div>
@@ -373,6 +373,7 @@
   .agenda-date span { color: var(--b3-theme-on-surface-light); font-size: 11px; }
   .agenda-events { padding: 0; overflow: visible; }
   @media (max-width: 700px) {
+    .icon-button { width: 44px; min-height: 44px; flex-basis: 44px; }
     .detail-header { align-items: flex-start; flex-direction: column; gap: 10px; padding: 12px 14px; }
     .title-block { width: 100%; }
     .primary-controls { width: 100%; justify-content: flex-start; flex-wrap: nowrap; overflow-x: auto; padding-bottom: 2px; }

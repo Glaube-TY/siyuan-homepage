@@ -288,7 +288,7 @@
                 <small>管理分组、搜索并整理收藏文档</small>
             </div>
         </div>
-        <button type="button" class="fm-close" onclick={onClose} title="关闭">&times;</button>
+        <button type="button" class="fm-close" onclick={onClose} title="关闭" aria-label="关闭收藏文档管理">&times;</button>
     </header>
 
     <nav class="fm-nav">
@@ -488,10 +488,10 @@
         small { font-size: 12px; color: var(--b3-theme-secondary); }
     }
     .fm-close {
-        width: 28px; height: 28px;
+        width: 44px; height: 44px;
         border: none; background: transparent;
         font-size: 20px; color: var(--b3-theme-secondary);
-        cursor: pointer; border-radius: 4px;
+        cursor: pointer; border-radius: 10px;
         flex-shrink: 0;
         &:hover { background: var(--b3-list-hover); color: var(--b3-theme-on-background); }
     }

@@ -3,10 +3,11 @@
     import SiyuanIcon from "@/components/utils/shared/SiyuanIcon.svelte";
     import MobileWidgetContentForm from "./MobileWidgetContentForm.svelte";
     import {
+        MOBILE_WIDGET_CATEGORIES,
         MOBILE_WIDGET_CATALOG,
         getMobileWidgetCategory,
         getMobileWidgetLabel,
-        type MobileAddCategoryId,
+        type MobileWidgetCategoryId,
     } from "./mobile-widget-categories";
     import type { DeviceViewContext } from "@/homepage/deviceView/deviceViewTypes";
 
@@ -30,35 +31,36 @@
 
     type SheetView = "categories" | "widgets" | "settings";
 
-    const contentCategories: { id: MobileAddCategoryId; label: string; description: string }[] = [
-        { id: "common", label: "常用", description: "最适合手机主页的组件" },
-        { id: "docs", label: "文档", description: "最近、收藏、条件文档" },
-        { id: "task", label: "任务", description: "任务、快速笔记、倒数日" },
-        { id: "data", label: "数据", description: "统计、图表、SQL" },
-        { id: "tools", label: "工具", description: "时间、语录、天气等" },
-        { id: "custom", label: "自定义", description: "文字、网页、文档块入口" },
+    const contentCategories: { id: MobileWidgetCategoryId; label: string; description: string }[] = [
+        ...MOBILE_WIDGET_CATEGORIES.map((category) => ({
+            ...category,
+            description: ({
+                all: "查看全部可添加组件",
+                note: "文档、任务与笔记数据",
+                visualization: "统计、日历与图表",
+                tool: "时间、天气与效率工具",
+                info: "热搜、新闻与每日信息",
+                custom: "文字、网页与文档块入口",
+            } as const)[category.id],
+        })),
     ];
 
     let view = $state<SheetView>("categories");
-    let selectedCategory = $state<MobileAddCategoryId>("common");
+    let selectedCategory = $state<MobileWidgetCategoryId>("all");
     let selectedContentType = $state("");
     const title = $derived(selectedContentType ? getMobileWidgetLabel(selectedContentType) : "选择组件");
     const widgetsInCategory = $derived(
         MOBILE_WIDGET_CATALOG.filter((item) => {
-            if (selectedCategory === "common") return item.common;
             if (selectedCategory === "all") return true;
-            if (selectedCategory === "custom") return item.activeTab === "custom";
-            return item.category === selectedCategory;
+            return item.activeTab === selectedCategory;
         }),
     );
 
-    function getContentCategory(widgetType: string): MobileAddCategoryId {
-        const catalogItem = MOBILE_WIDGET_CATALOG.find((item) => item.type === widgetType);
-        if (catalogItem?.activeTab === "custom") return "custom";
+    function getContentCategory(widgetType: string): MobileWidgetCategoryId {
         return getMobileWidgetCategory(widgetType);
     }
 
-    function openCategory(category: MobileAddCategoryId): void {
+    function openCategory(category: MobileWidgetCategoryId): void {
         selectedCategory = category;
         view = "widgets";
     }

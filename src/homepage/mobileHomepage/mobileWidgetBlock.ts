@@ -11,6 +11,12 @@ type MobileWidgetEventName =
     | "mobile-widget-longpress"
     | "mobile-widget-refreshed";
 
+function clampGridSpan(value: string, max: number): string {
+    const match = value.match(/^span\s+(\d+)$/i);
+    if (!match) return value;
+    return `span ${Math.max(1, Math.min(max, Number(match[1])))}`;
+}
+
 export class WidgetBlock {
     public element: HTMLElement;
     public readonly id: string;
@@ -47,8 +53,10 @@ export class WidgetBlock {
         this.element.className = "widget-block mobile-widget-card";
         this.element.id = this.id;
         this.element.dataset.widgetMountState = "idle";
-        this.element.innerHTML = this.renderControls(false);
+        this.element.innerHTML = this.renderControls();
         this.element.setAttribute("style", this.style);
+        this.element.style.gridColumn = clampGridSpan(this.element.style.gridColumn, 2);
+        this.element.style.gridRow = clampGridSpan(this.element.style.gridRow, 4);
 
         (this.element as any).__widgetBlockInstance = this;
 
@@ -56,31 +64,27 @@ export class WidgetBlock {
         this.setupChromeEventListeners();
     }
 
-    private renderControls(includeRefresh = false): string {
+    private renderControls(): string {
         return `
             <div class="mobile-widget-chrome" aria-hidden="false">
                 <button class="mobile-widget-action-button" type="button" title="组件操作" aria-label="组件操作">⋯</button>
                 <button class="mobile-widget-drag-handle drag-handle" type="button" title="拖拽排序" aria-label="拖拽排序">${renderSiyuanIcon("drag", 16)}</button>
-                ${includeRefresh ? `<button class="mobile-widget-refresh-button" type="button" title="刷新组件" aria-label="刷新组件">${renderSiyuanIcon("refresh", 15)}</button>` : ""}
+            </div>
+            <div class="mobile-widget-size-fallback" role="status">
+                <strong>请放大组件</strong>
+                <span>放大后显示完整内容</span>
             </div>
         `;
     }
 
     private setupChromeEventListeners(): void {
         const actionButton = this.element.querySelector(".mobile-widget-action-button");
-        const refreshButton = this.element.querySelector(".mobile-widget-refresh-button");
 
         actionButton?.addEventListener("click", (event) => {
             event.preventDefault();
             event.stopPropagation();
             this.currentBlockForSettingsRef.value = this.element;
             this.dispatchMobileEvent("mobile-widget-action");
-        });
-
-        refreshButton?.addEventListener("click", async (event) => {
-            event.preventDefault();
-            event.stopPropagation();
-            await this.refreshContent();
         });
     }
 
@@ -170,7 +174,7 @@ export class WidgetBlock {
         }
 
         this.cleanupMountedWidget();
-        this.element.innerHTML = this.renderControls(true);
+        this.element.innerHTML = this.renderControls();
         this.element.dataset.widgetMountState = "mounting";
         this.mountedWidget = mountWidgetContent(this.element, this.plugin, contentTypeJson, {
             placement: "mobile",

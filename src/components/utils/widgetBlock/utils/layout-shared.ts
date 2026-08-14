@@ -145,6 +145,8 @@ export interface WidgetLayoutSectionData {
 /** 兼容层描述当前设备分栏。 */
 export interface WidgetLayoutProfileSectionData {
     widgetIds: string[];
+    name?: string;
+    index?: number;
     widgetLayoutNumber?: number;
     widgetGap?: number;
 }
@@ -205,6 +207,8 @@ function deviceLayoutToCompatibilityLayout(_context: DeviceViewContext, layout: 
     const sections = Object.fromEntries(
         Object.entries(layout.sections ?? {}).map(([id, section]) => [id, {
             widgetIds: [...section.widgetIds],
+            ...(section.name !== undefined ? { name: section.name } : {}),
+            ...(section.index !== undefined ? { index: section.index } : {}),
             ...(section.widgetLayoutNumber !== undefined ? { widgetLayoutNumber: section.widgetLayoutNumber } : {}),
             ...(section.widgetGap !== undefined ? { widgetGap: section.widgetGap } : {}),
         }]),
@@ -236,6 +240,8 @@ function compatibilityLayoutToDeviceLayout(context: DeviceViewContext, layout: W
     const sections = Object.fromEntries(
         Object.entries(profile?.sections ?? {}).map(([id, section]) => [id, {
             widgetIds: [...(section?.widgetIds || [])],
+            ...(section?.name !== undefined ? { name: section.name } : {}),
+            ...(section?.index !== undefined ? { index: section.index } : {}),
             ...(section?.widgetLayoutNumber !== undefined ? { widgetLayoutNumber: section.widgetLayoutNumber } : {}),
             ...(section?.widgetGap !== undefined ? { widgetGap: section.widgetGap } : {}),
         }]),

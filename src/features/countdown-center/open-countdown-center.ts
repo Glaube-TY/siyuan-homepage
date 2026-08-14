@@ -1,17 +1,9 @@
 import { mount } from "svelte";
-import { getFrontend, showMessage } from "siyuan";
-import { svelteDialog } from "@/libs/dialog";
+import { showMessage } from "siyuan";
+import { isSiyuanMobileFrontend, svelteDialog } from "@/libs/dialog";
 import CountdownCenterDialog from "./components/CountdownCenterDialog.svelte";
 import type { OpenCountdownCenterOptions } from "./types";
 
-function isMobile(): boolean {
-  const frontend = getFrontend();
-  return (
-    frontend === "mobile" ||
-    frontend === "browser-mobile" ||
-    frontend.includes("mobile")
-  );
-}
 export async function openCountdownCenterDialog(
   plugin: any,
   options: OpenCountdownCenterOptions = {},
@@ -25,12 +17,13 @@ export async function openCountdownCenterDialog(
     return;
   }
   try {
-    const mobile = isMobile();
+    const mobile = isSiyuanMobileFrontend();
     let ref: ReturnType<typeof svelteDialog>;
     ref = svelteDialog({
       title: "",
-      width: mobile ? "100vw" : "min(1280px, calc(100vw - 32px))",
-      height: mobile ? "100dvh" : "min(820px, calc(100vh - 48px))",
+      mobileCloseControl: "content",
+      width: "min(1280px, calc(100vw - 32px))",
+      height: "min(820px, calc(100vh - 48px))",
       constructor: (container) =>
         mount(CountdownCenterDialog, {
           target: container,

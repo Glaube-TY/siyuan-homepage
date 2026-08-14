@@ -1,3 +1,8 @@
+:root {
+    /* 必须高于宿主应用动态创建的文档工具层；所有项目移动弹窗只使用这一层级令牌。 */
+    --siyuan-homepage-layer-mobile-dialog: 2147483000;
+}
+
 /* 插件创建的思源 Dialog 统一限制在可视区域内。 */
 .siyuan-homepage-viewport-dialog .b3-dialog__container {
     display: flex;
@@ -27,6 +32,158 @@
 
 .siyuan-homepage-viewport-dialog .dialog-content {
     flex: 1 1 auto;
+}
+
+/*
+ * 独立于思源文档编辑器的顶层 Portal。思源移动端的面包屑、块句柄和工具栏
+ * 即使拥有自己的 fixed/z-index，也只能位于该隔离层下方。
+ */
+.siyuan-homepage-mobile-dialog-portal {
+    position: fixed !important;
+    inset: 0 !important;
+    z-index: var(--siyuan-homepage-layer-mobile-dialog) !important;
+    width: 100vw;
+    height: 100vh;
+    height: 100dvh;
+    overflow: hidden;
+    pointer-events: auto;
+    overscroll-behavior: none;
+}
+
+.siyuan-homepage-mobile-overlay-layer {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    width: 100%;
+    height: 100%;
+    min-width: 0;
+    min-height: 0;
+    overflow: hidden;
+    box-sizing: border-box;
+    color: var(--b3-theme-on-background);
+    background: var(--b3-theme-background);
+}
+
+.siyuan-homepage-mobile-dialog__surface {
+    display: flex;
+    width: 100%;
+    height: 100%;
+    min-width: 0;
+    min-height: 0;
+    flex-direction: column;
+    overflow: hidden;
+    box-sizing: border-box;
+    background: var(--b3-theme-background);
+    color: var(--b3-theme-on-background);
+    outline: none;
+}
+
+.siyuan-homepage-mobile-dialog__content {
+    flex: 1 1 auto;
+    display: flex;
+    width: 100%;
+    height: 100%;
+    min-width: 0;
+    min-height: 0;
+    overflow: hidden;
+    touch-action: auto;
+}
+
+.siyuan-homepage-mobile-dialog__header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 52px;
+    padding: 0 8px 0 16px;
+    border-bottom: 1px solid var(--b3-border-color);
+    background: var(--b3-theme-background);
+}
+
+.siyuan-homepage-mobile-dialog__title {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    color: var(--b3-theme-on-background);
+    font-size: 17px;
+    font-weight: 600;
+    line-height: 1.3;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.siyuan-homepage-mobile-dialog__close {
+    display: inline-flex;
+    width: 44px;
+    height: 44px;
+    flex: 0 0 44px;
+    align-items: center;
+    justify-content: center;
+    border: 0;
+    border-radius: 12px;
+    background: transparent;
+    color: var(--b3-theme-on-surface-light);
+    touch-action: manipulation;
+}
+
+.siyuan-homepage-mobile-dialog__close:active {
+    background: var(--b3-list-hover);
+}
+
+.siyuan-homepage-mobile-dialog__close:focus-visible {
+    outline: 2px solid var(--b3-theme-primary);
+    outline-offset: -2px;
+}
+
+.siyuan-homepage-mobile-dialog__close svg {
+    width: 20px;
+    height: 20px;
+    fill: currentColor;
+}
+
+/*
+ * 思源移动端的 Dialog 外层默认会按桌面居中弹窗处理，从而在状态栏下方留下
+ * 一段无效空白。项目工作区统一直接占据 WebView 的可用视口。
+ */
+.siyuan-homepage-mobile-overlay-layer--workspace {
+    /* 思源移动 WebView 交给插件的是已经避开系统状态栏的可用视口。 */
+    --siyuan-homepage-mobile-safe-area-top: 0px;
+    margin: 0;
+    padding: 0;
+}
+
+/* 短确认和输入操作在手机上使用底部操作面板，不复用桌面居中小窗。 */
+.siyuan-homepage-mobile-overlay-layer--prompt {
+    padding: 12px 8px max(8px, env(safe-area-inset-bottom));
+    align-items: flex-end;
+    justify-content: center;
+    background: color-mix(in srgb, #000 46%, transparent);
+}
+
+.siyuan-homepage-mobile-overlay-layer--prompt .siyuan-homepage-mobile-dialog__surface {
+    width: 100%;
+    height: auto;
+    max-height: min(78vh, 680px);
+    max-height: min(78dvh, 680px);
+    border-radius: 18px 18px 12px 12px;
+}
+
+.siyuan-homepage-mobile-overlay-layer--prompt .siyuan-homepage-mobile-dialog__content {
+    overflow-x: hidden;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+}
+
+.siyuan-homepage-mobile-prompt-content {
+    display: flex;
+    width: 100%;
+    min-width: 0;
+    min-height: 0;
+    flex-direction: column;
+}
+
+/* 插件全屏工作界面拥有自己的主要操作，避免全局悬浮入口遮挡内容或形成双 FAB。 */
+body.siyuan-homepage-mobile-overlay-open [data-siyuan-homepage-mobile-quick-actions="true"] {
+    display: none !important;
 }
 
 /* 主页设置内部已经拥有固定侧栏和独立内容滚动区，外层无需再预留滚动条槽。 */

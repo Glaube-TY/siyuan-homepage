@@ -127,7 +127,7 @@
 </script>
 
 <div class="center">
-  <header><div><small>高级番茄钟</small><h2>把专注投入到真正重要的事</h2></div><button class="icon" type="button" title="关闭" onclick={onClose}><SiyuanIcon name="close" size={18} /></button></header>
+  <header><div><small>高级番茄钟</small><h2>把专注投入到真正重要的事</h2></div><button class="icon" type="button" title="关闭" aria-label="关闭专注中心" onclick={onClose}><SiyuanIcon name="close" size={18} /></button></header>
   <nav>
     <button class:active={tab === "binding"} onclick={() => tab = "binding"}>专注设置</button>
     <button class:active={tab === "overview"} onclick={() => tab = "overview"}>数据概览</button>
@@ -176,4 +176,5 @@
   .session-setup{padding:16px 18px}.setup-title{display:flex;justify-content:space-between;align-items:center;gap:16px}.setup-title h3{margin:3px 0 0;font-size:22px}.binding-actions button:disabled{opacity:.5;cursor:wait}.range-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin-top:14px}.range-grid label,.range-row{display:grid;gap:10px;border-radius:12px;padding:12px;background:var(--b3-theme-background)}.range-grid span,.range-row span{display:flex;justify-content:space-between;gap:8px}.range-grid output,.range-row output{color:var(--b3-theme-primary);font-variant-numeric:tabular-nums}.range-grid input,.range-row input,.display-settings input{width:100%;padding:0;border:0;accent-color:var(--b3-theme-primary)}details{margin-top:12px;border-top:1px solid var(--b3-border-color);padding-top:10px}summary{cursor:pointer;color:var(--b3-theme-on-surface);user-select:none}.detail-settings{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 18px;margin-top:8px}.range-row{grid-column:1/-1}.display-settings{grid-column:1/-1;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;padding-top:10px}.display-settings label{display:grid;grid-template-columns:auto minmax(0,1fr);align-items:center;gap:12px}.binding-head{margin-top:14px}.binding-grid .panel{max-height:32vh}.binding-head button.secondary{background:var(--b3-theme-background);color:inherit;border:1px solid var(--b3-border-color)}
   @media(max-width:760px){.range-grid,.detail-settings,.display-settings{grid-template-columns:1fr}.setup-title{align-items:flex-start;flex-direction:column}.display-settings label{grid-template-columns:1fr}.range-row,.display-settings{grid-column:auto}}
   .binding-actions button{border:0;border-radius:10px;padding:9px 15px;background:var(--b3-theme-primary);color:var(--b3-theme-on-primary);cursor:pointer}.binding-actions button.secondary{background:var(--b3-theme-background);color:inherit;border:1px solid var(--b3-border-color)}
+  @media(max-width:760px){header .icon{width:44px;height:44px}}
 </style>

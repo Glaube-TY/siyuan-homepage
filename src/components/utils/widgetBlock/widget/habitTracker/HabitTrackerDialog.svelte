@@ -1,6 +1,6 @@
 <script lang="ts">
   import { mount, onMount } from "svelte";
-  import { getFrontend, showMessage } from "siyuan";
+  import { showMessage } from "siyuan";
   import { svelteDialog } from "@/libs/dialog";
   import SiyuanIcon from "@/components/utils/shared/SiyuanIcon.svelte";
   import HabitTrackerAnalytics from "./HabitTrackerAnalytics.svelte";
@@ -47,12 +47,11 @@
   }
 
   function openEditor(habit: HabitDefinition | null = null): void {
-    const mobile = getFrontend().includes("mobile");
     let ref: ReturnType<typeof svelteDialog>;
     ref = svelteDialog({
       title: habit ? "编辑习惯" : "新建习惯",
-      width: mobile ? "calc(100vw - 20px)" : "560px",
-      height: mobile ? "calc(100dvh - 24px)" : "min(720px, calc(100vh - 56px))",
+      width: "560px",
+      height: "min(720px, calc(100vh - 56px))",
       constructor: (container) => mount(HabitTrackerEditorDialog, {
         target: container,
         props: { habit, onSaved: reload, onClose: () => ref.close() },
@@ -85,7 +84,7 @@
 <div class="habit-center">
   <header>
     <div><span class="eyebrow">习惯中心</span><h2>让重复变成节奏</h2></div>
-    <div class="header-actions"><button class="primary" type="button" onclick={() => openEditor()}>+ 新建习惯</button><button class="icon" type="button" aria-label="关闭" onclick={onClose}><SiyuanIcon name="close" size={18} /></button></div>
+    <div class="header-actions"><button class="primary" type="button" onclick={() => openEditor()}>+ 新建习惯</button><button class="icon" type="button" aria-label="关闭习惯中心" onclick={onClose}><SiyuanIcon name="close" size={18} /></button></div>
   </header>
 
   <nav aria-label="习惯中心视图">
@@ -133,4 +132,5 @@
 
 <style>
   .habit-center{width:100%;height:100%;min-width:0;min-height:0;flex:1 1 auto;box-sizing:border-box;display:flex;flex-direction:column;color:var(--b3-theme-on-background);background:var(--b3-theme-background);overflow:hidden}.habit-center>header{display:flex;justify-content:space-between;align-items:center;padding:22px 26px 16px;border-bottom:1px solid var(--b3-border-color)}h2{margin:3px 0 0;font-size:24px;letter-spacing:-.03em}.eyebrow{font-size:12px;color:var(--b3-theme-on-surface)}.header-actions{display:flex;gap:8px}.primary{padding:9px 15px;border:0;border-radius:9px;color:var(--b3-theme-on-primary);background:var(--b3-theme-primary)}.icon{width:38px;border-radius:9px}button{font:inherit;cursor:pointer;border:1px solid var(--b3-border-color);background:var(--b3-theme-surface);color:inherit}.icon,.manage-list button,.stepper button{padding:7px 10px}nav{display:flex;gap:4px;padding:10px 26px 0}nav button{border:0;background:transparent;padding:8px 14px;border-radius:8px;color:var(--b3-theme-on-surface)}nav button.active{background:var(--b3-list-hover);color:var(--b3-theme-on-background);font-weight:600}.today-layout,.manage-layout{overflow:auto;padding:18px 26px 28px}.today-layout{display:grid;grid-template-columns:minmax(180px,240px) minmax(0,1fr);gap:22px}.summary{align-self:start;padding:22px;border-radius:18px;background:color-mix(in srgb,var(--b3-theme-primary) 10%,var(--b3-theme-surface));display:flex;flex-direction:column;gap:4px}.summary strong{font-size:40px}.summary small{font-size:18px;color:var(--b3-theme-on-surface)}.summary-track,.progress{height:5px;background:color-mix(in srgb,var(--b3-theme-on-surface) 12%,transparent);border-radius:10px;overflow:hidden}.summary-track{margin-top:18px}.summary-track i,.progress i{display:block;height:100%;background:var(--b3-theme-primary);border-radius:inherit}.habit-list,.manage-list{display:flex;flex-direction:column;gap:8px}.habit-list article,.manage-list article{display:flex;align-items:center;gap:12px;padding:12px 14px;border:1px solid color-mix(in srgb,var(--b3-border-color) 70%,transparent);border-radius:12px;background:var(--b3-theme-surface)}.habit-list article.done{opacity:.68}.check{flex:0 0 28px;width:28px;height:28px;border-radius:50%;padding:0;border-color:color-mix(in srgb,var(--habit-color,var(--b3-theme-primary)) 55%,var(--b3-border-color))}.done .check{background:var(--habit-color,var(--b3-theme-primary));color:white}.habit-copy,.manage-copy{min-width:0;flex:1;display:flex;flex-direction:column;gap:4px}.habit-copy strong,.manage-copy strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.habit-copy span,.manage-list span{font-size:12px;color:var(--b3-theme-on-surface)}.stepper{display:flex}.stepper button:first-child{border-radius:8px 0 0 8px}.stepper button:last-child{border-radius:0 8px 8px 0}.manage-layout{display:block}.color-dot{flex:0 0 auto;width:10px;height:10px;border-radius:50%;background:var(--habit-color)}.manage-stat{flex:0 0 auto!important;align-items:flex-end}.manage-stat strong{font-size:18px}.manage-stat span{font-size:10px}.danger{color:var(--b3-theme-error)}.empty{padding:50px 20px;text-align:center;color:var(--b3-theme-on-surface)}[data-color="blue"]{--habit-color:#4f86e8}[data-color="green"]{--habit-color:#34a66f}[data-color="amber"]{--habit-color:#d69a31}[data-color="violet"]{--habit-color:#8b6de0}[data-color="rose"]{--habit-color:#d9667d}[data-color="cyan"]{--habit-color:#2ba3ad}@media(max-width:760px){.habit-center>header{padding:16px}.today-layout,.manage-layout{grid-template-columns:1fr;padding:14px 16px}.manage-stat{display:none!important}.header-actions .primary{font-size:0}.header-actions .primary::after{content:"+";font-size:18px}}
+  @media(max-width:760px){.header-actions .icon{width:44px;height:44px}}
 </style>

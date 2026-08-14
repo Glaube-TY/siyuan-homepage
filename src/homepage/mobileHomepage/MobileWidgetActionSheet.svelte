@@ -56,6 +56,6 @@
     {#if canDrag}
         <p class="mobile-widget-action-tip">拖住组件右上角手柄可以调整排序。</p>
     {:else}
-        <p class="mobile-widget-action-tip">分类视图仅用于浏览和编辑，排序请切回“全部”。</p>
+        <p class="mobile-widget-action-tip">当前分区可浏览和设置组件；拖动排序请切换到“全部组件”。</p>
     {/if}
 </div>

@@ -270,7 +270,7 @@
     }
 
     .workspace-header--mobile {
-        padding: max(12px, env(safe-area-inset-top)) 12px 10px;
+        padding: max(12px, var(--siyuan-homepage-mobile-safe-area-top, env(safe-area-inset-top))) 12px 10px;
     }
 
     .workspace-header--mobile .header-top {

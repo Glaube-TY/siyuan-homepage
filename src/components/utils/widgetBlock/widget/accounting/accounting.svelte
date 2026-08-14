@@ -138,6 +138,7 @@
                 width: "min(980px, calc(100vw - 32px))",
                 height: "min(760px, calc(100vh - 64px))",
                 title: "",
+                mobileCloseControl: "content",
                 constructor: (containerEl: HTMLElement) => {
                     return mount(AccountingDetailDialog, {
                         target: containerEl,

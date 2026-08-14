@@ -3,21 +3,28 @@
     import SiyuanIcon from "@/components/utils/shared/SiyuanIcon.svelte";
     import { setBlockSize } from "../../components/utils/widgetBlock/utils/block-size-handler";
     import { getMobileWidgetLabel } from "./mobile-widget-categories";
+    import type { MobileHomepageSection } from "./mobileSectionLayout";
 
     interface Props {
         blockElement: HTMLElement;
         widgetType?: string;
+        sections: MobileHomepageSection[];
+        sectionId: string;
         onClose: () => void;
         onDelete: () => void | Promise<void>;
         onStyleChanged: () => void | Promise<void>;
+        onSectionChanged: (sectionId: string) => void | Promise<void>;
     }
 
     let {
         blockElement,
         widgetType = "",
+        sections,
+        sectionId,
         onClose,
         onDelete,
         onStyleChanged,
+        onSectionChanged,
     }: Props = $props();
 
     let backgroundColor = $state("#ffffff");
@@ -29,12 +36,10 @@
     const sizeOptions = [
         { label: "小卡片", detail: "1x1", value: 11, cells: [0] },
         { label: "横向", detail: "2x1", value: 12, cells: [0, 1] },
-        { label: "整行", detail: "3x1", value: 13, cells: [0, 1, 2] },
-        { label: "竖向", detail: "1x2", value: 21, cells: [0, 3] },
-        { label: "大卡片", detail: "2x2", value: 22, cells: [0, 1, 3, 4] },
-        { label: "宽卡片", detail: "3x2", value: 23, cells: [0, 1, 2, 3, 4, 5] },
-        { label: "高卡片", detail: "2x3", value: 32, cells: [0, 1, 3, 4, 6, 7] },
-        { label: "满幅", detail: "3x3", value: 33, cells: [0, 1, 2, 3, 4, 5, 6, 7, 8] },
+        { label: "竖向", detail: "1x2", value: 21, cells: [0, 2] },
+        { label: "大卡片", detail: "2x2", value: 22, cells: [0, 1, 2, 3] },
+        { label: "高卡片", detail: "2x3", value: 32, cells: [0, 1, 2, 3, 4, 5] },
+        { label: "满幅", detail: "2x4", value: 42, cells: [0, 1, 2, 3, 4, 5, 6, 7] },
     ];
 
     function hexToRgba(hex: string, opacity: number): string {
@@ -67,7 +72,7 @@
     }
 
     async function applySize(size: number): Promise<void> {
-        await setBlockSize(blockElement, size, 3);
+        await setBlockSize(blockElement, size, 2);
         await onStyleChanged();
     }
 
@@ -106,12 +111,26 @@
 
     <div class="mobile-widget-sheet-body">
         <section class="mobile-style-section">
+            <h4>主页分区</h4>
+            <label class="mobile-field-row mobile-field-row-wide">
+                <span>显示位置</span>
+                <select value={sectionId} onchange={(event) => void onSectionChanged(
+                    (event.currentTarget as HTMLSelectElement).value,
+                )}>
+                    {#each sections as section}
+                        <option value={section.id}>{section.name}</option>
+                    {/each}
+                </select>
+            </label>
+        </section>
+
+        <section class="mobile-style-section">
             <h4>卡片尺寸</h4>
             <div class="mobile-size-grid">
                 {#each sizeOptions as option}
                     <button type="button" class="mobile-size-option" onclick={() => applySize(option.value)}>
                         <span class="mobile-size-preview" aria-hidden="true">
-                            {#each [0, 1, 2, 3, 4, 5, 6, 7, 8] as cell}
+                            {#each [0, 1, 2, 3, 4, 5, 6, 7] as cell}
                                 <span class:active={option.cells.includes(cell)}></span>
                             {/each}
                         </span>

@@ -2,14 +2,16 @@
     import { onMount } from "svelte";
     import KbMainPanel from "./kb-main-panel.svelte";
     import AdvancedFeatureLock from "@/components/utils/widgetBlock/widget/common/AdvancedFeatureLock.svelte";
+    import SiyuanIcon from "@/components/utils/shared/SiyuanIcon.svelte";
 
     interface Props {
         plugin: any;
         placement?: "tab" | "dock" | "mobile";
         onOpenSettings?: () => void;
+        onClose?: () => void;
     }
 
-    let { plugin, placement = "tab", onOpenSettings }: Props = $props();
+    let { plugin, placement = "tab", onOpenSettings, onClose }: Props = $props();
 
     let advanced = $state(false);
 
@@ -34,9 +36,14 @@
 </script>
 
 {#if advanced}
-    <KbMainPanel {placement} {onOpenSettings} />
+    <KbMainPanel {placement} {onOpenSettings} {onClose} />
 {:else}
     <div class="kb-premium-gate" class:dock={placement === "dock"} class:mobile={placement === "mobile"}>
+        {#if placement === "mobile" && onClose}
+            <button type="button" class="kb-premium-mobile-close" aria-label="关闭 AI 知识库" onclick={onClose}>
+                <SiyuanIcon name="close" size={20} />
+            </button>
+        {/if}
         <div class="kb-premium-lock-shell">
             <AdvancedFeatureLock
                 title="AI 知识库对话"
@@ -85,9 +92,26 @@
     }
 
     .kb-premium-gate.mobile {
+        position: relative;
         align-items: stretch;
-        padding: 12px;
+        padding: 60px 12px 12px;
         overflow: auto;
+    }
+
+    .kb-premium-mobile-close {
+        position: absolute;
+        top: 8px;
+        right: 8px;
+        width: 44px;
+        height: 44px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border: 1px solid var(--b3-border-color);
+        border-radius: 12px;
+        background: var(--b3-theme-surface);
+        color: var(--b3-theme-on-surface);
+        touch-action: manipulation;
     }
 
     .kb-premium-lock-shell {

@@ -38,6 +38,10 @@ export interface DeviceLayoutItem {
 export interface DeviceLayoutSection {
     /** 分栏成员 ID 列表，顺序由全局 layout.order 过滤得出。 */
     widgetIds: string[];
+    /** 用户可见名称；桌面旧分栏可以省略，移动主页自定义分区必须提供。 */
+    name?: string;
+    /** 用户定义的显示顺序。 */
+    index?: number;
     widgetLayoutNumber?: number;
     widgetGap?: number;
 }

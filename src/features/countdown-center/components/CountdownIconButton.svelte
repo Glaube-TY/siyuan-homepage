@@ -38,8 +38,8 @@
 
 <style>
   .shp-countdown-icon-button {
-    width: 40px;
-    height: 40px;
+    width: 44px;
+    height: 44px;
     display: inline-flex;
     align-items: center;
     justify-content: center;

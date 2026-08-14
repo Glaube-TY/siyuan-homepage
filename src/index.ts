@@ -1403,6 +1403,8 @@ export default class PluginHomepage extends Plugin {
             } else {
                 const dialog = svelteDialog({
                     title: "快速笔记",
+                    width: "min(480px, calc(100vw - 32px))",
+                    height: "340px",
                     constructor: (containerEl: HTMLElement) => {
                         return mount(QuickNotesDialog as any, {
                             target: containerEl,
@@ -1913,8 +1915,8 @@ export default class PluginHomepage extends Plugin {
 
         dialogRef = svelteDialog({
             title: "强化日记工作台",
-            width: "100vw",
-            height: "100dvh",
+            mobileHeader: "hidden",
+            mobileCloseControl: "content",
             constructor: (containerEl: HTMLElement) => {
                 return mount(EnhancedDiaryWorkspacePage as any, {
                     target: containerEl,
@@ -2215,8 +2217,8 @@ export default class PluginHomepage extends Plugin {
 
         this.currentMobileDialog = svelteDialog({
             title: "移动主页",
-            width: "100vw",
-            height: "100dvh",
+            mobileHeader: "hidden",
+            mobileCloseControl: "content",
             constructor: (containerEl: HTMLElement) => {
                 return mount(MobileHomepage as any, {
                     target: containerEl,
@@ -2245,8 +2247,8 @@ export default class PluginHomepage extends Plugin {
 
         this.currentMobileKbDialog = svelteDialog({
             title: "AI 知识库",
-            width: "100vw",
-            height: "100dvh",
+            mobileHeader: "hidden",
+            mobileCloseControl: "content",
             constructor: (containerEl: HTMLElement) => {
                 return mount(KbPremiumGatePanel as any, {
                     target: containerEl,
@@ -2254,6 +2256,10 @@ export default class PluginHomepage extends Plugin {
                         plugin: this,
                         placement: "mobile",
                         onOpenSettings: () => this.openKbSettingsDialog(),
+                        onClose: () => {
+                            this.currentMobileKbDialog?.close();
+                            this.currentMobileKbDialog = null;
+                        },
                     },
                 });
             },
@@ -2277,8 +2283,8 @@ export default class PluginHomepage extends Plugin {
 
         this.currentMobileSettingsDialog = svelteDialog({
             title: "移动端设置",
-            width: "100vw",
-            height: "100dvh",
+            mobileHeader: "hidden",
+            mobileCloseControl: "content",
             constructor: (containerEl: HTMLElement) => {
                 return mount(MobileQuickActionsSettingsDialog as any, {
                     target: containerEl,

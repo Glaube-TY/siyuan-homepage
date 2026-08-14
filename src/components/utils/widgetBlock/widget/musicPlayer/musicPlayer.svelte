@@ -1972,9 +1972,10 @@
         scheduleCurrentDisplayMetadata("detail-open");
         try {
             const dialog = svelteDialog({
-                width: mobileRuntime ? "100vw" : "min(960px, calc(100vw - 32px))",
-                height: mobileRuntime ? "100dvh" : "min(680px, calc(100vh - 64px))",
+                width: "min(960px, calc(100vw - 32px))",
+                height: "min(680px, calc(100vh - 64px))",
                 title: "",
+                mobileCloseControl: "content",
                 constructor: (containerEl: HTMLElement) => {
                     try {
                         if (mobileRuntime && cloudProvider) {

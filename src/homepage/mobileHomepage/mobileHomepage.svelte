@@ -9,15 +9,26 @@
     import MobileWidgetStyleSheet from "./MobileWidgetStyleSheet.svelte";
     import MobileAddWidgetSheet from "./MobileAddWidgetSheet.svelte";
     import MobileWidgetDeleteSheet from "./MobileWidgetDeleteSheet.svelte";
+    import MobileSectionManagerSheet from "./MobileSectionManagerSheet.svelte";
+    import MobileSectionSwitcherSheet from "./MobileSectionSwitcherSheet.svelte";
+    import MobileHomepageMenuSheet from "./MobileHomepageMenuSheet.svelte";
     import SiyuanIcon from "@/components/utils/shared/SiyuanIcon.svelte";
     import AdvancedFeatureLock from "../../components/utils/widgetBlock/widget/common/AdvancedFeatureLock.svelte";
     import { saveWidgetContentPreservingSize } from "@/components/utils/widgetBlock/styleUtils";
+    import { getWidgetDefinition } from "@/components/utils/widgetBlock/widgetDefinitionRegistry";
+    import { setBlockSize } from "@/components/utils/widgetBlock/utils/block-size-handler";
     import {
-        MOBILE_WIDGET_CATEGORIES,
         getMobileWidgetLabel,
-        matchesMobileCategory,
-        type MobileWidgetCategoryId,
     } from "./mobile-widget-categories";
+    import {
+        createMobileSectionId,
+        DEFAULT_MOBILE_SECTION_ID,
+        DEFAULT_MOBILE_SECTION_NAME,
+        MOBILE_ALL_SECTION_ID,
+        type MobileHomepageSection,
+        type MobileSectionOperation,
+        type MobileSectionState,
+    } from "./mobileSectionLayout";
     import {
         getWidgetTypeFromBlock,
     } from "./mobile-widget-utils";
@@ -67,16 +78,31 @@
     let mobileHomepageWidgetContainer: HTMLElement | null = $state(null);
     let editMode = $state(false);
     let layoutSaving = $state(false);
-    let activeCategory = $state<MobileWidgetCategoryId>("all");
+    let activeSectionId = $state(DEFAULT_MOBILE_SECTION_ID);
     let selectedBlock: HTMLElement | null = $state(null);
     let selectedWidgetType = $state("");
     let actionSheetOpen = $state(false);
     let addSheetOpen = $state(false);
+    let sectionSheetOpen = $state(false);
+    let sectionSwitcherOpen = $state(false);
+    let menuSheetOpen = $state(false);
     let contentSheet: ContentSheetState | null = $state(null);
     let styleSheetBlock: HTMLElement | null = $state(null);
     let deleteSheetBlock: HTMLElement | null = $state(null);
     let totalWidgetCount = $state(0);
     let visibleWidgetCount = $state(0);
+    let sectionAssignments = $state<Record<string, string>>({});
+    let sections = $state<MobileHomepageSection[]>([{
+        id: DEFAULT_MOBILE_SECTION_ID,
+        name: DEFAULT_MOBILE_SECTION_NAME,
+        index: 0,
+        widgetIds: [],
+    }]);
+    let activeSectionName = $derived(
+        activeSectionId === MOBILE_ALL_SECTION_ID
+            ? "全部组件"
+            : sections.find((section) => section.id === activeSectionId)?.name || DEFAULT_MOBILE_SECTION_NAME,
+    );
 
     // ── 外部主页存储（Homepage Agent）刷新调度器 ──
     // Agent 修改 mobile-homepage 持久化 storage 后，已打开的移动主页在可见且非编辑态时
@@ -117,7 +143,7 @@
         const blocks = getWidgetBlocks();
         totalWidgetCount = blocks.length;
         visibleWidgetCount = blocks.filter((block) => {
-            return !block.classList.contains("mobile-widget-hidden-by-category");
+            return !block.classList.contains("mobile-widget-hidden-by-section");
         }).length;
     }
 
@@ -130,17 +156,61 @@
     }
 
     function updateSortableState(): void {
-        if (!sortable) return;
-        sortable.option("disabled", !(editMode && activeCategory === "all"));
+        const shouldEnableSortable = editMode && activeSectionId === MOBILE_ALL_SECTION_ID;
+        if (!shouldEnableSortable) {
+            if (sortable) {
+                sortable.destroy();
+                sortable = null;
+            }
+            return;
+        }
+
+        const container = mobileHomepageWidgetContainer;
+        if (!container || sortable) return;
+
+        sortable = new Sortable(container, {
+            animation: 150,
+            ghostClass: "mobile-sortable-ghost",
+            chosenClass: "mobile-sortable-chosen",
+            dragClass: "mobile-sortable-drag",
+            handle: ".mobile-widget-drag-handle",
+            delay: 180,
+            delayOnTouchOnly: true,
+            touchStartThreshold: 5,
+            filter: "button:not(.mobile-widget-drag-handle),input,textarea,select,a,[role='button']:not(.mobile-widget-drag-handle)",
+            preventOnFilter: false,
+            onEnd: async () => {
+                if (!editMode || activeSectionId !== MOBILE_ALL_SECTION_ID) return;
+                // 拖动保存必须绑定本次编辑会话的 base revision。
+                if (editBaseLayoutRevision == null) return;
+                try {
+                    const result = await saveLayout(plugin, mobileHomepageWidgetContainer, {
+                        expectedRevision: editBaseLayoutRevision,
+                    });
+                    // 连续拖动：base 更新为刚提交的 revision；rendered 同步，避免二次进入编辑假冲突。
+                    applyMobileCommittedLayout(result.committedRevision, true);
+                    applyMobileSectionState(result.sectionState);
+                    await applySectionFilter();
+                } catch (error) {
+                    if (error instanceof MobileLayoutRevisionConflictError) {
+                        await handleMobileEditConflict();
+                    } else {
+                        showMessage("移动主页拖动保存失败，请重试或点击完成重试。", 5000, "error");
+                    }
+                }
+            },
+        });
     }
 
-    async function applyCategoryFilter(): Promise<void> {
+    async function applySectionFilter(): Promise<void> {
         const blocks = getWidgetBlocks();
-        await Promise.all(blocks.map(async (block) => {
-            const widgetType = await getWidgetTypeFromBlock(plugin, block);
-            const visible = matchesMobileCategory(widgetType, activeCategory);
-            block.classList.toggle("mobile-widget-hidden-by-category", !visible);
-        }));
+        const fallbackSectionId = sections[0]?.id || DEFAULT_MOBILE_SECTION_ID;
+        blocks.forEach((block) => {
+            const widgetSection = sectionAssignments[block.id] || fallbackSectionId;
+            block.dataset.mobileSection = widgetSection;
+            const visible = activeSectionId === MOBILE_ALL_SECTION_ID || widgetSection === activeSectionId;
+            block.classList.toggle("mobile-widget-hidden-by-section", !visible);
+        });
         syncWidgetCount();
     }
 
@@ -168,45 +238,6 @@
                 widgetEventsBound = true;
             }
 
-            if (sortable) {
-                sortable.destroy();
-                sortable = null;
-            }
-
-            sortable = new Sortable(container, {
-                animation: 150,
-                ghostClass: "mobile-sortable-ghost",
-                chosenClass: "mobile-sortable-chosen",
-                dragClass: "mobile-sortable-drag",
-                handle: ".mobile-widget-drag-handle",
-                delay: 180,
-                delayOnTouchOnly: true,
-                touchStartThreshold: 5,
-                filter: "button,input,textarea,select,a,[role='button']",
-                preventOnFilter: false,
-                disabled: true,
-                onEnd: async () => {
-                    if (editMode && activeCategory === "all") {
-                        // 拖动保存必须绑定本次编辑会话的 base revision。
-                        if (editBaseLayoutRevision == null) return;
-                        try {
-                            const result = await saveLayout(plugin, mobileHomepageWidgetContainer, {
-                                expectedRevision: editBaseLayoutRevision,
-                            });
-                            // 连续拖动：base 更新为刚提交的 revision；rendered 同步，避免二次进入编辑假冲突。
-                            applyMobileCommittedLayout(result.committedRevision, true);
-                            await applyCategoryFilter();
-                        } catch (error) {
-                            if (error instanceof MobileLayoutRevisionConflictError) {
-                                await handleMobileEditConflict();
-                            } else {
-                                showMessage("移动主页拖动保存失败，请重试或点击完成重试。", 5000, "error");
-                            }
-                        }
-                    }
-                },
-            });
-
             const restored = await restoreLayout(plugin, currentBlockForSettingsRef, mobileHomepageWidgetContainer, {
                 previewMode,
                 confirmedEmptyLayout: options.confirmedEmptyLayout,
@@ -219,6 +250,14 @@
             if (restored.layoutRevision != null) {
                 renderedLayoutRevision = restored.layoutRevision;
             }
+            sections = restored.sectionState.sections;
+            sectionAssignments = restored.sectionState.assignments;
+            if (
+                activeSectionId !== MOBILE_ALL_SECTION_ID
+                && !sections.some((section) => section.id === activeSectionId)
+            ) {
+                activeSectionId = restored.sectionState.activeSectionId;
+            }
 
             // 已确认空布局清空后，清理可能指向已销毁元素的过期选择状态。
             if (container.dataset.mobileConfirmedEmptyCleared === "1") {
@@ -230,9 +269,12 @@
                 contentSheet = null;
                 styleSheetBlock = null;
                 deleteSheetBlock = null;
+                sectionSheetOpen = false;
+                sectionSwitcherOpen = false;
+                menuSheetOpen = false;
             }
 
-            await applyCategoryFilter();
+            await applySectionFilter();
             syncWidgetCount();
             updateSortableState();
         })();
@@ -392,6 +434,9 @@
         styleSheetBlock = null;
         contentSheet = null;
         deleteSheetBlock = null;
+        sectionSheetOpen = false;
+        sectionSwitcherOpen = false;
+        menuSheetOpen = false;
         setSelectedBlock(null);
         editMode = false;
         layoutSaving = false;
@@ -451,7 +496,7 @@
     }
 
     function handleWidgetRefreshed(): void {
-        void applyCategoryFilter();
+        void applySectionFilter();
         void refreshSelectedWidgetType();
     }
 
@@ -470,11 +515,15 @@
                 }
                 const result = await saveLayout(plugin, mobileHomepageWidgetContainer, { expectedRevision: editBaseLayoutRevision });
                 applyMobileCommittedLayout(result.committedRevision, false);
+                applyMobileSectionState(result.sectionState);
                 editBaseLayoutRevision = null;
                 actionSheetOpen = false;
                 styleSheetBlock = null;
                 contentSheet = null;
                 deleteSheetBlock = null;
+                sectionSheetOpen = false;
+                sectionSwitcherOpen = false;
+                menuSheetOpen = false;
                 setSelectedBlock(null);
                 editMode = false;
                 showMessage("移动端主页布局已保存");
@@ -512,6 +561,7 @@
             }
             const result = await saveLayout(plugin, mobileHomepageWidgetContainer, { expectedRevision: editBaseLayoutRevision });
             applyMobileCommittedLayout(result.committedRevision, false);
+            applyMobileSectionState(result.sectionState);
             editBaseLayoutRevision = null;
             close();
         } catch (error) {
@@ -544,16 +594,8 @@
         const instance = (block as any)?.__widgetBlockInstance;
         if (instance && typeof instance.refreshContent === "function") {
             await instance.refreshContent();
-            await applyCategoryFilter();
+            await applySectionFilter();
         }
-    }
-
-    async function refreshAllWidgets(): Promise<void> {
-        const blocks = getWidgetBlocks();
-        for (const block of blocks) {
-            await refreshBlock(block);
-        }
-        showMessage("移动端组件已刷新");
     }
 
     async function openAddSheet(): Promise<void> {
@@ -563,6 +605,70 @@
         updateSortableState();
     }
 
+    async function openSectionManager(): Promise<void> {
+        const entered = await enterMobileEditMode();
+        if (!entered) return;
+        menuSheetOpen = false;
+        sectionSwitcherOpen = false;
+        sectionSheetOpen = true;
+        updateSortableState();
+    }
+
+    async function runSectionOperation(operation: MobileSectionOperation): Promise<void> {
+        if (!editMode || editBaseLayoutRevision == null) return;
+        try {
+            const result = await saveLayout(plugin, mobileHomepageWidgetContainer, {
+                expectedRevision: editBaseLayoutRevision,
+                sectionOperation: operation,
+            });
+            applyMobileCommittedLayout(result.committedRevision, true);
+            applyMobileSectionState(result.sectionState);
+            await applySectionFilter();
+        } catch (error) {
+            if (error instanceof MobileLayoutRevisionConflictError) {
+                await handleMobileEditConflict();
+                return;
+            }
+            const message = error instanceof Error ? error.message : "请重试";
+            showMessage(`主页分区保存失败：${message}`, 5000, "error");
+        }
+    }
+
+    function assignWidgetSection(widgetId: string, sectionId: string): Promise<void> {
+        return runSectionOperation({ type: "assign", widgetId, sectionId });
+    }
+
+    async function createSection(): Promise<void> {
+        const sectionNumber = sections.length + 1;
+        await runSectionOperation({
+            type: "create",
+            sectionId: createMobileSectionId(),
+            name: `分区 ${sectionNumber}`,
+        });
+    }
+
+    function selectSection(sectionId: string): void {
+        activeSectionId = sectionId;
+        sectionSwitcherOpen = false;
+    }
+
+    async function beginLayoutEdit(): Promise<void> {
+        menuSheetOpen = false;
+        activeSectionId = MOBILE_ALL_SECTION_ID;
+        await toggleEditMode();
+    }
+
+    function applyMobileSectionState(sectionState: MobileSectionState): void {
+        sections = sectionState.sections;
+        sectionAssignments = sectionState.assignments;
+        if (
+            activeSectionId !== MOBILE_ALL_SECTION_ID
+            && !sections.some((section) => section.id === activeSectionId)
+        ) {
+            activeSectionId = sectionState.activeSectionId;
+        }
+    }
+
     function openNewWidgetContentSheet(widgetType: string): void {
         addSheetOpen = false;
         contentSheet = {
@@ -570,6 +676,17 @@
             initialContentType: widgetType,
             isNew: true,
         };
+    }
+
+    function defaultMobileWidgetSize(widgetType: string): number {
+        const definition = getWidgetDefinition(widgetType);
+        if (!definition) return 11;
+        if (
+            ["list", "task", "note", "chart", "embed", "complex"].includes(definition.kind)
+            || ["collection", "visualization", "workspace", "embedded"].includes(definition.presentationCategory)
+        ) return 22;
+        if (definition.kind === "media") return 12;
+        return 11;
     }
 
     async function handleContentConfirm(contentTypeJson: string): Promise<void> {
@@ -596,6 +713,12 @@
         if (instance && typeof instance.updateContent === "function") {
             instance.updateContent(contentTypeJson);
         }
+        if (contentSheet.isNew) {
+            const parsed = JSON.parse(contentTypeJson) as { type?: unknown };
+            if (typeof parsed.type === "string") {
+                await setBlockSize(block, defaultMobileWidgetSize(parsed.type), 2);
+            }
+        }
 
         await saveWidgetContentPreservingSize(
             plugin,
@@ -606,8 +729,17 @@
             contentSheet.isNew,
         );
         try {
-            const result = await saveLayout(plugin, mobileHomepageWidgetContainer, { expectedRevision: editBaseLayoutRevision ?? undefined });
+            const targetSectionId = activeSectionId === MOBILE_ALL_SECTION_ID
+                ? sections[0]?.id
+                : activeSectionId;
+            const result = await saveLayout(plugin, mobileHomepageWidgetContainer, {
+                expectedRevision: editBaseLayoutRevision ?? undefined,
+                ...(contentSheet.isNew && targetSectionId
+                    ? { sectionOperation: { type: "assign" as const, widgetId: contentSheet.blockId, sectionId: targetSectionId } }
+                    : {}),
+            });
             applyMobileCommittedLayout(result.committedRevision, editMode);
+            applyMobileSectionState(result.sectionState);
         } catch (error) {
             if (error instanceof MobileLayoutRevisionConflictError) {
                 // 内容已写入（新建组件 config 已创建），但布局未提交：最小回滚新建实例。
@@ -624,7 +756,7 @@
         }
         setSelectedBlock(block);
         await refreshSelectedWidgetType(block);
-        await applyCategoryFilter();
+        await applySectionFilter();
         contentSheet = null;
         syncWidgetCount();
     }
@@ -656,7 +788,14 @@
             styleSheetBlock = null;
             deleteSheetBlock = null;
             setSelectedBlock(null);
-            await applyCategoryFilter();
+            const nextAssignments = { ...sectionAssignments };
+            delete nextAssignments[widgetId];
+            sectionAssignments = nextAssignments;
+            sections = sections.map((section) => ({
+                ...section,
+                widgetIds: section.widgetIds.filter((id) => id !== widgetId),
+            }));
+            await applySectionFilter();
             syncWidgetCount();
 
             showMessage(result.status === "success" ? "已删除移动端组件" : "已从移动主页移除组件，配置文件已保留");
@@ -672,6 +811,7 @@
 
         const handleAdvancedReady = async () => {
             advanced = true;
+            destroyed = false;
             await tick();
             await initMobileHomepageLayout();
         };
@@ -718,8 +858,8 @@
     });
 
     $effect(() => {
-        activeCategory;
-        void applyCategoryFilter();
+        activeSectionId;
+        void applySectionFilter();
         updateSortableState();
     });
 
@@ -746,56 +886,67 @@
     class:mobile-homepage--preview={previewMode}
 >
     {#if advanced}
-        <nav class="mobile-homepage-nav" aria-label="移动主页分类">
-            {#each MOBILE_WIDGET_CATEGORIES as category}
+        <header class="mobile-homepage-app-bar">
+            <button
+                type="button"
+                class="mobile-homepage-icon-button"
+                aria-label="关闭移动主页"
+                disabled={layoutSaving}
+                onclick={() => void handleClose()}
+            ><SiyuanIcon name="close" size={19} /></button>
+            <button
+                type="button"
+                class="mobile-homepage-section-trigger"
+                aria-label={`当前分区：${activeSectionName}，点击切换`}
+                aria-expanded={sectionSwitcherOpen}
+                onclick={() => (sectionSwitcherOpen = true)}
+            >
+                <span>{activeSectionName}</span>
+                <SiyuanIcon name="iconDown" size={12} />
+            </button>
+            {#if editMode}
                 <button
                     type="button"
-                    class:active={activeCategory === category.id}
-                    onclick={() => (activeCategory = category.id)}
-                >
-                    {category.label}
-                </button>
-            {/each}
-        </nav>
+                    class="mobile-homepage-done-button"
+                    disabled={layoutSaving}
+                    onclick={() => void toggleEditMode()}
+                >{layoutSaving ? "保存中" : "完成"}</button>
+            {:else}
+                <button
+                    type="button"
+                    class="mobile-homepage-icon-button"
+                    aria-label="更多主页操作"
+                    aria-expanded={menuSheetOpen}
+                    onclick={() => (menuSheetOpen = true)}
+                ><SiyuanIcon name="more" size={19} /></button>
+            {/if}
+        </header>
 
         <main class="mobile-homepage-scroll">
             <div class="mobile-homepage-widget" bind:this={mobileHomepageWidgetContainer}></div>
             {#if totalWidgetCount === 0}
                 <div class="mobile-homepage-empty">
                     <strong>还没有移动端组件</strong>
-                    <span>点击底部“添加组件”开始配置。</span>
+                    <span>点击右下角按钮添加第一个组件。</span>
                 </div>
             {:else if visibleWidgetCount === 0}
                 <div class="mobile-homepage-empty">
-                    <strong>当前分类暂无组件</strong>
-                    <span>切换到“全部”查看已添加组件。</span>
+                    <strong>这个分区还没有组件</strong>
+                    <span>添加新组件，或在组件设置中调整所属分区。</span>
                 </div>
             {/if}
         </main>
 
-        <footer class="mobile-homepage-bottom-bar">
-            <button type="button" onclick={openAddSheet}>
-                <SiyuanIcon name="create" size={16} />
-                <span>添加组件</span>
+        {#if !editMode}
+            <button class="mobile-homepage-fab" type="button" aria-label="添加组件" onclick={openAddSheet}>
+                <SiyuanIcon name="create" size={22} />
             </button>
-            <button type="button" onclick={() => void refreshAllWidgets()}>
-                <SiyuanIcon name="refresh" size={16} />
-                <span>刷新</span>
-            </button>
-            <button type="button" onclick={() => void toggleEditMode()} disabled={layoutSaving}>
-                <SiyuanIcon name="edit" size={16} />
-                <span>{editMode ? (layoutSaving ? "保存中…" : "完成") : "编辑"}</span>
-            </button>
-            <button type="button" onclick={() => void handleClose()} disabled={layoutSaving}>
-                <SiyuanIcon name="previous" size={16} />
-                <span>返回</span>
-            </button>
-        </footer>
+        {/if}
 
         {#if actionSheetOpen && selectedBlock}
             <MobileWidgetActionSheet
                 title={getMobileWidgetLabel(selectedWidgetType)}
-                canDrag={activeCategory === "all"}
+                canDrag={activeSectionId === MOBILE_ALL_SECTION_ID}
                 onEditContent={openSelectedContentSheet}
                 onEditStyle={openSelectedStyleSheet}
                 onRefresh={() => refreshBlock(selectedBlock)}
@@ -819,12 +970,16 @@
             <MobileWidgetStyleSheet
                 blockElement={styleSheetBlock}
                 widgetType={styleSheetBlock.dataset.widgetType || selectedWidgetType}
+                {sections}
+                sectionId={sectionAssignments[styleSheetBlock.id] || sections[0]?.id || DEFAULT_MOBILE_SECTION_ID}
                 onClose={() => (styleSheetBlock = null)}
                 onDelete={requestDeleteSelectedWidget}
+                onSectionChanged={(sectionId) => assignWidgetSection(styleSheetBlock!.id, sectionId)}
                 onStyleChanged={() => {
                     saveLayout(plugin, mobileHomepageWidgetContainer, { expectedRevision: editBaseLayoutRevision ?? undefined })
                         .then((result) => {
                             applyMobileCommittedLayout(result.committedRevision, editMode);
+                            applyMobileSectionState(result.sectionState);
                         })
                         .catch((error) => {
                             if (error instanceof MobileLayoutRevisionConflictError) {
@@ -847,9 +1002,36 @@
 
         {#if addSheetOpen}
             <MobileAddWidgetSheet
-                {activeCategory}
+                activeCategory="all"
                 onSelect={openNewWidgetContentSheet}
                 onClose={() => (addSheetOpen = false)}
+            />
+        {/if}
+
+        {#if sectionSheetOpen}
+            <MobileSectionManagerSheet
+                {sections}
+                onOperation={runSectionOperation}
+                onCreate={createSection}
+                onClose={() => (sectionSheetOpen = false)}
+            />
+        {/if}
+
+        {#if sectionSwitcherOpen}
+            <MobileSectionSwitcherSheet
+                {sections}
+                {activeSectionId}
+                onSelect={selectSection}
+                onManage={openSectionManager}
+                onClose={() => (sectionSwitcherOpen = false)}
+            />
+        {/if}
+
+        {#if menuSheetOpen}
+            <MobileHomepageMenuSheet
+                onEdit={beginLayoutEdit}
+                onManageSections={openSectionManager}
+                onClose={() => (menuSheetOpen = false)}
             />
         {/if}
     {:else}

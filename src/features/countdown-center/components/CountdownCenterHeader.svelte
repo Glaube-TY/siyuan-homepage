@@ -56,7 +56,7 @@
   }
   .shp-countdown-center-header-mobile {
     min-height: 56px;
-    padding: max(8px, env(safe-area-inset-top)) 10px 8px;
+    padding: max(8px, var(--siyuan-homepage-mobile-safe-area-top, env(safe-area-inset-top))) 10px 8px;
   }
   .shp-countdown-center-header-mobile .shp-countdown-center-title strong {
     font-size: 16px;

@@ -1,6 +1,5 @@
 <script lang="ts">
   import { mount, onMount } from "svelte";
-  import { getFrontend } from "siyuan";
   import SiyuanIcon from "@/components/utils/shared/SiyuanIcon.svelte";
   import { svelteDialog } from "@/libs/dialog";
   import WidgetSemanticTitle from "@/homepage/theme/widgetPresentation/components/WidgetSemanticTitle.svelte";
@@ -68,26 +67,21 @@
     selectedDate = formatCalendarDate(next);
   }
 
-  function isMobileFrontend(): boolean {
-    const frontend = getFrontend();
-    return frontend === "mobile" || frontend === "browser-mobile" || frontend.includes("mobile");
-  }
-
   function openDetail(): void {
     if (!advancedEnabled) return;
-    const mobile = isMobileFrontend();
     let ref: ReturnType<typeof svelteDialog>;
     ref = svelteDialog({
       title: "",
-      width: mobile ? "100vw" : "calc(100vw - 32px)",
-      height: mobile ? "100dvh" : "calc(100vh - 40px)",
+      mobileCloseControl: "content",
+      width: "calc(100vw - 32px)",
+      height: "calc(100vh - 40px)",
       constructor: (container) => mount(GlobalCalendarDetailDialog, {
         target: container,
         props: { plugin, config, initialDate: selectedDate, onClose: () => ref.close() },
       }),
     });
     ref.dialog.element.classList.add("global-calendar-dialog-host");
-    if (mobile) ref.dialog.element.classList.add("global-calendar-dialog-host--mobile");
+    if (ref.mobile) ref.dialog.element.classList.add("global-calendar-dialog-host--mobile");
   }
 
   function selectDate(date: string): void {

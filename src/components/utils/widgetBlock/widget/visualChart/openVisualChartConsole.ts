@@ -1,4 +1,3 @@
-import { getFrontend } from "siyuan";
 import { mount } from "svelte";
 import { svelteDialog } from "@/libs/dialog";
 import { visualChartConfigFromWidgetContent, writeVisualChartConfigToWidgetContent } from "@/features/visual-chart/visual-chart-config";
@@ -12,13 +11,13 @@ interface OpenVisualChartConsoleOptions {
 }
 
 export function openVisualChartConsole(options: OpenVisualChartConsoleOptions): void {
-    const mobile = getFrontend().includes("mobile");
     const initialConfig = visualChartConfigFromWidgetContent(options.content);
     let ref: ReturnType<typeof svelteDialog>;
     ref = svelteDialog({
         title: "",
-        width: mobile ? "100vw" : "calc(100vw - 32px)",
-        height: mobile ? "100dvh" : "calc(100vh - 40px)",
+        mobileCloseControl: "content",
+        width: "calc(100vw - 32px)",
+        height: "calc(100vh - 40px)",
         constructor: (container) => mount(VisualChartConsole, {
             target: container,
             props: {

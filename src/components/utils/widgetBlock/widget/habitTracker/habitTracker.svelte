@@ -1,6 +1,5 @@
 <script lang="ts">
   import { mount, onMount } from "svelte";
-  import { getFrontend } from "siyuan";
   import { svelteDialog } from "@/libs/dialog";
   import AdvancedFeatureLock from "../common/AdvancedFeatureLock.svelte";
   import WidgetSemanticTitle from "@/homepage/theme/widgetPresentation/components/WidgetSemanticTitle.svelte";
@@ -36,9 +35,8 @@
   }
   function openDetail(): void {
     if (!advancedEnabled) return;
-    const mobile = getFrontend().includes("mobile");
     let ref: ReturnType<typeof svelteDialog>;
-    ref = svelteDialog({ title: "", width: mobile ? "100vw" : "calc(100vw - 32px)", height: mobile ? "100dvh" : "calc(100vh - 48px)", constructor: (container) => mount(HabitTrackerDialog, { target: container, props: { onClose: () => ref.close() } }) });
+    ref = svelteDialog({ title: "", mobileCloseControl: "content", width: "calc(100vw - 32px)", height: "calc(100vh - 48px)", constructor: (container) => mount(HabitTrackerDialog, { target: container, props: { onClose: () => ref.close() } }) });
     ref.dialog.element.classList.add("habit-tracker-dialog-host");
   }
   onMount(() => {

@@ -269,7 +269,7 @@
 <div class="shp-mobile-quick-settings">
     <header class="shp-mobile-quick-settings__header">
         {#if page === "main"}
-            <button type="button" class="shp-mobile-quick-settings__icon-button" aria-label="关闭" onclick={close}>
+            <button type="button" class="shp-mobile-quick-settings__icon-button" aria-label="关闭移动端设置" onclick={close}>
                 <SiyuanIcon name="close" size={18} />
             </button>
         {:else}
@@ -506,8 +506,8 @@
     }
 
     .shp-mobile-quick-settings__icon-button {
-        width: 36px;
-        height: 36px;
+        width: 44px;
+        height: 44px;
     }
 
     .shp-mobile-quick-settings__status {

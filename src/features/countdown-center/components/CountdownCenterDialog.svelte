@@ -648,11 +648,4 @@
     max-width: min(1280px, calc(100vw - 32px)) !important;
     overflow: hidden;
   }
-  :global(.countdown-center-dialog-host--mobile .b3-dialog__container) {
-    width: 100vw !important;
-    height: 100dvh !important;
-    border-radius: 0 !important;
-    max-width: 100vw !important;
-    max-height: 100dvh !important;
-  }
 </style>

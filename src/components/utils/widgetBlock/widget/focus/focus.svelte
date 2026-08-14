@@ -1,6 +1,6 @@
 <script lang="ts">
   import { mount, onDestroy, onMount } from "svelte";
-  import { getFrontend, showMessage } from "siyuan";
+  import { showMessage } from "siyuan";
   import { svelteDialog } from "@/libs/dialog";
   import Play from "@lucide/svelte/icons/play";
   import Pause from "@lucide/svelte/icons/pause";
@@ -178,9 +178,8 @@
   }
   function openCenter(): void {
     if (!advancedEnabled) return;
-    const mobile = getFrontend().includes("mobile");
     let ref: ReturnType<typeof svelteDialog>;
-    ref = svelteDialog({ title: "", width: mobile ? "calc(100vw - 16px)" : "min(1120px, calc(100vw - 48px))", height: mobile ? "calc(100dvh - 20px)" : "min(820px, calc(100vh - 56px))", constructor: (container) => mount(FocusCenterDialog, { target: container, props: { plugin, config: { ...config }, binding: binding ? { ...binding } : undefined, onApply: applySetup, onStart: startTimer, onClose: () => ref.close() } }) });
+    ref = svelteDialog({ title: "", mobileCloseControl: "content", width: "min(1120px, calc(100vw - 48px))", height: "min(820px, calc(100vh - 56px))", constructor: (container) => mount(FocusCenterDialog, { target: container, props: { plugin, config: { ...config }, binding: binding ? { ...binding } : undefined, onApply: applySetup, onStart: startTimer, onClose: () => ref.close() } }) });
     ref.dialog.element.classList.add("focus-center-dialog-host");
   }
   async function refreshStats(): Promise<void> { const stats = await loadFocusStatistics(); totalFocusTime = stats.totalFocusTime; totalFocusTimes = stats.totalFocusTimes; }

@@ -1,4 +1,4 @@
-import { DESKTOP_CONTENT_CATEGORY_LABELS, MOBILE_WIDGET_CATEGORY_LABELS } from "./homepage-agent-widget-catalog";
+import { WIDGET_CONTENT_CATEGORY_LABELS } from "./homepage-agent-widget-catalog";
 import type { HomepageAgentSurface, HomepageWidgetResolutionStatus } from "./homepage-manage-types";
 
 /**
@@ -44,21 +44,18 @@ export function missingConfigWarningText(count: number): string {
 
 export interface WidgetCategorySourceItem {
   activeTab: string;
-  category: string;
 }
 
-/** 按 surface 返回真实分类 ID：desktop 用 activeTab，mobile 用 category。 */
-export function surfaceCategoryId(surface: HomepageAgentSurface, item: WidgetCategorySourceItem): string {
-  return surface === "desktop-homepage" ? item.activeTab : item.category;
+/** 桌面与移动主页统一使用组件内容分类 activeTab。 */
+export function surfaceCategoryId(_surface: HomepageAgentSurface, item: WidgetCategorySourceItem): string {
+  return item.activeTab;
 }
 
 /** 按 surface 返回分类中文标签。 */
-export function surfaceCategoryLabel(surface: HomepageAgentSurface, item: WidgetCategorySourceItem): string {
-  return surface === "desktop-homepage"
-    ? DESKTOP_CONTENT_CATEGORY_LABELS[item.activeTab] ?? item.activeTab
-    : MOBILE_WIDGET_CATEGORY_LABELS[item.category] ?? item.category;
+export function surfaceCategoryLabel(_surface: HomepageAgentSurface, item: WidgetCategorySourceItem): string {
+  return WIDGET_CONTENT_CATEGORY_LABELS[item.activeTab] ?? item.activeTab;
 }
 
-export function surfaceCategorySource(surface: HomepageAgentSurface): string {
-  return surface === "desktop-homepage" ? "desktop-content-setting" : "mobile-widget-catalog";
+export function surfaceCategorySource(_surface: HomepageAgentSurface): string {
+  return "widget-content-category";
 }

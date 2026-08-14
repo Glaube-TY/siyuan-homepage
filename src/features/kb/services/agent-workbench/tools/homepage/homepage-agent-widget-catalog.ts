@@ -36,7 +36,6 @@ export interface HomepageAgentWidgetDescriptor {
   type: string;
   label: string;
   description: string;
-  category: string;
   activeTab: string;
   supportedSurfaces: Array<"desktop-homepage" | "mobile-homepage">;
   advancedRequired: boolean;
@@ -46,23 +45,15 @@ export interface HomepageAgentWidgetDescriptor {
 }
 
 /**
- * 桌面主页 contentSetting.svelte 真实顶级分类（activeTab → 中文标签）。
- * Agent 整理 desktop-homepage 时必须使用这一套分类，不得使用移动端 task/docs/data/tools。
+ * 组件内容设置的真实顶级分类（activeTab → 中文标签）。
+ * 桌面与移动主页共用的组件内容分类。
  */
-export const DESKTOP_CONTENT_CATEGORY_LABELS: Record<string, string> = {
+export const WIDGET_CONTENT_CATEGORY_LABELS: Record<string, string> = {
   note: "笔记数据",
   visualization: "可视化",
   tool: "日常工具",
   info: "信息资讯",
   custom: "自定义",
-};
-
-/** 移动主页分类（MOBILE_WIDGET_CATALOG.category）中文标签。 */
-export const MOBILE_WIDGET_CATEGORY_LABELS: Record<string, string> = {
-  task: "任务",
-  docs: "文档",
-  data: "数据",
-  tools: "工具",
 };
 
 export const HOMEPAGE_AGENT_WIDGET_CATALOG: HomepageAgentWidgetDescriptor[] = MOBILE_WIDGET_CATALOG.map((item) => ({

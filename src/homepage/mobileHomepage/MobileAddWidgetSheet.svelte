@@ -2,8 +2,8 @@
     import { onMount } from "svelte";
     import SiyuanIcon from "@/components/utils/shared/SiyuanIcon.svelte";
     import {
+        MOBILE_WIDGET_CATEGORIES,
         MOBILE_WIDGET_CATALOG,
-        type MobileAddCategoryId,
         type MobileWidgetCategoryId,
     } from "./mobile-widget-categories";
 
@@ -15,28 +15,16 @@
 
     let { activeCategory, onSelect, onClose }: Props = $props();
 
-    const addCategories: { id: MobileAddCategoryId; label: string }[] = [
-        { id: "common", label: "常用" },
-        { id: "docs", label: "文档" },
-        { id: "task", label: "任务" },
-        { id: "data", label: "数据" },
-        { id: "tools", label: "工具" },
-        { id: "custom", label: "自定义" },
-        { id: "all", label: "全部" },
-    ];
+    const addCategories: { id: MobileWidgetCategoryId; label: string }[] = MOBILE_WIDGET_CATEGORIES;
 
-    let selectedCategory = $state<MobileAddCategoryId>("common");
+    let selectedCategory = $state<MobileWidgetCategoryId>("all");
     let searchText = $state("");
 
     const filteredWidgets = $derived(
         MOBILE_WIDGET_CATALOG.filter((item) => {
             const matchesCategory =
                 selectedCategory === "all" ||
-                (selectedCategory === "common"
-                    ? item.common
-                    : selectedCategory === "custom"
-                      ? item.activeTab === "custom"
-                      : item.category === selectedCategory);
+                item.activeTab === selectedCategory;
             const keyword = searchText.trim().toLowerCase();
             const matchesSearch =
                 !keyword ||
@@ -48,7 +36,7 @@
     );
 
     onMount(() => {
-        selectedCategory = activeCategory === "all" ? "common" : activeCategory;
+        selectedCategory = activeCategory;
     });
 </script>
 

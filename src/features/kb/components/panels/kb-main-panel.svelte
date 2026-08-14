@@ -56,6 +56,7 @@
 
   export let placement: "dock" | "tab" | "mobile" = "dock";
   export let onOpenSettings: (() => void) | undefined = undefined;
+  export let onClose: (() => void) | undefined = undefined;
   let sessionHydrationReady = false;
 
   /** 当前面板实例的稳定路由 ID；不会在会话切换时变化。 */
@@ -1555,6 +1556,17 @@
           </span>
           <span class="btn-label">{isCopiedAll ? "已复制" : "复制对话"}</span>
         </button>
+        {#if placement === "mobile" && onClose}
+          <button
+            type="button"
+            class="toolbar-btn mobile-close-btn"
+            on:click={onClose}
+            title="关闭 AI 知识库"
+            aria-label="关闭 AI 知识库"
+          >
+            <span class="btn-icon"><SiyuanIcon name="iconClose" size={15} /></span>
+          </button>
+        {/if}
       </div>
     </div>
 
@@ -1972,8 +1984,8 @@
     }
 
     .toolbar-btn {
-      min-width: 38px;
-      min-height: 38px;
+      min-width: 44px;
+      min-height: 44px;
       justify-content: center;
       padding: 0 10px;
       border-radius: 12px;
@@ -1982,6 +1994,10 @@
       &:hover:not(:disabled) {
         transform: none;
       }
+    }
+
+    .mobile-close-btn {
+      flex: 0 0 44px;
     }
 
     .btn-label {

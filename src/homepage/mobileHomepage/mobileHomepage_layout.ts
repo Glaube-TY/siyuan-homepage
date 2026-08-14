@@ -7,6 +7,12 @@ import { loadWidgetInstanceConfig } from "@/homepage/deviceView/widgetInstanceRe
 import { stringifyWidgetConfigForMount, type LayoutItem } from "../../components/utils/widgetBlock/utils/layout-shared";
 import { shouldClearMobileConfirmedEmpty } from "../deviceView/confirmedEmptyLayout";
 import type { DeviceViewContext } from "@/homepage/deviceView/deviceViewTypes";
+import {
+    applyMobileSectionOperation,
+    readMobileSectionState,
+    type MobileSectionOperation,
+    type MobileSectionState,
+} from "./mobileSectionLayout";
 
 export const MOBILE_LAYOUT_SURFACE = "mobile-homepage" as const;
 
@@ -79,6 +85,7 @@ async function verifyMobileEmptyLayout(context: DeviceViewContext, expectedRevis
 export interface MobileSaveLayoutResult {
     /** 本次成功提交后的真实 layout revision。 */
     committedRevision: number;
+    sectionState: MobileSectionState;
 }
 
 /**
@@ -94,7 +101,7 @@ export interface MobileSaveLayoutResult {
 export async function saveLayout(
     plugin: Plugin,
     containerEl: HTMLElement | null,
-    options: { expectedRevision?: number } = {},
+    options: { expectedRevision?: number; sectionOperation?: MobileSectionOperation } = {},
 ): Promise<MobileSaveLayoutResult> {
     // Must receive an explicit container element — no global DOM fallback.
     // This prevents saving the wrong instance when multiple mobile homepage
@@ -135,7 +142,7 @@ export async function saveLayout(
             // 传递 expectedRevision 作为写队列内的第二层并发保护（防 read→write 竞态）。
             const result = await updateDeviceViewLayout(
                 context,
-                (latest) => ({ ...latest, order: snapshot }),
+                (latest) => applyMobileSectionOperation({ ...latest, order: snapshot }, options.sectionOperation),
                 { expectedRevision: options.expectedRevision },
             );
 
@@ -160,8 +167,22 @@ export async function saveLayout(
                     );
                 }
             }
+            const assignment = options.sectionOperation?.type === "assign"
+                ? options.sectionOperation
+                : null;
+            if (assignment) {
+                const assignedSections = Object.entries(result.sections || {})
+                    .filter(([, section]) => section.widgetIds.includes(assignment.widgetId))
+                    .map(([sectionId]) => sectionId);
+                if (
+                    assignedSections.length !== 1
+                    || assignedSections[0] !== assignment.sectionId
+                ) {
+                    throw new Error("移动主页分区设置保存后校验失败");
+                }
+            }
 
-            resolveTask({ committedRevision: result.revision });
+            resolveTask({ committedRevision: result.revision, sectionState: readMobileSectionState(result) });
         } catch (error) {
             // 竞态：预检与写队列之间可能被并发更新，转换为结构化冲突错误。
             if (options.expectedRevision !== undefined && !(error instanceof MobileLayoutRevisionConflictError)) {
@@ -191,6 +212,7 @@ export interface MobileRestoreLayoutResult {
     status: "ready" | "incomplete";
     /** 本次是否执行了“已确认空布局”清空。 */
     emptyCleared: boolean;
+    sectionState: MobileSectionState;
 }
 
 export async function restoreLayout(
@@ -201,7 +223,7 @@ export async function restoreLayout(
 ): Promise<MobileRestoreLayoutResult> {
     const { confirmedEmptyLayout = false, ...widgetRuntimeContext } = runtimeContext;
     const container = containerEl || document.querySelector(".mobile-homepage-widget");
-    if (!(container instanceof HTMLElement)) return { layoutRevision: null, status: "incomplete", emptyCleared: false };
+    if (!(container instanceof HTMLElement)) return { layoutRevision: null, status: "incomplete", emptyCleared: false, sectionState: readMobileSectionState(null) };
     container.dataset.layoutRestoreState = "restoring";
     const context = runtimeContext.deviceViewContext || await getReadyContext(plugin);
 
@@ -212,9 +234,10 @@ export async function restoreLayout(
     } catch (error) {
         container.dataset.layoutRestoreState = "incomplete";
         console.warn("[MobileLayout] 布局暂时不可读，保留已挂载组件:", error);
-        return { layoutRevision: null, status: "incomplete", emptyCleared: false };
+        return { layoutRevision: null, status: "incomplete", emptyCleared: false, sectionState: readMobileSectionState(null) };
     }
     const renderedRevision = layout.revision;
+    const sectionState = readMobileSectionState(layout);
 
     const order = validateLayoutItems(layout.order);
     const prepared: Array<{ item: LayoutItem; instance: WidgetBlock; contentJson: string }> = [];
@@ -227,7 +250,7 @@ export async function restoreLayout(
             // 普通恢复保护：同步临时空读/暂不可读时保留已挂载健康组件。
             container.dataset.layoutRestoreState = "incomplete";
             console.warn("[MobileLayout] 空布局与当前健康组件冲突，本轮保留已挂载组件");
-            return { layoutRevision: renderedRevision, status: "incomplete", emptyCleared: false };
+            return { layoutRevision: renderedRevision, status: "incomplete", emptyCleared: false, sectionState };
         }
         // 已验证的合法空布局（Agent external refresh）：双读确认 storage 仍为空后才允许清空。
         const confirmedEmpty = await verifyMobileEmptyLayout(context, layout.revision);
@@ -235,7 +258,7 @@ export async function restoreLayout(
             // 双读不一致（例如并发写入了新组件）：停止本轮清空，保留现有 DOM，
             // pending 由 latest-wins 重新处理。
             container.dataset.layoutRestoreState = "incomplete";
-            return { layoutRevision: renderedRevision, status: "incomplete", emptyCleared: false };
+            return { layoutRevision: renderedRevision, status: "incomplete", emptyCleared: false, sectionState };
         }
         // 确认仍为空：正常 destroy 每个 widget runtime instance 后再移除元素。
         for (const element of existing.values()) {
@@ -248,7 +271,7 @@ export async function restoreLayout(
         }
         container.dataset.mobileConfirmedEmptyCleared = "1";
         container.dataset.layoutRestoreState = "ready";
-        return { layoutRevision: renderedRevision, status: "ready", emptyCleared: true };
+        return { layoutRevision: renderedRevision, status: "ready", emptyCleared: true, sectionState };
     }
 
     let allWidgetsComplete = true;
@@ -309,5 +332,5 @@ export async function restoreLayout(
     const healthyCount = order.filter((item) => (existing.get(item.id) as any)?.__widgetBlockInstance?.hasMountedContent?.()).length;
     const allHealthy = allWidgetsComplete && healthyCount === order.length;
     container.dataset.layoutRestoreState = allHealthy ? "ready" : "incomplete";
-    return { layoutRevision: renderedRevision, status: allHealthy ? "ready" : "incomplete", emptyCleared: false };
+    return { layoutRevision: renderedRevision, status: allHealthy ? "ready" : "incomplete", emptyCleared: false, sectionState };
 }

@@ -237,7 +237,7 @@
 <style lang="scss">
     .mobile-player-page {
         --mp-detail-text:#f8fafc; --mp-detail-muted:rgba(248,250,252,.72); --mp-panel-bg:rgba(7,10,14,.44); --mp-panel-bg-strong:rgba(7,10,14,.64); --mp-panel-border:rgba(255,255,255,.16); --mp-button-bg:rgba(7,10,14,.52); --mp-button-border:rgba(255,255,255,.2); --mp-error-text:#fecaca;
-        position:relative; isolation:isolate; display:flex; flex-direction:column; width:100%; height:100%; min-width:0; min-height:0; overflow:hidden; background:#111827; color:var(--mp-detail-text); padding-top:env(safe-area-inset-top); box-sizing:border-box;
+        position:relative; isolation:isolate; display:flex; flex-direction:column; width:100%; height:100%; min-width:0; min-height:0; overflow:hidden; background:#111827; color:var(--mp-detail-text); padding-top:var(--siyuan-homepage-mobile-safe-area-top, env(safe-area-inset-top)); box-sizing:border-box;
     }
     .mobile-player-backdrop { position:absolute; inset:-28px; z-index:-3; background:var(--mobile-cover-url,none),linear-gradient(160deg,#28374f,#111827); background-size:cover; background-position:center; filter:blur(32px) brightness(.5) saturate(1.15); }
     .mobile-player-shade { position:absolute; inset:0; z-index:-2; background:linear-gradient(180deg,rgba(4,7,12,.38),rgba(4,7,12,.68) 58%,rgba(4,7,12,.94)); }
@@ -252,8 +252,8 @@
     .mobile-connection .local { border-color:rgba(74,222,128,.72); background:rgba(21,128,61,.74); }
     .mobile-connection .remote { border-color:rgba(96,165,250,.74); background:rgba(29,78,216,.76); }
     .mobile-connection .offline { border-color:rgba(248,113,113,.68); background:rgba(153,27,27,.7); }
-    .header-icon,.floating-close { display:grid; place-items:center; width:42px; height:42px; border:1px solid var(--mp-panel-border); border-radius:50%; background:var(--mp-button-bg); }
-    .floating-close { position:absolute; top:calc(env(safe-area-inset-top) + 10px); right:14px; z-index:8; }
+    .header-icon,.floating-close { display:grid; place-items:center; width:44px; height:44px; border:1px solid var(--mp-panel-border); border-radius:50%; background:var(--mp-button-bg); }
+    .floating-close { position:absolute; top:calc(var(--siyuan-homepage-mobile-safe-area-top, env(safe-area-inset-top)) + 10px); right:14px; z-index:8; }
     .mobile-player-main { flex:1; min-height:0; overflow:hidden; padding-bottom:134px; }
     .mobile-player-main.subpage { padding-bottom:196px; }
     .now-playing-view { height:100%; overflow-y:auto; display:flex; flex-direction:column; align-items:center; padding:12px 20px 30px; box-sizing:border-box; }

@@ -142,10 +142,18 @@ function validateSectionWidgetIds(value: unknown, sectionId: string, path: strin
 
 function validateDeviceLayoutSection(value: unknown, sectionId: string, path: string): DeviceLayoutSection {
     if (!isPlainJsonObject(value)) throw new Error(`设备布局 ${path} sections.${sectionId} 不是普通对象`);
-    assertOnlyKeys(value, ["widgetIds", "widgetLayoutNumber", "widgetGap"], `设备布局 ${path} sections.${sectionId}`);
+    assertOnlyKeys(value, ["widgetIds", "name", "index", "widgetLayoutNumber", "widgetGap"], `设备布局 ${path} sections.${sectionId}`);
     const widgetIds = validateSectionWidgetIds(value.widgetIds, sectionId, path);
+    const name = value.name;
+    const index = value.index;
     const widgetLayoutNumber = value.widgetLayoutNumber;
     const widgetGap = value.widgetGap;
+    if (name !== undefined && (typeof name !== "string" || !name.trim() || name.trim().length > 30)) {
+        throw new Error(`设备布局 ${path} sections.${sectionId}.name 无效`);
+    }
+    if (index !== undefined && (typeof index !== "number" || !Number.isInteger(index) || index < 0)) {
+        throw new Error(`设备布局 ${path} sections.${sectionId}.index 无效`);
+    }
     if (widgetLayoutNumber !== undefined && (typeof widgetLayoutNumber !== "number" || !Number.isInteger(widgetLayoutNumber) || widgetLayoutNumber <= 0)) {
         throw new Error(`设备布局 ${path} sections.${sectionId}.widgetLayoutNumber 无效`);
     }
@@ -153,6 +161,8 @@ function validateDeviceLayoutSection(value: unknown, sectionId: string, path: st
         throw new Error(`设备布局 ${path} sections.${sectionId}.widgetGap 无效`);
     }
     const section: DeviceLayoutSection = { widgetIds };
+    if (typeof name === "string") section.name = name.trim();
+    if (typeof index === "number") section.index = index;
     if (typeof widgetLayoutNumber === "number") section.widgetLayoutNumber = widgetLayoutNumber;
     if (typeof widgetGap === "number") section.widgetGap = widgetGap;
     return section;
@@ -383,6 +393,8 @@ function normalizeLayoutForWrite(layout: DeviceViewLayout): DeviceViewLayout {
                 sectionId,
                 {
                     widgetIds: [...section.widgetIds],
+                    ...(section.name !== undefined ? { name: section.name } : {}),
+                    ...(section.index !== undefined ? { index: section.index } : {}),
                     ...(section.widgetLayoutNumber !== undefined ? { widgetLayoutNumber: section.widgetLayoutNumber } : {}),
                     ...(section.widgetGap !== undefined ? { widgetGap: section.widgetGap } : {}),
                 } satisfies DeviceLayoutSection,
