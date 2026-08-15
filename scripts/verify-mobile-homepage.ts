@@ -88,7 +88,6 @@ const stylesheet = readFileSync(stylesheetPath, "utf8");
 for (const marker of [
     "grid-template-columns: repeat(2",
     "mobile-homepage-app-bar",
-    "mobile-homepage-fab",
     "mobile-widget-hidden-by-section",
     "data-widget-kind=\"list\"",
     "data-widget-kind=\"chart\"",
@@ -100,6 +99,26 @@ for (const marker of [
 assert(
     stylesheet.includes("var(--siyuan-homepage-mobile-safe-area-top, env(safe-area-inset-top))"),
     "移动主页顶部安全区必须通过统一 Portal 变量解析",
+);
+assert(!stylesheet.includes("mobile-homepage-fab"), "移动主页浏览态不得保留常驻添加组件悬浮按钮");
+assert(
+    stylesheet.includes(".mobile-widget-content-panel")
+        && stylesheet.includes("height: 100%")
+        && stylesheet.includes("flex-direction: column"),
+    "移动组件内容面板必须建立完整高度与 flex 链，长表单才能滚动",
+);
+assert(
+    stylesheet.includes(".mobile-widget-content-sheet")
+        && stylesheet.includes("height: min(85dvh, 720px)")
+        && stylesheet.includes("box-sizing: border-box"),
+    "移动组件内容弹层必须提供确定高度，不能只依赖 max-height",
+);
+assert(
+    stylesheet.includes(".mobile-content-form-body")
+        && stylesheet.includes("overflow-y: auto")
+        && stylesheet.includes("touch-action: pan-y")
+        && stylesheet.includes("-webkit-overflow-scrolling: touch"),
+    "移动组件长表单必须接管纵向触摸滚动",
 );
 
 const mobileHomepagePath = fileURLToPath(new URL("../src/homepage/mobileHomepage/mobileHomepage.svelte", import.meta.url));
@@ -120,6 +139,84 @@ assert(
 assert(
     mobileHomepageSource.includes("button:not(.mobile-widget-drag-handle)"),
     "Sortable 过滤交互控件时不得连拖拽手柄一起排除",
+);
+assert(
+    mobileHomepageSource.includes("先创建配置，再把区块加入 DOM")
+        && mobileHomepageSource.includes("removeTransientMobileWidget"),
+    "移动端新增组件必须先保存配置，并在布局提交失败时清理未提交区块",
+);
+assert(
+    mobileHomepageSource.includes("editMode = false")
+        && mobileHomepageSource.includes("if (targetSectionId) activeSectionId = targetSectionId"),
+    "移动端新增组件成功后必须退出编辑态并返回新组件所在主页分区",
+);
+assert(!mobileHomepageSource.includes("mobile-homepage-fab"), "添加组件入口必须从浏览态悬浮按钮移除");
+const contentConfirmSource = mobileHomepageSource.slice(
+    mobileHomepageSource.indexOf("async function handleContentConfirm"),
+    mobileHomepageSource.indexOf("function requestDeleteSelectedWidget"),
+);
+assert(
+    contentConfirmSource.indexOf("await saveLayout") < contentConfirmSource.indexOf("instance.updateContent"),
+    "新增组件必须先提交配置与布局，再运行组件，避免音乐播放器挂载异常导致无法添加",
+);
+assert(
+    mobileHomepageSource.includes('restored.status === "ready"')
+        && mobileHomepageSource.includes("renderedLayoutRevision = null"),
+    "布局恢复不完整时不得允许残缺 DOM 覆盖持久化布局",
+);
+
+const mobileMenuPath = fileURLToPath(new URL("../src/homepage/mobileHomepage/MobileHomepageMenuSheet.svelte", import.meta.url));
+const mobileMenuSource = readFileSync(mobileMenuPath, "utf8");
+assert(
+    mobileMenuSource.includes("onAddWidget") && mobileMenuSource.includes("添加组件"),
+    "添加组件入口必须位于主页更多菜单",
+);
+
+const mobileContentFormPath = fileURLToPath(new URL("../src/homepage/mobileHomepage/MobileWidgetContentForm.svelte", import.meta.url));
+const mobileContentFormSource = readFileSync(mobileContentFormPath, "utf8");
+assert(
+    !mobileContentFormSource.includes("svelteDialog")
+        && mobileContentFormSource.includes('onOpenSubpage("music-cloud")'),
+    "移动组件的下级设置不得继续打开桌面弹窗",
+);
+const mobileContentSheetPath = fileURLToPath(new URL("../src/homepage/mobileHomepage/MobileWidgetContentSheet.svelte", import.meta.url));
+const mobileContentSheetSource = readFileSync(mobileContentSheetPath, "utf8");
+for (const subpage of ["music-cloud", "favorites-manager", "countdown-center", "review-notify", "focus-notify"]) {
+    assert(mobileContentSheetSource.includes(subpage), `移动内容设置缺少下级页面 ${subpage}`);
+}
+
+const mobileWidgetBlockPath = fileURLToPath(new URL("../src/homepage/mobileHomepage/mobileWidgetBlock.ts", import.meta.url));
+const mobileWidgetBlockSource = readFileSync(mobileWidgetBlockPath, "utf8");
+assert(
+    mobileWidgetBlockSource.includes('closest(".mobile-widget-action-button")'),
+    "移动组件三点按钮必须使用区块级事件委托，避免重挂载后监听器失效",
+);
+
+const widgetRegistryPath = fileURLToPath(new URL("../src/components/utils/widgetBlock/widgetDefinitionRegistry.ts", import.meta.url));
+const widgetRegistrySource = readFileSync(widgetRegistryPath, "utf8");
+assert(
+    widgetRegistrySource.includes("placementComponents: { mobile: MusicPlayerMobileLauncher }"),
+    "移动主页音乐播放器必须使用轻量入口，不能重复挂载完整播放运行时",
+);
+const widgetMountRegistryPath = fileURLToPath(new URL("../src/components/utils/widgetBlock/widgetMountRegistry.ts", import.meta.url));
+const widgetMountRegistrySource = readFileSync(widgetMountRegistryPath, "utf8");
+assert(
+    widgetMountRegistrySource.includes("definition.placementComponents?.[placement] ?? definition.component"),
+    "Widget 挂载器必须解析 placement 专用组件",
+);
+const mobileMusicLauncherPath = fileURLToPath(new URL("../src/components/utils/widgetBlock/widget/musicPlayer/MusicPlayerMobileLauncher.svelte", import.meta.url));
+const mobileMusicLauncherSource = readFileSync(mobileMusicLauncherPath, "utf8");
+assert(
+    mobileMusicLauncherSource.includes("requestOpenMobileMusicPlayer")
+        && !mobileMusicLauncherSource.includes("Howl"),
+    "移动主页音乐入口只能连接常驻播放器，不得加载音频运行时",
+);
+
+const mobileStyleSheetPath = fileURLToPath(new URL("../src/homepage/mobileHomepage/MobileWidgetStyleSheet.svelte", import.meta.url));
+const mobileStyleSheetSource = readFileSync(mobileStyleSheetPath, "utf8");
+assert(
+    mobileStyleSheetSource.includes("if (await onStyleChanged()) onClose()"),
+    "选择组件尺寸并保存成功后必须自动关闭样式面板",
 );
 
 const dialogStylesheetPath = fileURLToPath(new URL("../src/style/dialog-viewport.css", import.meta.url));

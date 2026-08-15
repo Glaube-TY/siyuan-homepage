@@ -19,6 +19,7 @@ import visualChart from "./widget/visualChart/visualChart.svelte";
 import globalCalendar from "./widget/globalCalendar/globalCalendar.svelte";
 import habitTracker from "./widget/habitTracker/habitTracker.svelte";
 import musicPlayer from "./widget/musicPlayer/musicPlayer.svelte";
+import MusicPlayerMobileLauncher from "./widget/musicPlayer/MusicPlayerMobileLauncher.svelte";
 import Stikynot from "./widget/stikynot/stikynot.svelte";
 import News from "./widget/News/News.svelte";
 import childDocs from "./widget/childDocs/childDocs.svelte";
@@ -64,6 +65,7 @@ type DefinitionInput = {
     kind: WidgetKind;
     category: WidgetPresentationCategory;
     component: Component<any>;
+    placementComponents?: Partial<Record<WidgetPlacement, Component<any>>>;
     label: string;
     icon: string;
     plugin?: boolean;
@@ -77,6 +79,7 @@ type DefinitionInput = {
 
 export interface RegisteredWidgetDefinition extends WidgetDefinition {
     readonly contextMenuActions?: readonly WidgetContextMenuAction[];
+    readonly placementComponents?: Readonly<Partial<Record<WidgetPlacement, Component<any>>>>;
 }
 
 function defineWidget(input: DefinitionInput): RegisteredWidgetDefinition {
@@ -86,6 +89,9 @@ function defineWidget(input: DefinitionInput): RegisteredWidgetDefinition {
         kind: input.kind,
         presentationCategory: input.category,
         component: input.component,
+        placementComponents: input.placementComponents
+            ? Object.freeze({ ...input.placementComponents })
+            : undefined,
         requiresPlugin: input.plugin === true,
         semanticLabel: input.label,
         semanticIcon: input.icon,
@@ -126,6 +132,13 @@ export function validateWidgetDefinition(definition: RegisteredWidgetDefinition)
         throw new Error(`Widget ${definition.type} 的 ${definition.defaultPresentationScope} scope 必须支持 semanticParts`);
     }
     if (typeof definition.component !== "function") throw new Error(`Widget ${definition.type} 缺少 component`);
+    if (definition.placementComponents) {
+        for (const [placement, component] of Object.entries(definition.placementComponents)) {
+            if (!VALID_PLACEMENTS.has(placement as WidgetPlacement)) throw new Error(`Widget ${definition.type} 声明了非法 placement component`);
+            if (!definition.supportedPlacements.includes(placement as WidgetPlacement)) throw new Error(`Widget ${definition.type} 的 placement component 未声明支持 ${placement}`);
+            if (typeof component !== "function") throw new Error(`Widget ${definition.type} 的 ${placement} component 无效`);
+        }
+    }
     if (definition.supportedPlacements.length === 0) throw new Error(`Widget ${definition.type} 未声明 placement`);
     if (definition.supportedPlacements.some((placement) => !VALID_PLACEMENTS.has(placement))) {
         throw new Error(`Widget ${definition.type} 声明了非法 placement`);
@@ -257,7 +270,7 @@ const BUILTIN_WIDGET_DEFINITIONS: readonly WidgetDefinition[] = Object.freeze([
     defineWidget({ type: "visualChart", kind: "chart", category: "visualization", scope: "native", component: visualChart, label: "可视化图表", icon: "chart", plugin: true, variants: ["visualchart.cartesian", "visualchart.circular", "visualchart.advanced", "visualchart.progress", "visualchart.tag-cloud"], contentVariant: resolveVisualChartVariant, contextMenuActions: visualChartContextMenuActions }),
     defineWidget({ type: "globalCalendar", kind: "calendar", category: "visualization", scope: "full", component: globalCalendar, label: "全局日历", icon: "calendar", plugin: true }),
     defineWidget({ type: "habitTracker", kind: "task", category: "collection", scope: "full", component: habitTracker, label: "习惯打卡", icon: "task.list", plugin: true }),
-    defineWidget({ type: "musicPlayer", kind: "media", category: "media", scope: "native", component: musicPlayer, label: "音乐播放器", icon: "media", plugin: true, placements: ["homepage", "sidebar", "mobile", "mobile-runtime", "preview", "dock"] }),
+    defineWidget({ type: "musicPlayer", kind: "media", category: "media", scope: "native", component: musicPlayer, placementComponents: { mobile: MusicPlayerMobileLauncher }, label: "音乐播放器", icon: "media", plugin: true, placements: ["homepage", "sidebar", "mobile", "mobile-runtime", "preview", "dock"] }),
     defineWidget({ type: "stikynot", kind: "note", category: "editorial", scope: "native", component: Stikynot, label: "便签", icon: "note", plugin: true, variants: ["stikynot.plain", "stikynot.textured"], contentVariant: (content) => {
         const style = contentData(content).stikynotStyle;
         return typeof style === "string" && style !== "default" ? "stikynot.textured" : "stikynot.plain";

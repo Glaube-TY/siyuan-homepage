@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { mount, onMount, onDestroy } from "svelte";
+  import { onMount, onDestroy } from "svelte";
   import { showMessage } from "siyuan";
   import { lsNotebooks } from "@/api";
   import {
@@ -25,16 +25,18 @@
     normalizeRecentDocsSortBy,
     RECENT_DOCS_SORT_OPTIONS,
   } from "@/components/tools/siyuanComponentDataApi";
-  import { openCountdownCenterDialog } from "@/features/countdown-center";
-  import { openFavoritesManagerDialog } from "@/features/favorites-manager/open-favorites-manager";
   import { onFavoritesUpdated } from "@/features/favorites-manager/favorites-events";
   import SiyuanIcon from "@/components/utils/shared/SiyuanIcon.svelte";
-  import { openReviewNotifySettingsDialog } from "@/features/review-notify";
-  import { openFocusNotifySettingsDialog } from "@/features/focus-notify";
+  import {
+    isNotificationCenterFeatureAvailable,
+    NOTIFICATION_CENTER_PREMIUM_REQUIRED_MESSAGE,
+  } from "@/features/notification-center/notification-center-plugin";
+  import {
+    getHomepageEntitlementSnapshot,
+    subscribeHomepageEntitlement,
+  } from "@/features/entitlement/homepage-entitlement";
   import type { DeviceViewContext } from "@/homepage/deviceView/deviceViewTypes";
   import { loadWidgetInstanceConfig } from "@/homepage/deviceView/widgetInstanceRepository";
-  import { svelteDialog } from "@/libs/dialog";
-  import MusicCloudConnectionDialog from "@/components/utils/widgetBlock/widget/musicPlayer/MusicCloudConnectionDialog.svelte";
   import { MusicCloudSettingsStore } from "@/components/utils/widgetBlock/widget/musicPlayer/musicCloudSettingsStore";
   import {
     getProtyleDisplayPreset,
@@ -58,8 +60,17 @@
     widgetType: string;
     onClose: () => void;
     onConfirm: (contentTypeJson: string) => void | Promise<void>;
+    onOpenSubpage: (subpage: MobileWidgetContentSubpage) => void;
+    subpageRevision?: number;
     deviceViewContext: DeviceViewContext;
   }
+
+  type MobileWidgetContentSubpage =
+    | "music-cloud"
+    | "favorites-manager"
+    | "countdown-center"
+    | "review-notify"
+    | "focus-notify";
 
   interface Notebook {
     id: string;
@@ -104,7 +115,7 @@
   }
 
   type FormState = Record<string, any>;
-  let { plugin, currentBlockId, widgetType, onClose, onConfirm, deviceViewContext }: Props =
+  let { plugin, currentBlockId, widgetType, onClose, onConfirm, onOpenSubpage, subpageRevision = 0, deviceViewContext }: Props =
     $props();
 
   let form = $state<FormState>({});
@@ -553,17 +564,44 @@
     isReady = true;
   }
 
-  function openMusicCloudSettings(): void {
-    const dialog = svelteDialog({
-      title: "配置 NAS 音乐服务",
-      width: "min(680px, calc(100vw - 24px))",
-      height: "min(620px, calc(100vh - 24px))",
-      constructor: (containerEl: HTMLElement) => mount(MusicCloudConnectionDialog, {
-        target: containerEl,
-        props: { plugin, onClose: () => dialog.close(), onSaved: () => { musicCloudConfigured = true; } },
-      }),
-    });
+  function openNotificationSettings(subpage: "review-notify" | "focus-notify"): void {
+    if (!mobileAdvancedEnabled || !isNotificationCenterFeatureAvailable()) {
+      showMessage(NOTIFICATION_CENTER_PREMIUM_REQUIRED_MESSAGE, 4000, "error");
+      return;
+    }
+    onOpenSubpage(subpage);
   }
+
+  function openCountdownCenter(): void {
+    if (!mobileAdvancedEnabled) {
+      showMessage("纪念日中心为 VIP 专属功能。会员状态恢复后可继续使用，现有数据不会丢失。", 5000, "info");
+      return;
+    }
+    onOpenSubpage("countdown-center");
+  }
+
+  let appliedSubpageRevision = 0;
+  $effect(() => {
+    const revision = subpageRevision;
+    if (!isReady || revision <= appliedSubpageRevision) return;
+    appliedSubpageRevision = revision;
+    if (widgetType === "musicPlayer") {
+      void new MusicCloudSettingsStore(plugin).load().then((settings) => {
+        musicCloudConfigured = Boolean(settings.profile);
+      }).catch((error) => {
+        console.warn("[mobile content form] NAS 音乐服务状态刷新失败", error);
+      });
+      return;
+    }
+    if (widgetType === "countdown") {
+      void loadCountdownCenterData().then((countdownData) => {
+        countdownCategories = countdownData.categories;
+        countdownCenterEvents = countdownData.events;
+      }).catch((error) => {
+        console.warn("[mobile content form] 纪念日筛选选项刷新失败", error);
+      });
+    }
+  });
 
   function selectedNotebookIds(key: string): string[] {
     return normalizeString(form[key])
@@ -2263,18 +2301,15 @@
   });
 
   onMount(() => {
-    mobileAdvancedEnabled = Boolean(plugin?.ADVANCED);
+    mobileAdvancedEnabled = getHomepageEntitlementSnapshot().advanced;
     void initialize();
-    // VIP 事件
-    const onReady = () => { mobileAdvancedEnabled = true; };
-    const onUnavail = () => {
-      mobileAdvancedEnabled = false;
+    const unsubscribeEntitlement = subscribeHomepageEntitlement((snapshot) => {
+      mobileAdvancedEnabled = snapshot.advanced;
+      if (snapshot.advanced) return;
       mobileFavGroupVersion++;
       mobileFavGroupLoaded = false;
       mobileFavGroupLoading = false;
-    };
-    window.addEventListener("homepage-advanced-ready", onReady);
-    window.addEventListener("homepage-advanced-unavailable", onUnavail);
+    });
     // 订阅收藏更新事件，管理弹窗操作后自动刷新组选项
     const unsubMobileFav = onFavoritesUpdated(() => {
       if (widgetType !== "favorites" || !mobileAdvancedEnabled || !form.favoritesGroupingEnabled) return;
@@ -2284,8 +2319,7 @@
     });
     return () => {
       unsubMobileFav();
-      window.removeEventListener("homepage-advanced-ready", onReady);
-      window.removeEventListener("homepage-advanced-unavailable", onUnavail);
+      unsubscribeEntitlement();
     };
   });
 
@@ -2408,7 +2442,7 @@
         {/each}
 
         {#if widgetType === "musicPlayer"}
-          <button type="button" class="mobile-form-notify-entry" onclick={openMusicCloudSettings}>
+          <button type="button" class="mobile-form-notify-entry" onclick={() => onOpenSubpage("music-cloud")}>
             {musicCloudConfigured ? "修改 NAS 音乐服务" : "配置 NAS 音乐服务"}
           </button>
           <div class="mobile-form-info">
@@ -2425,7 +2459,7 @@
                   showMessage("收藏文档管理与分组为 VIP 专属功能。已有分组和组件设置会完整保留，开通或续费后可继续使用。", 5000, "info");
                   return;
                 }
-                void openFavoritesManagerDialog(plugin);
+                onOpenSubpage("favorites-manager");
               }}>
               <SiyuanIcon name="vip" size={14} title="高级会员专属" />
               打开收藏文档管理
@@ -2470,10 +2504,7 @@
           <button
             type="button"
             class="mobile-form-notify-entry"
-            onclick={() =>
-              void openCountdownCenterDialog(plugin, {
-                initialTab: "overview",
-              })}>打开纪念日中心</button
+            onclick={openCountdownCenter}>打开纪念日中心</button
           >
           <label class="mobile-form-field"
             ><span>组件样式</span><select
@@ -2666,11 +2697,10 @@
           <button
             type="button"
             class="mobile-form-notify-entry"
-            disabled={!plugin?.ADVANCED}
-            onclick={() =>
-              widgetType === "reviewDocs"
-                ? openReviewNotifySettingsDialog(Boolean(plugin?.ADVANCED))
-                : openFocusNotifySettingsDialog(Boolean(plugin?.ADVANCED))}
+            disabled={!mobileAdvancedEnabled || !isNotificationCenterFeatureAvailable()}
+            onclick={() => openNotificationSettings(
+              widgetType === "reviewDocs" ? "review-notify" : "focus-notify",
+            )}
           >
             打开{widgetType === "reviewDocs" ? "复习" : "番茄钟"}通知设置
           </button>

@@ -61,7 +61,6 @@ export class WidgetBlock {
         (this.element as any).__widgetBlockInstance = this;
 
         this.setupPointerEvents();
-        this.setupChromeEventListeners();
     }
 
     private renderControls(): string {
@@ -77,18 +76,18 @@ export class WidgetBlock {
         `;
     }
 
-    private setupChromeEventListeners(): void {
-        const actionButton = this.element.querySelector(".mobile-widget-action-button");
-
-        actionButton?.addEventListener("click", (event) => {
+    private setupPointerEvents(): void {
+        // 操作按钮采用区块级事件委托。组件重挂载会替换内部 DOM，
+        // 但区块元素本身始终存在，因此“三点”按钮不会因重渲染失去监听器。
+        this.element.addEventListener("click", (event) => {
+            const target = event.target as HTMLElement | null;
+            if (!target?.closest(".mobile-widget-action-button")) return;
             event.preventDefault();
             event.stopPropagation();
             this.currentBlockForSettingsRef.value = this.element;
             this.dispatchMobileEvent("mobile-widget-action");
         });
-    }
 
-    private setupPointerEvents(): void {
         this.element.addEventListener("pointerdown", (event) => {
             const target = event.target as HTMLElement | null;
             if (target?.closest("button,input,textarea,select,a,[role='button']")) return;
@@ -183,7 +182,6 @@ export class WidgetBlock {
             ...runtimeContext,
         });
         this.element.dataset.widgetMountState = this.mountedWidget ? "ready" : "failed";
-        this.setupChromeEventListeners();
     }
 
     public async refreshContent(): Promise<void> {

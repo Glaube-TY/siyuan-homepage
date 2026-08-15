@@ -1,6 +1,6 @@
 <script lang="ts">
     import { saveWidgetContentPreservingSize } from "../../styleUtils";
-    import { onMount, onDestroy, mount, untrack } from "svelte";
+    import { onMount, onDestroy, mount, tick, untrack } from "svelte";
     import { Howl } from "howler/dist/howler.core.min.js";
     import { getFrontend } from "siyuan";
     import { svelteDialog } from "@/libs/dialog";
@@ -53,6 +53,10 @@
     import { MusicCloudQueueSaveScheduler } from "./musicCloudQueueSaveScheduler";
     import { DesktopMusicStreamRelay } from "./musicStreamRelay";
     import { clearMusicPlaybackPresence, publishMusicPlaybackPresence } from "./musicPlaybackPresence";
+    import {
+        getHomepageEntitlementSnapshot,
+        subscribeHomepageEntitlement,
+    } from "@/features/entitlement/homepage-entitlement";
     import {
         normalizeCloudQueueAfterMutation,
         resolveCloudQueueSaveCursor,
@@ -170,7 +174,8 @@
     let pendingInitialSeek = 0;
     let lastCloudQueuePositionBucket = -1;
 
-    let advancedEnabled = $state(false);
+    let advancedEnabled = $state(getHomepageEntitlementSnapshot().advanced);
+    let advancedRuntimeInitialized = false;
     let runtimeUnsupported = $state(false);
     let unavailableTitle = $state("仅桌面端支持");
     let runtimeMessage = $state("");
@@ -722,15 +727,11 @@
         handleOpenMobileMusicPlayerRequest((event as CustomEvent<OpenMobileMusicPlayerRequest>).detail);
     }
 
-    onMount(async () => {
-        if (persistentMobileRuntime) {
-            unregisterPersistentMobilePlayer = registerPersistentMobileMusicPlayer(handleOpenMobileMusicPlayerRequest);
-        } else if (mobileRuntime) {
-            window.addEventListener(OPEN_MOBILE_MUSIC_PLAYER_EVENT, handleOpenMobileMusicPlayer);
-        }
-        advancedEnabled = plugin.ADVANCED;
+    async function initializeAdvancedRuntime(): Promise<void> {
+        if (!advancedEnabled || advancedRuntimeInitialized || destroyed) return;
+        advancedRuntimeInitialized = true;
 
-        if (advancedEnabled) {
+        try {
             if (delegatedMobileSurface) return;
             const runtimePolicy = getMusicSourceRuntimePolicy(sourceMode, canUseElectronLocalFileSystem());
             if (!runtimePolicy.canInitialize) {
@@ -846,7 +847,26 @@
             if (showFloatingMini && hasMusicFiles && canUseElectronLocalFileSystem()) {
                 registerFloatingMiniHost({ hostId: blockId, vmStore, actions });
             }
+        } catch (error) {
+            advancedRuntimeInitialized = false;
+            errorMessage = error instanceof Error ? error.message : "音乐播放器初始化失败，请稍后重试";
+            console.error("[MusicPlayer] 高级功能初始化失败", error);
         }
+    }
+
+    onMount(() => {
+        if (persistentMobileRuntime) {
+            unregisterPersistentMobilePlayer = registerPersistentMobileMusicPlayer(handleOpenMobileMusicPlayerRequest);
+        } else if (mobileRuntime) {
+            window.addEventListener(OPEN_MOBILE_MUSIC_PLAYER_EVENT, handleOpenMobileMusicPlayer);
+        }
+        return subscribeHomepageEntitlement((snapshot) => {
+            advancedEnabled = snapshot.advanced;
+            if (snapshot.advanced) {
+                // 等共享宿主先完成授权切换重挂载，避免旧实例与新实例并发初始化。
+                void tick().then(initializeAdvancedRuntime);
+            }
+        });
     });
 
     onDestroy(() => {

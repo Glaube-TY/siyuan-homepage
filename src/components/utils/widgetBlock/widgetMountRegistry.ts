@@ -67,7 +67,8 @@ export function mountWidgetContent(
     };
     props.previewMode = runtimeContext.previewMode ?? false;
 
-    const selectedComponent = presentation.renderer ?? definition.component;
+    const registeredComponent = definition.placementComponents?.[placement] ?? definition.component;
+    const selectedComponent = presentation.renderer ?? registeredComponent;
     const existingNodes = new Set(target.childNodes);
     const hostProps = (component: typeof selectedComponent) => ({
         component,
@@ -81,13 +82,13 @@ export function mountWidgetContent(
             widgetType,
             widgetId: target.id,
             level: presentation.level,
-            fallback: selectedComponent !== definition.component ? "legacy-component" : "widget-mount-error",
+            fallback: selectedComponent !== registeredComponent ? "registered-component" : "widget-mount-error",
             error,
         });
-        if (selectedComponent === definition.component) throw error;
+        if (selectedComponent === registeredComponent) throw error;
         for (const node of Array.from(target.childNodes)) {
             if (!existingNodes.has(node)) node.remove();
         }
-        return mount(WidgetRuntimeHost, { target, props: hostProps(definition.component) });
+        return mount(WidgetRuntimeHost, { target, props: hostProps(registeredComponent) });
     }
 }

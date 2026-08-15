@@ -2,6 +2,15 @@
     import { onMount } from "svelte";
     import SiyuanIcon from "@/components/utils/shared/SiyuanIcon.svelte";
     import MobileWidgetContentForm from "./MobileWidgetContentForm.svelte";
+    import MusicCloudConnectionDialog from "@/components/utils/widgetBlock/widget/musicPlayer/MusicCloudConnectionDialog.svelte";
+    import FavoritesManagerDialog from "@/features/favorites-manager/components/FavoritesManagerDialog.svelte";
+    import CountdownCenterDialog from "@/features/countdown-center/components/CountdownCenterDialog.svelte";
+    import ReviewNotifySettingsDialog from "@/features/review-notify/components/ReviewNotifySettingsDialog.svelte";
+    import FocusNotifySettingsDialog from "@/features/focus-notify/components/FocusNotifySettingsDialog.svelte";
+    import {
+        getHomepageEntitlementSnapshot,
+        subscribeHomepageEntitlement,
+    } from "@/features/entitlement/homepage-entitlement";
     import {
         MOBILE_WIDGET_CATEGORIES,
         MOBILE_WIDGET_CATALOG,
@@ -29,7 +38,13 @@
         deviceViewContext,
     }: Props = $props();
 
-    type SheetView = "categories" | "widgets" | "settings";
+    type MobileWidgetContentSubpage =
+        | "music-cloud"
+        | "favorites-manager"
+        | "countdown-center"
+        | "review-notify"
+        | "focus-notify";
+    type SheetView = "categories" | "widgets" | "settings" | MobileWidgetContentSubpage;
 
     const contentCategories: { id: MobileWidgetCategoryId; label: string; description: string }[] = [
         ...MOBILE_WIDGET_CATEGORIES.map((category) => ({
@@ -46,9 +61,18 @@
     ];
 
     let view = $state<SheetView>("categories");
+    let subpageRevision = $state(0);
+    let advancedEnabled = $state(getHomepageEntitlementSnapshot().advanced);
     let selectedCategory = $state<MobileWidgetCategoryId>("all");
     let selectedContentType = $state("");
-    const title = $derived(selectedContentType ? getMobileWidgetLabel(selectedContentType) : "选择组件");
+    const title = $derived(({
+        "music-cloud": "NAS 音乐服务",
+        "favorites-manager": "收藏文档管理",
+        "countdown-center": "纪念日中心",
+        "review-notify": "复习通知",
+        "focus-notify": "番茄钟通知",
+    } as Partial<Record<SheetView, string>>)[view]
+        || (selectedContentType ? getMobileWidgetLabel(selectedContentType) : "选择组件"));
     const widgetsInCategory = $derived(
         MOBILE_WIDGET_CATALOG.filter((item) => {
             if (selectedCategory === "all") return true;
@@ -71,6 +95,11 @@
     }
 
     function goBack(): void {
+        if (["music-cloud", "favorites-manager", "countdown-center", "review-notify", "focus-notify"].includes(view)) {
+            subpageRevision += 1;
+            view = "settings";
+            return;
+        }
         if (view === "settings") {
             view = "widgets";
             return;
@@ -83,10 +112,14 @@
     }
 
     onMount(() => {
-        if (!initialContentType) return;
-        selectedContentType = initialContentType;
-        selectedCategory = getContentCategory(initialContentType);
-        view = "settings";
+        if (initialContentType) {
+            selectedContentType = initialContentType;
+            selectedCategory = getContentCategory(initialContentType);
+            view = "settings";
+        }
+        return subscribeHomepageEntitlement((snapshot) => {
+            advancedEnabled = snapshot.advanced;
+        });
     });
 </script>
 
@@ -128,14 +161,39 @@
             </div>
         {:else if selectedContentType}
             {#key selectedContentType}
-                <MobileWidgetContentForm
-                    {plugin}
-                    {currentBlockId}
-                    widgetType={selectedContentType}
-                    onClose={onClose}
-                    onConfirm={onConfirm}
-                    {deviceViewContext}
-                />
+                <div class="mobile-widget-content-panel" hidden={view !== "settings"}>
+                    <MobileWidgetContentForm
+                        {plugin}
+                        {currentBlockId}
+                        widgetType={selectedContentType}
+                        onClose={onClose}
+                        onConfirm={onConfirm}
+                        onOpenSubpage={(subpage) => (view = subpage)}
+                        {subpageRevision}
+                        {deviceViewContext}
+                    />
+                </div>
+                {#if view === "music-cloud"}
+                    <div class="mobile-widget-content-panel mobile-widget-content-subpage">
+                        <MusicCloudConnectionDialog {plugin} onClose={goBack} />
+                    </div>
+                {:else if view === "favorites-manager"}
+                    <div class="mobile-widget-content-panel mobile-widget-content-subpage">
+                        <FavoritesManagerDialog {plugin} mobile={true} onClose={goBack} />
+                    </div>
+                {:else if view === "countdown-center"}
+                    <div class="mobile-widget-content-panel mobile-widget-content-subpage">
+                        <CountdownCenterDialog {plugin} mobile={true} initialTab="overview" onClose={goBack} />
+                    </div>
+                {:else if view === "review-notify"}
+                    <div class="mobile-widget-content-panel mobile-widget-content-subpage">
+                        <ReviewNotifySettingsDialog {advancedEnabled} onClose={goBack} />
+                    </div>
+                {:else if view === "focus-notify"}
+                    <div class="mobile-widget-content-panel mobile-widget-content-subpage">
+                        <FocusNotifySettingsDialog {advancedEnabled} onClose={goBack} />
+                    </div>
+                {/if}
             {/key}
         {/if}
     </div>

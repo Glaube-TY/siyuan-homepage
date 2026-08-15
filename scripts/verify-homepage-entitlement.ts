@@ -48,6 +48,13 @@ assert(entitlementSource.includes("isGrantStillValid"), "临时异常保留授�
 const mountSource = read("src/components/utils/widgetBlock/widgetMountRegistry.ts");
 assert(mountSource.includes("WidgetRuntimeHost"), "所有桌面、侧边栏和移动端组件必须经过会员状态刷新宿主");
 
+const musicPlayerSource = read("src/components/utils/widgetBlock/widget/musicPlayer/musicPlayer.svelte");
+assert(
+    musicPlayerSource.includes("subscribeHomepageEntitlement")
+        && musicPlayerSource.includes("initializeAdvancedRuntime"),
+    "音乐播放器必须在会员状态异步恢复后直接刷新并继续初始化",
+);
+
 for (const entry of [
     "src/components/utils/widgetBlock/widget/accounting/openAccountingDetailDialog.ts",
     "src/features/countdown-center/open-countdown-center.ts",

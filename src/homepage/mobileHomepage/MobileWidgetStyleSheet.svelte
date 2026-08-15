@@ -12,7 +12,7 @@
         sectionId: string;
         onClose: () => void;
         onDelete: () => void | Promise<void>;
-        onStyleChanged: () => void | Promise<void>;
+        onStyleChanged: () => boolean | Promise<boolean>;
         onSectionChanged: (sectionId: string) => void | Promise<void>;
     }
 
@@ -32,6 +32,7 @@
     let borderEnabled = $state(true);
     let borderColor = $state("#e5e7eb");
     let borderWidth = $state(1);
+    let sizeSaving = $state(false);
 
     const sizeOptions = [
         { label: "小卡片", detail: "1x1", value: 11, cells: [0] },
@@ -72,8 +73,14 @@
     }
 
     async function applySize(size: number): Promise<void> {
-        await setBlockSize(blockElement, size, 2);
-        await onStyleChanged();
+        if (sizeSaving) return;
+        sizeSaving = true;
+        try {
+            await setBlockSize(blockElement, size, 2);
+            if (await onStyleChanged()) onClose();
+        } finally {
+            sizeSaving = false;
+        }
     }
 
     onMount(() => {
@@ -128,7 +135,7 @@
             <h4>卡片尺寸</h4>
             <div class="mobile-size-grid">
                 {#each sizeOptions as option}
-                    <button type="button" class="mobile-size-option" onclick={() => applySize(option.value)}>
+                    <button type="button" class="mobile-size-option" disabled={sizeSaving} onclick={() => applySize(option.value)}>
                         <span class="mobile-size-preview" aria-hidden="true">
                             {#each [0, 1, 2, 3, 4, 5, 6, 7] as cell}
                                 <span class:active={option.cells.includes(cell)}></span>
