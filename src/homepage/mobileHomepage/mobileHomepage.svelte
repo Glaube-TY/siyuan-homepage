@@ -4,6 +4,10 @@
     import { showMessage } from "siyuan";
     import { saveLayout, restoreLayout, MobileLayoutRevisionConflictError } from "./mobileHomepage_layout";
     import { createMobileWidgetBlock } from "./block-creator";
+    import {
+        MOBILE_SORTABLE_FILTER_SELECTOR,
+        type MobileWidgetContextAction,
+    } from "./mobileWidgetBlock";
     import MobileWidgetActionSheet from "./MobileWidgetActionSheet.svelte";
     import MobileWidgetContentSheet from "./MobileWidgetContentSheet.svelte";
     import MobileWidgetStyleSheet from "./MobileWidgetStyleSheet.svelte";
@@ -81,6 +85,7 @@
     let activeSectionId = $state(DEFAULT_MOBILE_SECTION_ID);
     let selectedBlock: HTMLElement | null = $state(null);
     let selectedWidgetType = $state("");
+    let selectedWidgetActions: readonly MobileWidgetContextAction[] = $state([]);
     let actionSheetOpen = $state(false);
     let addSheetOpen = $state(false);
     let sectionSheetOpen = $state(false);
@@ -136,6 +141,7 @@
             selectedWidgetType = block.dataset.widgetType || "";
         } else {
             selectedWidgetType = "";
+            selectedWidgetActions = [];
         }
     }
 
@@ -150,9 +156,14 @@
     async function refreshSelectedWidgetType(block: HTMLElement | null = selectedBlock): Promise<void> {
         if (!block) {
             selectedWidgetType = "";
+            selectedWidgetActions = [];
             return;
         }
         selectedWidgetType = (await getWidgetTypeFromBlock(plugin, block)) || "";
+        const instance = (block as any).__widgetBlockInstance;
+        selectedWidgetActions = typeof instance?.getContextMenuActions === "function"
+            ? instance.getContextMenuActions()
+            : [];
     }
 
     function updateSortableState(): void {
@@ -177,7 +188,7 @@
             delay: 180,
             delayOnTouchOnly: true,
             touchStartThreshold: 5,
-            filter: "button:not(.mobile-widget-drag-handle),input,textarea,select,a,[role='button']:not(.mobile-widget-drag-handle)",
+            filter: MOBILE_SORTABLE_FILTER_SELECTOR,
             preventOnFilter: false,
             onEnd: async () => {
                 if (!editMode || activeSectionId !== MOBILE_ALL_SECTION_ID) return;
@@ -477,13 +488,11 @@
     function handleWidgetAction(event: CustomEvent): void {
         const block = event.detail?.element as HTMLElement | undefined;
         if (!block) return;
-        void enterMobileEditMode().then((entered) => {
-            if (!entered) return;
+        void (async () => {
             setSelectedBlock(block);
-            void refreshSelectedWidgetType(block);
+            await refreshSelectedWidgetType(block);
             actionSheetOpen = true;
-            updateSortableState();
-        });
+        })();
     }
 
     function handleWidgetLongPress(event: CustomEvent): void {
@@ -578,19 +587,42 @@
         }
     }
 
-    function openSelectedContentSheet(): void {
-        if (!selectedBlock) return;
+    async function openSelectedContentSheet(): Promise<void> {
+        const block = selectedBlock;
+        if (!block) return;
+        if (!editMode && !(await enterMobileEditMode())) return;
+        setSelectedBlock(block);
         contentSheet = {
-            blockId: selectedBlock.id,
+            blockId: block.id,
             isNew: false,
         };
         actionSheetOpen = false;
     }
 
-    function openSelectedStyleSheet(): void {
-        if (!selectedBlock) return;
-        styleSheetBlock = selectedBlock;
+    async function openSelectedStyleSheet(): Promise<void> {
+        const block = selectedBlock;
+        if (!block) return;
+        if (!editMode && !(await enterMobileEditMode())) return;
+        setSelectedBlock(block);
+        styleSheetBlock = block;
         actionSheetOpen = false;
+    }
+
+    async function runSelectedContextAction(action: MobileWidgetContextAction): Promise<void> {
+        if (action.disabled) return;
+        actionSheetOpen = false;
+        if (!editMode) setSelectedBlock(null);
+        try {
+            await action.execute();
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            showMessage(`组件操作失败：${message}`, 5000, "error");
+        }
+    }
+
+    function closeSelectedActionSheet(): void {
+        actionSheetOpen = false;
+        if (!editMode) setSelectedBlock(null);
     }
 
     async function refreshBlock(block: HTMLElement | null = selectedBlock): Promise<void> {
@@ -835,9 +867,11 @@
         }
     }
 
-    function requestDeleteSelectedWidget(): void {
+    async function requestDeleteSelectedWidget(): Promise<void> {
         const block = selectedBlock || styleSheetBlock;
         if (!block) return;
+        if (!editMode && !(await enterMobileEditMode())) return;
+        setSelectedBlock(block);
         deleteSheetBlock = block;
         actionSheetOpen = false;
         styleSheetBlock = null;
@@ -1017,9 +1051,11 @@
                 canDrag={activeSectionId === MOBILE_ALL_SECTION_ID}
                 onEditContent={openSelectedContentSheet}
                 onEditStyle={openSelectedStyleSheet}
+                contextActions={selectedWidgetActions}
+                onRunContextAction={runSelectedContextAction}
                 onRefresh={() => refreshBlock(selectedBlock)}
                 onDelete={requestDeleteSelectedWidget}
-                onClose={() => (actionSheetOpen = false)}
+                onClose={closeSelectedActionSheet}
             />
         {/if}
 

@@ -191,9 +191,13 @@
         }
 
         .quick-notes-content-container {
+            flex: 1 1 auto;
             width: 100%;
-            height: calc(100% - 2rem);
+            min-height: 0;
             overflow-y: auto;
+            overscroll-behavior-y: contain;
+            touch-action: pan-y;
+            -webkit-overflow-scrolling: touch;
 
             .empty-tip {
                 text-align: center;

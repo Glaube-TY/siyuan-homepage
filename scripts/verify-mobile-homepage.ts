@@ -137,7 +137,7 @@ assert(
     "移动主页浏览态不得保留禁用但仍绑定容器的 Sortable",
 );
 assert(
-    mobileHomepageSource.includes("button:not(.mobile-widget-drag-handle)"),
+    mobileHomepageSource.includes("filter: MOBILE_SORTABLE_FILTER_SELECTOR"),
     "Sortable 过滤交互控件时不得连拖拽手柄一起排除",
 );
 assert(
@@ -191,6 +191,51 @@ assert(
     mobileWidgetBlockSource.includes('closest(".mobile-widget-action-button")'),
     "移动组件三点按钮必须使用区块级事件委托，避免重挂载后监听器失效",
 );
+for (const marker of ["[contenteditable]:not([contenteditable='false'])", "[role='textbox']", ".ql-editor"]) {
+    assert(mobileWidgetBlockSource.includes(marker), `移动组件交互过滤器缺少 ${marker}`);
+}
+assert(!stylesheet.includes("overflow-y: hidden;"), "移动组件不得通过纵向 overflow hidden 禁用内部滚动");
+for (const marker of [
+    ".mobile-latest-docs-list",
+    '[data-widget-part="body"]',
+    "> :not(.mobile-widget-chrome, .mobile-widget-size-fallback)",
+    "overflow-y: auto !important",
+    "overflow: visible !important",
+    "overscroll-behavior-y: contain",
+    "-webkit-overflow-scrolling: touch",
+]) {
+    assert(stylesheet.includes(marker), `移动组件共享滚动边界缺少 ${marker}`);
+}
+const accountingWidgetPath = fileURLToPath(new URL("../src/components/utils/widgetBlock/widget/accounting/accounting.svelte", import.meta.url));
+const accountingWidgetSource = readFileSync(accountingWidgetPath, "utf8");
+for (const marker of ['data-widget-part="root"', 'data-widget-part="body"', 'data-widget-part="list"']) {
+    assert(accountingWidgetSource.includes(marker), `记账组件缺少移动滚动语义 ${marker}`);
+}
+assert(
+    stylesheet.includes('[data-widget-context-actions="true"]')
+        && stylesheet.includes(".mobile-widget-drag-handle"),
+    "包含扩展动作的组件必须在移动浏览态显示操作入口并隐藏拖拽手柄",
+);
+for (const marker of [
+    "getContextMenuActions()",
+    'placement: "mobile"',
+    "resolveWidgetContextMenuActions",
+    "dataset.widgetContextActions",
+]) {
+    assert(mobileWidgetBlockSource.includes(marker), `移动组件扩展动作桥接缺少 ${marker}`);
+}
+const mobileActionSheetPath = fileURLToPath(new URL("../src/homepage/mobileHomepage/MobileWidgetActionSheet.svelte", import.meta.url));
+const mobileActionSheetSource = readFileSync(mobileActionSheetPath, "utf8");
+assert(
+    mobileActionSheetSource.includes("contextActions")
+        && mobileActionSheetSource.includes("onRunContextAction"),
+    "移动组件操作菜单必须渲染注册表提供的扩展动作",
+);
+assert(
+    mobileHomepageSource.includes("contextActions={selectedWidgetActions}")
+        && mobileHomepageSource.includes("runSelectedContextAction"),
+    "移动主页必须把扩展动作接入组件操作菜单",
+);
 
 const widgetRegistryPath = fileURLToPath(new URL("../src/components/utils/widgetBlock/widgetDefinitionRegistry.ts", import.meta.url));
 const widgetRegistrySource = readFileSync(widgetRegistryPath, "utf8");
@@ -217,6 +262,30 @@ const mobileStyleSheetSource = readFileSync(mobileStyleSheetPath, "utf8");
 assert(
     mobileStyleSheetSource.includes("if (await onStyleChanged()) onClose()"),
     "选择组件尺寸并保存成功后必须自动关闭样式面板",
+);
+
+const stikynotPath = fileURLToPath(new URL("../src/components/utils/widgetBlock/widget/stikynot/stikynot.svelte", import.meta.url));
+const stikynotSource = readFileSync(stikynotPath, "utf8");
+assert(
+    stikynotSource.includes("便签暂不支持移动端编辑")
+        && stikynotSource.includes("if (isMobile || !advancedEnabled")
+        && stikynotSource.includes("subscribeHomepageEntitlement"),
+    "移动端便签必须明确禁用且不得初始化 Quill，桌面端仍需跟随统一会员状态",
+);
+assert(!MOBILE_WIDGET_CATALOG.some((item) => item.type === "stikynot"), "便签不得继续出现在移动端添加目录");
+assert(
+    widgetRegistrySource.includes('type: "stikynot"')
+        && widgetRegistrySource.includes('placements: ["homepage", "sidebar", "preview", "dock"]'),
+    "便签注册表必须明确排除 mobile placement",
+);
+const stikynotPresetsPath = fileURLToPath(new URL("../src/components/utils/widgetBlock/widget/stikynot/stikynotPresets.ts", import.meta.url));
+const stikynotPresetsSource = readFileSync(stikynotPresetsPath, "utf8");
+for (const preset of ["default", "kraftPaper", "wood", "marble", "Ink", "beach", "BlueSky", "sunsetHeart", "Stars", "waterDrop", "PinkPorcelain"]) {
+    assert(stikynotPresetsSource.includes(`value: "${preset}"`), `便签共享样式缺少 ${preset}`);
+}
+assert(
+    mobileContentFormSource.includes("STIKYNOT_STYLE_PRESETS.map"),
+    "移动端便签设置必须复用完整背景预设清单",
 );
 
 const dialogStylesheetPath = fileURLToPath(new URL("../src/style/dialog-viewport.css", import.meta.url));

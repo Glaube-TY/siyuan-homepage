@@ -210,12 +210,6 @@ export const MOBILE_WIDGET_CATALOG: MobileWidgetCatalogItem[] = [
         activeTab: "info",
     },
     {
-        type: "stikynot",
-        label: "便签",
-        description: "显示便签内容",
-        activeTab: "note",
-    },
-    {
         type: "custom-text",
         label: "文字内容",
         description: "展示一段自定义文字",

@@ -1,11 +1,14 @@
 <script lang="ts">
     import SiyuanIcon from "@/components/utils/shared/SiyuanIcon.svelte";
+    import type { MobileWidgetContextAction } from "./mobileWidgetBlock";
 
     interface Props {
         title: string;
         canDrag: boolean;
-        onEditContent: () => void;
-        onEditStyle: () => void;
+        onEditContent: () => void | Promise<void>;
+        onEditStyle: () => void | Promise<void>;
+        contextActions?: readonly MobileWidgetContextAction[];
+        onRunContextAction: (action: MobileWidgetContextAction) => void | Promise<void>;
         onRefresh: () => void | Promise<void>;
         onDelete: () => void | Promise<void>;
         onClose: () => void;
@@ -16,6 +19,8 @@
         canDrag,
         onEditContent,
         onEditStyle,
+        contextActions = [],
+        onRunContextAction,
         onRefresh,
         onDelete,
         onClose,
@@ -43,6 +48,16 @@
             <SiyuanIcon name="style" size={18} />
             <span>调整样式</span>
         </button>
+        {#each contextActions as action (action.id)}
+            <button
+                type="button"
+                disabled={action.disabled}
+                onclick={() => onRunContextAction(action)}
+            >
+                <SiyuanIcon name={action.icon || "settings"} size={18} />
+                <span>{action.label}</span>
+            </button>
+        {/each}
         <button type="button" onclick={onRefresh}>
             <SiyuanIcon name="refresh" size={18} />
             <span>刷新组件</span>

@@ -168,7 +168,7 @@
     }
 </script>
 
-<div class="accounting-widget">
+<div class="accounting-widget" data-widget-part="root">
     {#if !advancedEnabled}
         <div class="content-not-advanced">
             <AdvancedFeatureLock
@@ -195,7 +195,7 @@
             {/if}
         </div>
     {:else}
-        <section class="accounting-card">
+        <section class="accounting-card" data-widget-part="body">
             <header class="card-header">
                 <div class="title-wrap">
                     <AccountingIcon name="wallet" size={18} />
@@ -245,7 +245,7 @@
                     {#if summary.recentRecords.length === 0}
                         <div class="empty-recent">暂无流水，点击“记一笔”开始记录。</div>
                     {:else}
-                        <div class="recent-list">
+                        <div class="recent-list" data-widget-part="list">
                             {#each summary.recentRecords as record (record.recordId)}
                                 <button type="button" class="recent-row" onclick={() => openDetail("record", record.recordId)}>
                                     <span class="category">{record.categoryPrimary || "其他"}</span>
@@ -462,6 +462,7 @@
     }
 
     .recent-section {
+        flex: 1 1 auto;
         min-height: 0;
         display: flex;
         flex-direction: column;
@@ -470,8 +471,12 @@
     }
 
     .recent-list {
+        flex: 1 1 auto;
         min-height: 0;
         overflow: auto;
+        overscroll-behavior-y: contain;
+        touch-action: pan-y;
+        -webkit-overflow-scrolling: touch;
         display: flex;
         flex-direction: column;
         gap: 0.32rem;

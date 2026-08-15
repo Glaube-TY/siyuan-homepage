@@ -53,6 +53,7 @@
     createDefaultVisualChartConfig,
     visualChartConfigFromWidgetContent,
   } from "@/features/visual-chart/visual-chart-config";
+  import { STIKYNOT_STYLE_PRESETS } from "@/components/utils/widgetBlock/widget/stikynot/stikynotPresets";
 
   interface Props {
     plugin: any;
@@ -2062,7 +2063,7 @@
             key: "stikynotStyle",
             type: "select",
             label: "便签样式",
-            options: [option("default", "默认"), option("simple", "简洁")],
+            options: STIKYNOT_STYLE_PRESETS.map((preset) => option(preset.value, preset.label)),
           },
         ];
       case "News":

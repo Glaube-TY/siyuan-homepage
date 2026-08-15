@@ -5,11 +5,43 @@ import { stringifyWidgetConfigForMount } from "../../components/utils/widgetBloc
 import { createWidgetInstanceId, loadWidgetInstanceConfig } from "@/homepage/deviceView/widgetInstanceRepository";
 import { getCurrentDeviceViewContext } from "@/homepage/deviceView/deviceViewContext";
 import type { DeviceViewContext } from "@/homepage/deviceView/deviceViewTypes";
+import { getWidgetDefinition } from "@/components/utils/widgetBlock/widgetDefinitionRegistry";
+import {
+    resolveWidgetContextMenuActionLabel,
+    resolveWidgetContextMenuActions,
+    type WidgetContextMenuActionContext,
+} from "@/components/utils/widgetBlock/widgetContextMenuActions";
+import { saveWidgetContentPreservingSize } from "@/components/utils/widgetBlock/styleUtils";
 
 type MobileWidgetEventName =
     | "mobile-widget-action"
     | "mobile-widget-longpress"
     | "mobile-widget-refreshed";
+
+export interface MobileWidgetContextAction {
+    readonly id: string;
+    readonly label: string;
+    readonly icon?: string;
+    readonly disabled: boolean;
+    execute: () => Promise<void>;
+}
+
+export const MOBILE_WIDGET_EDITABLE_SELECTOR = [
+    "input",
+    "textarea",
+    "select",
+    "a",
+    "[role='button']",
+    "[role='textbox']",
+    "[contenteditable]:not([contenteditable='false'])",
+    "[data-widget-editor]",
+    ".ql-editor",
+].join(",");
+
+export const MOBILE_SORTABLE_FILTER_SELECTOR = [
+    "button:not(.mobile-widget-drag-handle)",
+    MOBILE_WIDGET_EDITABLE_SELECTOR,
+].join(",");
 
 function clampGridSpan(value: string, max: number): string {
     const match = value.match(/^span\s+(\d+)$/i);
@@ -90,7 +122,7 @@ export class WidgetBlock {
 
         this.element.addEventListener("pointerdown", (event) => {
             const target = event.target as HTMLElement | null;
-            if (target?.closest("button,input,textarea,select,a,[role='button']")) return;
+            if (target?.closest(`button,${MOBILE_WIDGET_EDITABLE_SELECTOR}`)) return;
             if (event.pointerType === "mouse" && event.button !== 0) return;
 
             this.pointerStart = { x: event.clientX, y: event.clientY };
@@ -161,6 +193,48 @@ export class WidgetBlock {
         return this.mountedWidget !== null && this.element.dataset.widgetMountState === "ready";
     }
 
+    private createContextMenuActionContext(widgetType: string): WidgetContextMenuActionContext {
+        return {
+            widgetType,
+            widgetId: this.id,
+            plugin: this.plugin,
+            element: this.element,
+            placement: "mobile",
+            deviceViewContext: this.deviceViewContext,
+            hasPersistedConfig: true,
+            loadConfig: () => loadWidgetInstanceConfig(this.deviceViewContext, this.id),
+            saveConfig: async (config) => {
+                await saveWidgetContentPreservingSize(
+                    this.plugin,
+                    this.id,
+                    config,
+                    this.deviceViewContext,
+                    this.element,
+                    false,
+                );
+                this.updateContent(JSON.stringify(config), { refreshReason: "settings" });
+            },
+            refresh: () => this.refreshContent(),
+        };
+    }
+
+    public getContextMenuActions(): readonly MobileWidgetContextAction[] {
+        const widgetType = this.element.dataset.widgetType || "";
+        const definition = widgetType ? getWidgetDefinition(widgetType) : undefined;
+        if (!definition?.contextMenuActions?.length) return [];
+
+        const context = this.createContextMenuActionContext(widgetType);
+        return resolveWidgetContextMenuActions(definition.contextMenuActions, context).map((action) => ({
+            id: action.id,
+            label: resolveWidgetContextMenuActionLabel(action, context),
+            icon: action.icon,
+            disabled: action.disabled?.(context) === true,
+            execute: async () => {
+                await action.execute(context);
+            },
+        }));
+    }
+
     public appendTo(container: Element | null): void {
         if (container) {
             container.appendChild(this.element);
@@ -182,6 +256,7 @@ export class WidgetBlock {
             ...runtimeContext,
         });
         this.element.dataset.widgetMountState = this.mountedWidget ? "ready" : "failed";
+        this.element.dataset.widgetContextActions = this.getContextMenuActions().length ? "true" : "false";
     }
 
     public async refreshContent(): Promise<void> {

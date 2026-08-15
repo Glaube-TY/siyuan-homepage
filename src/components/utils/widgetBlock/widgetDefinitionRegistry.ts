@@ -271,7 +271,7 @@ const BUILTIN_WIDGET_DEFINITIONS: readonly WidgetDefinition[] = Object.freeze([
     defineWidget({ type: "globalCalendar", kind: "calendar", category: "visualization", scope: "full", component: globalCalendar, label: "全局日历", icon: "calendar", plugin: true }),
     defineWidget({ type: "habitTracker", kind: "task", category: "collection", scope: "full", component: habitTracker, label: "习惯打卡", icon: "task.list", plugin: true }),
     defineWidget({ type: "musicPlayer", kind: "media", category: "media", scope: "native", component: musicPlayer, placementComponents: { mobile: MusicPlayerMobileLauncher }, label: "音乐播放器", icon: "media", plugin: true, placements: ["homepage", "sidebar", "mobile", "mobile-runtime", "preview", "dock"] }),
-    defineWidget({ type: "stikynot", kind: "note", category: "editorial", scope: "native", component: Stikynot, label: "便签", icon: "note", plugin: true, variants: ["stikynot.plain", "stikynot.textured"], contentVariant: (content) => {
+    defineWidget({ type: "stikynot", kind: "note", category: "editorial", scope: "native", component: Stikynot, label: "便签", icon: "note", plugin: true, placements: ["homepage", "sidebar", "preview", "dock"], variants: ["stikynot.plain", "stikynot.textured"], contentVariant: (content) => {
         const style = contentData(content).stikynotStyle;
         return typeof style === "string" && style !== "default" ? "stikynot.textured" : "stikynot.plain";
     } }),
