@@ -42,6 +42,17 @@ export type WidgetPlacement =
 
 export type WidgetPresentationScope = "full" | "chrome" | "native";
 
+/**
+ * 所有组件都必须注册的内部框架契约。
+ *
+ * title 只描述组件是否提供独立标题区；content 描述主体是否由公共框架承载滚动。
+ * 组件的业务 DOM 可以不同，但滚动边界不再由移动端按组件类型猜测。
+ */
+export interface WidgetFrameRegistration {
+    readonly title: "optional" | "none";
+    readonly content: "scrollable" | "contained";
+}
+
 export type WidgetSemanticPart =
     | "root"
     | "header"
@@ -83,6 +94,7 @@ export interface WidgetDefinition {
     semanticIcon: string;
     supportedPlacements: readonly WidgetPlacement[];
     defaultPresentationScope: WidgetPresentationScope;
+    frame: Readonly<WidgetFrameRegistration>;
     capabilities: Readonly<WidgetPresentationCapabilities>;
     presentationContractVersion?: typeof WIDGET_PRESENTATION_CONTRACT_VERSION;
     responsiveProfile?: Readonly<WidgetResponsiveProfile>;

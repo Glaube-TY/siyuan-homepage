@@ -46,6 +46,7 @@ import {
     type WidgetPresentationCategory,
     type WidgetPresentationScope,
     type WidgetContentVariantResolver,
+    type WidgetFrameRegistration,
 } from "@/homepage/theme/widgetPresentation/types";
 import type { Component } from "svelte";
 import { getHistoricalWidgetTitles } from "@/homepage/theme/widgetPresentation/titleCompatibility";
@@ -70,6 +71,7 @@ type DefinitionInput = {
     icon: string;
     plugin?: boolean;
     scope: WidgetPresentationScope;
+    frame: Readonly<WidgetFrameRegistration>;
     stateful?: boolean;
     placements?: readonly WidgetPlacement[];
     contentVariant?: WidgetContentVariantResolver;
@@ -97,6 +99,7 @@ function defineWidget(input: DefinitionInput): RegisteredWidgetDefinition {
         semanticIcon: input.icon,
         supportedPlacements: Object.freeze([...(input.placements ?? DEFAULT_WIDGET_PLACEMENTS)]),
         defaultPresentationScope: input.scope,
+        frame: input.frame,
         capabilities: Object.freeze({
             cssTokens: true,
             semanticParts: input.scope !== "native",
@@ -125,6 +128,12 @@ export function validateWidgetDefinition(definition: RegisteredWidgetDefinition)
     }
     if (SEMANTIC_LABEL_EMOJI_PATTERN.test(definition.semanticLabel)) throw new Error(`Widget ${definition.type} 的 semanticLabel 不能包含 Emoji`);
     if (!definition.semanticIcon.trim()) throw new Error(`Widget ${definition.type} 缺少 semanticIcon`);
+    if (!definition.frame || !["optional", "none"].includes(definition.frame.title)) {
+        throw new Error(`Widget ${definition.type} 缺少合法标题区域注册`);
+    }
+    if (!["scrollable", "contained"].includes(definition.frame.content)) {
+        throw new Error(`Widget ${definition.type} 缺少合法内容区域注册`);
+    }
     if (!["full", "chrome", "native"].includes(definition.defaultPresentationScope)) {
         throw new Error(`Widget ${definition.type} 缺少合法 defaultPresentationScope`);
     }
@@ -249,47 +258,52 @@ export class WidgetDefinitionRegistry {
     }
 }
 
+const TITLE_SCROLL_FRAME = Object.freeze({ title: "optional", content: "scrollable" } as const);
+const TITLE_CONTAINED_FRAME = Object.freeze({ title: "optional", content: "contained" } as const);
+const CONTENT_SCROLL_FRAME = Object.freeze({ title: "none", content: "scrollable" } as const);
+const CONTENT_CONTAINED_FRAME = Object.freeze({ title: "none", content: "contained" } as const);
+
 const BUILTIN_WIDGET_DEFINITIONS: readonly WidgetDefinition[] = Object.freeze([
-    defineWidget({ type: "latest-docs", kind: "list", category: "collection", scope: "full", component: latestDocs, label: "最近文档", icon: "documents.recent", plugin: true }),
-    defineWidget({ type: "heatmap", kind: "chart", category: "visualization", scope: "native", component: heatmap, label: "热力图", icon: "chart", plugin: true }),
-    defineWidget({ type: "favorites", kind: "list", category: "collection", scope: "full", component: favorites, label: "收藏文档", icon: "documents.favorite", plugin: true }),
-    defineWidget({ type: "recent-journals", kind: "calendar", category: "collection", scope: "full", component: latestDailyNotes, label: "最近日记", icon: "journal.recent", plugin: true, variants: ["recent-journals.list", "recent-journals.calendar"], contentVariant: dataVariant("recentJournalsShowType", { list: "recent-journals.list", calendar: "recent-journals.calendar" }, "recent-journals.list") }),
-    defineWidget({ type: "TaskMan", kind: "task", category: "collection", scope: "full", component: TaskMan, label: "任务管理", icon: "task.list", plugin: true }),
-    defineWidget({ type: "countdown", kind: "stat", category: "collection", scope: "native", component: countdown, label: "纪念日", icon: "calendar", plugin: true, variants: ["countdown.list", "countdown.compact", "countdown.cards", "countdown.timeline"], contentVariant: resolveCountdownContentVariant }),
-    defineWidget({ type: "weather", kind: "stat", category: "metrics", scope: "native", component: weather, label: "今日天气", icon: "utility", plugin: true, variants: ["weather.default", "weather.simple-1", "weather.simple-2"], contentVariant: dataVariant("weatherStyle", { default: "weather.default", simple1: "weather.simple-1", simple2: "weather.simple-2" }, "weather.default") }),
-    defineWidget({ type: "HOT", kind: "list", category: "collection", scope: "full", component: HOT, label: "热搜", icon: "list" }),
-    defineWidget({ type: "custom-text", kind: "custom", category: "editorial", scope: "native", component: customText, label: "文字内容", icon: "note", stateful: false }),
-    defineWidget({ type: "custom-web", kind: "embed", category: "embedded", scope: "native", component: customWeb, label: "网页浏览器", icon: "embed", stateful: false }),
-    defineWidget({ type: "custom-protyle", kind: "embed", category: "editorial", scope: "native", component: customProtyle, label: "文档编辑器", icon: "documents", plugin: true, variants: ["custom-protyle.standard", "custom-protyle.compact", "custom-protyle.immersive", "custom-protyle.custom"], contentVariant: dataVariant("displayPreset", { standard: "custom-protyle.standard", compact: "custom-protyle.compact", immersive: "custom-protyle.immersive", custom: "custom-protyle.custom" }, "custom-protyle.standard") }),
-    defineWidget({ type: "timedate", kind: "calendar", category: "intrinsic", scope: "native", component: timedate, label: "时间日期", icon: "calendar", plugin: true, variants: ["timedate.classic", "timedate.simple-1", "timedate.simple-2", "timedate.dial"], contentVariant: resolveTimedateContentVariant }),
-    defineWidget({ type: "focus", kind: "utility", category: "control", scope: "native", component: focus, label: "专注计时", icon: "utility", plugin: true }),
-    defineWidget({ type: "sql", kind: "chart", category: "visualization", scope: "chrome", component: sql, label: "SQL 查询", icon: "chart", plugin: true }),
-    defineWidget({ type: "TaskManPlus", kind: "task", category: "collection", scope: "full", component: TaskManPlus, label: "任务管理 Plus", icon: "tasks", plugin: true }),
-    defineWidget({ type: "quick-notes", kind: "note", category: "collection", scope: "full", component: quickNotes, label: "快速笔记", icon: "note", plugin: true }),
-    defineWidget({ type: "dailyQuote", kind: "utility", category: "editorial", scope: "native", component: dailyQuote, label: "每日一句", icon: "utility", plugin: true }),
-    defineWidget({ type: "visualChart", kind: "chart", category: "visualization", scope: "native", component: visualChart, label: "可视化图表", icon: "chart", plugin: true, variants: ["visualchart.cartesian", "visualchart.circular", "visualchart.advanced", "visualchart.progress", "visualchart.tag-cloud"], contentVariant: resolveVisualChartVariant, contextMenuActions: visualChartContextMenuActions }),
-    defineWidget({ type: "globalCalendar", kind: "calendar", category: "visualization", scope: "full", component: globalCalendar, label: "全局日历", icon: "calendar", plugin: true }),
-    defineWidget({ type: "habitTracker", kind: "task", category: "collection", scope: "full", component: habitTracker, label: "习惯打卡", icon: "task.list", plugin: true }),
-    defineWidget({ type: "musicPlayer", kind: "media", category: "media", scope: "native", component: musicPlayer, placementComponents: { mobile: MusicPlayerMobileLauncher }, label: "音乐播放器", icon: "media", plugin: true, placements: ["homepage", "sidebar", "mobile", "mobile-runtime", "preview", "dock"] }),
-    defineWidget({ type: "stikynot", kind: "note", category: "editorial", scope: "native", component: Stikynot, label: "便签", icon: "note", plugin: true, placements: ["homepage", "sidebar", "preview", "dock"], variants: ["stikynot.plain", "stikynot.textured"], contentVariant: (content) => {
+    defineWidget({ type: "latest-docs", kind: "list", category: "collection", scope: "full", frame: TITLE_SCROLL_FRAME, component: latestDocs, label: "最近文档", icon: "documents.recent", plugin: true }),
+    defineWidget({ type: "heatmap", kind: "chart", category: "visualization", scope: "native", frame: CONTENT_CONTAINED_FRAME, component: heatmap, label: "热力图", icon: "chart", plugin: true }),
+    defineWidget({ type: "favorites", kind: "list", category: "collection", scope: "full", frame: TITLE_SCROLL_FRAME, component: favorites, label: "收藏文档", icon: "documents.favorite", plugin: true }),
+    defineWidget({ type: "recent-journals", kind: "calendar", category: "collection", scope: "full", frame: TITLE_SCROLL_FRAME, component: latestDailyNotes, label: "最近日记", icon: "journal.recent", plugin: true, variants: ["recent-journals.list", "recent-journals.calendar"], contentVariant: dataVariant("recentJournalsShowType", { list: "recent-journals.list", calendar: "recent-journals.calendar" }, "recent-journals.list") }),
+    defineWidget({ type: "TaskMan", kind: "task", category: "collection", scope: "full", frame: TITLE_SCROLL_FRAME, component: TaskMan, label: "任务管理", icon: "task.list", plugin: true }),
+    defineWidget({ type: "countdown", kind: "stat", category: "collection", scope: "native", frame: CONTENT_SCROLL_FRAME, component: countdown, label: "纪念日", icon: "calendar", plugin: true, variants: ["countdown.list", "countdown.compact", "countdown.cards", "countdown.timeline"], contentVariant: resolveCountdownContentVariant }),
+    defineWidget({ type: "weather", kind: "stat", category: "metrics", scope: "native", frame: CONTENT_CONTAINED_FRAME, component: weather, label: "今日天气", icon: "utility", plugin: true, variants: ["weather.default", "weather.simple-1", "weather.simple-2"], contentVariant: dataVariant("weatherStyle", { default: "weather.default", simple1: "weather.simple-1", simple2: "weather.simple-2" }, "weather.default") }),
+    defineWidget({ type: "HOT", kind: "list", category: "collection", scope: "full", frame: TITLE_SCROLL_FRAME, component: HOT, label: "热搜", icon: "list" }),
+    defineWidget({ type: "custom-text", kind: "custom", category: "editorial", scope: "native", frame: CONTENT_SCROLL_FRAME, component: customText, label: "文字内容", icon: "note", stateful: false }),
+    defineWidget({ type: "custom-web", kind: "embed", category: "embedded", scope: "native", frame: CONTENT_CONTAINED_FRAME, component: customWeb, label: "网页浏览器", icon: "embed", stateful: false }),
+    defineWidget({ type: "custom-protyle", kind: "embed", category: "editorial", scope: "native", frame: CONTENT_CONTAINED_FRAME, component: customProtyle, label: "文档编辑器", icon: "documents", plugin: true, variants: ["custom-protyle.standard", "custom-protyle.compact", "custom-protyle.immersive", "custom-protyle.custom"], contentVariant: dataVariant("displayPreset", { standard: "custom-protyle.standard", compact: "custom-protyle.compact", immersive: "custom-protyle.immersive", custom: "custom-protyle.custom" }, "custom-protyle.standard") }),
+    defineWidget({ type: "timedate", kind: "calendar", category: "intrinsic", scope: "native", frame: CONTENT_CONTAINED_FRAME, component: timedate, label: "时间日期", icon: "calendar", plugin: true, variants: ["timedate.classic", "timedate.simple-1", "timedate.simple-2", "timedate.dial"], contentVariant: resolveTimedateContentVariant }),
+    defineWidget({ type: "focus", kind: "utility", category: "control", scope: "native", frame: CONTENT_CONTAINED_FRAME, component: focus, label: "专注计时", icon: "utility", plugin: true }),
+    defineWidget({ type: "sql", kind: "chart", category: "visualization", scope: "chrome", frame: TITLE_SCROLL_FRAME, component: sql, label: "SQL 查询", icon: "chart", plugin: true }),
+    defineWidget({ type: "TaskManPlus", kind: "task", category: "collection", scope: "full", frame: TITLE_SCROLL_FRAME, component: TaskManPlus, label: "任务管理 Plus", icon: "tasks", plugin: true }),
+    defineWidget({ type: "quick-notes", kind: "note", category: "collection", scope: "full", frame: TITLE_SCROLL_FRAME, component: quickNotes, label: "快速笔记", icon: "note", plugin: true }),
+    defineWidget({ type: "dailyQuote", kind: "utility", category: "editorial", scope: "native", frame: CONTENT_CONTAINED_FRAME, component: dailyQuote, label: "每日一句", icon: "utility", plugin: true }),
+    defineWidget({ type: "visualChart", kind: "chart", category: "visualization", scope: "native", frame: CONTENT_CONTAINED_FRAME, component: visualChart, label: "可视化图表", icon: "chart", plugin: true, variants: ["visualchart.cartesian", "visualchart.circular", "visualchart.advanced", "visualchart.progress", "visualchart.tag-cloud"], contentVariant: resolveVisualChartVariant, contextMenuActions: visualChartContextMenuActions }),
+    defineWidget({ type: "globalCalendar", kind: "calendar", category: "visualization", scope: "full", frame: TITLE_CONTAINED_FRAME, component: globalCalendar, label: "全局日历", icon: "calendar", plugin: true }),
+    defineWidget({ type: "habitTracker", kind: "task", category: "collection", scope: "full", frame: CONTENT_SCROLL_FRAME, component: habitTracker, label: "习惯打卡", icon: "task.list", plugin: true }),
+    defineWidget({ type: "musicPlayer", kind: "media", category: "media", scope: "native", frame: CONTENT_CONTAINED_FRAME, component: musicPlayer, placementComponents: { mobile: MusicPlayerMobileLauncher }, label: "音乐播放器", icon: "media", plugin: true, placements: ["homepage", "sidebar", "mobile", "mobile-runtime", "preview", "dock"] }),
+    defineWidget({ type: "stikynot", kind: "note", category: "editorial", scope: "native", frame: CONTENT_CONTAINED_FRAME, component: Stikynot, label: "便签", icon: "note", plugin: true, placements: ["homepage", "sidebar", "preview", "dock"], variants: ["stikynot.plain", "stikynot.textured"], contentVariant: (content) => {
         const style = contentData(content).stikynotStyle;
         return typeof style === "string" && style !== "default" ? "stikynot.textured" : "stikynot.plain";
     } }),
-    defineWidget({ type: "News", kind: "list", category: "collection", scope: "native", component: News, label: "新闻资讯", icon: "list", plugin: true }),
-    defineWidget({ type: "childDocs", kind: "list", category: "collection", scope: "full", component: childDocs, label: "子文档", icon: "documents", plugin: true }),
-    defineWidget({ type: "constellation", kind: "stat", category: "editorial", scope: "chrome", component: constellation, label: "星座运势", icon: "stat", plugin: true }),
-    defineWidget({ type: "historyDays", kind: "list", category: "collection", scope: "native", component: historyDays, label: "历史上的今天", icon: "list", plugin: true, variants: ["historydays.list", "historydays.image"], contentVariant: dataVariant("historyDaysType", { list: "historydays.list", img: "historydays.image" }, "historydays.list") }),
-    defineWidget({ type: "statisticalCard", kind: "stat", category: "metrics", scope: "native", component: statisticalCard, label: "统计卡片", icon: "stat", plugin: true }),
-    defineWidget({ type: "almanac", kind: "calendar", category: "intrinsic", scope: "native", component: almanac, label: "黄历", icon: "calendar", plugin: true, variants: ["almanac.classic", "almanac.traditional"], contentVariant: dataVariant("almanacStyle", { classic: "almanac.classic", tradition1: "almanac.traditional" }, "almanac.classic") }),
-    defineWidget({ type: "PicCaro", kind: "media", category: "media", scope: "native", component: PicCaro, label: "图片轮播", icon: "media", plugin: true }),
-    defineWidget({ type: "CYBMOK", kind: "utility", category: "control", scope: "native", component: CYBMOK, label: "赛博木鱼", icon: "utility", plugin: true }),
-    defineWidget({ type: "countdownTimer", kind: "utility", category: "control", scope: "native", component: countdownTimer, label: "倒计时", icon: "utility", plugin: true }),
-    defineWidget({ type: "conditionDocs", kind: "list", category: "collection", scope: "full", component: conditionDocs, label: "条件文档", icon: "documents", plugin: true }),
-    defineWidget({ type: "fixedAssets", kind: "complex", category: "workspace", scope: "chrome", component: fixedAssets, label: "固定资产", icon: "complex", plugin: true }),
-    defineWidget({ type: "reviewDocs", kind: "list", category: "collection", scope: "chrome", component: reviewDocs, label: "复习文档", icon: "documents", plugin: true }),
-    defineWidget({ type: "enhancedDiary", kind: "complex", category: "workspace", scope: "native", component: enhancedDiary, label: "增强日记", icon: "complex", plugin: true }),
-    defineWidget({ type: "accounting", kind: "complex", category: "workspace", scope: "native", component: accounting, label: "记账", icon: "complex", plugin: true }),
-    defineWidget({ type: "notebrain", kind: "complex", category: "workspace", scope: "native", component: KbPremiumGatePanel, label: "AI 知识库", icon: "complex", plugin: true, placements: ["homepage", "sidebar", "preview", "dock"] }),
+    defineWidget({ type: "News", kind: "list", category: "collection", scope: "native", frame: CONTENT_SCROLL_FRAME, component: News, label: "新闻资讯", icon: "list", plugin: true }),
+    defineWidget({ type: "childDocs", kind: "list", category: "collection", scope: "full", frame: TITLE_SCROLL_FRAME, component: childDocs, label: "子文档", icon: "documents", plugin: true }),
+    defineWidget({ type: "constellation", kind: "stat", category: "editorial", scope: "chrome", frame: TITLE_SCROLL_FRAME, component: constellation, label: "星座运势", icon: "stat", plugin: true }),
+    defineWidget({ type: "historyDays", kind: "list", category: "collection", scope: "native", frame: CONTENT_SCROLL_FRAME, component: historyDays, label: "历史上的今天", icon: "list", plugin: true, variants: ["historydays.list", "historydays.image"], contentVariant: dataVariant("historyDaysType", { list: "historydays.list", img: "historydays.image" }, "historydays.list") }),
+    defineWidget({ type: "statisticalCard", kind: "stat", category: "metrics", scope: "native", frame: CONTENT_CONTAINED_FRAME, component: statisticalCard, label: "统计卡片", icon: "stat", plugin: true }),
+    defineWidget({ type: "almanac", kind: "calendar", category: "intrinsic", scope: "native", frame: CONTENT_CONTAINED_FRAME, component: almanac, label: "黄历", icon: "calendar", plugin: true, variants: ["almanac.classic", "almanac.traditional"], contentVariant: dataVariant("almanacStyle", { classic: "almanac.classic", tradition1: "almanac.traditional" }, "almanac.classic") }),
+    defineWidget({ type: "PicCaro", kind: "media", category: "media", scope: "native", frame: CONTENT_CONTAINED_FRAME, component: PicCaro, label: "图片轮播", icon: "media", plugin: true }),
+    defineWidget({ type: "CYBMOK", kind: "utility", category: "control", scope: "native", frame: CONTENT_CONTAINED_FRAME, component: CYBMOK, label: "赛博木鱼", icon: "utility", plugin: true }),
+    defineWidget({ type: "countdownTimer", kind: "utility", category: "control", scope: "native", frame: CONTENT_CONTAINED_FRAME, component: countdownTimer, label: "倒计时", icon: "utility", plugin: true }),
+    defineWidget({ type: "conditionDocs", kind: "list", category: "collection", scope: "full", frame: TITLE_SCROLL_FRAME, component: conditionDocs, label: "条件文档", icon: "documents", plugin: true }),
+    defineWidget({ type: "fixedAssets", kind: "complex", category: "workspace", scope: "chrome", frame: TITLE_SCROLL_FRAME, component: fixedAssets, label: "固定资产", icon: "complex", plugin: true }),
+    defineWidget({ type: "reviewDocs", kind: "list", category: "collection", scope: "chrome", frame: TITLE_SCROLL_FRAME, component: reviewDocs, label: "复习文档", icon: "documents", plugin: true }),
+    defineWidget({ type: "enhancedDiary", kind: "complex", category: "workspace", scope: "native", frame: CONTENT_SCROLL_FRAME, component: enhancedDiary, label: "增强日记", icon: "complex", plugin: true }),
+    defineWidget({ type: "accounting", kind: "complex", category: "workspace", scope: "native", frame: TITLE_SCROLL_FRAME, component: accounting, label: "记账", icon: "complex", plugin: true }),
+    defineWidget({ type: "notebrain", kind: "complex", category: "workspace", scope: "native", frame: CONTENT_SCROLL_FRAME, component: KbPremiumGatePanel, label: "AI 知识库", icon: "complex", plugin: true, placements: ["homepage", "sidebar", "preview", "dock"] }),
 ]);
 
 export const widgetDefinitionRegistry = new WidgetDefinitionRegistry();

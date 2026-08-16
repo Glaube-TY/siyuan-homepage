@@ -73,6 +73,7 @@ export function mountWidgetContent(
     const hostProps = (component: typeof selectedComponent) => ({
         component,
         componentProps: props,
+        frame: definition.frame,
     });
     try {
         return mount(WidgetRuntimeHost, { target, props: hostProps(selectedComponent) });

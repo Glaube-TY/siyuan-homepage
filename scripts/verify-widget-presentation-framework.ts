@@ -18,6 +18,7 @@ const semanticDefinition: WidgetDefinition = {
     semanticIcon: "documents.recent",
     supportedPlacements: ["homepage"],
     defaultPresentationScope: "full",
+    frame: { title: "optional", content: "scrollable" },
     capabilities: {
         cssTokens: true,
         semanticParts: true,
@@ -206,7 +207,7 @@ assert.equal(new Set(registeredTypes).size, registeredTypes.length, "Widget Defi
 for (const type of ["latest-docs", "favorites", "recent-journals", "TaskMan", "notebrain"]) {
     assert.ok(registeredTypes.includes(type), `Definition Registry 缺少 ${type}`);
 }
-for (const capability of ["semanticLabel", "semanticIcon", "supportedPlacements", "capabilities", "responsiveProfile", "presentationCategory", "presentationVariants", "resolveContentVariant"]) {
+for (const capability of ["semanticLabel", "semanticIcon", "supportedPlacements", "capabilities", "responsiveProfile", "presentationCategory", "presentationVariants", "resolveContentVariant", "frame"]) {
     assert.match(definitionSource, new RegExp(capability), `Widget Definition 缺少 ${capability}`);
 }
 
@@ -220,6 +221,10 @@ for (const type of expectedFull) assert.equal(scopeByType.get(type), "full", `${
 for (const type of expectedChrome) assert.equal(scopeByType.get(type), "chrome", `${type} 必须归类为 chrome`);
 assert.equal([...scopeByType.values()].filter((scope) => scope === "native").length, 22, "必须保留 22 个 native Widget");
 assert.match(definitionSource, /semanticParts: input\.scope !== "native"/, "full/chrome 必须启用 semanticParts，native 必须保持关闭");
+const registeredFrames = [...definitionSource.matchAll(/defineWidget\(\{[^\n]+?frame: ([A-Z_]+_FRAME)/g)];
+assert.equal(registeredFrames.length, 37, "全部 Widget 必须显式注册标题区与内容区框架");
+assert.match(definitionSource, /TITLE_SCROLL_FRAME[\s\S]*title: "optional"[\s\S]*content: "scrollable"/, "标题列表组件必须注册固定标题与滚动内容区");
+assert.match(definitionSource, /CONTENT_CONTAINED_FRAME[\s\S]*title: "none"[\s\S]*content: "contained"/, "单信息组件必须能注册为无标题填充内容区");
 
 const mountSource = readFileSync("src/components/utils/widgetBlock/widgetMountRegistry.ts", "utf8");
 for (const attribute of ["widgetType", "widgetKind", "widgetPresentationCategory", "widgetPlacement", "widgetPresentation", "widgetPresentationMode", "widgetPresentationScope", "widgetPresentationVariant", "widgetContentVariant", "hpWidgetShellState", "hpWidgetShellVariant"]) {
@@ -227,6 +232,7 @@ for (const attribute of ["widgetType", "widgetKind", "widgetPresentationCategory
     assert.match(combined, new RegExp(attribute), `挂载运行时缺少 ${attribute}`);
 }
 assert.match(mountSource, /getWidgetDefinition/, "Widget 挂载必须经过统一 Definition Registry");
+assert.match(mountSource, /frame: definition\.frame/, "Widget 挂载必须把框架注册传给公共运行时");
 assert.match(mountSource, /applyWidgetPresentation\(target, definition, placement, contentData\)/, "Widget 挂载必须把实例配置交给 Presentation 内容形态解析器");
 assert.match(definitionSource, /timedate\.dial/, "时间日期 Widget 必须声明表盘内容形态语义");
 const registeredCategories = [...definitionSource.matchAll(/defineWidget\(\{ type: "([^"]+)", kind: "[^"]+", category: "([^"]+)"/g)];

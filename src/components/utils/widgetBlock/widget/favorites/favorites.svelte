@@ -356,15 +356,15 @@
 </script>
 
 {#if isMobilePlacement}
-    <div class="mobile-favorites-widget">
-        <header class="mobile-favorites-header">
+    <div class="mobile-favorites-widget" data-widget-part="root">
+        <header class="mobile-favorites-header" data-widget-part="header">
             <div>
                 <h3>{favoritiesTitle}</h3>
             </div>
             <span class="mobile-favorites-count">{favoritesNotes.length}</span>
         </header>
 
-        <div class="mobile-favorites-list">
+        <div class="mobile-favorites-list" data-widget-part="body">
             {#if favoritesNotes.length}
                 {#if effectiveGroupingEnabled && groupLoadState.kind === "loading"}
                     <div class="mobile-favorites-empty">正在加载收藏分组...</div>

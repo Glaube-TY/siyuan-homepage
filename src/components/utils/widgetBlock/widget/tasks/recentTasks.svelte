@@ -248,15 +248,15 @@
 </script>
 
 {#if isMobilePlacement}
-    <div class="mobile-task-widget">
-        <header class="mobile-task-header">
+    <div class="mobile-task-widget" data-widget-part="root">
+        <header class="mobile-task-header" data-widget-part="header">
             <div>
                 <h3>{TaskManTitle}</h3>
             </div>
             <span class="mobile-task-count">{mobilePendingCount} 待办</span>
         </header>
 
-        <div class="mobile-task-list">
+        <div class="mobile-task-list" data-widget-part="body">
             {#if isInitializing}
                 <div class="mobile-task-empty">正在初始化任务索引...</div>
             {:else if displayedTasks.length > 0}

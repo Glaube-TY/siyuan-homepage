@@ -4,13 +4,16 @@
         getHomepageEntitlementSnapshot,
         subscribeHomepageEntitlement,
     } from "@/features/entitlement/homepage-entitlement";
+    import type { WidgetFrameRegistration } from "@/homepage/theme/widgetPresentation/types";
+    import WidgetFrame from "./WidgetFrame.svelte";
 
     interface Props {
         component: Component<any>;
         componentProps: Record<string, any>;
+        frame: Readonly<WidgetFrameRegistration>;
     }
 
-    let { component: SelectedComponent, componentProps }: Props = $props();
+    let { component: SelectedComponent, componentProps, frame }: Props = $props();
     let advanced = $state(getHomepageEntitlementSnapshot().advanced);
 
     onMount(() => subscribeHomepageEntitlement((snapshot) => {
@@ -19,5 +22,5 @@
 </script>
 
 {#key advanced}
-    <SelectedComponent {...componentProps} />
+    <WidgetFrame component={SelectedComponent} {componentProps} {frame} />
 {/key}

@@ -195,17 +195,17 @@
             {/if}
         </div>
     {:else}
-        <section class="accounting-card" data-widget-part="body">
-            <header class="card-header">
-                <div class="title-wrap">
-                    <AccountingIcon name="wallet" size={18} />
-                    <h3>{config.title || "记账"}</h3>
-                </div>
-                <button type="button" onclick={() => openDetail("overview")} title="打开账本">
-                    <AccountingIcon name="open" size={15} />
-                </button>
-            </header>
+        <header class="card-header" data-widget-part="header">
+            <div class="title-wrap">
+                <AccountingIcon name="wallet" size={18} />
+                <h3>{config.title || "记账"}</h3>
+            </div>
+            <button type="button" onclick={() => openDetail("overview")} title="打开账本">
+                <AccountingIcon name="open" size={15} />
+            </button>
+        </header>
 
+        <section class="accounting-card" data-widget-part="body">
             <button type="button" class="card-body" onclick={() => openDetail("overview")}>
                 <div class="balance-block">
                     <span>本月结余</span>
@@ -273,6 +273,7 @@
         padding: 0.75rem;
         display: flex;
         flex-direction: column;
+        gap: 0.65rem;
         overflow: hidden;
         color: var(--b3-theme-on-background);
         background: transparent;

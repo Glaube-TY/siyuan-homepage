@@ -1424,71 +1424,41 @@
         border: 0;
     }
 
-    .widget-block:is(
-        [data-widget-kind="list"],
-        [data-widget-kind="task"],
-        [data-widget-kind="note"],
-        [data-widget-kind="complex"],
-        [data-widget-presentation-category="workspace"],
-        [data-widget-presentation-category="collection"]
+    // 组件内部滚动只属于注册后的内容区域；标题区和运行时框架始终固定。
+    // 不再按 kind 猜测并滚动整个组件，否则标题会与列表一起移出视口。
+    .widget-block > [data-widget-frame="true"] {
+        overflow: hidden !important;
+    }
+
+    .widget-block [data-widget-frame-title="optional"] [data-widget-part="root"] {
+        overflow: hidden !important;
+    }
+
+    .widget-block [data-widget-frame-content="scrollable"] [data-widget-part="body"] {
+        flex: 1 1 auto !important;
+        min-width: 0;
+        min-height: 0 !important;
+        max-width: 100%;
+        overflow-x: hidden !important;
+        overflow-y: auto !important;
+        overscroll-behavior-y: contain;
+        touch-action: pan-y;
+        -webkit-overflow-scrolling: touch;
+        scrollbar-width: thin;
+    }
+
+    .widget-block :is(
+        .document-item,
+        .favorites-item,
+        .task-item,
+        .note-card,
+        .hot-item,
+        .news-item,
+        .history-item
     ) {
-        > :not(.mobile-widget-chrome, .mobile-widget-size-fallback) {
-            overflow-x: hidden !important;
-            overflow-y: auto !important;
-            overscroll-behavior-y: contain;
-            touch-action: pan-y;
-            -webkit-overflow-scrolling: touch;
-            scrollbar-width: thin;
-        }
-
-        :is(.content-display, [data-widget-part="root"]) {
-            display: flex;
-            flex-direction: column;
-            width: 100%;
-            height: 100%;
-            min-width: 0;
-            min-height: 0;
-            overflow-x: hidden !important;
-            overflow-y: auto !important;
-            overscroll-behavior-y: contain;
-            touch-action: pan-y;
-            -webkit-overflow-scrolling: touch;
-            scrollbar-width: thin;
-        }
-
-        :is(
-            .document-list,
-            .favorites-list,
-            .task-list,
-            .notes-grid,
-            .hot-list,
-            .news-list,
-            .history-list,
-            .review-list,
-            .mobile-latest-docs-list,
-            [data-widget-part="body"],
-            [data-widget-part="list"]
-        ) {
-            flex: 0 0 auto !important;
-            min-width: 0;
-            min-height: auto !important;
-            max-width: 100%;
-            overflow: visible !important;
-        }
-
-        :is(
-            .document-item,
-            .favorites-item,
-            .task-item,
-            .note-card,
-            .hot-item,
-            .news-item,
-            .history-item
-        ) {
-            max-width: 100%;
-            min-width: 0;
-            transform: none !important;
-        }
+        max-width: 100%;
+        min-width: 0;
+        transform: none !important;
     }
 
     .widget-block:is(
@@ -1506,21 +1476,6 @@
 
         canvas {
             touch-action: pan-y;
-        }
-    }
-
-    .widget-block[data-widget-type="accounting"] {
-        .accounting-card {
-            flex: 0 0 auto !important;
-            min-height: 100%;
-            overflow: visible !important;
-        }
-
-        .recent-section,
-        .recent-list {
-            flex: 0 0 auto !important;
-            min-height: auto !important;
-            overflow: visible !important;
         }
     }
 

@@ -89,13 +89,17 @@ for (const marker of [
     "grid-template-columns: repeat(2",
     "mobile-homepage-app-bar",
     "mobile-widget-hidden-by-section",
-    "data-widget-kind=\"list\"",
+    "data-widget-frame-title=\"optional\"",
+    "data-widget-frame-content=\"scrollable\"",
     "data-widget-kind=\"chart\"",
-    "data-widget-kind=\"complex\"",
     "mobile-widget-size-fallback",
 ]) {
     assert(stylesheet.includes(marker), `移动主页样式缺少 ${marker}`);
 }
+assert(
+    !stylesheet.includes('> :not(.mobile-widget-chrome, .mobile-widget-size-fallback) {\n            overflow-x: hidden !important;\n            overflow-y: auto !important'),
+    "移动主页不得再把整个组件挂载根节点设为滚动区",
+);
 assert(
     stylesheet.includes("var(--siyuan-homepage-mobile-safe-area-top, env(safe-area-inset-top))"),
     "移动主页顶部安全区必须通过统一 Portal 变量解析",
@@ -196,15 +200,19 @@ for (const marker of ["[contenteditable]:not([contenteditable='false'])", "[role
 }
 assert(!stylesheet.includes("overflow-y: hidden;"), "移动组件不得通过纵向 overflow hidden 禁用内部滚动");
 for (const marker of [
-    ".mobile-latest-docs-list",
+    '[data-widget-frame-title="optional"]',
+    '[data-widget-frame-content="scrollable"]',
     '[data-widget-part="body"]',
-    "> :not(.mobile-widget-chrome, .mobile-widget-size-fallback)",
     "overflow-y: auto !important",
-    "overflow: visible !important",
     "overscroll-behavior-y: contain",
     "-webkit-overflow-scrolling: touch",
 ]) {
     assert(stylesheet.includes(marker), `移动组件共享滚动边界缺少 ${marker}`);
+}
+const widgetFramePath = fileURLToPath(new URL("../src/components/utils/widgetBlock/WidgetFrame.svelte", import.meta.url));
+const widgetFrameSource = readFileSync(widgetFramePath, "utf8");
+for (const marker of ['data-widget-frame-title', 'data-widget-frame-content', 'data-widget-part="header"', 'data-widget-part="body"']) {
+    assert(widgetFrameSource.includes(marker), `公共组件框架缺少 ${marker}`);
 }
 const accountingWidgetPath = fileURLToPath(new URL("../src/components/utils/widgetBlock/widget/accounting/accounting.svelte", import.meta.url));
 const accountingWidgetSource = readFileSync(accountingWidgetPath, "utf8");

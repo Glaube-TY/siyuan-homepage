@@ -146,15 +146,15 @@
 </script>
 
 {#if isMobilePlacement}
-    <div class="mobile-latest-docs-widget">
-        <header class="mobile-latest-docs-header">
+    <div class="mobile-latest-docs-widget" data-widget-part="root">
+        <header class="mobile-latest-docs-header" data-widget-part="header">
             <div>
                 <h3>{title}</h3>
             </div>
             <span class="mobile-latest-docs-count">{displayedDocs.length}</span>
         </header>
 
-        <div class="mobile-latest-docs-list">
+        <div class="mobile-latest-docs-list" data-widget-part="body">
             {#if displayedDocs.length > 0}
                 {#each displayedDocs as doc (doc.id + "-" + doc.updated)}
                     {@const iconResult = getDocIcon(doc)}
