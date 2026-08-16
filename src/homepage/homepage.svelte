@@ -4019,6 +4019,12 @@
                                 aria-hidden={!isActive}
                             ></div>
                         {/each}
+                        {#if preparingComponentSectionId !== undefined}
+                            <HomepageInitialLoadOverlay
+                                mode="section"
+                                sectionName={componentSections.find((section) => section.id === preparingComponentSectionId)?.name ?? ""}
+                            />
+                        {/if}
                     </div>
                 {/if}
             </div>

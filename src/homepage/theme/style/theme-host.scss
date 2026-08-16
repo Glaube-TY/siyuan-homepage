@@ -67,6 +67,18 @@
     width: min(320px, 100%);
 }
 
+/* 分区首次加载遮罩不铺满组件区域：整层透明，只让居中的小面板承担可读性。 */
+.homepage-container[data-hp-theme] .hp-initial-load-overlay--section {
+    background: transparent;
+}
+
+.homepage-container[data-hp-theme] .hp-initial-load-overlay--section .hp-initial-load-overlay__panel {
+    padding: 14px 18px;
+    border-radius: 12px;
+    background: color-mix(in srgb, var(--b3-theme-background, #fff) 82%, transparent);
+    backdrop-filter: blur(6px);
+}
+
 .homepage-container[data-hp-theme] .hp-initial-load-overlay__copy {
     display: grid;
     gap: 6px;

@@ -524,6 +524,8 @@ const initialLoadOverlaySource = readFileSync("src/homepage/theme/components/Hom
 assert.match(initialLoadOverlaySource, /role=\"progressbar\"/, "Initial loading overlay must expose an accessible progress indicator");
 assert.match(initialLoadOverlaySource, /aria-busy=\{!failed\}/, "Initial loading overlay must expose its busy state");
 assert.match(initialLoadOverlaySource, /mode === "theme"[\s\S]*正在切换主题/, "Loading overlay must distinguish initial homepage load from a cold theme activation");
+assert.match(initialLoadOverlaySource, /mode === "section"[\s\S]*正在加载分区/, "Loading overlay must cover first-time section preparation");
+assert.match(homepageActionSource, /mode="section"/, "Homepage must show the section loading overlay while preparing a not-yet-loaded section");
 const themeTransitionEventsSource = readFileSync("src/homepage/theme/runtime/themeTransitionEvents.ts", "utf8");
 assert.match(themeTransitionEventsSource, /"start" \| "ready" \| "error"/, "Theme transition lifecycle must expose start, ready, and error phases");
 
