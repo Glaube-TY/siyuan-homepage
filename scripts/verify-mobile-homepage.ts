@@ -359,4 +359,22 @@ assert(
     "插件全屏弹窗必须隐藏全局移动悬浮按钮",
 );
 
+const focusPath = fileURLToPath(new URL("../src/components/utils/widgetBlock/widget/focus/focus.svelte", import.meta.url));
+const focusSource = readFileSync(focusPath, "utf8");
+assert(
+    focusSource.includes('runtimeContext.placement === "mobile"')
+        && focusSource.includes("class:mobile={isMobilePlacement}"),
+    "番茄钟必须按移动端 placement 启用触控布局",
+);
+assert(
+    focusSource.includes(".timer.mobile .controls{opacity:1;transform:none}")
+        && focusSource.includes("width:48px;height:48px;touch-action:manipulation"),
+    "移动端番茄钟控制区必须常驻显示并提供足够大的触控目标",
+);
+assert(
+    focusSource.includes('aria-label="开始或继续番茄钟"')
+        && focusSource.includes('aria-label="打开番茄钟设置"'),
+    "番茄钟图标按钮必须提供清晰的辅助功能标签",
+);
+
 console.log("mobile homepage verification passed");

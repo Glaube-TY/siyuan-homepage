@@ -21,8 +21,8 @@
   } from "./focusData";
   import { normalizeFocusBinding } from "./focusBinding";
 
-  interface Props { plugin: any; contentTypeJson?: string; runtimeContext?: WidgetRuntimeContext }
-  let { plugin, contentTypeJson = "{}", runtimeContext = {} }: Props = $props();
+  interface Props { plugin: any; contentTypeJson?: string; runtimeContext?: WidgetRuntimeContext; placement?: string }
+  let { plugin, contentTypeJson = "{}", runtimeContext = {}, placement }: Props = $props();
 
   const defaultConfig: FocusTimerConfig = { focusDuration: 25, shortBreakDuration: 5, longBreakDuration: 15, longBreakEvery: 4, autoStartBreak: true, autoStartFocus: false, timerStyle: "classic", timerFontSize: 3, showFocusInfo: false };
   let config = $state<FocusTimerConfig>({ ...defaultConfig });
@@ -56,6 +56,7 @@
   let unregisterFlusher: (() => void) | null = null;
 
   const isBreak = $derived(segmentType !== "focus");
+  const isMobilePlacement = $derived(placement === "mobile" || runtimeContext.placement === "mobile");
   const totalSeconds = $derived(durationMinutes(segmentType) * 60);
   const progress = $derived(totalSeconds ? Math.max(0, Math.min(1, 1 - timeLeft / totalSeconds)) : 0);
   const radius = $derived(config.timerFontSize * 18);
@@ -225,7 +226,7 @@
 {#if !advancedEnabled}
   <AdvancedFeatureLock compact title="高级番茄钟" subtitle="任务、项目与习惯专注数据中心" icon="vip" />
 {:else}
-  <div class="timer" style:background-image={`url(${isBreak ? (breakImageType === "remote" ? breakBgImage : breakLocalImage) : (focusImageType === "remote" ? focusBgImage : focusLocalImage)})`}>
+  <div class="timer" class:mobile={isMobilePlacement} style:background-image={`url(${isBreak ? (breakImageType === "remote" ? breakBgImage : breakLocalImage) : (focusImageType === "remote" ? focusBgImage : focusLocalImage)})`}>
     <div class="veil"></div>
     <div class="content">
       {#if binding && segmentType === "focus"}<button class="binding" type="button" onclick={openCenter}>{binding.title}</button>{/if}
@@ -235,10 +236,18 @@
         {:else}{formatTime(timeLeft)}{/if}
       </div>
       <div class="controls">
-        <button type="button" title="开始" disabled={isRunning} onclick={startTimer}><Play size={17} /></button>
-        <button type="button" title="暂停" disabled={!isRunning} onclick={pauseTimer}><Pause size={17} /></button>
-        <button type="button" title="停止" onclick={stopTimer}><Square size={16} /></button>
-        <button type="button" title="番茄钟中心" onclick={openCenter}><Settings size={17} /></button>
+        {#if isMobilePlacement}
+          {#if isRunning}
+            <button type="button" title="暂停" aria-label="暂停番茄钟" onclick={pauseTimer}><Pause size={19} /></button>
+          {:else}
+            <button type="button" title="开始或继续" aria-label="开始或继续番茄钟" onclick={startTimer}><Play size={19} /></button>
+          {/if}
+        {:else}
+          <button type="button" title="开始" aria-label="开始番茄钟" disabled={isRunning} onclick={startTimer}><Play size={17} /></button>
+          <button type="button" title="暂停" aria-label="暂停番茄钟" disabled={!isRunning} onclick={pauseTimer}><Pause size={17} /></button>
+        {/if}
+        <button type="button" title="停止" aria-label="停止番茄钟" onclick={stopTimer}><Square size={isMobilePlacement ? 18 : 16} /></button>
+        <button type="button" title="番茄钟中心" aria-label="打开番茄钟设置" onclick={openCenter}><Settings size={isMobilePlacement ? 19 : 17} /></button>
       </div>
       {#if config.showFocusInfo}<small class="stats">{totalFocusTimes} 轮 · {formatDuration(totalFocusTime)}</small>{/if}
     </div>
@@ -246,5 +255,5 @@
 {/if}
 
 <style>
-  .timer{position:relative;width:100%;height:100%;min-width:0;min-height:0;overflow:hidden;border-radius:12px;background-size:cover;background-position:center;color:var(--b3-theme-on-background)}.veil{position:absolute;inset:0;background:color-mix(in srgb,var(--b3-theme-background) 26%,transparent);backdrop-filter:blur(2px)}.content{position:relative;z-index:1;width:100%;height:100%;box-sizing:border-box;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:7px;padding:18px}.binding{max-width:78%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;border:0;border-radius:999px;padding:4px 10px;background:color-mix(in srgb,var(--b3-theme-primary) 14%,var(--b3-theme-surface));color:var(--b3-theme-primary);cursor:pointer}.display{font-weight:750;line-height:1;text-align:center}.display.classic{padding:9px 16px;border-radius:14px;background:color-mix(in srgb,var(--b3-theme-surface) 84%,transparent);color:var(--b3-theme-primary)}.display.modern{padding:9px 16px;border-radius:11px;background:color-mix(in srgb,#18202a 90%,transparent);color:#f4f7fb}.display.rounded{padding:10px 20px;border-radius:999px;background:color-mix(in srgb,var(--b3-theme-surface) 88%,transparent);color:var(--b3-theme-primary)}.display.digital-clock{padding:9px 15px;border-radius:10px;background:#101923;color:#55d8df;font-family:ui-monospace,monospace;letter-spacing:.05em}.display.circular-progress{background:transparent}.display svg{display:block;overflow:visible}.display circle{fill:none;stroke-width:7}.display .track{stroke:color-mix(in srgb,var(--b3-theme-surface) 72%,transparent)}.display .progress{stroke:var(--b3-theme-primary);stroke-linecap:round;transform:rotate(-90deg);transform-origin:center;transition:stroke-dashoffset .25s linear}.display text{fill:currentColor;text-anchor:middle;dominant-baseline:middle;font-size:16px}.controls{display:flex;gap:7px;opacity:0;transform:translateY(3px);transition:.18s}.timer:hover .controls,.timer:focus-within .controls{opacity:1;transform:none}.controls button{display:grid;place-items:center;width:34px;height:34px;border:0;border-radius:50%;background:color-mix(in srgb,var(--b3-theme-surface) 82%,transparent);color:var(--b3-theme-primary);cursor:pointer}.controls button:disabled{opacity:.38;cursor:not-allowed}.stats{position:absolute;bottom:8px;border-radius:999px;padding:4px 9px;background:color-mix(in srgb,var(--b3-theme-surface) 76%,transparent);color:var(--b3-theme-on-surface)}@container(max-height:210px){.stats{display:none}.content{gap:4px}.controls{opacity:1}}@media(prefers-reduced-motion:reduce){.controls,.display .progress{transition:none}}
+  .timer{position:relative;width:100%;height:100%;min-width:0;min-height:0;overflow:hidden;border-radius:12px;background-size:cover;background-position:center;color:var(--b3-theme-on-background)}.veil{position:absolute;inset:0;background:color-mix(in srgb,var(--b3-theme-background) 26%,transparent);backdrop-filter:blur(2px)}.content{position:relative;z-index:1;width:100%;height:100%;box-sizing:border-box;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:7px;padding:18px}.binding{max-width:78%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;border:0;border-radius:999px;padding:4px 10px;background:color-mix(in srgb,var(--b3-theme-primary) 14%,var(--b3-theme-surface));color:var(--b3-theme-primary);cursor:pointer}.display{font-weight:750;line-height:1;text-align:center}.display.classic{padding:9px 16px;border-radius:14px;background:color-mix(in srgb,var(--b3-theme-surface) 84%,transparent);color:var(--b3-theme-primary)}.display.modern{padding:9px 16px;border-radius:11px;background:color-mix(in srgb,#18202a 90%,transparent);color:#f4f7fb}.display.rounded{padding:10px 20px;border-radius:999px;background:color-mix(in srgb,var(--b3-theme-surface) 88%,transparent);color:var(--b3-theme-primary)}.display.digital-clock{padding:9px 15px;border-radius:10px;background:#101923;color:#55d8df;font-family:ui-monospace,monospace;letter-spacing:.05em}.display.circular-progress{background:transparent}.display svg{display:block;overflow:visible}.display circle{fill:none;stroke-width:7}.display .track{stroke:color-mix(in srgb,var(--b3-theme-surface) 72%,transparent)}.display .progress{stroke:var(--b3-theme-primary);stroke-linecap:round;transform:rotate(-90deg);transform-origin:center;transition:stroke-dashoffset .25s linear}.display text{fill:currentColor;text-anchor:middle;dominant-baseline:middle;font-size:16px}.controls{display:flex;gap:7px;opacity:0;transform:translateY(3px);transition:.18s}.timer:hover .controls,.timer:focus-within .controls,.timer.mobile .controls{opacity:1;transform:none}.controls button{display:grid;place-items:center;width:34px;height:34px;border:0;border-radius:50%;background:color-mix(in srgb,var(--b3-theme-surface) 82%,transparent);color:var(--b3-theme-primary);cursor:pointer}.timer.mobile .content{gap:6px;padding:12px}.timer.mobile .controls{gap:8px}.timer.mobile .controls button{width:48px;height:48px;touch-action:manipulation;-webkit-tap-highlight-color:transparent}.timer.mobile .controls button:active{background:color-mix(in srgb,var(--b3-theme-primary) 22%,var(--b3-theme-surface))}.controls button:disabled{opacity:.38;cursor:not-allowed}.stats{position:absolute;bottom:8px;border-radius:999px;padding:4px 9px;background:color-mix(in srgb,var(--b3-theme-surface) 76%,transparent);color:var(--b3-theme-on-surface)}@container(max-height:210px){.stats{display:none}.content{gap:4px}.controls{opacity:1}}@media(prefers-reduced-motion:reduce){.controls,.display .progress{transition:none}}
 </style>
