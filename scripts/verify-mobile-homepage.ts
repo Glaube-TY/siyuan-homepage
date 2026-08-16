@@ -183,6 +183,16 @@ assert(
         && mobileContentFormSource.includes('onOpenSubpage("music-cloud")'),
     "移动组件的下级设置不得继续打开桌面弹窗",
 );
+const mobileConfigBuilder = mobileContentFormSource.slice(
+    mobileContentFormSource.indexOf("function buildWidgetConfig"),
+    mobileContentFormSource.indexOf("async function submit"),
+);
+assert(
+    mobileConfigBuilder.includes('case "heatmap"')
+        && mobileConfigBuilder.includes("heatmapTitle: normalizeString(form.heatmapTitle)")
+        && mobileConfigBuilder.includes("showLabel: normalizeBoolean(form.showLabel, true)"),
+    "移动端热力图设置必须保存空标题和关闭标签状态，不能回退到旧配置",
+);
 const mobileContentSheetPath = fileURLToPath(new URL("../src/homepage/mobileHomepage/MobileWidgetContentSheet.svelte", import.meta.url));
 const mobileContentSheetSource = readFileSync(mobileContentSheetPath, "utf8");
 for (const subpage of ["music-cloud", "favorites-manager", "countdown-center", "review-notify", "focus-notify"]) {

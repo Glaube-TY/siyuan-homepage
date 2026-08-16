@@ -939,6 +939,25 @@
             hiddenFields: normalizeString(form.hiddenFields),
           }),
         };
+      case "heatmap":
+        return {
+          ...base,
+          data: withExistingData({
+            timeRangeType: normalizeString(form.timeRangeType, "past"),
+            heatmapTitle: normalizeString(form.heatmapTitle),
+            pastMonthCount: Math.max(
+              1,
+              Math.min(12, normalizeNumber(form.pastMonthCount, 6)),
+            ),
+            showLabel: normalizeBoolean(form.showLabel, true),
+            selectedColorPreset: normalizeString(
+              form.selectedColorPreset,
+              "github",
+            ),
+            customColor: normalizeString(form.customColor, "#1ea769"),
+            heatmapCountType: normalizeString(form.heatmapCountType, "block"),
+          }),
+        };
       case "TaskManPlus":
         return {
           ...base,
