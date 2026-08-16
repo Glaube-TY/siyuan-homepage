@@ -7,9 +7,11 @@
     interface Props {
         plugin: any;
         contentTypeJson?: string;
+        placement?: string;
     }
 
-    let { plugin, contentTypeJson = "{}" }: Props = $props();
+    let { plugin, contentTypeJson = "{}", placement = "homepage" }: Props = $props();
+    const isMobilePlacement = $derived(placement === "mobile");
 
     const parsed = $derived(JSON.parse(contentTypeJson));
     const sqlTitle = $derived(parsed.data?.sqlTitle || "SQL 查询结果");
@@ -185,7 +187,14 @@
 </script>
 
 <div class="content-display" data-widget-part="root">
-    <WidgetSemanticTitle widgetType="sql" configuredTitle={sqlTitle} semanticLabel="SQL 查询" fallbackIcon="iconGraph" />
+    <WidgetSemanticTitle
+        widgetType="sql"
+        configuredTitle={sqlTitle}
+        semanticLabel="SQL 查询"
+        fallbackIcon="iconGraph"
+        compact={isMobilePlacement}
+        summary={isMobilePlacement ? `${filteredData.length} 条` : undefined}
+    />
     <div class="sql-display-content" data-widget-part="body">
         {#if filteredData.length > 0}
             <table class="sql-table">
@@ -252,8 +261,11 @@
 
         .sql-display-content {
             width: 100%;
-            height: 100%;
+            flex: 1 1 auto;
+            min-height: 0;
             overflow: auto;
+            overscroll-behavior: contain;
+            touch-action: pan-x pan-y;
 
             .sql-table {
                 box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);

@@ -314,6 +314,18 @@ assert.match(reviewDocsSource, /review-docs-body" data-widget-part="body"/, "复
 assert.match(reviewDocsSource, /review-list" data-widget-part="list"/, "复习列表不得冒充整个内容滚动区");
 assert.match(reviewDocsSource, /\.review-docs-body\s*\{[\s\S]*?overflow-y:\s*auto/, "复习文档内容区必须支持桌面与移动端滚动");
 
+const heatmapSource = readFileSync("src/components/utils/widgetBlock/widget/heatmap/heatmap.svelte", "utf8");
+assert.match(heatmapSource, /isInitializing = false;[\s\S]*?await tick\(\);[\s\S]*?setupResizeObserver\(\);[\s\S]*?scheduleHeatmapRender\(\);/, "热力图必须等待加载状态结束并挂载图表 DOM 后再监听尺寸和渲染");
+assert.match(heatmapSource, /ResizeObserver\([\s\S]*?scheduleHeatmapRender\(\)/, "热力图分页从隐藏恢复可见时必须重新调度完整渲染");
+assert.match(heatmapSource, /chartInstance \|\| echarts\.init|if \(!chartInstance\)[\s\S]*?echarts\.init/, "热力图必须像其他可视化图表一样仅初始化一个 ECharts 实例");
+assert.doesNotMatch(heatmapSource, /initHeatmapChartWithRetry|setTimeout\(\(\) => initHeatmapChart/, "热力图不得依赖有限次数定时重试判断分页可见性");
+
+const sqlSource = readFileSync("src/components/utils/widgetBlock/widget/sql/sql.svelte", "utf8");
+assert.match(sqlSource, /compact=\{isMobilePlacement\}/, "SQL 查询必须注册移动端紧凑标题");
+assert.match(sqlSource, /summary=\{isMobilePlacement/, "SQL 查询移动端标题必须显示结果统计");
+assert.match(sqlSource, /sql-display-content" data-widget-part="body"/, "SQL 查询必须把表格放入独立内容区域");
+assert.match(sqlSource, /\.sql-display-content\s*\{[\s\S]*?min-height:\s*0[\s\S]*?overflow:\s*auto/, "SQL 查询内容区域必须独立滚动");
+
 const widgetThemeStyles = collectSourceFiles("src/homepage/theme/builtins/simple-test/widgets")
     .filter((path) => path.endsWith(".scss"))
     .map((path) => readFileSync(path, "utf8"))

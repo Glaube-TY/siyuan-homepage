@@ -225,6 +225,7 @@ for (const relativePath of [
     "../src/components/utils/widgetBlock/widget/conditionDocs/conditionDocs.svelte",
     "../src/components/utils/widgetBlock/widget/reviewDocs/reviewDocs.svelte",
     "../src/components/utils/widgetBlock/widget/enhancedDiary/enhancedDiary.svelte",
+    "../src/components/utils/widgetBlock/widget/sql/sql.svelte",
 ]) {
     const source = readFileSync(fileURLToPath(new URL(relativePath, import.meta.url)), "utf8");
     assert(source.includes("compact={isMobilePlacement}"), `${relativePath} 缺少移动端紧凑标题注册`);

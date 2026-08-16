@@ -37,10 +37,6 @@
     let chartInstance: echarts.ECharts | null = null;
     // 图表容器本地引用
     let chartContainer = $state<HTMLDivElement | null>(null);
-    // 延迟初始化 timeout id
-    let initTimeoutId: ReturnType<typeof setTimeout> | null = null;
-    // 延后重绘 timeout id
-    let redrawTimeoutId: ReturnType<typeof setTimeout> | null = null;
     // 主题观察器
     let themeObserver: MutationObserver | null = null;
     // 主题调度 timeout id
@@ -49,8 +45,8 @@
     let lastThemeSignature: string = "";
     // ResizeObserver
     let resizeObserver: ResizeObserver | null = null;
-    // resize 调度 raf id
-    let resizeRafId: number | null = null;
+    // 图表渲染调度 raf id
+    let renderRafId: number | null = null;
     // 组件销毁标记
     let isDestroyed = false;
     // 缓存当前图表数据，用于重绘
@@ -157,10 +153,6 @@
         if (shouldRenderHeatmap && result.status !== "disabled" && result.status !== "error") {
             currentChartData = buildHeatmapCalendarData(counts, monthCount);
             hasHeatmapData = true;
-
-            await tick();
-
-            initHeatmapChartWithRetry();
         }
     }
 
@@ -189,41 +181,39 @@
             heatmapDataStatus = "error";
             heatmapStatusMessage = error instanceof Error ? error.message : "热力图索引初始化失败，请到主页设置 > 检索管理中手动重建索引。";
         } finally {
-            if (!isDestroyed) isInitializing = false;
+            if (!isDestroyed) {
+                isInitializing = false;
+                await tick();
+                if (hasHeatmapData) {
+                    setupResizeObserver();
+                    scheduleHeatmapRender();
+                }
+            }
         }
     });
 
-    function initHeatmapChartWithRetry(maxAttempts = 5) {
-        if (isDestroyed) return;
+    function renderHeatmapChart() {
+        if (
+            isDestroyed
+            || !chartContainer
+            || !chartContainer.isConnected
+            || chartContainer.clientWidth === 0
+            || chartContainer.clientHeight === 0
+        ) return;
 
-        if (!chartContainer || chartContainer.clientWidth === 0 || chartContainer.clientHeight === 0) {
-            if (maxAttempts > 0) {
-                setTimeout(() => initHeatmapChartWithRetry(maxAttempts - 1), 100);
-            }
-            return;
-        }
-
-        // 避免重复初始化
-        if (chartInstance) {
-            chartInstance.dispose();
-            chartInstance = null;
-        }
-
-        const myChart = echarts.init(chartContainer);
-        chartInstance = myChart;
-
-        initTimeoutId = setTimeout(() => {
-            if (isDestroyed) return;
-            applyChartTheme();
-
-            redrawTimeoutId = setTimeout(() => {
-                if (!isDestroyed && chartInstance) {
-                    applyChartTheme();
-                }
-            }, 100);
-
+        if (!chartInstance) {
+            chartInstance = echarts.init(chartContainer, undefined, { renderer: "canvas" });
             setupThemeObserver();
-        }, 0);
+        }
+        applyChartTheme();
+    }
+
+    function scheduleHeatmapRender() {
+        if (renderRafId !== null) cancelAnimationFrame(renderRafId);
+        renderRafId = requestAnimationFrame(() => {
+            renderRafId = null;
+            renderHeatmapChart();
+        });
     }
 
     function applyChartTheme() {
@@ -461,32 +451,18 @@
         // 保存引用以便清理
         (themeObserver as any)._headObserver = headObserver;
 
-        // 设置 ResizeObserver 监听容器尺寸变化
-        setupResizeObserver();
-
         // 监听页面可见性变化
         document.addEventListener("visibilitychange", handleVisibilityChange);
-    }
-
-    function scheduleChartResize() {
-        if (resizeRafId) {
-            cancelAnimationFrame(resizeRafId);
-        }
-        resizeRafId = requestAnimationFrame(() => {
-            resizeRafId = null;
-            if (isDestroyed || !chartInstance || !chartContainer) return;
-            if (chartContainer.clientWidth > 0 && chartContainer.clientHeight > 0) {
-                chartInstance.resize();
-            }
-        });
     }
 
     function setupResizeObserver() {
         if (!chartContainer || typeof ResizeObserver === "undefined") return;
 
+        resizeObserver?.disconnect();
+
         resizeObserver = new ResizeObserver(() => {
             if (isDestroyed) return;
-            scheduleChartResize();
+            scheduleHeatmapRender();
         });
 
         resizeObserver.observe(chartContainer);
@@ -494,24 +470,12 @@
 
     function handleVisibilityChange() {
         if (document.visibilityState === "visible" && !isDestroyed) {
-            scheduleChartResize();
+            scheduleHeatmapRender();
         }
     }
 
     onDestroy(() => {
         isDestroyed = true;
-
-        // 清理延迟初始化 timeout
-        if (initTimeoutId) {
-            clearTimeout(initTimeoutId);
-            initTimeoutId = null;
-        }
-
-        // 清理延后重绘 timeout
-        if (redrawTimeoutId) {
-            clearTimeout(redrawTimeoutId);
-            redrawTimeoutId = null;
-        }
 
         // 清理主题调度 timeout
         if (themeScheduleTimeout) {
@@ -535,10 +499,10 @@
             resizeObserver = null;
         }
 
-        // 取消 resize raf
-        if (resizeRafId) {
-            cancelAnimationFrame(resizeRafId);
-            resizeRafId = null;
+        // 取消待执行的图表渲染
+        if (renderRafId !== null) {
+            cancelAnimationFrame(renderRafId);
+            renderRafId = null;
         }
 
         // 移除 visibilitychange 监听
@@ -635,8 +599,11 @@
     .content-display {
         width: 100%;
         height: calc(100%);
+        min-width: 0;
+        min-height: 0;
         display: flex;
         flex-direction: column;
+        overflow: hidden;
         padding: 1rem;
         box-sizing: border-box;
         border-radius: 12px;
@@ -655,11 +622,11 @@
 
     .heatmap-content-container {
         width: 100%;
-        height: calc(100%);
+        flex: 1 1 auto;
+        min-height: 0;
         margin: 0 auto;
-        flex: none;
         position: relative;
-        overflow: auto;
+        overflow: hidden;
     }
 
     .heatmap-empty-state {
