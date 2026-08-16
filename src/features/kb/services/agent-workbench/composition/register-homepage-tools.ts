@@ -38,7 +38,8 @@ function registerHomepageTools(
     const execute = tool.execute.bind(tool);
     return { action, tool: { ...tool, async execute(ctx: Parameters<typeof execute>[0], args: Parameters<typeof execute>[1]) {
       const raw = args && typeof args === "object" ? args as Record<string, unknown> : {};
-      const debug = { action, surface: raw.surface ?? "auto", widgetType: raw.widgetType ?? raw.expectedType, widgetId: raw.widgetId, sectionId: raw.sectionId ?? raw.targetSectionId, revision: raw.expectedLayoutRevision, status: "prepared" };
+      const patch = raw.patch && typeof raw.patch === "object" ? raw.patch as Record<string, unknown> : {};
+      const debug = { action, surface: raw.surface ?? "auto", widgetType: raw.widgetType ?? raw.expectedType, widgetId: raw.widgetId, sectionId: raw.sectionId ?? raw.targetSectionId ?? patch.targetSectionId, revision: raw.expectedLayoutRevision, status: "prepared" };
       if (!tool.readOnly) pushAgentDebugEvent("HOMEPAGE_AGENT_WRITE_PREPARED", debug);
       const result = await execute(ctx, args);
       if (result.ok) pushAgentDebugEvent(tool.readOnly ? "HOMEPAGE_AGENT_READ" : "HOMEPAGE_AGENT_WRITE_COMMITTED", { ...debug, status: "ok" });

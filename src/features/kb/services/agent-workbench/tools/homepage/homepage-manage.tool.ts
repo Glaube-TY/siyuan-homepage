@@ -20,6 +20,35 @@ const widgetInputSchema = z.object({
 }).strict();
 const addWidgetInputSchema = z.object({ surface: surfaceSchema, widgetType: z.string().trim().min(1), expectedLabel: z.string().trim().min(1), sectionId: z.string().trim().min(1).optional(), position: z.number().int().nonnegative().optional(), initialConfig: z.record(z.string(), z.unknown()).optional(), expectedLayoutRevision: z.number().int().positive() }).strict();
 const updateWidgetInputSchema = z.object({ surface: surfaceSchema, widgetId: z.string().trim().min(1), expectedType: z.string().trim().min(1), expectedWidgetRevision: z.number().int().positive(), expectedLayoutRevision: z.number().int().positive().optional(), expectedValues: z.record(z.string(), z.unknown()), patch: z.record(z.string(), z.unknown()) }).strict();
+const widgetStylePatchSchema = z.object({
+  rowSize: z.number().int().min(1).max(12).optional(),
+  colSize: z.number().int().min(1).max(12).optional(),
+  appearanceMode: z.enum(["inherit", "custom"]).optional(),
+  backgroundColor: z.string().regex(/^#[0-9a-f]{6}$/i, "背景颜色必须是 #RRGGBB 格式").optional(),
+  backgroundOpacity: z.number().min(0).max(1).optional(),
+  borderColor: z.string().regex(/^#[0-9a-f]{6}$/i, "边框颜色必须是 #RRGGBB 格式").optional(),
+  borderWidth: z.number().min(0).max(10).optional(),
+  targetSectionId: z.string().trim().min(1).optional(),
+}).strict().superRefine((patch, context) => {
+  if (Object.keys(patch).length === 0) context.addIssue({ code: z.ZodIssueCode.custom, message: "patch 至少包含一个样式字段" });
+  if (patch.appearanceMode === "inherit" && (
+    patch.backgroundColor !== undefined || patch.backgroundOpacity !== undefined
+    || patch.borderColor !== undefined || patch.borderWidth !== undefined
+  )) context.addIssue({ code: z.ZodIssueCode.custom, message: "继承主题时不能同时设置自定义背景或边框" });
+  if (patch.appearanceMode === "custom" && (
+    patch.backgroundColor === undefined && patch.backgroundOpacity === undefined
+    && patch.borderColor === undefined && patch.borderWidth === undefined
+  )) context.addIssue({ code: z.ZodIssueCode.custom, message: "自定义外观至少需要一个背景或边框字段" });
+});
+const updateWidgetStyleInputSchema = z.object({
+  surface: z.literal("desktop-homepage"),
+  widgetId: z.string().trim().min(1),
+  expectedType: z.string().trim().min(1),
+  expectedWidgetRevision: z.number().int().positive(),
+  expectedLayoutRevision: z.number().int().positive(),
+  expectedSectionId: z.string().trim().min(1).nullable(),
+  patch: widgetStylePatchSchema,
+}).strict();
 const moveWidgetInputSchema = z.object({ surface: surfaceSchema, widgetId: z.string().trim().min(1), expectedType: z.string().trim().min(1), expectedIndex: z.number().int().nonnegative(), expectedSectionId: z.string().trim().min(1).nullable(), targetIndex: z.number().int().nonnegative(), targetSectionId: z.string().trim().min(1).optional(), expectedLayoutRevision: z.number().int().positive() }).strict();
 const removeWidgetInputSchema = z.object({ surface: surfaceSchema, widgetId: z.string().trim().min(1), expectedType: z.string().trim().min(1), expectedWidgetRevision: z.number().int().positive(), expectedLayoutRevision: z.number().int().positive(), expectedIndex: z.number().int().nonnegative(), expectedSectionId: z.string().trim().min(1).nullable(), expectedLabel: z.string().trim().min(1) }).strict();
 const updateLayoutInputSchema = z.object({ surface: surfaceSchema, widgetLayoutNumber: z.number().int().min(1).max(12), widgetGap: z.number().min(0).max(200), expectedWidgetLayoutNumber: z.number().int().min(1).max(12), expectedWidgetGap: z.number().min(0).max(200), sectionId: z.string().trim().min(1).optional(), expectedLayoutRevision: z.number().int().positive() }).strict();
@@ -114,12 +143,13 @@ export function createHomepageManageReadActionTools(service: HomepageAgentServic
     .map((action) => ({ action, tool: createReadActionTool(action, service) }));
 }
 
-type WriteAction = "add_widget" | "update_widget" | "move_widget" | "remove_widget" | "update_layout" | "create_section" | "rename_section" | "reorder_sections" | "remove_section" | "set_section_mode" | "set_active_section";
+type WriteAction = "add_widget" | "update_widget" | "update_widget_style" | "move_widget" | "remove_widget" | "update_layout" | "create_section" | "rename_section" | "reorder_sections" | "remove_section" | "set_section_mode" | "set_active_section";
 
 function createWriteActionTool(action: WriteAction, service: HomepageAgentService): ToolContract<Record<string, unknown>, HomepageAgentReadResult> {
   const schema = action === "add_widget" ? addWidgetInputSchema
     : action === "update_widget" ? updateWidgetInputSchema
-      : action === "move_widget" ? moveWidgetInputSchema
+      : action === "update_widget_style" ? updateWidgetStyleInputSchema
+        : action === "move_widget" ? moveWidgetInputSchema
         : action === "remove_widget" ? removeWidgetInputSchema
           : action === "update_layout" ? updateLayoutInputSchema
             : action === "create_section" ? createSectionInputSchema
@@ -138,13 +168,20 @@ function createWriteActionTool(action: WriteAction, service: HomepageAgentServic
     source: "builtin",
     providerVisible: false,
     availability() {
-      try { service.resolveSurface(); return { available: true }; }
+      try {
+        const currentSurface = service.resolveSurface();
+        if (action === "update_widget_style" && currentSurface !== "desktop-homepage") {
+          return { available: false, reasonCode: "permission_denied", hint: "移动端组件样式请由用户在界面中手动设置。" };
+        }
+        return { available: true };
+      }
       catch { return { available: false, reasonCode: "prerequisite_missing", hint: "插件尚未完成初始化。" }; }
     },
     async execute(_ctx, rawArgs): Promise<ToolResult<HomepageAgentReadResult>> {
       try {
         if (action === "add_widget") return { ok: true, data: await service.addWidget(rawArgs as Parameters<HomepageAgentService["addWidget"]>[0]) };
         if (action === "update_widget") return { ok: true, data: await service.updateWidget(rawArgs as Parameters<HomepageAgentService["updateWidget"]>[0]) };
+        if (action === "update_widget_style") return { ok: true, data: await service.updateWidgetStyle(rawArgs as Parameters<HomepageAgentService["updateWidgetStyle"]>[0]) };
         if (action === "move_widget") return { ok: true, data: await service.moveWidget(rawArgs as Parameters<HomepageAgentService["moveWidget"]>[0]) };
         if (action === "remove_widget") return { ok: true, data: await service.removeWidget(rawArgs as Parameters<HomepageAgentService["removeWidget"]>[0]) };
         if (action === "update_layout") return { ok: true, data: await service.updateLayout(rawArgs as Parameters<HomepageAgentService["updateLayout"]>[0]) };
@@ -163,6 +200,6 @@ function createWriteActionTool(action: WriteAction, service: HomepageAgentServic
 export function createHomepageManageActionTools(service: HomepageAgentService) {
   return [
     ...createHomepageManageReadActionTools(service),
-    ...(["add_widget", "update_widget", "move_widget", "remove_widget", "update_layout", "create_section", "rename_section", "reorder_sections", "remove_section", "set_section_mode", "set_active_section"] as const).map((action) => ({ action, tool: createWriteActionTool(action, service) })),
+    ...(["add_widget", "update_widget", "update_widget_style", "move_widget", "remove_widget", "update_layout", "create_section", "rename_section", "reorder_sections", "remove_section", "set_section_mode", "set_active_section"] as const).map((action) => ({ action, tool: createWriteActionTool(action, service) })),
   ];
 }

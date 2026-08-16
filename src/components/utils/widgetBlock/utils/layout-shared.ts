@@ -1,6 +1,9 @@
 import type { Plugin } from 'siyuan';
 import { isHomepageEntitlementGranted } from "@/features/entitlement/homepage-entitlement";
-import { classifyWidgetAppearance } from "@/homepage/theme/widgetAppearance/widgetAppearanceCompat";
+import {
+    applyWidgetAppearanceCompatibility,
+    classifyWidgetAppearance,
+} from "@/homepage/theme/widgetAppearance/widgetAppearanceCompat";
 import { canSaveLayoutFromRestoreState } from "./layout-save-guard";
 import { isDesktopDeviceProfileEnabled } from "@/homepage/utils/deviceProfile";
 import { getCurrentDeviceViewContext } from "@/homepage/deviceView/deviceViewContext";
@@ -3290,6 +3293,25 @@ export async function restoreLayoutForContainer(
                 ? `${finalDataRecheckError}；runtime options 回滚失败：${runtimeRollbackErrors.join("；")}`
                 : finalDataRecheckError,
         );
+    }
+
+    // 健康组件会复用现有 DOM；存储被外部工具更新后，也必须把最新样式同步到复用节点。
+    // null 兼容旧布局：仅在当前节点确实有自定义外观时清除外观，并保留运行中的尺寸声明。
+    for (const planEntry of reconcilePlan) {
+        if (!planEntry.existingHealthy || !planEntry.existingElement) continue;
+        let persistedStyle = planEntry.restoredStyle;
+        if (persistedStyle === null) {
+            const currentAppearance = classifyWidgetAppearance(planEntry.existingElement.getAttribute("style"));
+            if (currentAppearance.mode !== "custom") continue;
+            persistedStyle = [currentAppearance.geometryDeclarations, currentAppearance.unknownDeclarations]
+                .filter(Boolean)
+                .join(" ") || null;
+        }
+        if (persistedStyle) planEntry.existingElement.setAttribute("style", persistedStyle);
+        else planEntry.existingElement.removeAttribute("style");
+        const appearance = applyWidgetAppearanceCompatibility(planEntry.existingElement, persistedStyle);
+        const instance = (planEntry.existingElement as any).__widgetBlockInstance;
+        if (instance) instance.style = appearance.runtimeStyle;
     }
 
     // 阶段 C：数据、DOM 和 runtime options 全部验证成功后才销毁旧实例。

@@ -1340,7 +1340,7 @@ function buildHomepageManagePreview(
     : typeof args.widgetType === "string" ? sanitizePreviewText(args.widgetType, 80)
     : typeof args.expectedType === "string" ? sanitizePreviewText(args.expectedType, 80) : "";
   const labels: Record<string, string> = {
-    add_widget: "添加主页组件", update_widget: "修改组件展示配置", move_widget: "移动主页组件",
+    add_widget: "添加主页组件", update_widget: "修改组件展示配置", update_widget_style: "修改组件样式", move_widget: "移动主页组件",
     remove_widget: "移除主页组件", update_layout: "修改主页布局", create_section: "创建主页分栏",
     rename_section: "重命名主页分栏", reorder_sections: "调整主页分栏顺序", remove_section: "删除主页分栏",
     set_section_mode: "切换主页分栏模式", set_active_section: "设置活动主页分栏",
@@ -1349,7 +1349,10 @@ function buildHomepageManagePreview(
   if (action === "remove_widget") warnings.push("将从主页移除组件实例配置，但不会删除对应业务数据。");
   if (action === "remove_section") warnings.push("将删除分栏结构；分栏内组件不会删除，并会按现有规则合并到相邻分栏。");
 
-  const safePatch = action === "update_widget" ? redactSensitiveObject(args.patch) : undefined;
+  const safePatch = action === "update_widget" || action === "update_widget_style" ? redactSensitiveObject(args.patch) : undefined;
+  const stylePatch = action === "update_widget_style" && args.patch && typeof args.patch === "object"
+    ? args.patch as Record<string, unknown>
+    : {};
   const safeExpectedValues = action === "update_widget" ? redactSensitiveObject(args.expectedValues) : undefined;
   const target = widgetId ? `${widgetType || "组件"}（${widgetId}）` : widgetType || String(args.sectionId ?? surface);
   const sections = [
@@ -1361,7 +1364,7 @@ function buildHomepageManagePreview(
     ...(args.expectedSectionId !== undefined ? [{ label: "当前分栏", value: String(args.expectedSectionId ?? "未分栏") }] : []),
     ...(typeof args.position === "number" ? [{ label: "插入位置", value: String(args.position) }] : []),
     ...(typeof args.targetIndex === "number" ? [{ label: "目标位置", value: String(args.targetIndex) }] : []),
-    ...(args.targetSectionId !== undefined ? [{ label: "目标分栏", value: String(args.targetSectionId) }] : []),
+    ...(args.targetSectionId !== undefined || stylePatch.targetSectionId !== undefined ? [{ label: "目标分栏", value: String(args.targetSectionId ?? stylePatch.targetSectionId) }] : []),
     ...(typeof args.expectedWidgetCount === "number" ? [{ label: "分栏组件数", value: String(args.expectedWidgetCount) }] : []),
     ...(args.expectedReceivingSectionId !== undefined ? [{ label: "接收分栏", value: String(args.expectedReceivingSectionId ?? "无") }] : []),
     ...(typeof args.expectedWidgetLayoutNumber === "number" ? [{ label: "当前列数", value: String(args.expectedWidgetLayoutNumber) }] : []),
@@ -1377,7 +1380,7 @@ function buildHomepageManagePreview(
     argsPreview: { action, surface: args.surface ?? "自动", widgetType, widgetId, sectionId: compactPreviewValue(args.sectionId), targetIndex: args.targetIndex },
     operationLabel: labels[action] ?? "修改主页",
     targetSummary: target || surface,
-    impactSummary: action === "update_widget" ? "仅修改组件 adapter 白名单内的展示配置。" : "将更新当前真实主页数据。",
+    impactSummary: action === "update_widget" ? "仅修改组件 adapter 白名单内的展示配置。" : action === "update_widget_style" ? "将修改组件尺寸、外观或分栏归属。" : "将更新当前真实主页数据。",
     riskReason: action.startsWith("remove_") ? "会改变主页结构，请确认目标和 revision 正确。" : "会改变主页布局或组件配置。",
     warnings,
     sections,

@@ -42,6 +42,11 @@ import { sanitizeWidgetConfigForAgent } from "./homepage-agent-widget-sanitizer"
 import { applyHomepageWidgetPatch, createHomepageWidgetConfig, readHomepageWidgetData, validateAndNormalizeHomepageWidgetPatch } from "./homepage-agent-widget-adapters";
 import type { WidgetLayoutData, WidgetLayoutProfileData } from "@/components/utils/widgetBlock/utils/layout-shared";
 import { mergeRemovedSectionRangesIntoAdjacentSections, rearrangeGlobalOrderBySections } from "@/components/utils/widgetBlock/utils/layout-section-ops";
+import {
+  applyWidgetStylePatch,
+  readWidgetStyle,
+  type WidgetStylePatch,
+} from "@/homepage/theme/widgetAppearance/widgetAppearanceCompat";
 
 export class HomepageAgentServiceError extends Error {
   constructor(
@@ -277,6 +282,7 @@ export class HomepageAgentService {
       throw new HomepageAgentServiceError("widget_type_conflict", `组件类型已变化：预期 ${expectedType}，当前为 ${type}。`);
     }
     const descriptor = getHomepageAgentWidgetDescriptor(type);
+    const layoutItem = order[layoutIndex];
     const sectionId = state.surface === "desktop-homepage" ? sectionForWidget(state.profile?.sections, widgetId) : null;
     const sectionName = sectionId
       ? normalizeComponentSections(state.snapshot.view?.config.componentSections).find((item) => item.id === sectionId)?.name ?? sectionId
@@ -293,6 +299,7 @@ export class HomepageAgentService {
       layoutIndex,
       sectionId,
       sectionName,
+      style: state.surface === "desktop-homepage" ? readWidgetStyle(layoutItem.style, doc.config) : undefined,
       safeConfig: sanitizeWidgetConfigForAgent(doc.config),
       editableFields: descriptor?.editableFields ?? [],
       readOnlyFields: ["type", "instanceId", "schema", "version", "revision"],
@@ -578,6 +585,137 @@ export class HomepageAgentService {
     }
     this.dispatchRefresh(state.surface, { reason: "widget-updated", affectedWidgetIds: [input.widgetId], layoutRevision: revisionOf(verified, "layoutRevision") });
     return { ...verified, changed: true, summary: "组件展示配置已更新" };
+  }
+
+  async updateWidgetStyle(input: {
+    surface: "desktop-homepage";
+    widgetId: string;
+    expectedType: string;
+    expectedWidgetRevision: number;
+    expectedLayoutRevision: number;
+    expectedSectionId: string | null;
+    patch: WidgetStylePatch & { targetSectionId?: string };
+  }): Promise<HomepageAgentReadResult> {
+    const state = await this.read(input.surface);
+    if (state.surface !== "desktop-homepage") {
+      throw new HomepageAgentServiceError("unsupported_surface_action", "组件样式 Agent 工具仅支持桌面主页；移动端请在界面中手动设置。");
+    }
+    this.assertWritableConsistency(state);
+    this.assertLayoutRevision(state.snapshot.layout.revision, input.expectedLayoutRevision);
+    const current = await readWidgetInstanceDocument(state.context, input.widgetId);
+    if (!current) throw new HomepageAgentServiceError("widget_not_found", `组件 ${input.widgetId} 不存在。`);
+    const type = normalizeType(current.config);
+    if (type !== input.expectedType) throw new HomepageAgentServiceError("widget_type_conflict", `组件类型已变化：预期 ${input.expectedType}，当前为 ${type}。`);
+    if (current.revision !== input.expectedWidgetRevision) throw new HomepageAgentServiceError("widget_revision_conflict", `组件配置已变化：预期 revision ${input.expectedWidgetRevision}，当前为 ${current.revision}。`);
+
+    const currentOrder = normalizeLayoutItems(state.profile?.order ?? state.snapshot.layout.layout.order);
+    const currentItem = currentOrder.find((item) => item.id === input.widgetId);
+    if (!currentItem) throw new HomepageAgentServiceError("widget_not_found", "组件不在当前主页布局中。");
+    const currentSectionId = sectionForWidget(state.profile?.sections, input.widgetId);
+    if (currentSectionId !== input.expectedSectionId) {
+      throw new HomepageAgentServiceError("layout_revision_conflict", "组件分栏已变化，请重新读取组件。");
+    }
+
+    const targetSectionId = input.patch.targetSectionId;
+    if (targetSectionId !== undefined && state.profile?.componentSectionsModeEnabled !== true) {
+      throw new HomepageAgentServiceError("unsupported_surface_action", "桌面主页只有启用分栏模式后才能通过样式设置迁移分栏。");
+    }
+    if (targetSectionId !== undefined && !state.profile?.sections?.[targetSectionId]) {
+      throw new HomepageAgentServiceError("section_not_found", "目标分栏不存在。");
+    }
+    if (input.patch.appearanceMode === "inherit" && (
+      input.patch.backgroundColor !== undefined || input.patch.backgroundOpacity !== undefined
+      || input.patch.borderColor !== undefined || input.patch.borderWidth !== undefined
+    )) throw new HomepageAgentServiceError("invalid_widget_patch", "继承主题时不能同时设置自定义背景或边框。");
+
+    const sizeSectionId = targetSectionId ?? currentSectionId ?? state.profile?.activeSectionId ?? null;
+    const maxColSize = (await this.dv.loadLayoutSettings(state.plugin, {
+          sectionsEnabled: state.profile?.componentSectionsModeEnabled === true,
+          sectionId: sizeSectionId,
+        }, state.context)).widgetLayoutNumber;
+    const maxRowSize = maxColSize;
+    if (input.patch.colSize !== undefined && (
+      !Number.isInteger(input.patch.colSize) || input.patch.colSize < 1 || input.patch.colSize > maxColSize
+    )) throw new HomepageAgentServiceError("invalid_widget_patch", `组件列跨度必须是 1 到 ${maxColSize} 的整数。`);
+    if (input.patch.rowSize !== undefined && (
+      !Number.isInteger(input.patch.rowSize) || input.patch.rowSize < 1 || input.patch.rowSize > maxRowSize
+    )) throw new HomepageAgentServiceError("invalid_widget_patch", `组件行跨度必须是 1 到 ${maxRowSize} 的整数。`);
+
+    const currentStyle = readWidgetStyle(currentItem.style, current.config);
+    if (input.patch.backgroundOpacity !== undefined && input.patch.backgroundColor === undefined
+      && !currentStyle.backgroundColor?.match(/^#[0-9a-f]{6}$/i)) {
+      throw new HomepageAgentServiceError("invalid_widget_patch", "当前没有可复用的自定义背景色；修改透明度时请同时提交 backgroundColor。");
+    }
+    const stylePatch: WidgetStylePatch = {
+      rowSize: input.patch.rowSize,
+      colSize: input.patch.colSize,
+      appearanceMode: input.patch.appearanceMode,
+      backgroundColor: input.patch.backgroundColor?.toLowerCase(),
+      backgroundOpacity: input.patch.backgroundOpacity,
+      borderColor: input.patch.borderColor?.toLowerCase(),
+      borderWidth: input.patch.borderWidth,
+    };
+    let nextStyle: string | null;
+    try {
+      nextStyle = applyWidgetStylePatch(currentItem.style, stylePatch);
+    } catch (error) {
+      throw new HomepageAgentServiceError("invalid_widget_patch", error instanceof Error ? error.message : "组件样式无效。");
+    }
+    let nextOrder = currentOrder.map((item) => item.id === input.widgetId ? { ...item, style: nextStyle } : item);
+    let nextSections: WidgetLayoutProfileData["sections"] | undefined;
+    let verifiedSectionId = currentSectionId;
+    if (targetSectionId !== undefined && targetSectionId !== currentSectionId) {
+      const sections = Object.fromEntries(Object.entries(state.profile!.sections!).map(([id, section]) => [
+        id,
+        { ...section, widgetIds: section.widgetIds.filter((widgetId) => widgetId !== input.widgetId) },
+      ]));
+      sections[targetSectionId] = { ...sections[targetSectionId], widgetIds: [...sections[targetSectionId].widgetIds, input.widgetId] };
+      const sectionIds = normalizeComponentSections(state.snapshot.view?.config.componentSections).map((section) => section.id);
+      const arranged = rearrangeGlobalOrderBySections(nextOrder, sections, sectionIds, { assignOrphansToFirstSection: true });
+      nextOrder = arranged.nextGlobalOrder;
+      nextSections = arranged.nextSections;
+      verifiedSectionId = targetSectionId;
+    }
+
+    const changesSize = input.patch.rowSize !== undefined || input.patch.colSize !== undefined;
+    let updatedConfig: DeviceWidgetDocument | null = null;
+    if (changesSize) {
+      updatedConfig = await updateWidgetInstanceConfigExpected(state.context, input.widgetId, input.expectedWidgetRevision, (config) => ({
+        ...config,
+        ...(input.patch.rowSize !== undefined ? { rowSize: input.patch.rowSize } : {}),
+        ...(input.patch.colSize !== undefined ? { colSize: input.patch.colSize } : {}),
+      }));
+    }
+
+    try {
+      const nextLayout = this.setOrder(state.snapshot.layout.layout, state.context.scopeId, nextOrder, (profile) => (
+        nextSections ? { ...profile, sections: nextSections } : profile
+      ));
+      await saveLayoutDataForContext(state.context, nextLayout, { expectedRevision: input.expectedLayoutRevision });
+    } catch (error) {
+      if (updatedConfig) {
+        const rolledBack = await updateWidgetInstanceConfigExpected(
+          state.context,
+          input.widgetId,
+          updatedConfig.revision,
+          () => current.config,
+        ).then(() => true).catch(() => false);
+        if (!rolledBack) throw new HomepageAgentServiceError("write_state_uncertain", "样式布局提交失败，且组件尺寸无法安全回滚，请人工检查。", false);
+      }
+      throw error;
+    }
+
+    const verified = await this.getWidget(state.surface, input.widgetId, type);
+    const verifiedStyle = verified.style as ReturnType<typeof readWidgetStyle> | undefined;
+    for (const key of ["rowSize", "colSize", "appearanceMode", "backgroundColor", "backgroundOpacity", "borderColor", "borderWidth"] as const) {
+      const expectedValue = stylePatch[key];
+      if (expectedValue !== undefined && verifiedStyle?.[key] !== expectedValue) {
+        throw new HomepageAgentServiceError("write_not_committed", `组件样式字段 ${key} 写后验证失败。`, false);
+      }
+    }
+    if (verified.sectionId !== verifiedSectionId) throw new HomepageAgentServiceError("write_not_committed", "组件分栏写后验证失败。", false);
+    this.dispatchRefresh(state.surface, { reason: "widget-updated", affectedWidgetIds: [input.widgetId], layoutRevision: revisionOf(verified, "layoutRevision") });
+    return { ...verified, changed: true, summary: "组件样式已更新" };
   }
 
   async moveWidget(input: {

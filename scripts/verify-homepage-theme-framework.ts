@@ -8,7 +8,11 @@ import { createHomepageEntitlementSnapshot } from "../src/homepage/theme/runtime
 import { resolveHomepageTheme } from "../src/homepage/theme/runtime/themeResolver";
 import { normalizeHomepageAppearanceConfig } from "../src/homepage/theme/runtime/appearanceConfig";
 import { resolveHomepageFooterPresentation } from "../src/homepage/theme/runtime/footerPresentation";
-import { classifyWidgetAppearance } from "../src/homepage/theme/widgetAppearance/widgetAppearanceCompat";
+import {
+    applyWidgetStylePatch,
+    classifyWidgetAppearance,
+    readWidgetStyle,
+} from "../src/homepage/theme/widgetAppearance/widgetAppearanceCompat";
 import { HomepagePersistentRegionManager } from "../src/homepage/theme/runtime/persistentRegionManager";
 import { resolveHomepageSectionNavigationActiveId } from "../src/homepage/theme/runtime/homepageSectionRuntime";
 import { supportsHomepageThemeBanner } from "../src/homepage/theme/runtime/themeFeatures";
@@ -177,6 +181,23 @@ assert.match(historical.runtimeStyle, /grid-column/);
 assert.doesNotMatch(historical.runtimeStyle, /background/);
 assert.equal(classifyWidgetAppearance("grid-row: span 3; background-color: rgb(255, 0, 0);").mode, "custom");
 assert.equal(classifyWidgetAppearance("grid-row: span 3; border-color: #ff0000; border-width: 4px;").mode, "custom");
+const agentStyle = applyWidgetStylePatch(
+    "grid-column: span 1; grid-row: span 1; custom-property: kept;",
+    { colSize: 2, rowSize: 3, backgroundColor: "#336699", backgroundOpacity: 0.5, borderColor: "#112233", borderWidth: 2 },
+);
+assert.deepEqual(readWidgetStyle(agentStyle), {
+    appearanceMode: "custom",
+    rowSize: 3,
+    colSize: 2,
+    backgroundColor: "#336699",
+    backgroundOpacity: 0.5,
+    borderColor: "#112233",
+    borderWidth: 2,
+});
+assert.match(agentStyle ?? "", /custom-property: kept/);
+const inheritedAgentStyle = applyWidgetStylePatch(agentStyle, { appearanceMode: "inherit" });
+assert.equal(readWidgetStyle(inheritedAgentStyle).appearanceMode, "custom");
+assert.doesNotMatch(inheritedAgentStyle ?? "", /background|border/);
 
 class FakeElement {
     parentElement: FakeElement | null = null;
@@ -234,6 +255,12 @@ const sharedSources = collectSourceFiles("src/homepage/theme/components/shared")
     .filter((path) => /\.svelte$/.test(path))
     .map((path) => readFileSync(path, "utf8"))
     .join("\n");
+const layoutSharedSource = readFileSync("src/components/utils/widgetBlock/utils/layout-shared.ts", "utf8");
+assert.match(
+    layoutSharedSource,
+    /applyWidgetAppearanceCompatibility\(planEntry\.existingElement, persistedStyle\)/,
+    "布局恢复必须把持久化样式同步到复用的健康组件",
+);
 for (const legacyClass of [
     "header-content", "icon-title", "section-title", "stats-info-wrap", "stats-info",
     "stats-info-refresh", "nav-bar", "nav-button", "more-button", "more-menu",

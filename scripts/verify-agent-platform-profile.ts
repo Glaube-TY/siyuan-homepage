@@ -338,6 +338,10 @@ assert.deepEqual(toTemporaryWorkbenchReference({
 });
 assert.equal(normalizeTemporaryWorkbench({ schemaVersion: 2 }), undefined);
 assert.equal(findAggregateToolMeta(HOMEPAGE_WORKBENCH_TOOL_NAME)?.actions.length, 0);
+assert.equal(
+  findAggregateToolMeta("homepage_manage")?.actions.some((action) => action.name === "update_widget_style"),
+  true,
+);
 assert.deepEqual(collectTemporaryWorkbenches([{
   id: 1,
   timestamp: 1,

@@ -93,6 +93,34 @@ function homepageWriteActionMetadata(): AggregateActionMeta[] {
   return [
     { name: "add_widget", title: "添加主页组件", description: "通过正式组件仓库和布局事务添加组件。", readOnly: false, required: ["widgetType", "expectedLabel", "expectedLayoutRevision"], argsSchema: homepageObjectSchema({ widgetType: { type: "string" }, expectedLabel: { type: "string", description: "从 list_widget_types 读取的组件名称。" }, sectionId: { type: "string" }, position: { type: "integer", minimum: 0 }, initialConfig: { type: "object" }, expectedLayoutRevision: { type: "integer", minimum: 1 } }, ["widgetType", "expectedLabel", "expectedLayoutRevision"]), notes: revisionNotes },
     { name: "update_widget", title: "修改组件设置", description: "只修改 adapter 白名单内的展示配置。", readOnly: false, required: ["widgetId", "expectedType", "expectedWidgetRevision", "expectedValues", "patch"], argsSchema: homepageObjectSchema({ widgetId: { type: "string" }, expectedType: { type: "string" }, expectedWidgetRevision: { type: "integer", minimum: 1 }, expectedLayoutRevision: { type: "integer", minimum: 1 }, expectedValues: { type: "object", description: "从 get_widget.safeConfig.data 读取的待修改字段旧值；字段集合必须与 patch 完全相同。" }, patch: { type: "object" } }, ["widgetId", "expectedType", "expectedWidgetRevision", "expectedValues", "patch"]), notes: ["先用 get_widget 获取真实 ID、类型、revision、当前字段值和 editableFields。", ...revisionNotes] },
+    {
+      name: "update_widget_style", title: "修改组件样式",
+      description: "修改桌面主页指定组件的行列跨度、主题外观、背景、边框，并可迁移分栏。",
+      readOnly: false,
+      required: ["surface", "widgetId", "expectedType", "expectedWidgetRevision", "expectedLayoutRevision", "expectedSectionId", "patch"],
+      argsSchema: homepageObjectSchema({
+        surface: { type: "string", const: "desktop-homepage" }, widgetId: { type: "string" }, expectedType: { type: "string" },
+        expectedWidgetRevision: { type: "integer", minimum: 1 }, expectedLayoutRevision: { type: "integer", minimum: 1 },
+        expectedSectionId: { type: ["string", "null"] },
+        patch: {
+          type: "object", additionalProperties: false, minProperties: 1,
+          properties: {
+            rowSize: { type: "integer", minimum: 1, maximum: 12 }, colSize: { type: "integer", minimum: 1, maximum: 12 },
+            appearanceMode: { type: "string", enum: ["inherit", "custom"] },
+            backgroundColor: { type: "string", pattern: "^#[0-9A-Fa-f]{6}$" }, backgroundOpacity: { type: "number", minimum: 0, maximum: 1 },
+            borderColor: { type: "string", pattern: "^#[0-9A-Fa-f]{6}$" }, borderWidth: { type: "number", minimum: 0, maximum: 10 },
+            targetSectionId: { type: "string" },
+          },
+        },
+      }, ["surface", "widgetId", "expectedType", "expectedWidgetRevision", "expectedLayoutRevision", "expectedSectionId", "patch"]),
+      examples: [{ action: "update_widget_style", args: { surface: "desktop-homepage", widgetId: "真实组件ID", expectedType: "latest-docs", expectedWidgetRevision: 3, expectedLayoutRevision: 8, expectedSectionId: "notes", patch: { rowSize: 2, colSize: 2, appearanceMode: "custom", backgroundColor: "#ffffff", backgroundOpacity: 0.8, borderColor: "#3b82f6", borderWidth: 1, targetSectionId: "data" } } }],
+      notes: [
+        "先用 get_widget 读取 style、revision 和 sectionId；expectedSectionId 必须与当前值一致。",
+        "仅支持 desktop-homepage；移动端样式由用户在界面中手动设置。targetSectionId 使用 list_sections 返回的桌面分栏 ID。",
+        "appearanceMode=inherit 时不能同时提交背景或边框字段；appearanceMode=custom 时至少提交一个背景或边框字段。",
+        ...revisionNotes,
+      ],
+    },
     { name: "move_widget", title: "移动主页组件", description: "调整组件顺序或桌面分栏归属。", readOnly: false, required: ["widgetId", "expectedType", "expectedIndex", "expectedSectionId", "targetIndex", "expectedLayoutRevision"], argsSchema: homepageObjectSchema({ widgetId: { type: "string" }, expectedType: { type: "string" }, expectedIndex: { type: "integer", minimum: 0 }, expectedSectionId: { type: ["string", "null"] }, targetIndex: { type: "integer", minimum: 0 }, targetSectionId: { type: "string" }, expectedLayoutRevision: { type: "integer", minimum: 1 } }, ["widgetId", "expectedType", "expectedIndex", "expectedSectionId", "targetIndex", "expectedLayoutRevision"]), notes: ["expectedIndex 与 expectedSectionId 必须来自 list_widgets。", ...revisionNotes] },
     { name: "remove_widget", title: "移除主页组件", description: "从布局移除组件并安全删除实例配置，不删除业务数据。", readOnly: false, required: ["widgetId", "expectedType", "expectedLabel", "expectedWidgetRevision", "expectedLayoutRevision", "expectedIndex", "expectedSectionId"], argsSchema: homepageObjectSchema({ widgetId: { type: "string" }, expectedType: { type: "string" }, expectedLabel: { type: "string", description: "从 list_widgets 读取的组件名称。" }, expectedWidgetRevision: { type: "integer", minimum: 1 }, expectedLayoutRevision: { type: "integer", minimum: 1 }, expectedIndex: { type: "integer", minimum: 0 }, expectedSectionId: { type: ["string", "null"] } }, ["widgetId", "expectedType", "expectedLabel", "expectedWidgetRevision", "expectedLayoutRevision", "expectedIndex", "expectedSectionId"]), notes: ["expectedIndex、expectedSectionId 与 expectedLabel 必须来自 list_widgets。", ...revisionNotes] },
     { name: "update_layout", title: "修改主页布局", description: "修改桌面主页或当前分栏的列数和间距。", readOnly: false, required: ["widgetLayoutNumber", "widgetGap", "expectedWidgetLayoutNumber", "expectedWidgetGap", "expectedLayoutRevision"], argsSchema: homepageObjectSchema({ widgetLayoutNumber: { type: "integer", minimum: 1, maximum: 12 }, widgetGap: { type: "number", minimum: 0, maximum: 200 }, expectedWidgetLayoutNumber: { type: "integer", minimum: 1, maximum: 12, description: "从 get_layout 读取的当前列数。" }, expectedWidgetGap: { type: "number", minimum: 0, maximum: 200, description: "从 get_layout 读取的当前间距。" }, sectionId: { type: "string" }, expectedLayoutRevision: { type: "integer", minimum: 1 } }, ["widgetLayoutNumber", "widgetGap", "expectedWidgetLayoutNumber", "expectedWidgetGap", "expectedLayoutRevision"]), notes: ["仅 desktop-homepage 支持。", ...revisionNotes] },
@@ -248,7 +276,7 @@ export const AGGREGATE_TOOL_CATALOG: AggregateToolMeta[] = [
         argsSchema: homepageSurfaceArgsSchema(), examples: [{ action: "list_widgets", args: { surface: "mobile-homepage" } }],
       },
       {
-        name: "get_widget", title: "查看主页组件", description: "读取指定组件的脱敏配置摘要和可编辑字段。", readOnly: true, required: ["widgetId"],
+        name: "get_widget", title: "查看主页组件", description: "读取指定组件的脱敏配置和可编辑字段；桌面主页同时返回结构化样式。", readOnly: true, required: ["widgetId"],
         argsSchema: homepageObjectSchema({ widgetId: { type: "string" }, expectedType: { type: "string" } }, ["widgetId"]),
         examples: [{ action: "get_widget", args: { widgetId: "真实组件ID", expectedType: "weather" } }],
         notes: ["widgetId 必须来自 list_widgets；不会返回业务数据、密钥或完整本地路径。"],
