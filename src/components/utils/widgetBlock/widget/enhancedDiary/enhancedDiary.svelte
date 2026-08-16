@@ -1029,7 +1029,6 @@
         overscroll-behavior-y: contain;
         touch-action: pan-y;
         -webkit-overflow-scrolling: touch;
-        scrollbar-width: thin;
     }
 
     .enhanced-diary-header {

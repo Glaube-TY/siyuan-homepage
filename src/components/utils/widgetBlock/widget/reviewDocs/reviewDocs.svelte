@@ -710,8 +710,6 @@
             overscroll-behavior-y: contain;
             touch-action: pan-y;
             -webkit-overflow-scrolling: touch;
-            scrollbar-width: thin;
-            scrollbar-gutter: stable;
         }
 
         .action-row button,

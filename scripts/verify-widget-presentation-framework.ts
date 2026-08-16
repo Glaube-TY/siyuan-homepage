@@ -300,16 +300,57 @@ assert.equal(classifyWidgetTitle("reviewDocs", "📚复习文档"), "historical-
 assert.equal(classifyWidgetTitle("reviewDocs", "我的复习队列"), "custom");
 assert.match(semanticTitleSource, /summary\?: string \| number/, "公共语义标题必须支持移动端简短统计信息");
 
+const widgetFrameSource = readFileSync("src/components/utils/widgetBlock/WidgetFrame.svelte", "utf8");
+assert.match(widgetFrameSource, /data-widget-scroll-owner=\{frame\.content === "scrollable" \? "body" : "none"\}/, "公共组件框架必须声明 body 为唯一纵向滚动区");
+assert.match(widgetFrameSource, /\[data-widget-part="body"\] \[data-widget-part="list"\]\) \{[\s\S]*?height:\s*auto !important;[\s\S]*?overflow-y:\s*visible !important;/, "内部列表必须自然增高，由公共 body 统一滚动");
+assert.match(widgetFrameSource, /\[data-widget-part="body"\] > \[data-widget-part="list"\]\) \{\s*flex:\s*0 0 auto !important;/, "TaskMan Plus 等直属列表不能占满 body 后截断滚动高度");
+assert.match(widgetFrameSource, /@supports not selector\(::\-webkit-scrollbar\)[\s\S]*?scrollbar-width:\s*thin;/, "Firefox 内容区必须使用标准细滚动条");
+assert.match(widgetFrameSource, /@supports selector\(::\-webkit-scrollbar\)[\s\S]*?::\-webkit-scrollbar\)[\s\S]*?width:\s*3px;[\s\S]*?height:\s*3px;/, "Chromium 内容区必须使用三像素极细滚动条");
+assert.match(widgetFrameSource, /::\-webkit-scrollbar-button\)[\s\S]*?display:\s*none;[\s\S]*?width:\s*0;[\s\S]*?height:\s*0;/, "Chromium 内容区必须移除 Windows 方向按钮");
+assert.doesNotMatch(widgetFrameSource.slice(0, widgetFrameSource.indexOf("@supports not selector")), /scrollbar-width\s*:/, "Chromium 公共规则前不能声明会覆盖 WebKit 外观的 scrollbar-width");
+assert.doesNotMatch(widgetFrameSource, /scrollbar-width:\s*auto/, "公共框架不得重新启用 Windows 默认滚动条");
+const mobileHomepageSource = readFileSync("src/homepage/mobileHomepage/mobileHomepage.scss", "utf8");
+const mobileFrameScrollRule = mobileHomepageSource.slice(
+    mobileHomepageSource.indexOf('.widget-block [data-widget-frame-content="scrollable"] [data-widget-part="body"]'),
+    mobileHomepageSource.indexOf('.widget-block .hp-widget-title.compact[data-widget-part="header"]'),
+);
+assert.doesNotMatch(mobileFrameScrollRule, /scrollbar-width|::\-webkit-scrollbar/, "移动端不得覆盖公共框架的滚动条实现");
+
+const titleScrollComponents = [
+    "latestDocs/latestDocs.svelte",
+    "favorites/favorites.svelte",
+    "latestDailyNotes/latestDailyNotes.svelte",
+    "tasks/recentTasks.svelte",
+    "HOT/HOT.svelte",
+    "sql/sql.svelte",
+    "tasksPlus/tasksPlus.svelte",
+    "quickNotes/quickNotes.svelte",
+    "childDocs/childDocs.svelte",
+    "constellation/constellation.svelte",
+    "conditionDocs/conditionDocs.svelte",
+    "fixedAssets/fixedAssets.svelte",
+    "reviewDocs/reviewDocs.svelte",
+    "enhancedDiary/enhancedDiary.svelte",
+    "accounting/accounting.svelte",
+] as const;
+for (const relativePath of titleScrollComponents) {
+    const source = readFileSync(`src/components/utils/widgetBlock/widget/${relativePath}`, "utf8");
+    assert.match(source, /data-widget-part="body"/, `${relativePath} 必须把内容注册到公共 body 滚动区`);
+}
+
 const enhancedDiarySource = readFileSync("src/components/utils/widgetBlock/widget/enhancedDiary/enhancedDiary.svelte", "utf8");
 assert.match(enhancedDiarySource, /enhanced-diary-container" data-widget-part="root"/, "强化日记必须注册组件根区域");
 assert.match(enhancedDiarySource, /enhanced-diary-body" data-widget-part="body"/, "强化日记必须把标题外内容放入独立滚动区");
+assert.doesNotMatch(enhancedDiarySource, /scrollbar-width|scrollbar-color|scrollbar-gutter/, "强化日记不能私自维护滚动条外观");
+
+const reviewDocsSource = readFileSync("src/components/utils/widgetBlock/widget/reviewDocs/reviewDocs.svelte", "utf8");
+assert.doesNotMatch(reviewDocsSource, /scrollbar-width|scrollbar-color|scrollbar-gutter/, "复习文档不能私自维护滚动条外观");
 assert.doesNotMatch(
     enhancedDiarySource.slice(enhancedDiarySource.indexOf(".enhanced-diary-container {"), enhancedDiarySource.indexOf(".enhanced-diary-container :global")),
     /overflow-y:\s*auto/,
     "强化日记根区域不得整体滚动",
 );
 
-const reviewDocsSource = readFileSync("src/components/utils/widgetBlock/widget/reviewDocs/reviewDocs.svelte", "utf8");
 assert.match(reviewDocsSource, /review-docs-body" data-widget-part="body"/, "复习文档必须提供独立内容滚动区");
 assert.match(reviewDocsSource, /review-list" data-widget-part="list"/, "复习列表不得冒充整个内容滚动区");
 assert.match(reviewDocsSource, /\.review-docs-body\s*\{[\s\S]*?overflow-y:\s*auto/, "复习文档内容区必须支持桌面与移动端滚动");
