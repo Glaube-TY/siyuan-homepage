@@ -211,9 +211,17 @@
 
 .homepage-container[data-hp-theme] .hp-top-layout[data-content-layout="inline"] .hp-top-primary {
     display: flex !important;
+    flex-flow: row nowrap !important;
     align-items: center;
     gap: clamp(12px, 2vw, 28px);
 }
+.homepage-container[data-hp-theme] .hp-top-layout[data-content-layout="inline"] .hp-top-primary > * {
+    min-width: 0;
+    margin-block: 0 !important;
+}
+.homepage-container[data-hp-theme] .hp-top-layout[data-content-layout="inline"] .hp-top-primary > :first-child { flex: 0 1 auto; }
+.homepage-container[data-hp-theme] .hp-top-layout[data-content-layout="inline"] .hp-top-primary > :last-child { flex: 1 1 auto; }
+.homepage-container[data-hp-theme] .hp-top-layout[data-content-layout="inline"] .hp-status__text { margin-block: 0 !important; }
 .homepage-container[data-hp-theme] .hp-top-layout[data-content-layout="stacked"] { grid-template-columns: minmax(0, 1fr) !important; }
 .homepage-container[data-hp-theme] .hp-top-layout[data-content-layout="stacked"] :is(.hp-top-primary, .hp-top-actions, .hp-top-banner) { grid-column: 1 !important; }
 .homepage-container[data-hp-theme] .hp-top-layout[data-content-layout="stacked"] .hp-top-primary { grid-row: 1 !important; }
@@ -228,6 +236,9 @@
 .homepage-container[data-hp-theme] .hp-top-layout[data-align="left"] :is(.hp-top-primary, .hp-top-actions) { justify-self: start; text-align: left; }
 .homepage-container[data-hp-theme] .hp-top-layout[data-align="center"] :is(.hp-top-primary, .hp-top-actions) { justify-self: center; text-align: center; }
 .homepage-container[data-hp-theme] .hp-top-layout[data-align="right"] :is(.hp-top-primary, .hp-top-actions) { justify-self: end; text-align: right; }
+.homepage-container[data-hp-theme] .hp-top-layout[data-content-layout="inline"][data-align="left"] .hp-top-primary { justify-content: flex-start; }
+.homepage-container[data-hp-theme] .hp-top-layout[data-content-layout="inline"][data-align="center"] .hp-top-primary { justify-content: center; }
+.homepage-container[data-hp-theme] .hp-top-layout[data-content-layout="inline"][data-align="right"] .hp-top-primary { justify-content: flex-end; }
 
 .homepage-container[data-hp-theme] .hp-top-layout[data-banner-content="all"] { grid-template-columns: minmax(0, 1fr) auto !important; }
 .homepage-container[data-hp-theme] .hp-top-layout[data-banner-content="all"] .hp-top-banner { grid-column: 1 / -1 !important; grid-row: 1 !important; z-index: 0; align-self: stretch; }

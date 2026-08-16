@@ -129,6 +129,21 @@ assert.deepEqual(normalizeHomepageTopLayout({ contentLayout: "inline", bannerPos
     align: "right",
 });
 assert.equal(normalizeHomepageTopLayout({ contentLayout: "invalid" }).contentLayout, "split");
+for (const contentLayout of ["split", "inline", "stacked"] as const) {
+    for (const bannerPosition of ["before", "after"] as const) {
+        for (const primaryPosition of ["content-first", "actions-first"] as const) {
+            for (const bannerContent of ["none", "all"] as const) {
+                for (const align of ["left", "center", "right"] as const) {
+                    assert.deepEqual(
+                        normalizeHomepageTopLayout({ contentLayout, bannerPosition, primaryPosition, bannerContent, align }),
+                        { contentLayout, bannerPosition, primaryPosition, bannerContent, align },
+                        `Top-layout combination must survive normalization: ${contentLayout}/${bannerPosition}/${primaryPosition}/${bannerContent}/${align}`,
+                    );
+                }
+            }
+        }
+    }
+}
 
 assert.deepEqual(resolveHomepageFooterPresentation({ advanced: false, footerEnabled: true, footerContent: "" }), { visible: true, mode: "default" });
 assert.deepEqual(resolveHomepageFooterPresentation({ advanced: false, footerEnabled: false, footerContent: "" }), { visible: true, mode: "default" });
@@ -455,6 +470,29 @@ assert.doesNotMatch(themeHostStyleSource, /hp-core-parking\s*\{[^}]*display:\s*n
 assert.match(themeHostStyleSource, /data-hp-widget-appearance-policy="theme-controlled"/, "Theme-controlled widget appearance policy is missing");
 assert.match(themeHostStyleSource, /hp-initial-theme-content\s*\{[^}]*opacity:\s*0;[^}]*visibility:\s*hidden;/s, "The unresolved theme must not flash before initial reveal");
 assert.match(themeHostStyleSource, /prefers-reduced-motion:\s*reduce/, "Initial loading motion must respect reduced-motion preferences");
+assert.match(themeHostStyleSource, /data-content-layout="inline"[^}]*\.hp-top-primary\s*\{[^}]*flex-flow:\s*row nowrap !important;/s, "Inline top layout must place identity and status on the same row instead of inheriting a theme column");
+assert.match(themeHostStyleSource, /data-content-layout="stacked"[^}]*grid-template-columns:\s*minmax\(0, 1fr\) !important;/s, "Stacked top layout must use one shared column");
+assert.match(themeHostStyleSource, /data-banner-position="before"[^}]*\.hp-top-banner\s*\{[^}]*grid-row:\s*1 !important;/s, "Banner-before layout must be owned by the shared theme host");
+assert.match(themeHostStyleSource, /data-primary-position="actions-first"[^}]*\.hp-top-primary\s*\{[^}]*grid-column:\s*2 !important;/s, "Actions-first layout must swap the shared primary region");
+for (const align of ["left", "center", "right"]) {
+    assert.match(themeHostStyleSource, new RegExp(`data-align="${align}"`), `Shared top layout must support ${align} alignment`);
+}
+for (const [themeName, sourcePath, supportsBanner] of [
+    ["classic", "src/homepage/theme/builtins/classic/ClassicTheme.svelte", true],
+    ["simple", "src/homepage/theme/builtins/simple-test/SimpleTestTheme.svelte", false],
+    ["paper", "src/homepage/theme/builtins/paper/PaperTheme.svelte", true],
+    ["hand-drawn", "src/homepage/theme/builtins/hand-drawn/HandDrawnTheme.svelte", true],
+    ["card", "src/homepage/theme/builtins/card/CardTheme.svelte", true],
+    ["technology", "src/homepage/theme/builtins/technology/TechnologyTheme.svelte", true],
+] as const) {
+    const source = readFileSync(sourcePath, "utf8");
+    assert.match(source, /class="hp-top-layout\b/, `${themeName} must register its header with the shared top-layout host`);
+    for (const attribute of ["content-layout", "banner-position", "primary-position", "align"]) {
+        assert.match(source, new RegExp(`data-${attribute}=`), `${themeName} must expose data-${attribute} to the shared layout`);
+    }
+    if (supportsBanner) assert.match(source, /data-banner-content=\{topLayout\.bannerContent\}/, `${themeName} must support independent and integrated Banner layouts`);
+    else assert.match(source, /data-banner-content="none"/, `${themeName} must explicitly fall back to the non-Banner layout`);
+}
 const initialLoadOverlaySource = readFileSync("src/homepage/theme/components/HomepageInitialLoadOverlay.svelte", "utf8");
 assert.match(initialLoadOverlaySource, /role=\"progressbar\"/, "Initial loading overlay must expose an accessible progress indicator");
 assert.match(initialLoadOverlaySource, /aria-busy=\{!failed\}/, "Initial loading overlay must expose its busy state");
