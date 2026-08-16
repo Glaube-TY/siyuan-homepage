@@ -224,6 +224,14 @@ const widgetFrameSource = readFileSync(widgetFramePath, "utf8");
 for (const marker of ['data-widget-frame-title', 'data-widget-frame-content', 'data-widget-part="header"', 'data-widget-part="body"']) {
     assert(widgetFrameSource.includes(marker), `公共组件框架缺少 ${marker}`);
 }
+for (const variant of ["weather.simple-1", "weather.simple-2"]) {
+    assert(stylesheet.includes(`[data-widget-content-variant="${variant}"]`), `${variant} 必须覆盖移动端通用内容留白`);
+}
+assert(
+    stylesheet.includes(":is(.content-display, .content-display-simple1)")
+        && stylesheet.includes("padding: 0 !important"),
+    "移动端简洁天气必须保持边到边显示",
+);
 const semanticTitlePath = fileURLToPath(new URL("../src/homepage/theme/widgetPresentation/components/WidgetSemanticTitle.svelte", import.meta.url));
 const semanticTitleSource = readFileSync(semanticTitlePath, "utf8");
 assert(semanticTitleSource.includes("hp-widget-title__summary"), "移动端公共标题必须支持右侧统计摘要");

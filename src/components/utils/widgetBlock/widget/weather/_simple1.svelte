@@ -112,11 +112,9 @@
     });
 </script>
 
-<div class="content-display-simple1">
+<div class="content-display-simple1" style:background-image={`url(${BGImgPath})`}>
     {#if advancedEnabled}
         <svg viewBox="0 0 100 100">
-            <image href={BGImgPath} x="0" y="0" width="100" height="100" />
-
             {#if weatherIconPath}
                 <image
                     href={weatherIconPath}
@@ -173,6 +171,16 @@
     .content-display-simple1 {
         width: 100%;
         height: 100%;
+        overflow: hidden;
+        border-radius: inherit;
+        background-position: center;
+        background-size: cover;
+
+        svg {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
 
         .content-not-advanced {
             width: 100%;

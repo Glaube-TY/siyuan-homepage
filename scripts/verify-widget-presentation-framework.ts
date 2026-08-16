@@ -326,6 +326,17 @@ assert.match(sqlSource, /summary=\{isMobilePlacement/, "SQL 查询移动端标�
 assert.match(sqlSource, /sql-display-content" data-widget-part="body"/, "SQL 查询必须把表格放入独立内容区域");
 assert.match(sqlSource, /\.sql-display-content\s*\{[\s\S]*?min-height:\s*0[\s\S]*?overflow:\s*auto/, "SQL 查询内容区域必须独立滚动");
 
+const weatherSource = readFileSync("src/components/utils/widgetBlock/widget/weather/weather.svelte", "utf8");
+const weatherSimple1Source = readFileSync("src/components/utils/widgetBlock/widget/weather/_simple1.svelte", "utf8");
+const weatherSimple2Source = readFileSync("src/components/utils/widgetBlock/widget/weather/_simple2.svelte", "utf8");
+const cardWidgetSource = readFileSync("src/homepage/theme/builtins/card/widgets/_specialized.scss", "utf8");
+assert.match(weatherSource, /class="weather-default-content"/, "默认天气布局必须提供独立间距目标，不能影响简洁天气");
+for (const source of [weatherSimple1Source, weatherSimple2Source]) {
+    assert.match(source, /svg\s*\{[\s\S]*?width:\s*100%[\s\S]*?height:\s*100%/, "简洁天气 SVG 必须填满组件内容区域");
+}
+assert.doesNotMatch(cardWidgetSource, /\.content-display\s*>\s*div/, "卡片主题不得给所有天气直系内容统一添加留白");
+assert.match(cardWidgetSource, /\.content-display\s*>\s*\.weather-default-content/, "卡片主题的天气间距只能作用于默认布局");
+
 const widgetThemeStyles = collectSourceFiles("src/homepage/theme/builtins/simple-test/widgets")
     .filter((path) => path.endsWith(".scss"))
     .map((path) => readFileSync(path, "utf8"))

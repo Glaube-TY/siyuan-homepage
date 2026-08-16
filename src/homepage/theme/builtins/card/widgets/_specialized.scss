@@ -145,7 +145,7 @@
 
     .widget-block[data-widget-presentation="card.workspace.native.weather"][data-widget-placement="homepage"][data-widget-presentation-scope="native"] {
         .content-display { border-radius: inherit; background: transparent; box-shadow: none; }
-        .content-display > div { padding: var(--hp-widget-space-4) !important; }
+        .content-display > .weather-default-content { padding: var(--hp-widget-space-4) !important; }
         .widget-title { display: block; margin: 0 0 var(--hp-widget-space-3); padding: 2px 2px 8px; border: 0; color: var(--hp-card-text); font-size: var(--hp-widget-title-size); font-weight: 700; text-align: left; }
         .weather-info-grid { gap: var(--hp-widget-space-2); margin-bottom: var(--hp-widget-space-3); }
         .info-item { min-width: 0; padding: var(--hp-widget-space-3); border: 1px solid transparent; border-radius: 10px; background: var(--hp-card-surface-sunken); box-shadow: none; color: var(--hp-card-accent); }
@@ -189,7 +189,7 @@
 
     .homepage-container[data-hp-theme="builtin.card"]
         .widget-block[data-widget-presentation="card.workspace.native.weather"][data-widget-placement="homepage"]
-        .content-display > div { padding: 10px !important; }
+        .content-display > .weather-default-content { padding: 10px !important; }
 
     .homepage-container[data-hp-theme="builtin.card"]
         .widget-block[data-widget-presentation="card.workspace.native.stikynot"][data-widget-placement="homepage"]

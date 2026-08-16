@@ -1538,6 +1538,14 @@
         overflow: hidden;
     }
 
+    // 简洁天气本身就是完整画布，不能再叠加移动端通用内容内边距。
+    .widget-block:is(
+        [data-widget-content-variant="weather.simple-1"],
+        [data-widget-content-variant="weather.simple-2"]
+    ) :is(.content-display, .content-display-simple1) {
+        padding: 0 !important;
+    }
+
     .widget-block[data-widget-kind="media"] :is(img, video),
     .widget-block[data-widget-presentation-category="media"] :is(img, video) {
         width: 100%;

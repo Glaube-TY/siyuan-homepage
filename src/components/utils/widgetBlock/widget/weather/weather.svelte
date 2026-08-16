@@ -108,6 +108,7 @@
 <div class="content-display">
     {#if weatherStyle === "default"}
         <div
+            class="weather-default-content"
             style="display: flex; flex-direction: column; padding: 1rem; overflow: auto;"
         >
             <h3 class="widget-title">🌦{city}的天气</h3>

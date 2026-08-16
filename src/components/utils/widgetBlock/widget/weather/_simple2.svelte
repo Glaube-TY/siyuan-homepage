@@ -185,7 +185,10 @@
     });
 </script>
 
-<div class="content-display-simple1">
+<div
+    class="content-display-simple1"
+    style:background={`linear-gradient(135deg, #C0E3FF 0%, ${weatherGradientMap[weather] || weatherGradientMap["default"]} 100%)`}
+>
     {#if advancedEnabled}
         <svg viewBox="0 0 100 100">
             <!-- 渐变定义 -->
@@ -304,6 +307,14 @@
     .content-display-simple1 {
         width: 100%;
         height: 100%;
+        overflow: hidden;
+        border-radius: inherit;
+
+        svg {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
 
         .content-not-advanced {
             width: 100%;
