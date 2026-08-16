@@ -48,9 +48,11 @@
     interface Props {
         plugin: any;
         contentTypeJson?: string;
+        placement?: string;
     }
 
-    let { plugin, contentTypeJson = "{}" }: Props = $props();
+    let { plugin, contentTypeJson = "{}", placement = "homepage" }: Props = $props();
+    const isMobilePlacement = $derived(placement === "mobile");
 
     let advancedEnabled = $state(false);
     let isLoading = $state(true);
@@ -452,10 +454,18 @@
             compact
         />
     {:else}
-        <div class="review-docs-header">
-            <WidgetSemanticTitle widgetType="reviewDocs" configuredTitle={config.reviewDocsTitle} semanticLabel="复习文档" fallbackIcon="iconFile" />
+        <div class="review-docs-header" class:mobile-titlebar={isMobilePlacement}>
+            <WidgetSemanticTitle
+                widgetType="reviewDocs"
+                configuredTitle={config.reviewDocsTitle}
+                semanticLabel="复习文档"
+                fallbackIcon="iconFile"
+                compact={isMobilePlacement}
+                summary={isMobilePlacement ? `${summary.today + summary.overdue} 待复习` : undefined}
+            />
         </div>
 
+        <div class="review-docs-body" data-widget-part="body">
         {#if config.reviewDocsShowStats}
             <div class="stats-grid">
                 <div class="stat-card">
@@ -518,7 +528,7 @@
             <input type="search" bind:value={searchText} placeholder="搜索标题、路径、备注" />
         </div>
 
-        <div class="review-list" data-widget-part="body" aria-busy={isLoading}>
+        <div class="review-list" data-widget-part="list" aria-busy={isLoading}>
             {#if isLoading}
                 <div class="empty-state">加载复习计划...</div>
             {:else if visibleItems.length === 0}
@@ -642,6 +652,7 @@
                 {/each}
             {/if}
         </div>
+        </div>
     {/if}
 </div>
 
@@ -656,9 +667,7 @@
         padding: 12px;
         box-sizing: border-box;
         color: var(--b3-theme-on-surface, #222);
-        overflow-x: hidden;
-        overflow-y: auto;
-        scrollbar-gutter: stable;
+        overflow: hidden;
 
         .review-docs-header {
             flex: 0 0 auto;
@@ -681,6 +690,28 @@
             overflow: hidden;
             text-overflow: ellipsis;
             white-space: nowrap;
+        }
+
+        .review-docs-header.mobile-titlebar {
+            align-items: stretch;
+            padding-inline: 0;
+            text-align: left;
+        }
+
+        .review-docs-body {
+            flex: 1 1 auto;
+            min-width: 0;
+            min-height: 0;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            overflow-x: hidden;
+            overflow-y: auto;
+            overscroll-behavior-y: contain;
+            touch-action: pan-y;
+            -webkit-overflow-scrolling: touch;
+            scrollbar-width: thin;
+            scrollbar-gutter: stable;
         }
 
         .action-row button,

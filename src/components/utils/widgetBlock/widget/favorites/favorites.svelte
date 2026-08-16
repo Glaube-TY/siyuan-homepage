@@ -781,7 +781,11 @@
         gap: 6px;
         padding: 8px;
         box-sizing: border-box;
-        background: linear-gradient(180deg, rgba(236, 72, 153, 0.08), rgba(236, 72, 153, 0.02));
+        background: linear-gradient(
+            180deg,
+            color-mix(in srgb, var(--b3-theme-primary) 8%, var(--b3-theme-background)),
+            color-mix(in srgb, var(--b3-theme-primary) 2%, var(--b3-theme-background))
+        );
     }
 
     .mobile-favorites-header {
@@ -806,8 +810,8 @@
         width: 24px;
         height: 24px;
         border-radius: 999px;
-        background: rgba(236, 72, 153, 0.12);
-        color: #db2777;
+        background: color-mix(in srgb, var(--b3-theme-primary) 12%, var(--b3-theme-surface));
+        color: var(--b3-theme-primary);
         font-size: 12px;
         font-weight: 800;
         display: inline-flex;
@@ -841,7 +845,7 @@
         width: 28px;
         height: 28px;
         border-radius: 9px;
-        background: color-mix(in srgb, #db2777 9%, var(--b3-theme-background));
+        background: color-mix(in srgb, var(--b3-theme-primary) 9%, var(--b3-theme-background));
         display: inline-flex;
         align-items: center;
         justify-content: center;

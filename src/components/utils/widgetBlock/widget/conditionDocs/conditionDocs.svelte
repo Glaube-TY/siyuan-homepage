@@ -17,9 +17,11 @@
     interface Props {
         plugin: any;
         contentTypeJson?: string;
+        placement?: string;
     }
 
-    let { plugin, contentTypeJson = "{}" }: Props = $props();
+    let { plugin, contentTypeJson = "{}", placement = "homepage" }: Props = $props();
+    const isMobilePlacement = $derived(placement === "mobile");
     const parsed = $derived(JSON.parse(contentTypeJson));
     const conditionDocsTitle = $derived(parsed.data?.conditionDocsTitle || "📄条件文档");
     const conditionDocsPrefix = $derived(parsed.data?.conditionDocsPrefix || "📄");
@@ -101,7 +103,14 @@
 </script>
 
 <div class="content-display" data-widget-part="root">
-    <WidgetSemanticTitle widgetType="conditionDocs" configuredTitle={conditionDocsTitle} semanticLabel="条件文档" fallbackIcon="iconFile" />
+    <WidgetSemanticTitle
+        widgetType="conditionDocs"
+        configuredTitle={conditionDocsTitle}
+        semanticLabel="条件文档"
+        fallbackIcon="iconFile"
+        compact={isMobilePlacement}
+        summary={isMobilePlacement ? displayedDocs.length : undefined}
+    />
     <div class="hp-widget-body" data-widget-part="body">
     <ul class="document-list" data-widget-part="list">
         {#if displayedDocs.length > 0}

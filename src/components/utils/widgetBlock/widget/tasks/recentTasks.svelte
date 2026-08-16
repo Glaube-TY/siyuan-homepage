@@ -483,7 +483,11 @@
         gap: 6px;
         padding: 8px;
         box-sizing: border-box;
-        background: linear-gradient(180deg, rgba(99, 102, 241, 0.08), rgba(99, 102, 241, 0.02));
+        background: linear-gradient(
+            180deg,
+            color-mix(in srgb, var(--b3-theme-primary) 8%, var(--b3-theme-background)),
+            color-mix(in srgb, var(--b3-theme-primary) 2%, var(--b3-theme-background))
+        );
     }
 
     .mobile-task-header {
@@ -508,7 +512,7 @@
         flex: 0 0 auto;
         padding: 3px 7px;
         border-radius: 999px;
-        background: rgba(99, 102, 241, 0.12);
+        background: color-mix(in srgb, var(--b3-theme-primary) 12%, var(--b3-theme-surface));
         color: var(--b3-theme-primary);
         font-size: 11px;
         font-weight: 700;

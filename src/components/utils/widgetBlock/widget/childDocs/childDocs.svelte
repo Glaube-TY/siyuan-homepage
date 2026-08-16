@@ -15,9 +15,11 @@
     interface Props {
         plugin: any;
         contentTypeJson?: string;
+        placement?: string;
     }
 
-    let { plugin, contentTypeJson = "{}" }: Props = $props();
+    let { plugin, contentTypeJson = "{}", placement = "homepage" }: Props = $props();
+    const isMobilePlacement = $derived(placement === "mobile");
     const parsed = $derived(JSON.parse(contentTypeJson));
     const childDocsTitle = $derived(parsed.data?.childDocsTitle || "📄子文档");
     const childDocsPrefix = $derived(parsed.data?.childDocsPrefix || "📄");
@@ -93,7 +95,14 @@
 </script>
 
 <div class="content-display" data-widget-part="root">
-    <WidgetSemanticTitle widgetType="childDocs" configuredTitle={childDocsTitle} semanticLabel="子文档" fallbackIcon="iconFile" />
+    <WidgetSemanticTitle
+        widgetType="childDocs"
+        configuredTitle={childDocsTitle}
+        semanticLabel="子文档"
+        fallbackIcon="iconFile"
+        compact={isMobilePlacement}
+        summary={isMobilePlacement ? displayedDocs.length : undefined}
+    />
     <div class="hp-widget-body" data-widget-part="body">
     <ul class="document-list" data-widget-part="list">
         {#if displayedDocs.length > 0}

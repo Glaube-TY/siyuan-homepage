@@ -298,6 +298,21 @@ assert.match(semanticTitleSource, /\.hp-widget-title__legacy[\s\S]*display:\s*in
 assert.equal(classifyWidgetTitle("HOT", "哔哩哔哩热榜🔥"), "custom", "HOT 动态标题不得被误判为静态默认标题");
 assert.equal(classifyWidgetTitle("reviewDocs", "📚复习文档"), "historical-default");
 assert.equal(classifyWidgetTitle("reviewDocs", "我的复习队列"), "custom");
+assert.match(semanticTitleSource, /summary\?: string \| number/, "公共语义标题必须支持移动端简短统计信息");
+
+const enhancedDiarySource = readFileSync("src/components/utils/widgetBlock/widget/enhancedDiary/enhancedDiary.svelte", "utf8");
+assert.match(enhancedDiarySource, /enhanced-diary-container" data-widget-part="root"/, "强化日记必须注册组件根区域");
+assert.match(enhancedDiarySource, /enhanced-diary-body" data-widget-part="body"/, "强化日记必须把标题外内容放入独立滚动区");
+assert.doesNotMatch(
+    enhancedDiarySource.slice(enhancedDiarySource.indexOf(".enhanced-diary-container {"), enhancedDiarySource.indexOf(".enhanced-diary-container :global")),
+    /overflow-y:\s*auto/,
+    "强化日记根区域不得整体滚动",
+);
+
+const reviewDocsSource = readFileSync("src/components/utils/widgetBlock/widget/reviewDocs/reviewDocs.svelte", "utf8");
+assert.match(reviewDocsSource, /review-docs-body" data-widget-part="body"/, "复习文档必须提供独立内容滚动区");
+assert.match(reviewDocsSource, /review-list" data-widget-part="list"/, "复习列表不得冒充整个内容滚动区");
+assert.match(reviewDocsSource, /\.review-docs-body\s*\{[\s\S]*?overflow-y:\s*auto/, "复习文档内容区必须支持桌面与移动端滚动");
 
 const widgetThemeStyles = collectSourceFiles("src/homepage/theme/builtins/simple-test/widgets")
     .filter((path) => path.endsWith(".scss"))

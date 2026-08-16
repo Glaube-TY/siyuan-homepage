@@ -17,9 +17,11 @@
         plugin: any;
         contentTypeJson?: string;
         runtimeContext?: WidgetRuntimeContext;
+        placement?: string;
     }
 
-    let { plugin, contentTypeJson = "{}", runtimeContext = {} }: Props = $props();
+    let { plugin, contentTypeJson = "{}", runtimeContext = {}, placement = "homepage" }: Props = $props();
+    const isMobilePlacement = $derived(placement === "mobile");
 
     const parsed = $derived(JSON.parse(contentTypeJson));
     let TaskManPlusTitle = $derived(parsed.data?.TaskManPlusTitle || "📋任务管理Plus");
@@ -296,7 +298,14 @@
 </script>
 
 <div class="content-display" data-widget-part="root">
-    <WidgetSemanticTitle widgetType="TaskManPlus" configuredTitle={TaskManPlusTitle} semanticLabel="任务管理 Plus" fallbackIcon="iconCheck" />
+    <WidgetSemanticTitle
+        widgetType="TaskManPlus"
+        configuredTitle={TaskManPlusTitle}
+        semanticLabel="任务管理 Plus"
+        fallbackIcon="iconCheck"
+        compact={isMobilePlacement}
+        summary={isMobilePlacement ? `${Array.isArray(tasksListFormat) ? tasksListFormat.length : 0} 项` : undefined}
+    />
     <div class="hp-widget-body" data-widget-part="body">
     <div class="tasks-list-container" data-widget-part="list">
         {#if Array.isArray(tasksListFormat) && tasksListFormat.length > 0}

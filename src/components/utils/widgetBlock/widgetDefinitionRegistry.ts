@@ -301,7 +301,7 @@ const BUILTIN_WIDGET_DEFINITIONS: readonly WidgetDefinition[] = Object.freeze([
     defineWidget({ type: "conditionDocs", kind: "list", category: "collection", scope: "full", frame: TITLE_SCROLL_FRAME, component: conditionDocs, label: "条件文档", icon: "documents", plugin: true }),
     defineWidget({ type: "fixedAssets", kind: "complex", category: "workspace", scope: "chrome", frame: TITLE_SCROLL_FRAME, component: fixedAssets, label: "固定资产", icon: "complex", plugin: true }),
     defineWidget({ type: "reviewDocs", kind: "list", category: "collection", scope: "chrome", frame: TITLE_SCROLL_FRAME, component: reviewDocs, label: "复习文档", icon: "documents", plugin: true }),
-    defineWidget({ type: "enhancedDiary", kind: "complex", category: "workspace", scope: "native", frame: CONTENT_SCROLL_FRAME, component: enhancedDiary, label: "增强日记", icon: "complex", plugin: true }),
+    defineWidget({ type: "enhancedDiary", kind: "complex", category: "workspace", scope: "native", frame: TITLE_SCROLL_FRAME, component: enhancedDiary, label: "增强日记", icon: "complex", plugin: true }),
     defineWidget({ type: "accounting", kind: "complex", category: "workspace", scope: "native", frame: TITLE_SCROLL_FRAME, component: accounting, label: "记账", icon: "complex", plugin: true }),
     defineWidget({ type: "notebrain", kind: "complex", category: "workspace", scope: "native", frame: CONTENT_SCROLL_FRAME, component: KbPremiumGatePanel, label: "AI 知识库", icon: "complex", plugin: true, placements: ["homepage", "sidebar", "preview", "dock"] }),
 ]);

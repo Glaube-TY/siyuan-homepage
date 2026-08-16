@@ -48,6 +48,7 @@
     } from "./enhancedDiaryWorkspaceSummary";
     import { isEnhancedDiaryTaskManagementEnabled } from "./enhancedDiaryTemplateFieldMapping";
     import AdvancedFeatureLock from "../common/AdvancedFeatureLock.svelte";
+    import WidgetSemanticTitle from "@/homepage/theme/widgetPresentation/components/WidgetSemanticTitle.svelte";
 
     function cloneDate(date: Date): Date {
         return new Date(date.getTime());
@@ -56,9 +57,11 @@
     interface Props {
         plugin: any;
         contentTypeJson?: string;
+        placement?: string;
     }
 
-    let { plugin }: Props = $props();
+    let { plugin, placement = "homepage" }: Props = $props();
+    const isMobilePlacement = $derived(placement === "mobile");
 
     interface CardInfo {
         period: EnhancedDiaryPeriod;
@@ -862,9 +865,22 @@
 </script>
 
 {#if advancedEnabled}
-<div class="enhanced-diary-container">
+<div class="enhanced-diary-container" data-widget-part="root">
+    <WidgetSemanticTitle
+        widgetType="enhancedDiary"
+        configuredTitle="强化日记"
+        semanticLabel="强化日记"
+        fallbackIcon="iconCalendar"
+        compact={isMobilePlacement}
+        summary={isMobilePlacement
+            ? (todayWorkspaceSummary
+                ? `${todayWorkspaceSummary.newTaskCount + todayWorkspaceSummary.migratedTaskCount} 任务`
+                : (todayDiaryExists ? "今日" : "未创建"))
+            : undefined}
+    />
+
+    <div class="enhanced-diary-body" data-widget-part="body">
     <div class="enhanced-diary-header">
-        <span class="enhanced-diary-title">强化日记</span>
         <button
             class="enhanced-diary-open-button"
             type="button"
@@ -947,9 +963,10 @@
             </div>
         {/each}
     </div>
+    </div>
 </div>
 {:else}
-<div class="enhanced-diary-container enhanced-diary-locked">
+<div class="enhanced-diary-container enhanced-diary-locked" data-widget-part="root">
     <AdvancedFeatureLock
         title="强化日记工作台"
         subtitle={taskManagementEnabled ? "把日记、任务、记录、复盘和计划承接整合成一个专业工作台。" : "把日记、记录、复盘和计划承接整合成一个专业工作台。"}
@@ -985,10 +1002,34 @@
         padding: 12px;
         display: flex;
         flex-direction: column;
-        overflow-y: auto;
-        overflow-x: hidden;
-        overscroll-behavior: contain;
+        gap: 8px;
+        overflow: hidden;
         color: var(--b3-theme-on-background);
+    }
+
+    .enhanced-diary-container :global(.hp-widget-title) {
+        width: calc(100% - 6rem);
+        margin: 0 3rem 4px;
+        padding-bottom: 0.3rem;
+        border-bottom: 1px solid var(--b3-border-color);
+        font-size: 18px;
+        font-weight: 600;
+        line-height: 1.2;
+        text-align: center;
+    }
+
+    .enhanced-diary-body {
+        flex: 1 1 auto;
+        min-width: 0;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+        overflow-x: hidden;
+        overflow-y: auto;
+        overscroll-behavior-y: contain;
+        touch-action: pan-y;
+        -webkit-overflow-scrolling: touch;
+        scrollbar-width: thin;
     }
 
     .enhanced-diary-header {
@@ -997,23 +1038,6 @@
         align-items: center;
         gap: 8px;
         margin-bottom: 12px;
-    }
-
-    .enhanced-diary-title {
-        grid-column: 1 / -1;
-        display: block;
-        min-width: 0;
-        margin: 0 3rem 4px;
-        padding-bottom: 0.3rem;
-        border-bottom: 1px solid var(--b3-border-color);
-        font-size: 18px;
-        font-weight: 600;
-        line-height: 1.2;
-        text-align: center;
-        color: var(--b3-theme-on-background);
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
     }
 
     .enhanced-diary-open-button {

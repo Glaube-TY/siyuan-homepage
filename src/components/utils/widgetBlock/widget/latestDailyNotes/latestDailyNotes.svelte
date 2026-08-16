@@ -18,9 +18,11 @@
     interface Props {
         plugin: any;
         contentTypeJson?: string;
+        placement?: string;
     }
 
-    let { plugin, contentTypeJson = "{}" }: Props = $props();
+    let { plugin, contentTypeJson = "{}", placement = "homepage" }: Props = $props();
+    const isMobilePlacement = $derived(placement === "mobile");
 
     const parsed = $derived(JSON.parse(contentTypeJson));
     const limit = $derived(parsed.data?.limit || 5);
@@ -679,6 +681,8 @@
             configuredTitle="📓最近日记"
             semanticLabel="最近日记"
             fallbackIcon="iconCalendar"
+            compact={isMobilePlacement}
+            summary={isMobilePlacement ? displayedDocs.length : undefined}
         />
         <div class="hp-widget-body" data-widget-part="body">
         <ul class="document-list" data-widget-part="list">

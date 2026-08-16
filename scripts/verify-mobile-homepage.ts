@@ -214,6 +214,30 @@ const widgetFrameSource = readFileSync(widgetFramePath, "utf8");
 for (const marker of ['data-widget-frame-title', 'data-widget-frame-content', 'data-widget-part="header"', 'data-widget-part="body"']) {
     assert(widgetFrameSource.includes(marker), `公共组件框架缺少 ${marker}`);
 }
+const semanticTitlePath = fileURLToPath(new URL("../src/homepage/theme/widgetPresentation/components/WidgetSemanticTitle.svelte", import.meta.url));
+const semanticTitleSource = readFileSync(semanticTitlePath, "utf8");
+assert(semanticTitleSource.includes("hp-widget-title__summary"), "移动端公共标题必须支持右侧统计摘要");
+for (const relativePath of [
+    "../src/components/utils/widgetBlock/widget/quickNotes/quickNotes.svelte",
+    "../src/components/utils/widgetBlock/widget/tasksPlus/tasksPlus.svelte",
+    "../src/components/utils/widgetBlock/widget/latestDailyNotes/latestDailyNotes.svelte",
+    "../src/components/utils/widgetBlock/widget/childDocs/childDocs.svelte",
+    "../src/components/utils/widgetBlock/widget/conditionDocs/conditionDocs.svelte",
+    "../src/components/utils/widgetBlock/widget/reviewDocs/reviewDocs.svelte",
+    "../src/components/utils/widgetBlock/widget/enhancedDiary/enhancedDiary.svelte",
+]) {
+    const source = readFileSync(fileURLToPath(new URL(relativePath, import.meta.url)), "utf8");
+    assert(source.includes("compact={isMobilePlacement}"), `${relativePath} 缺少移动端紧凑标题注册`);
+    assert(source.includes("summary={isMobilePlacement"), `${relativePath} 缺少移动端标题统计摘要`);
+}
+for (const [relativePath, hardcodedColor] of [
+    ["../src/components/utils/widgetBlock/widget/latestDocs/latestDocs.svelte", "rgba(14, 165, 233"],
+    ["../src/components/utils/widgetBlock/widget/tasks/recentTasks.svelte", "rgba(99, 102, 241"],
+    ["../src/components/utils/widgetBlock/widget/favorites/favorites.svelte", "rgba(236, 72, 153"],
+] as const) {
+    const source = readFileSync(fileURLToPath(new URL(relativePath, import.meta.url)), "utf8");
+    assert(!source.includes(hardcodedColor), `${relativePath} 仍包含移动端写死主题色 ${hardcodedColor}`);
+}
 const accountingWidgetPath = fileURLToPath(new URL("../src/components/utils/widgetBlock/widget/accounting/accounting.svelte", import.meta.url));
 const accountingWidgetSource = readFileSync(accountingWidgetPath, "utf8");
 for (const marker of ['data-widget-part="root"', 'data-widget-part="body"', 'data-widget-part="list"']) {

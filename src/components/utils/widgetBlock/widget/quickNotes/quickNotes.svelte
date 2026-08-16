@@ -12,9 +12,11 @@
     interface Props {
         plugin: any;
         contentTypeJson?: string;
+        placement?: string;
     }
 
-    let { plugin, contentTypeJson = "{}" }: Props = $props();
+    let { plugin, contentTypeJson = "{}", placement = "homepage" }: Props = $props();
+    const isMobilePlacement = $derived(placement === "mobile");
     const parsed = $derived(JSON.parse(contentTypeJson));
 
     const quickNotesTitle = $derived(parsed.data?.quickNotesTitle || "快速笔记");
@@ -134,7 +136,14 @@
 </svelte:head>
 
 <div class="content-display" data-widget-part="root">
-    <WidgetSemanticTitle widgetType="quick-notes" configuredTitle={quickNotesTitle} semanticLabel="快速笔记" fallbackIcon="iconEdit" />
+    <WidgetSemanticTitle
+        widgetType="quick-notes"
+        configuredTitle={quickNotesTitle}
+        semanticLabel="快速笔记"
+        fallbackIcon="iconEdit"
+        compact={isMobilePlacement}
+        summary={isMobilePlacement ? quickNotesList.length : undefined}
+    />
     <div class="quick-notes-content-container" data-widget-part="body">
         {#if !quickNotesEnabled}
             <p data-widget-part="empty">当前未开启快速笔记功能，请到主页设置中开启。</p>
