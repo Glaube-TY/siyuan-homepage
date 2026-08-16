@@ -338,6 +338,10 @@ for (const relativePath of titleScrollComponents) {
     assert.match(source, /data-widget-part="body"/, `${relativePath} 必须把内容注册到公共 body 滚动区`);
 }
 
+const childDocsSource = readFileSync("src/components/utils/widgetBlock/widget/childDocs/childDocs.svelte", "utf8");
+assert.match(childDocsSource, /\.document-item-content\s*\{[\s\S]*?min-width:\s*0;[\s\S]*?overflow:\s*hidden;/, "子文档标题容器必须允许收缩并禁止横向溢出");
+assert.match(childDocsSource, /\.doc-title\s*\{[\s\S]*?min-width:\s*0;[\s\S]*?text-overflow:\s*ellipsis;[\s\S]*?white-space:\s*nowrap;/, "过长的子文档标题必须单行显示省略号");
+
 const enhancedDiarySource = readFileSync("src/components/utils/widgetBlock/widget/enhancedDiary/enhancedDiary.svelte", "utf8");
 assert.match(enhancedDiarySource, /enhanced-diary-container" data-widget-part="root"/, "强化日记必须注册组件根区域");
 assert.match(enhancedDiarySource, /enhanced-diary-body" data-widget-part="body"/, "强化日记必须把标题外内容放入独立滚动区");

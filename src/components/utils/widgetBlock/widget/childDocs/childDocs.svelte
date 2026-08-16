@@ -194,7 +194,9 @@
         display: flex;
         flex: 1;
         flex-direction: column;
+        min-width: 0;
         min-height: 0;
+        overflow-x: hidden;
     }
 
     .content-display {
@@ -220,9 +222,13 @@
         }
 
         .document-list {
+            width: 100%;
+            min-width: 0;
+            max-width: 100%;
             list-style: none;
             padding-left: 0;
             margin: 0;
+            overflow-x: hidden;
             overflow-y: auto;
             display: grid;
             grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
@@ -231,6 +237,9 @@
         }
 
         .document-item {
+            min-width: 0;
+            max-width: 100%;
+            overflow: hidden;
             padding: 0.5rem 0.75rem;
             background-color: var(--b3-theme-surface);
             border-radius: 6px;
@@ -248,7 +257,12 @@
 
             .document-item-content {
                 margin-top: 4px;
-                display: block;
+                display: flex;
+                align-items: center;
+                gap: 0.5rem;
+                min-width: 0;
+                max-width: 100%;
+                overflow: hidden;
                 color: var(--b3-theme-primary);
                 text-decoration: none;
                 font-weight: bold;
@@ -258,6 +272,14 @@
                 &:hover {
                     text-decoration: underline;
                 }
+            }
+
+            .doc-title {
+                flex: 1 1 auto;
+                min-width: 0;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
             }
 
             .document-updated-container {
