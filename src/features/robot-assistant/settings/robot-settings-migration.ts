@@ -93,6 +93,22 @@ function normalizeAdmission(raw: unknown): RobotAdmissionSettings {
   };
 }
 
+/** 旧主页组件工具名 → homepage_components 子工具前缀（迁移用户旧显式策略）。 */
+const LEGACY_COMPONENT_TOOL_TO_PREFIX: Record<string, string> = {
+  homepage_quick_note: "quick_note",
+  homepage_focus: "focus",
+  homepage_accounting: "accounting",
+  homepage_fixed_assets: "fixed_assets",
+  homepage_anniversary: "anniversary",
+  homepage_favorites: "favorites",
+  homepage_review: "review",
+};
+
+/** 旧死 key 判定：以 homepage_ 开头但不是新结构 key 的旧工具名（如 homepage_music）直接丢弃。 */
+function isLegacyDeadToolKey(key: string): boolean {
+  return key.startsWith("homepage_") && !key.startsWith("homepage_components");
+}
+
 function normalizeToolPolicy(raw: unknown): RobotToolPolicy {
   const defaults = createDefaultRobotAssistantSettings().robotToolPolicy;
   const value = raw && typeof raw === "object" && !Array.isArray(raw)
@@ -103,18 +119,40 @@ function normalizeToolPolicy(raw: unknown): RobotToolPolicy {
     : {};
   // 先铺当前安全默认值，再尊重当前 schema 中的显式开关。
   const tools: RobotToolPolicy["tools"] = structuredClone(defaults.tools);
+  const explicitNewKeys = new Set<string>();
+  const writePolicy = (entry: unknown): { remoteAllowed: boolean; writeAction?: "ask" | "deny" } | null => {
+    const remoteAllowed = (entry as Record<string, unknown>).remoteAllowed;
+    if (typeof remoteAllowed !== "boolean") return null;
+    const writeAction = (entry as Record<string, unknown>).writeAction;
+    return {
+      remoteAllowed,
+      ...(writeAction === "ask" || writeAction === "deny" ? { writeAction: writeAction as "ask" | "deny" } : {}),
+    };
+  };
+  // 第一遍：新结构 key 显式值（homepage_components.xxx 或顶层工具名）；旧死 key 直接丢弃。
   for (const [name, rawEntry] of Object.entries(rawTools)) {
     const toolName = name.trim();
-    if (!toolName || !rawEntry || typeof rawEntry !== "object" || Array.isArray(rawEntry)) continue;
-    const remoteAllowed = (rawEntry as Record<string, unknown>).remoteAllowed;
-    if (typeof remoteAllowed === "boolean") {
-      const writeAction = (rawEntry as Record<string, unknown>).writeAction;
-      tools[toolName] = {
-        remoteAllowed,
-        ...(writeAction === "ask" || writeAction === "deny" ? { writeAction } : {}),
-      };
-    }
+    if (!toolName || toolName in LEGACY_COMPONENT_TOOL_TO_PREFIX || isLegacyDeadToolKey(toolName)) continue;
+    if (!rawEntry || typeof rawEntry !== "object" || Array.isArray(rawEntry)) continue;
+    const policy = writePolicy(rawEntry);
+    if (!policy) continue;
+    explicitNewKeys.add(toolName);
+    tools[toolName] = policy;
   }
+  // 第二遍：旧 homepage_* 工具名迁移。旧显式值优先于新默认值；
+  // 新 key 已被用户显式设置时以新 key 为准。
+  for (const [name, rawEntry] of Object.entries(rawTools)) {
+    const toolName = name.trim();
+    const prefix = LEGACY_COMPONENT_TOOL_TO_PREFIX[toolName];
+    if (!prefix) continue;
+    if (!rawEntry || typeof rawEntry !== "object" || Array.isArray(rawEntry)) continue;
+    const policy = writePolicy(rawEntry);
+    if (!policy) continue;
+    const dotted = `homepage_components.${prefix}`;
+    if (explicitNewKeys.has(dotted)) continue;
+    tools[dotted] = policy;
+  }
+  // 迁移后不再保留旧死 key（旧名不在默认集合中，也不会被重新写入）。
   return {
     tools,
     defaultWriteAction: value.defaultWriteAction === "deny" ? "deny" : "ask",

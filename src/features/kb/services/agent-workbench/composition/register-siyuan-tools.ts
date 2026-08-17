@@ -202,6 +202,8 @@ import type { ConfirmationRoute } from "../../agent-core/permissions/confirmatio
 
 export interface SiyuanToolRegistrationOptions {
   kbRetrievalToolDeps: SiyuanToolDeps;
+  /** homepage 薄路由与通用顶层工具共享的 action contracts。 */
+  sharedActionBindings?: SiyuanSharedActionBindings;
   conversationId?: string;
   confirmationRoute?: ConfirmationRoute;
   builtinCapabilityAccess?: {
@@ -215,6 +217,12 @@ export interface SiyuanToolRegistrationOptions {
     riffReview: boolean;
   };
   globalToolAccess?: Record<string, boolean>;
+}
+
+export interface SiyuanSharedActionBindings {
+  knowledgeBase: AggregateActionBinding[];
+  diaryTask: AggregateActionBinding[];
+  database: AggregateActionBinding[];
 }
 
 function createSiyuanToolDeps(deps: SiyuanToolDeps) {
@@ -328,24 +336,67 @@ function createSiyuanToolDeps(deps: SiyuanToolDeps) {
   };
 }
 
+/**
+ * 创建知识库、日记和数据库的原子 action binding。
+ * 顶层聚合工具和 homepage_components 薄路由都直接复用这些 ToolContract。
+ */
+export function createSiyuanSharedActionBindings(deps: SiyuanToolDeps): SiyuanSharedActionBindings {
+  const {
+    lkmDeps, searchDeps, readDeps, readEvidenceDeps, overviewDeps,
+    taskDeps, recordDeps, diaryDocDeps,
+    listItemsByTimeDeps, getDocInfoDeps,
+    listAttributeViewsDeps, readAttributeViewDeps, findAttributeViewRowsDeps,
+    updateAttributeViewCellDeps, addAttributeViewRowsDeps, addAttributeViewKeyDeps,
+    removeAttributeViewKeyDeps, removeAttributeViewRowsDeps, clearAttributeViewCellDeps,
+    siyuanOutlineDeps, siyuanRefDeps, siyuanSearchExtraDeps,
+    siyuanDatabaseExtraReadDeps,
+  } = createSiyuanToolDeps(deps);
+  return {
+    knowledgeBase: [
+      { action: "search", tool: createSearchScopeTool(searchDeps) },
+      { action: "read_docs", tool: createReadDocsTool(readDeps) },
+      { action: "read_evidence", tool: createReadEvidenceTool(readEvidenceDeps) },
+      { action: "get_doc_info", tool: createGetDocInfoTool(getDocInfoDeps) },
+      { action: "list_map", tool: createListKnowledgeMapTool(lkmDeps) },
+      { action: "list_by_time", tool: createListItemsByTimeTool(listItemsByTimeDeps) },
+      { action: "outline", tool: createSiyuanOutlineTool(siyuanOutlineDeps) },
+      { action: "refs", tool: createSiyuanRefTool(siyuanRefDeps) },
+      { action: "extra_search", tool: createSiyuanSearchExtraTool(siyuanSearchExtraDeps) },
+    ],
+    diaryTask: [
+      { action: "overview", tool: createGetDailyWorkspaceOverviewTool(overviewDeps) },
+      { action: "query_tasks", tool: createQueryTasksTool(taskDeps) },
+      { action: "query_records", tool: createQueryDiaryRecordsTool(recordDeps) },
+      { action: "find_docs", tool: createFindDiaryDocsTool(diaryDocDeps) },
+    ],
+    database: [
+      { action: "list", tool: createListAttributeViewsTool(listAttributeViewsDeps) },
+      { action: "read", tool: createReadAttributeViewTool(readAttributeViewDeps) },
+      { action: "find_rows", tool: createFindAttributeViewRowsTool(findAttributeViewRowsDeps) },
+      { action: "update_cell", tool: createUpdateAttributeViewCellTool(updateAttributeViewCellDeps) },
+      { action: "add_rows", tool: createAddAttributeViewRowsTool(addAttributeViewRowsDeps) },
+      { action: "add_key", tool: createAddAttributeViewKeyTool(addAttributeViewKeyDeps) },
+      { action: "remove_key", tool: createRemoveAttributeViewKeyTool(removeAttributeViewKeyDeps) },
+      { action: "remove_rows", tool: createRemoveAttributeViewRowsTool(removeAttributeViewRowsDeps) },
+      { action: "clear_cell", tool: createClearAttributeViewCellTool(clearAttributeViewCellDeps) },
+      { action: "extra_read", tool: createSiyuanDatabaseExtraReadTool(siyuanDatabaseExtraReadDeps) },
+    ],
+  };
+}
+
 export function registerSiyuanTools(
   toolRegistry: ToolRegistry,
   options: SiyuanToolRegistrationOptions,
 ): void {
   const deps = options.kbRetrievalToolDeps;
+  const shared = options.sharedActionBindings ?? createSiyuanSharedActionBindings(deps);
   const {
-    lkmDeps, searchDeps, readDeps, readEvidenceDeps, overviewDeps,
-    taskDeps, recordDeps, diaryDocDeps, readDocBlocksDeps,
-    listItemsByTimeDeps, getDocInfoDeps,
-    listAttributeViewsDeps, readAttributeViewDeps, findAttributeViewRowsDeps,
-    updateAttributeViewCellDeps, addAttributeViewRowsDeps, addAttributeViewKeyDeps, removeAttributeViewKeyDeps, removeAttributeViewRowsDeps,
-    clearAttributeViewCellDeps,
+    readDocBlocksDeps,
     manageDiaryStructureDeps,
     manageDiaryTaskDeps,
     manageDiaryRecordDeps, manageDiaryReviewDeps,
-    siyuanOutlineDeps, siyuanRefDeps, siyuanSearchExtraDeps,
     siyuanBlockReadDeps, siyuanBlockAttrDeps, siyuanBlockRefDeps, siyuanBlockStateDeps, siyuanDocTransformDeps,
-    siyuanDatabaseExtraReadDeps, siyuanDatabaseViewDeps,
+    siyuanDatabaseViewDeps,
     siyuanNotebookManageDeps, siyuanDocTreeDeps, siyuanDocPathDeps,
     siyuanTagManageDeps, siyuanBookmarkManageDeps,
     siyuanAssetReadDeps, siyuanAssetManageDeps, siyuanWorkspaceFileDeps,
@@ -359,17 +410,7 @@ export function registerSiyuanTools(
       title: meta?.title ?? "思源知识库",
       description: `${meta?.description ?? "搜索、读取和分析思源知识库资料。"}\n参数摘要：search(query, limit；scope 可省略)；read_docs(docIds 或 blockIds)；read_evidence(仅 blockIds)；get_doc_info(docId)；list_map(view 及对应文档/笔记本 ID)；list_by_time(itemType)；outline(docId)；refs/extra_search 的 args 内还需各自 action。只有 docId/docIds 时必须用 read_docs；list_map 返回的是文档 ID，不是块级证据 ID。`,
       boundary: meta?.boundary ?? "只读知识库工具。",
-      actions: [
-        { action: "search", tool: createSearchScopeTool(searchDeps) },
-        { action: "read_docs", tool: createReadDocsTool(readDeps) },
-        { action: "read_evidence", tool: createReadEvidenceTool(readEvidenceDeps) },
-        { action: "get_doc_info", tool: createGetDocInfoTool(getDocInfoDeps) },
-        { action: "list_map", tool: createListKnowledgeMapTool(lkmDeps) },
-        { action: "list_by_time", tool: createListItemsByTimeTool(listItemsByTimeDeps) },
-        { action: "outline", tool: createSiyuanOutlineTool(siyuanOutlineDeps) },
-        { action: "refs", tool: createSiyuanRefTool(siyuanRefDeps) },
-        { action: "extra_search", tool: createSiyuanSearchExtraTool(siyuanSearchExtraDeps) },
-      ],
+      actions: shared.knowledgeBase,
     }));
   }
 
@@ -381,10 +422,7 @@ export function registerSiyuanTools(
       description: meta?.description ?? "查询和管理强化日记、任务、快速记录与复盘。",
       boundary: meta?.boundary ?? "写入日记任务前需要确认。",
       actions: [
-        { action: "overview", tool: createGetDailyWorkspaceOverviewTool(overviewDeps) },
-        { action: "query_tasks", tool: createQueryTasksTool(taskDeps) },
-        { action: "query_records", tool: createQueryDiaryRecordsTool(recordDeps) },
-        { action: "find_docs", tool: createFindDiaryDocsTool(diaryDocDeps) },
+        ...shared.diaryTask,
         { action: "ensure_structure", tool: createManageDiaryStructureTool(manageDiaryStructureDeps) },
         { action: "manage_task", tool: createManageDiaryTaskTool(manageDiaryTaskDeps) },
         { action: "manage_record", tool: createManageDiaryRecordTool(manageDiaryRecordDeps) },
@@ -401,16 +439,7 @@ export function registerSiyuanTools(
       description: `${meta?.description ?? "查询和操作思源数据库。"}\nID 摘要：databaseId/avID=数据库 ID；blockID=承载数据库的思源块 ID；rowId/itemID=条目 ID；keyID=字段 ID；viewID=视图 ID，不能用名称或其他 ID 代替。`,
       boundary: meta?.boundary ?? "写入数据库前需要确认。",
       actions: [
-        { action: "list", tool: createListAttributeViewsTool(listAttributeViewsDeps) },
-        { action: "read", tool: createReadAttributeViewTool(readAttributeViewDeps) },
-        { action: "find_rows", tool: createFindAttributeViewRowsTool(findAttributeViewRowsDeps) },
-        { action: "update_cell", tool: createUpdateAttributeViewCellTool(updateAttributeViewCellDeps) },
-        { action: "add_rows", tool: createAddAttributeViewRowsTool(addAttributeViewRowsDeps) },
-        { action: "add_key", tool: createAddAttributeViewKeyTool(addAttributeViewKeyDeps) },
-        { action: "remove_key", tool: createRemoveAttributeViewKeyTool(removeAttributeViewKeyDeps) },
-        { action: "remove_rows", tool: createRemoveAttributeViewRowsTool(removeAttributeViewRowsDeps) },
-        { action: "clear_cell", tool: createClearAttributeViewCellTool(clearAttributeViewCellDeps) },
-        { action: "extra_read", tool: createSiyuanDatabaseExtraReadTool(siyuanDatabaseExtraReadDeps) },
+        ...shared.database,
         { action: "view", tool: createSiyuanDatabaseViewTool(siyuanDatabaseViewDeps) },
       ],
     }));

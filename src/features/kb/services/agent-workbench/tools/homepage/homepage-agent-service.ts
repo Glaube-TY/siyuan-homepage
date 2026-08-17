@@ -27,10 +27,8 @@ import {
 import type { DeviceViewContext, DeviceWidgetDocument } from "@/homepage/deviceView/deviceViewTypes";
 import { normalizeComponentSections } from "@/homepage/homepageSetting/config";
 import type { HomepageAgentReadResult, HomepageAgentSurface, HomepageWidgetResolutionStatus } from "./homepage-manage-types";
-import {
-  getHomepageAgentWidgetDescriptor,
-  HOMEPAGE_AGENT_WIDGET_CATALOG,
-} from "./homepage-agent-widget-catalog";
+import { getHomepageAgentWidgetDescriptor, HOMEPAGE_AGENT_WIDGET_CATALOG } from "./homepage-agent-widget-catalog";
+import type { HomepageBusinessCapability } from "./homepage-agent-business-capabilities";
 import {
   computeOverviewCounts,
   missingConfigWarningText,
@@ -108,8 +106,55 @@ function revisionOf(result: HomepageAgentReadResult, key: "layoutRevision" | "vi
   return typeof value === "number" ? value : undefined;
 }
 
+/**
+ * 把内部业务能力转换为 Agent 可见的路由描述：
+ * - 统一以 homepage_components + subtool + dotted operations 暴露；
+ * - operations 只保留本轮真实 aggregateActionHelp 中存在的 action；
+ * - display-only 组件也保留实例读写能力，不把它误判为无能力。
+ * 不暴露内部 businessTool（旧顶层工具名）给 Agent。
+ */
+export function providerBusinessCapability(
+  capability: HomepageBusinessCapability | undefined,
+  availableActions?: ReadonlySet<string>,
+): {
+  toolName: string | null;
+  subtool: string | null;
+  operations: string[];
+  supported?: boolean;
+  reusedExistingTool?: boolean;
+  reason?: string;
+} {
+  if (!capability) return { toolName: null, subtool: null, operations: [], reason: "unknown_widget_type" };
+  const projectOperations = (operations: readonly string[]): string[] => availableActions
+    ? operations.filter((action) => availableActions.has(action))
+    : [...operations];
+  const projected = projectOperations(capability.operations ?? []);
+  const projectedUnavailable = availableActions !== undefined && projected.length === 0;
+  if (capability.subtool && capability.toolName) {
+    return {
+      toolName: capability.toolName,
+      subtool: capability.subtool,
+      operations: projected,
+      ...(projectedUnavailable ? { supported: false, reason: "subtool_disabled" } : {}),
+      ...(capability.reusedExistingTool ? { reusedExistingTool: true } : {}),
+      ...(!projectedUnavailable && capability.reason ? { reason: capability.reason } : {}),
+    };
+  }
+  if (capability.reusedExistingTool && capability.toolName) {
+    return {
+      toolName: capability.toolName,
+      subtool: null,
+      operations: projected,
+      ...(projectedUnavailable ? { supported: false, reason: "subtool_disabled" } : {}),
+      reusedExistingTool: true,
+    };
+  }
+  return { toolName: null, subtool: null, operations: [], reason: capability.reason ?? "no_dedicated_business_tool" };
+}
+
 export class HomepageAgentService {
   private readonly dv: HomepageAgentDeviceViewOps;
+  private availableComponentActions: ReadonlySet<string> | undefined;
 
   constructor(private readonly deps: HomepageAgentServiceDeps) {
     const overrides = deps.deviceView ?? {};
@@ -121,6 +166,11 @@ export class HomepageAgentService {
       loadLayoutSettings: overrides.loadLayoutSettings ?? loadWidgetLayoutSettings,
       deleteWidgetFromSurface: overrides.deleteWidgetFromSurface ?? deleteWidgetFromSurface,
     };
+  }
+
+  /** 注册完成后注入本轮真实 homepage_components action 集合，供所有 Agent 可见结果统一投影。 */
+  setAvailableComponentActions(actions: Iterable<string>): void {
+    this.availableComponentActions = new Set(actions);
   }
 
   resolveSurface(surface?: HomepageAgentSurface): HomepageAgentSurface {
@@ -254,7 +304,7 @@ export class HomepageAgentService {
         configRevision: doc.revision,
         editable: (descriptor?.editableFields.length ?? 0) > 0,
         advancedRequired: descriptor?.advancedRequired ?? false,
-        businessCapability: descriptor?.businessCapability ?? { businessTool: null, reason: "unknown_widget_type" },
+        businessCapability: providerBusinessCapability(descriptor?.businessCapability, this.availableComponentActions),
         warnings: [],
       };
     }));
@@ -304,7 +354,7 @@ export class HomepageAgentService {
       editableFields: descriptor?.editableFields ?? [],
       readOnlyFields: ["type", "instanceId", "schema", "version", "revision"],
       unsupportedFields: ["业务数据", "凭据", "本地绝对路径"],
-      businessCapability: descriptor?.businessCapability ?? { businessTool: null, reason: "unknown_widget_type" },
+      businessCapability: providerBusinessCapability(descriptor?.businessCapability, this.availableComponentActions),
       warnings: descriptor ? [] : ["当前组件类型没有 Agent 配置适配器"],
     };
   }
@@ -364,7 +414,7 @@ export class HomepageAgentService {
         available: entry.available,
         lockReason: entry.lockReason,
       })),
-      detailHint: "需要某个组件的 editableFields、surface 支持或业务能力时，调用 get_widget_type。",
+      detailHint: "需要某个组件的 editableFields、surface 支持或业务能力时，调用 catalog.get_type。",
     };
   }
 
@@ -394,6 +444,7 @@ export class HomepageAgentService {
           ? "advanced_feature_unavailable"
           : descriptor.singleton && existingTypes.has(descriptor.type) ? "singleton_conflict" : null,
         requiredInitialFields: [],
+        businessCapability: providerBusinessCapability(descriptor.businessCapability, this.availableComponentActions),
       },
     };
   }
@@ -499,7 +550,7 @@ export class HomepageAgentService {
       }
     }
     const widgetId = createWidgetInstanceId();
-    const config = createHomepageWidgetConfig(input.widgetType, widgetId, input.initialConfig ?? {}, { advancedEnabled: isHomepageEntitlementGranted() });
+    const config = createHomepageWidgetConfig(input.widgetType, widgetId, input.initialConfig ?? {}, { advancedEnabled: isHomepageEntitlementGranted(), surface: state.surface });
     const created = await createWidgetInstanceConfig(state.context, widgetId, config);
     let layoutCommitted = false;
     try {
@@ -707,7 +758,20 @@ export class HomepageAgentService {
 
     const verified = await this.getWidget(state.surface, input.widgetId, type);
     const verifiedStyle = verified.style as ReturnType<typeof readWidgetStyle> | undefined;
+    if (stylePatch.appearanceMode === "inherit") {
+      // classifyWidgetAppearance 会把未知声明（自定义属性等）计入 custom 模式，
+      // 因此继承主题的验证标准是“自定义背景/边框声明已全部移除”，而不是比较派生模式。
+      if (
+        verifiedStyle?.backgroundColor !== null
+        || verifiedStyle?.backgroundOpacity !== null
+        || verifiedStyle?.borderColor !== null
+        || verifiedStyle?.borderWidth !== null
+      ) {
+        throw new HomepageAgentServiceError("write_not_committed", "组件样式字段 appearanceMode 写后验证失败。", false);
+      }
+    }
     for (const key of ["rowSize", "colSize", "appearanceMode", "backgroundColor", "backgroundOpacity", "borderColor", "borderWidth"] as const) {
+      if (key === "appearanceMode" && stylePatch.appearanceMode === "inherit") continue;
       const expectedValue = stylePatch[key];
       if (expectedValue !== undefined && verifiedStyle?.[key] !== expectedValue) {
         throw new HomepageAgentServiceError("write_not_committed", `组件样式字段 ${key} 写后验证失败。`, false);

@@ -92,6 +92,7 @@ export function createNativeToolRegistryFromWorkbench(params: {
       providerVisible: contract.providerVisible,
       source: contract.source,
       safety: contract.safety,
+      ...(contract.aggregateActionHelp ? { aggregateActionHelp: contract.aggregateActionHelp } : {}),
       isReadOnlyCall: (args) => contract.resolveCallSafety?.(args).readOnly ?? contract.readOnly,
       execute: async (args, ctx) => {
         const outcome = await executor.execute(

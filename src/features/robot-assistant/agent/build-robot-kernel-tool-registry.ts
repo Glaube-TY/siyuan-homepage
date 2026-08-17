@@ -5,7 +5,9 @@ import { createKernelPluginLikeStorage } from "./kernel-plugin-data-adapter";
 import { ToolRegistry } from "../../../features/kb/services/agent-workbench/registries/tool-registry";
 import { ToolResultLog } from "../../../features/kb/services/agent-workbench/runtime/tool-result-log";
 import { registerSiyuanTools } from "../../../features/kb/services/agent-workbench/composition/register-siyuan-tools";
-import { registerHomepageComponentTools } from "../../../features/kb/services/agent-workbench/composition/register-homepage-component-tools";
+import { createRobotComponentBusinessBindings } from "../../../features/kb/services/agent-workbench/composition/register-homepage-component-tools";
+import { createAggregateTool } from "../../../features/kb/services/agent-workbench/tools/aggregate/aggregate-tool-factory";
+import { findAggregateToolMeta } from "../../../features/kb/services/agent-workbench/tools/aggregate/aggregate-tool-metadata";
 import { createNativeToolRegistryFromWorkbench } from "../../../features/kb/services/agent-core/tools/workbench-tool-adapter";
 import { setNotebrainPlugin } from "../../../features/kb/services/agent-workbench/storage/notebrain-plugin-storage";
 import { setSharedWidgetStoragePlugin } from "../../../components/utils/widgetBlock/widget/sharedLocalStorage/sharedLocalStorage";
@@ -93,16 +95,19 @@ async function registerKernelDataTools(registry: NativeToolRegistry, host: Robot
     },
     globalToolAccess: {},
   });
-  registerHomepageComponentTools(toolRegistry, {
-    quickNote: true,
-    focus: true,
-    accounting: true,
-    fixedAssets: true,
-    anniversary: true,
-    favorites: true,
-    review: true,
-    music: false,
-  });
+  // Kernel-safe 主页组件业务子工具：quick_note/focus/accounting/fixed_assets/anniversary/favorites/review；
+  // 不注册 music（播放器运行时）与 instance/catalog（依赖桌面设备视图）。
+  const componentsMeta = findAggregateToolMeta("homepage_components");
+  const robotComponentActions = createRobotComponentBusinessBindings();
+  if (robotComponentActions.length > 0 && componentsMeta) {
+    toolRegistry.ensureTool(createAggregateTool({
+      name: "homepage_components",
+      title: componentsMeta.title,
+      description: componentsMeta.description,
+      boundary: "Robot Kernel 只注册 Kernel-safe 组件业务子工具；不开放依赖桌面 DOM、设备视图或播放器运行时的操作。",
+      actions: robotComponentActions,
+    }));
+  }
   registerSystemTools(toolRegistry, {
     memory: {
       read: true,

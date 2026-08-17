@@ -1,6 +1,8 @@
 import type { NativeTool } from "../tools/native-tool";
 import type { ToolPermissionPreview } from "./tool-preview";
 import { isDangerousCommand } from "../../agent-workbench/mcp/mcp-safety";
+import { SETTINGS_FIELD_LABELS } from "../../agent-workbench/tools/homepage/homepage-settings-whitelist";
+import { getHomepageComponentRouteByPrefix } from "../../agent-workbench/tools/homepage/homepage-agent-business-capabilities";
 
 /** Header keys whose values must be redacted in logs/debug/permission previews. */
 const SENSITIVE_HEADER_KEYS = new Set([
@@ -1334,6 +1336,9 @@ function buildHomepageManagePreview(
   args: Record<string, unknown>,
   action: string,
 ): ToolPermissionPreview {
+  if (action === "update_settings" || action === "update_buttons") {
+    return buildHomepageSettingsPreview(tool, args, action);
+  }
   const surface = args.surface === "mobile-homepage" ? "移动主页" : "桌面主页";
   const widgetId = typeof args.widgetId === "string" ? sanitizePreviewText(args.widgetId, 80) : "";
   const widgetType = typeof args.expectedLabel === "string" ? sanitizePreviewText(args.expectedLabel, 80)
@@ -1385,6 +1390,133 @@ function buildHomepageManagePreview(
     warnings,
     sections,
   });
+}
+
+function buildHomepageSettingsPreview(
+  tool: NativeTool,
+  args: Record<string, unknown>,
+  action: string,
+): ToolPermissionPreview {
+  if (action === "update_buttons") {
+    const ops = Array.isArray(args.ops) ? args.ops : [];
+    const opLabels: Record<string, string> = { toggle: "切换按钮显示", rename: "重命名按钮", remove: "删除按钮", reorder: "调整按钮顺序" };
+    return makePreview({
+      tool,
+      risk: "medium",
+      argsPreview: { action, expectedViewRevision: args.expectedViewRevision, ops: redactSensitiveObject(ops) },
+      operationLabel: "修改快捷按钮",
+      targetSummary: "桌面主页快捷按钮",
+      impactSummary: "将显隐、删除、重命名或排序主页快捷按钮，并热刷新已打开的主页。",
+      riskReason: "内置核心按钮只允许切换显示；reorder 必须包含全部现有按钮。",
+      sections: [
+        ...(typeof args.expectedViewRevision === "number" ? [{ label: "预期 view revision", value: String(args.expectedViewRevision) }] : []),
+        ...ops.map((op, index) => {
+          const raw = op && typeof op === "object" ? op as Record<string, unknown> : {};
+          return { label: `操作 ${index + 1}`, value: `${opLabels[String(raw.op)] ?? String(raw.op)}${raw.label ? `：${sanitizePreviewText(String(raw.label), 40)}` : ""}${raw.id !== undefined ? `（id ${raw.id}）` : ""}` };
+        }),
+      ],
+      warnings: ops.some((op) => op && typeof op === "object" && (op as Record<string, unknown>).op === "remove")
+        ? ["删除的是主页快捷按钮，不会删除任何笔记或组件。" ]
+        : undefined,
+    });
+  }
+  if (action !== "update_settings") {
+    return makePreview({
+      tool,
+      risk: "low",
+      argsPreview: { action },
+      operationLabel: action === "list_buttons" ? "查看快捷按钮" : "查看主页设置",
+      targetSummary: action === "list_buttons" ? "桌面主页快捷按钮" : "桌面主页设置",
+      impactSummary: "只读取主页设置，不会修改任何数据。",
+      riskReason: "只读操作。",
+      sections: [],
+    });
+  }
+  const patch = args.patch && typeof args.patch === "object"
+    ? args.patch as Record<string, unknown>
+    : {};
+  const hasOwnLabel = (key: string) => Object.prototype.hasOwnProperty.call(SETTINGS_FIELD_LABELS, key);
+  const updatedFields = Object.keys(patch)
+    .filter((key): key is string => hasOwnLabel(key))
+    .map((key) => ({ label: SETTINGS_FIELD_LABELS[key], value: sanitizePreviewText(String(patch[key]), 200) }));
+  const unknownFields = Object.keys(patch).filter((key) => !hasOwnLabel(key));
+  return makePreview({
+    tool,
+    risk: "medium",
+    argsPreview: { action, expectedViewRevision: args.expectedViewRevision, patch: redactSensitiveObject(patch) },
+    operationLabel: "修改主页设置",
+    targetSummary: "桌面主页设置",
+    impactSummary: "将更新桌面主页横幅、标题、页脚、背景、特效或状态语设置，并热刷新已打开的主页。",
+    riskReason: "仅允许白名单字段；需要高级功能的字段在权益缺失时会被拒绝。",
+    warnings: unknownFields.length > 0 ? [`以下字段不在 Agent 白名单中，将写入失败：${unknownFields.join("、")}`] : undefined,
+    sections: [
+      ...(typeof args.expectedViewRevision === "number" ? [{ label: "预期 view revision", value: String(args.expectedViewRevision) }] : []),
+      ...updatedFields,
+    ],
+  });
+}
+
+function buildHomepageComponentsPreview(
+  tool: NativeTool,
+  args: Record<string, unknown>,
+  action: string,
+): ToolPermissionPreview {
+  const [prefix, ...rest] = action.split(".");
+  const innerAction = rest.join(".");
+  const instanceRoute = getHomepageComponentRouteByPrefix(prefix);
+  const instanceAction = instanceRoute && rest[0] === "instance" ? rest[1] ?? "" : "";
+  // 组件实例操作：复用 homepage_manage 的实例预览（只接受组件专属 dotted action）。
+  if (instanceAction) {
+    const instanceActionMap: Record<string, string> = {
+      add: "add_widget",
+      update: "update_widget",
+      update_style: "update_widget_style",
+      move: "move_widget",
+      remove: "remove_widget",
+    };
+    const instanceArgs = instanceAction === "add"
+      ? { ...args, widgetType: instanceRoute.type, expectedLabel: instanceRoute.label }
+      : { ...args, expectedType: instanceRoute.type };
+    return withHomepageComponentsIdentity(
+      buildHomepageManagePreview({ ...tool, name: "homepage_manage" }, instanceArgs, instanceActionMap[instanceAction] ?? instanceAction),
+      tool,
+      action,
+    );
+  }
+  // 组件业务操作：复用旧组件工具的专用预览，但最终身份必须保留 homepage_components 与完整 dotted action。
+  const route = getHomepageComponentRouteByPrefix(prefix);
+  const legacyName = route?.kind === "business" ? route.businessTool : undefined;
+  if (legacyName) {
+    return withHomepageComponentsIdentity(
+      buildHomepageComponentPreview({ ...tool, name: legacyName }, args, innerAction),
+      tool,
+      action,
+    );
+  }
+  return makePreview({
+    tool,
+    risk: "medium",
+    argsPreview: { action, ...(redactSensitiveObject(args) as Record<string, unknown>) },
+    operationLabel: `主页组件操作：${action}`,
+    targetSummary: "主页组件",
+    impactSummary: "将更新主页组件或其业务数据。",
+    riskReason: "组件写操作，请确认目标与 revision 正确。",
+    sections: [],
+  });
+}
+
+/** 把旧工具预览的身份改写为 homepage_components，并保留完整 dotted action。 */
+function withHomepageComponentsIdentity(
+  preview: ToolPermissionPreview,
+  tool: NativeTool,
+  action: string,
+): ToolPermissionPreview {
+  return {
+    ...preview,
+    toolName: "homepage_components",
+    title: tool.title ?? "主页组件",
+    argsPreview: { ...(preview.argsPreview ?? {}), action },
+  };
 }
 
 function buildHomepageComponentPreview(tool: NativeTool, args: Record<string, unknown>, action: string): ToolPermissionPreview {
@@ -1489,11 +1621,11 @@ export function buildToolPermissionPreview(tool: NativeTool, args: Record<string
     if (action === "manage_record") return buildManageDiaryRecordPreview(tool, nestedArgs);
     if (action === "manage_review") return buildManageDiaryReviewPreview(tool, nestedArgs);
   }
+  if (tool.name === "homepage_components" && action) {
+    return buildHomepageComponentsPreview(tool, nestedArgs, action);
+  }
   if (tool.name === "homepage_manage" && action) {
     return buildHomepageManagePreview(tool, nestedArgs, action);
-  }
-  if (["homepage_quick_note", "homepage_focus", "homepage_accounting", "homepage_fixed_assets", "homepage_anniversary", "homepage_favorites", "homepage_review", "homepage_music"].includes(tool.name) && action) {
-    return buildHomepageComponentPreview(tool, nestedArgs, action);
   }
   if (tool.name === "web_fetch" && action === "http_post") {
     return buildWebHttpPostPreview(tool, nestedArgs);

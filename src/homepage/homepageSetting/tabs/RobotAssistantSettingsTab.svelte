@@ -623,14 +623,21 @@
         kernelBridge = null;
     });
 
-    const knownTools = ["siyuan_kb", "diary_task", "siyuan_database", "siyuan_doc_edit", "siyuan_tree", "siyuan_meta", "siyuan_asset", "siyuan_riff", "homepage_quick_note", "homepage_focus", "homepage_accounting", "homepage_fixed_assets", "homepage_anniversary", "homepage_favorites", "homepage_review"];
+    const knownTools = [
+        "siyuan_kb", "diary_task", "siyuan_database", "siyuan_doc_edit", "siyuan_tree", "siyuan_meta", "siyuan_asset", "siyuan_riff",
+        "homepage_components.quick_note", "homepage_components.focus", "homepage_components.accounting",
+        "homepage_components.fixed_assets", "homepage_components.anniversary", "homepage_components.favorites",
+        "homepage_components.review",
+    ];
 
     function toolLabel(name: string): string {
         const map: Record<string, string> = {
             siyuan_kb: "知识库查询", diary_task: "日记任务", siyuan_database: "数据库", siyuan_doc_edit: "文档编辑",
             siyuan_tree: "目录结构", siyuan_meta: "文档属性", siyuan_asset: "资源文件", siyuan_riff: "Riff 卡片",
-            homepage_quick_note: "快速笔记", homepage_focus: "专注清单", homepage_accounting: "记账",
-            homepage_fixed_assets: "固定资产", homepage_anniversary: "纪念日", homepage_favorites: "收藏", homepage_review: "复习",
+            "homepage_components.quick_note": "快速笔记", "homepage_components.focus": "专注清单",
+            "homepage_components.accounting": "记账",
+            "homepage_components.fixed_assets": "固定资产", "homepage_components.anniversary": "纪念日",
+            "homepage_components.favorites": "收藏", "homepage_components.review": "复习",
         };
         return map[name] ?? name;
     }

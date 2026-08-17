@@ -1,7 +1,6 @@
 import { MOBILE_WIDGET_CATALOG } from "../../../../../../homepage/mobileHomepage/mobile-widget-categories";
 import { getHomepageBusinessCapability, type HomepageBusinessCapability } from "./homepage-agent-business-capabilities";
 
-const DISPLAY_ONLY_TYPES = new Set(["weather", "HOT", "News", "constellation", "historyDays", "almanac", "dailyQuote", "timedate", "heatmap"]);
 const ADVANCED_TYPES = new Set([
   "accounting", "almanac", "constellation", "countdown", "countdownTimer", "CYBMOK",
   "enhancedDiary", "fixedAssets", "heatmap", "historyDays", "musicPlayer",
@@ -54,19 +53,38 @@ export const WIDGET_CONTENT_CATEGORY_LABELS: Record<string, string> = {
   tool: "日常工具",
   info: "信息资讯",
   custom: "自定义",
+  workspace: "工作区",
 };
 
-export const HOMEPAGE_AGENT_WIDGET_CATALOG: HomepageAgentWidgetDescriptor[] = MOBILE_WIDGET_CATALOG.map((item) => ({
-  ...item,
-  supportedSurfaces: ["desktop-homepage", "mobile-homepage"],
-  advancedRequired: ADVANCED_TYPES.has(item.type),
-  singleton: SINGLETON_TYPES.has(item.type),
-  editableFields: [...(EDITABLE_FIELDS[item.type] ?? [])],
-  businessCapability: getHomepageBusinessCapability(item.type)
-    ?? (DISPLAY_ONLY_TYPES.has(item.type)
-      ? { businessTool: null, reason: "display_only" }
-      : { businessTool: null, reason: "no_dedicated_business_tool" }),
-}));
+/**
+ * 仅桌面主页存在的组件（移动端目录没有）。
+ * notebrain 面板配置由 AI 知识库自身管理，Agent 只负责布局与样式，不编辑展示配置。
+ */
+const DESKTOP_ONLY_WIDGET_DESCRIPTORS: HomepageAgentWidgetDescriptor[] = [
+  {
+    type: "notebrain",
+    label: "AI 知识库",
+    description: "桌面主页的 AI 知识库面板，展示配置由知识库自身管理。",
+    activeTab: "workspace",
+    supportedSurfaces: ["desktop-homepage"],
+    advancedRequired: true,
+    singleton: true,
+    editableFields: [],
+    businessCapability: getHomepageBusinessCapability("notebrain")!,
+  },
+];
+
+export const HOMEPAGE_AGENT_WIDGET_CATALOG: HomepageAgentWidgetDescriptor[] = [
+  ...MOBILE_WIDGET_CATALOG.map((item): HomepageAgentWidgetDescriptor => ({
+    ...item,
+    supportedSurfaces: ["desktop-homepage", "mobile-homepage"],
+    advancedRequired: ADVANCED_TYPES.has(item.type),
+    singleton: SINGLETON_TYPES.has(item.type),
+    editableFields: [...(EDITABLE_FIELDS[item.type] ?? [])],
+    businessCapability: getHomepageBusinessCapability(item.type)!,
+  })),
+  ...DESKTOP_ONLY_WIDGET_DESCRIPTORS,
+];
 
 const WIDGET_BY_TYPE = new Map(HOMEPAGE_AGENT_WIDGET_CATALOG.map((item) => [item.type, item]));
 

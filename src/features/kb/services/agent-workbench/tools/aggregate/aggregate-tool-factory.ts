@@ -242,6 +242,21 @@ export function createAggregateTool(options: AggregateToolFactoryOptions): ToolC
     },
 
     async execute(ctx: ToolRuntimeContext, rawArgs: unknown): Promise<ToolResult> {
+      const requestedAction = rawArgs && typeof rawArgs === "object" && !Array.isArray(rawArgs)
+        ? (rawArgs as Record<string, unknown>).action
+        : undefined;
+      if (typeof requestedAction === "string" && !actionMap.has(requestedAction)) {
+        return {
+          ok: false,
+          data: null,
+          error: {
+            code: "unknown_action",
+            message: `未知 action：${requestedAction}`,
+            recoverable: true,
+            hint: "请调用 agent_tool_help.list_actions 查看可用 action。",
+          },
+        };
+      }
       const parsed = createInputSchema(actionNames).safeParse(rawArgs);
       if (!parsed.success) {
         const issue = parsed.error.issues[0];

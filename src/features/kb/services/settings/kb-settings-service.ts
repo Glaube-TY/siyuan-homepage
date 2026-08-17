@@ -31,6 +31,7 @@ import {
 } from "./kb-sensitive-secret-crypto";
 import { pushAgentDebugEvent } from "../agent-workbench/debug/workbench-debug";
 import { AGGREGATE_TOOL_NAMES, AGGREGATE_TOOL_CATALOG, findAggregateToolMeta } from "../agent-workbench/tools/aggregate/aggregate-tool-metadata";
+import { HOMEPAGE_COMPONENT_SUBTOOL_PREFIXES } from "../agent-workbench/tools/homepage/homepage-agent-business-capabilities";
 
 const SETTINGS_KEY = "kb-settings";
 const MAX_AVATAR_DATA_URL_LENGTH = 1_572_864;
@@ -229,15 +230,42 @@ function normalizeToolActionConfirmOverrides(
 }
 
 /**
+ * 旧 homepage 组件工具名 → homepage_components 子工具前缀。
+ * 用于把旧 disabledGlobalToolNames / toolActionConfirmOverrides 迁移到新结构。
+ */
+const LEGACY_COMPONENT_TOOL_TO_PREFIX: Record<string, string> = {
+  homepage_quick_note: "quick_note",
+  homepage_focus: "focus",
+  homepage_accounting: "accounting",
+  homepage_fixed_assets: "fixed_assets",
+  homepage_anniversary: "anniversary",
+  homepage_favorites: "favorites",
+  homepage_review: "review",
+  homepage_music: "music",
+};
+
+const LEGACY_COMPONENT_TOOL_NAMES = new Set(Object.keys(LEGACY_COMPONENT_TOOL_TO_PREFIX));
+
+/** disabledSubtools 只接受真实前缀白名单。 */
+const VALID_COMPONENT_SUBTOOL_PREFIXES = new Set(HOMEPAGE_COMPONENT_SUBTOOL_PREFIXES);
+
+/** 旧 homepage_manage 控制的组件目录/实例能力对应的子工具前缀。 */
+const LEGACY_MANAGE_COMPONENT_PREFIXES = HOMEPAGE_COMPONENT_SUBTOOL_PREFIXES.filter((prefix) => prefix === "catalog" || prefix === "instance");
+
+/**
  * 归一化全局工具设置
  * - 只保留合法聚合工具名
  * - 系统必需工具永远不进入 disabledGlobalToolNames
+ * - schemaVersion 缺失（旧存储）时执行一次迁移；迁移后写入 schemaVersion=1，保证幂等
  * - 去重
  * - 设置缺失时回退默认值
  */
 function normalizeToolSettings(raw: unknown): KbToolSettings {
   const hasRawToolSettings = !!raw && typeof raw === "object";
   const s = hasRawToolSettings ? raw as Record<string, unknown> : {};
+  // 只有“确实存在旧 toolSettings 且缺少 schemaVersion”时才执行旧数据迁移；
+  // 全新用户（raw toolSettings 缺失）直接使用新版默认状态，不产生 disabledSubtools。
+  const isLegacyFormat = hasRawToolSettings && s.schemaVersion !== 1;
   const rawNames = s.disabledGlobalToolNames;
   let names: KbToolSettings["disabledGlobalToolNames"] = hasRawToolSettings
     ? []
@@ -251,6 +279,46 @@ function normalizeToolSettings(raw: unknown): KbToolSettings {
   // 系统必需工具永远固定启用：从 disabledGlobalToolNames 中移除
   names = names.filter((n) => !SYSTEM_REQUIRED_TOOL_NAMES.has(n));
 
+  // 子工具禁用：只保留真实前缀白名单。
+  const rawSubtools = s.disabledSubtools;
+  const subtoolPrefixes = new Set<string>();
+  if (rawSubtools && typeof rawSubtools === "object" && !Array.isArray(rawSubtools)) {
+    const rawList = (rawSubtools as Record<string, unknown>)["homepage_components"];
+    if (Array.isArray(rawList)) {
+      for (const item of rawList) {
+        if (typeof item === "string" && VALID_COMPONENT_SUBTOOL_PREFIXES.has(item.trim())) {
+          subtoolPrefixes.add(item.trim());
+        }
+      }
+    }
+  }
+
+  if (isLegacyFormat) {
+    // 旧 homepage_manage 控制组件目录与实例能力：被禁用时 catalog/instance 一并禁用。
+    if (names.includes("homepage_manage")) {
+      LEGACY_MANAGE_COMPONENT_PREFIXES.forEach((prefix) => subtoolPrefixes.add(prefix));
+      names.push("homepage_components");
+    }
+    // 旧组件业务工具名 → 子工具前缀。
+    if (Array.isArray(rawNames)) {
+      for (const rawName of rawNames) {
+        if (typeof rawName === "string" && LEGACY_COMPONENT_TOOL_NAMES.has(rawName.trim())) {
+          subtoolPrefixes.add(LEGACY_COMPONENT_TOOL_TO_PREFIX[rawName.trim()]);
+        }
+      }
+    }
+    // 旧 homepage_workbench 禁用状态迁移为 temporary_workbench。
+    if (Array.isArray(rawNames) && rawNames.some((rawName) => typeof rawName === "string" && rawName.trim() === "homepage_workbench")) {
+      names.push("temporary_workbench");
+    }
+    // 全部子工具均禁用时，父工具也应禁用。
+    const allSubtools = [...LEGACY_MANAGE_COMPONENT_PREFIXES, ...Object.values(LEGACY_COMPONENT_TOOL_TO_PREFIX)];
+    if (allSubtools.every((prefix) => subtoolPrefixes.has(prefix))) {
+      names.push("homepage_components");
+    }
+  }
+  names = [...new Set(names)];
+
   // 无 action 的直接写工具仍使用工具级确认开关。
   const rawWriteConfirmation = s.disabledWriteToolConfirmationNames;
   let writeConfirmationNames: string[] = [];
@@ -262,17 +330,40 @@ function normalizeToolSettings(raw: unknown): KbToolSettings {
   }
   writeConfirmationNames = [...new Set(writeConfirmationNames)];
 
-  // 聚合工具仅接受 action 级确认覆盖。
+  // 聚合工具仅接受 action 级确认覆盖；旧组件工具名的覆盖迁移到 homepage_components 的 dotted action。
   const rawOverrides = s.toolActionConfirmOverrides;
   const overrides = normalizeToolActionConfirmOverrides(rawOverrides);
+  const validHomepageComponentWriteActions = new Set(writeActionsOf("homepage_components"));
+  if (rawOverrides && typeof rawOverrides === "object" && !Array.isArray(rawOverrides)) {
+    const legacyMap = rawOverrides as Record<string, unknown>;
+    for (const [toolName, actionMap] of Object.entries(legacyMap)) {
+      if (!actionMap || typeof actionMap !== "object" || Array.isArray(actionMap)) continue;
+      const actionEntries = actionMap as Record<string, unknown>;
+      // 旧组件业务工具确认 → homepage_components.<prefix>.<action>
+      const prefix = LEGACY_COMPONENT_TOOL_TO_PREFIX[toolName];
+      if (!prefix) continue;
+      for (const [actionName, flag] of Object.entries(actionEntries)) {
+        if (typeof flag !== "boolean") continue;
+        if (!overrides.homepage_components) overrides.homepage_components = {};
+        const dotted = `${prefix}.${actionName}`;
+        if (!validHomepageComponentWriteActions.has(dotted)) continue;
+        if (dotted in overrides.homepage_components) continue;
+        overrides.homepage_components[dotted] = flag;
+      }
+    }
+  }
 
   // writeConfirmationNames 仅保留无 action 的直接工具。
   // 聚合工具的可信状态由 action 级配置单独管理。
   const directWriteConfirmationNames = writeConfirmationNames.filter((n) => DIRECT_WRITE_TOOL_NAMES.has(n));
 
   const result: KbToolSettings = {
+    schemaVersion: 1,
     disabledGlobalToolNames: names,
   };
+  if (subtoolPrefixes.size > 0) {
+    result.disabledSubtools = { homepage_components: [...subtoolPrefixes] };
+  }
   if (directWriteConfirmationNames.length > 0) {
     result.disabledWriteToolConfirmationNames = directWriteConfirmationNames;
   }

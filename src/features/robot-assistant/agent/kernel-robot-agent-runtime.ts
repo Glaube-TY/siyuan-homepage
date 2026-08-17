@@ -21,6 +21,8 @@ import {
 } from "../../../features/agent-platform/agent-profile";
 import { buildGlobalMemoryContext } from "../../../features/kb/services/agent-workbench/memory/global-memory-store";
 import { bindAutomationRobotResult, encodeAutomationRobotRoute } from "../../../features/agent-platform/automation/automation-robot-route";
+import { resolveRobotAllowance } from "../settings/robot-settings-types";
+import type { RobotToolPolicy } from "../settings/robot-settings-types";
 
 export interface KernelRobotAgentRuntimeDeps {
   /** Kernel HTTP transport（siyuan.client.fetch → forwardProxy），stream:false。 */
@@ -156,11 +158,29 @@ export class KernelRobotAgentRuntime implements RobotAgentRuntime {
   private createTurnRegistry(input: RobotAgentTurnInput, profile: AgentProfile): NativeToolRegistry {
     const registry = new NativeToolRegistry();
     for (const tool of this.deps.toolRegistry.list()) {
+      // 先检查 Agent Profile：Robot 只能使用其 Profile 白名单内的工具。
+      if (!agentProfileAllowsTool(profile, tool.name)) continue;
+      if (tool.name === "homepage_components") {
+        // 聚合工具无条件走子工具策略分支（子工具 → 顶层 → 默认）。
+        // 注册判断基于真实 action 与真实 readOnly 元数据；执行层每次按完整 dotted action 再次校验。
+        const gate = createComponentSubtoolGate(tool, input.toolPolicy);
+        if (!gate.shouldRegister) continue;
+        registry.register({
+          ...tool,
+          parameters: gate.parameters,
+          readOnly: gate.readOnly,
+          safety: gate.safety,
+          aggregateActionHelp: gate.aggregateActionHelp,
+          execute: gate.execute,
+          preflightValidate: gate.preflightValidate,
+        });
+        continue;
+      }
       const explicit = input.toolPolicy.tools[tool.name];
       const allowed = explicit
         ? explicit.remoteAllowed
         : tool.readOnly && input.toolPolicy.readOnlyDefaultAllowed;
-      if (!allowed || !agentProfileAllowsTool(profile, tool.name)) continue;
+      if (!allowed) continue;
       registry.register(tool.name === "automation_manage" ? this.bindAutomationRoute(tool, input) : tool);
     }
     return registry;
@@ -199,6 +219,85 @@ export class KernelRobotAgentRuntime implements RobotAgentRuntime {
       ...(snapshot.nativeCompatibility ? { providerNativeAgentCompatibility: snapshot.nativeCompatibility as KbChatProviderConfig["providerNativeAgentCompatibility"] } : {}),
     };
   }
+}
+
+/**
+ * homepage_components 的子工具权限门控（零状态纯函数，可在 Node 验证中直接运行）。
+ * - shouldRegister：按真实 action 与真实 readOnly 元数据计算，任一 action 被允许即注册。
+ * - execute：每次按完整 dotted action 重新校验 remoteAllowed（子工具 → 顶层 → 默认）；
+ *   被禁止的 action 直接拒绝，不进入底层业务 execute，不产生业务副作用。
+ */
+export function createComponentSubtoolGate(
+  tool: NativeTool,
+  policy: RobotToolPolicy,
+): {
+  shouldRegister: boolean;
+  parameters: NativeTool["parameters"];
+  readOnly: boolean;
+  safety: NativeTool["safety"];
+  aggregateActionHelp: NonNullable<NativeTool["aggregateActionHelp"]>;
+  execute: NativeTool["execute"];
+  preflightValidate: NonNullable<NativeTool["preflightValidate"]>;
+} {
+  const help = tool.aggregateActionHelp ?? {};
+  const actionEntries = Object.entries(help).map(([action, meta]) => ({ action, readOnly: meta.readOnly === true }));
+  const allowedActions = actionEntries.filter((entry) => resolveRobotAllowance(policy, tool.name, entry.action, entry.readOnly).remoteAllowed);
+  const allowed = new Set(allowedActions.map((entry) => entry.action));
+  const isAllowedCall = (args: Record<string, unknown>): boolean => {
+    const action = typeof args.action === "string" ? args.action : "";
+    return allowed.has(action);
+  };
+  const deniedValidation = (action?: string) => ({
+    ok: false as const,
+    error: {
+      code: "robot_subtool_denied",
+      message: `远程机器人策略未开放组件子工具 ${action ?? "未知"}。`,
+    },
+  });
+  const filteredActionHelp = Object.fromEntries(
+    Object.entries(help).filter(([action]) => allowed.has(action)),
+  );
+  return {
+    shouldRegister: allowedActions.length > 0,
+    parameters: filterNativeActionEnum(tool.parameters, allowedActions.map((entry) => entry.action)),
+    readOnly: allowedActions.every((entry) => entry.readOnly),
+    safety: allowedActions.every((entry) => entry.readOnly) ? { readOnly: true } : tool.safety,
+    aggregateActionHelp: filteredActionHelp,
+    preflightValidate: async (args) => {
+      const action = typeof args.action === "string" ? args.action : undefined;
+      if (!isAllowedCall(args)) return deniedValidation(action);
+      return tool.preflightValidate ? tool.preflightValidate(args) : { ok: true };
+    },
+    execute: (args, context) => {
+      const raw = args && typeof args === "object" ? args as Record<string, unknown> : {};
+      const action = typeof raw.action === "string" ? raw.action : undefined;
+      const readOnly = tool.isReadOnlyCall?.(args) === true;
+      const resolution = resolveRobotAllowance(policy, tool.name, action, readOnly);
+      if (!resolution.remoteAllowed) {
+        return Promise.resolve({
+          ok: false,
+          content: `远程机器人策略未开放组件子工具 ${action ?? "未知"}。`,
+          summary: "组件子工具被远程策略拒绝",
+          errorCode: "robot_subtool_denied",
+          sideEffectState: "not_started",
+        });
+      }
+      return tool.execute(args, context);
+    },
+  };
+}
+
+function filterNativeActionEnum(schema: NativeTool["parameters"], actions: readonly string[]): NativeTool["parameters"] {
+  const root = schema && typeof schema === "object" ? schema as Record<string, unknown> : {};
+  const properties = root.properties && typeof root.properties === "object" ? root.properties as Record<string, unknown> : {};
+  const action = properties.action && typeof properties.action === "object" ? properties.action as Record<string, unknown> : {};
+  return {
+    ...root,
+    properties: {
+      ...properties,
+      action: { ...action, enum: [...actions] },
+    },
+  } as NativeTool["parameters"];
 }
 
 function extractToolSummaries(messages: readonly AgentMessage[]): RobotAgentToolSummary[] {

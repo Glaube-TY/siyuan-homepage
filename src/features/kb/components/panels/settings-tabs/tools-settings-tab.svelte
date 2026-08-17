@@ -5,6 +5,7 @@
     type AggregateToolMeta,
     type AggregateActionMeta,
   } from "../../../services/agent-workbench/tools/aggregate/aggregate-tool-metadata";
+  import { HOMEPAGE_COMPONENT_SUBTOOL_LABELS } from "../../../services/agent-workbench/tools/homepage/homepage-agent-business-capabilities";
 
   export let settings: KbSettings;
 
@@ -140,9 +141,61 @@
       "delete_category",
       "delete_group",
       "delete_playlist",
+      "fixed_assets.archive",
+      "anniversary.delete_permanently",
+      "anniversary.delete_category",
+      "favorites.delete_group",
+      "favorites.remove",
+      "music.delete_playlist",
+      "review.remove",
+      "accounting.archive_record",
+      "accounting.archive_account",
     ]);
-    return HIGH_RISK_ACTIONS.has(action.name)
-      || (toolName === "homepage_fixed_assets" && action.name === "archive");
+    return HIGH_RISK_ACTIONS.has(action.name) || action.name.endsWith(".instance.remove");
+  }
+
+  // ── homepage_components 子工具分组（dotted action 前缀）──
+  function subtoolPrefix(actionName: string): string {
+    return actionName.split(".")[0] ?? actionName;
+  }
+
+  function componentSubtoolGroups(tool: AggregateToolMeta): Array<{ prefix: string; label: string; actions: AggregateActionMeta[] }> {
+    const groups = new Map<string, AggregateActionMeta[]>();
+    for (const action of tool.actions) {
+      const prefix = subtoolPrefix(action.name);
+      const list = groups.get(prefix) ?? [];
+      list.push(action);
+      groups.set(prefix, list);
+    }
+    return [...groups.entries()].map(([prefix, actions]) => ({
+      prefix,
+      label: HOMEPAGE_COMPONENT_SUBTOOL_LABELS[prefix] ?? prefix,
+      actions,
+    }));
+  }
+
+  function isSubtoolEnabled(toolName: string, prefix: string): boolean {
+    return !(settings.toolSettings?.disabledSubtools?.[toolName] ?? []).includes(prefix);
+  }
+
+  function toggleSubtool(toolName: string, prefix: string): void {
+    const subtools = { ...(settings.toolSettings?.disabledSubtools ?? {}) };
+    const current = new Set(subtools[toolName] ?? []);
+    if (current.has(prefix)) {
+      current.delete(prefix);
+    } else {
+      current.add(prefix);
+    }
+    const next: Record<string, string[]> = { ...subtools, [toolName]: [...current] };
+    if (next[toolName].length === 0) delete next[toolName];
+    const currentToolSettings = settings.toolSettings ?? { disabledGlobalToolNames: [] };
+    settings = {
+      ...settings,
+      toolSettings: {
+        ...currentToolSettings,
+        disabledSubtools: next,
+      },
+    };
   }
 </script>
 
@@ -222,6 +275,68 @@
                     工具已停用，下面 action 列表仅作说明，不会进入 manifest。
                   </div>
                 {/if}
+                {#if tool.name === "homepage_components"}
+                  {#each componentSubtoolGroups(tool) as group (group.prefix)}
+                    <div class="subtool-group">
+                      <div class="subtool-group-header">
+                        <span class="subtool-group-title">{group.label}</span>
+                        <span class="subtool-group-count">{group.actions.length} 个 action</span>
+                        <div class="toggle-item toggle-item-subtool">
+                          <span class="toggle-label">{isSubtoolEnabled(tool.name, group.prefix) ? "已启用" : "已停用"}</span>
+                          <label class="switch switch-small">
+                            <input
+                              type="checkbox"
+                              checked={isSubtoolEnabled(tool.name, group.prefix)}
+                              disabled={!isToolEnabled(tool.name)}
+                              on:change={() => toggleSubtool(tool.name, group.prefix)}
+                            />
+                            <span class="slider"></span>
+                          </label>
+                        </div>
+                      </div>
+                      {#each group.actions as action (action.name)}
+                        <div class="action-row">
+                          <div class="action-left">
+                            <span class="action-name">{action.name}</span>
+                            {#if action.readOnly}
+                              <span class="tag tag-readonly">只读</span>
+                            {:else if isHighRiskAction(action, tool.name)}
+                              <span class="tag tag-highrisk">高风险</span>
+                              <span class="tag tag-safety">安全拦截</span>
+                            {:else}
+                              <span class="tag tag-write">写入</span>
+                            {/if}
+                          </div>
+                          <div class="action-mid">
+                            <span class="action-title">{action.title}</span>
+                            <span class="action-desc">{action.description}</span>
+                          </div>
+                          <div class="action-right">
+                            {#if action.readOnly}
+                              <span class="confirm-static">无需确认</span>
+                            {:else if action.requiresConfirmation === false}
+                              <span class="confirm-static">自动执行</span>
+                            {:else}
+                              <div class="toggle-item">
+                                <span class="toggle-label">
+                                  {getActionConfirmOverride(tool.name, action.name) ? "需要确认" : "已免确认"}
+                                </span>
+                                <label class="switch switch-small">
+                                  <input
+                                    type="checkbox"
+                                    checked={getActionConfirmOverride(tool.name, action.name)}
+                                    on:change={() => toggleActionConfirmation(tool.name, action.name)}
+                                  />
+                                  <span class="slider"></span>
+                                </label>
+                              </div>
+                            {/if}
+                          </div>
+                        </div>
+                      {/each}
+                    </div>
+                  {/each}
+                {:else}
                 {#each tool.actions as action (action.name)}
                   <div class="action-row">
                     <div class="action-left">
@@ -262,6 +377,7 @@
                     </div>
                   </div>
                 {/each}
+                {/if}
               </div>
             {/if}
           </div>
@@ -623,6 +739,39 @@
     padding: $kb-space-xs $kb-space-sm;
     background: var(--b3-theme-surface-lighter);
     border-radius: $kb-radius-md;
+  }
+
+  .subtool-group {
+    display: flex;
+    flex-direction: column;
+    gap: $kb-space-xs;
+    border: 1px solid var(--b3-border-color);
+    border-radius: $kb-radius-md;
+    padding: $kb-space-xs $kb-space-sm;
+    background: var(--b3-theme-surface);
+  }
+
+  .subtool-group-header {
+    display: flex;
+    align-items: center;
+    gap: $kb-space-sm;
+    padding: 2px 2px $kb-space-xs;
+  }
+
+  .subtool-group-title {
+    font-size: $kb-fs-sm;
+    font-weight: 600;
+    color: var(--b3-theme-on-surface);
+  }
+
+  .subtool-group-count {
+    font-size: $kb-fs-xs;
+    color: var(--b3-theme-on-surface);
+    opacity: 0.6;
+  }
+
+  .toggle-item-subtool {
+    margin-left: auto;
   }
 
   .action-row {

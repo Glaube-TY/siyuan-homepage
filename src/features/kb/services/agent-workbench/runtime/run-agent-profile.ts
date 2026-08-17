@@ -279,6 +279,9 @@ export async function runAgentProfile<TResult>(
     let webReadPageToolDeps: AgentWorkbenchRuntimeOptions["webReadPageToolDeps"] | undefined;
 
     const disabledGlobalTools = new Set(settings.toolSettings?.disabledGlobalToolNames ?? []);
+    // 组件子工具禁用：旧 homepage_quick_note 等工具名映射到 homepage_components 前缀，
+    // 与 kb-settings-service 的迁移保持一致（新写入统一使用 disabledSubtools）。
+    const disabledComponentSubtools = new Set(settings.toolSettings?.disabledSubtools?.["homepage_components"] ?? []);
     const globalToolAccess = {
       // agent_tool_help 是系统必需工具，不受用户 disabledGlobalToolNames 影响，始终启用。
       agentToolHelp: true,
@@ -311,15 +314,17 @@ export async function runAgentProfile<TResult>(
       assetManagement: !disabledGlobalTools.has("siyuan_asset"),
       riffReview: !disabledGlobalTools.has("siyuan_riff"),
       homepageManagement: !disabledGlobalTools.has("homepage_manage"),
-      homepageWorkbench: !disabledGlobalTools.has("homepage_workbench"),
-      homepageQuickNote: !disabledGlobalTools.has("homepage_quick_note"),
-      homepageFocus: !disabledGlobalTools.has("homepage_focus"),
-      homepageAccounting: !disabledGlobalTools.has("homepage_accounting"),
-      homepageFixedAssets: !disabledGlobalTools.has("homepage_fixed_assets"),
-      homepageAnniversary: !disabledGlobalTools.has("homepage_anniversary"),
-      homepageFavorites: !disabledGlobalTools.has("homepage_favorites"),
-      homepageReview: !disabledGlobalTools.has("homepage_review"),
-      homepageMusic: !disabledGlobalTools.has("homepage_music"),
+      homepageComponents: !disabledGlobalTools.has("homepage_components"),
+      temporaryWorkbench: !disabledGlobalTools.has("temporary_workbench"),
+      homepageQuickNote: !disabledComponentSubtools.has("quick_note"),
+      homepageFocus: !disabledComponentSubtools.has("focus"),
+      homepageAccounting: !disabledComponentSubtools.has("accounting"),
+      homepageFixedAssets: !disabledComponentSubtools.has("fixed_assets"),
+      homepageAnniversary: !disabledComponentSubtools.has("anniversary"),
+      homepageFavorites: !disabledComponentSubtools.has("favorites"),
+      homepageReview: !disabledComponentSubtools.has("review"),
+      homepageMusic: !disabledComponentSubtools.has("music"),
+      disabledComponentSubtools: [...disabledComponentSubtools],
     };
 
     const wb = createAgentWorkbenchRuntime({

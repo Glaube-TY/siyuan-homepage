@@ -16,14 +16,7 @@ export const DEFAULT_TOOL_SETTINGS: KbToolSettings = {
     "siyuan_asset",
     "siyuan_riff",
     "homepage_manage",
-    "homepage_quick_note",
-    "homepage_focus",
-    "homepage_accounting",
-    "homepage_fixed_assets",
-    "homepage_anniversary",
-    "homepage_favorites",
-    "homepage_review",
-    "homepage_music",
+    "homepage_components",
   ],
 };
 

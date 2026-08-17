@@ -11,7 +11,7 @@ import { SkillRegistry } from "../registries/skill-registry";
 import { ToolRegistry } from "../registries/tool-registry";
 import type { SiyuanToolDeps } from "../tools/siyuan/siyuan-tool-deps";
 import { registerSystemTools } from "../composition/register-system-tools";
-import { registerSiyuanTools } from "../composition/register-siyuan-tools";
+import { createSiyuanSharedActionBindings, registerSiyuanTools } from "../composition/register-siyuan-tools";
 import { registerWebTools } from "../composition/register-web-tools";
 import { registerLocalTools } from "../composition/register-local-tools";
 import { registerExternalSkillTools } from "../composition/register-external-skill-tools";
@@ -63,8 +63,13 @@ export interface BuiltinCapabilityAccess {
   tagBookmarkOutline: boolean;
   assetManagement: boolean;
   riffReview: boolean;
+  /** homepage_manage（主页全局）是否注册。 */
   homepageManagement: boolean;
-  homepageWorkbench: boolean;
+  /** homepage_components（主页组件）是否注册。 */
+  homepageComponents: boolean;
+  /** temporary_workbench 是否注册。 */
+  temporaryWorkbench: boolean;
+  /** 组件业务子工具启停（homepage_components 的前缀过滤）。 */
   homepageQuickNote: boolean;
   homepageFocus: boolean;
   homepageAccounting: boolean;
@@ -73,6 +78,8 @@ export interface BuiltinCapabilityAccess {
   homepageFavorites: boolean;
   homepageReview: boolean;
   homepageMusic: boolean;
+  /** 用户设置的组件子工具禁用前缀。 */
+  disabledComponentSubtools?: readonly string[];
 }
 
 export interface AgentWorkbenchRuntimeOptions {
@@ -113,6 +120,9 @@ export function createAgentWorkbenchRuntime(
   });
   const externalSkillSettings = options.externalSkillSettings ?? DEFAULT_EXTERNAL_SKILL_SETTINGS;
   let surfaceCapabilities: AgentSurfaceCapabilitySnapshot = { contexts: [], actions: [] };
+  const sharedSiyuanActionBindings = options.kbRetrievalToolDeps
+    ? createSiyuanSharedActionBindings(options.kbRetrievalToolDeps)
+    : undefined;
 
   if (agentProfileHasCapability(options.profile, "global-memory")) {
     registerSystemTools(toolRegistry, {
@@ -143,6 +153,7 @@ export function createAgentWorkbenchRuntime(
   if (agentProfileHasCapability(options.profile, "siyuan") && options.kbRetrievalToolDeps) {
     registerSiyuanTools(toolRegistry, {
       kbRetrievalToolDeps: options.kbRetrievalToolDeps,
+      sharedActionBindings: sharedSiyuanActionBindings,
       conversationId: options.conversationId,
       confirmationRoute: options.confirmationRoute,
       builtinCapabilityAccess: options.builtinCapabilityAccess,
@@ -153,13 +164,15 @@ export function createAgentWorkbenchRuntime(
   if (agentProfileHasCapability(options.profile, "homepage")) {
     surfaceCapabilities = registerHomepageAgentCapabilities(toolRegistry, {
       enabled: options.builtinCapabilityAccess?.homepageManagement === true,
-      workbench: options.builtinCapabilityAccess?.homepageWorkbench !== false,
+      componentsEnabled: options.builtinCapabilityAccess?.homepageComponents !== false,
+      workbench: options.builtinCapabilityAccess?.temporaryWorkbench !== false,
       workbenchSource: {
         profileId: options.profile.id,
         label: options.profile.label,
         conversationId: options.conversationId,
         messageId: options.turnId,
       },
+      disabledComponentSubtools: options.builtinCapabilityAccess?.disabledComponentSubtools,
       components: {
         quickNote: options.builtinCapabilityAccess?.homepageQuickNote === true,
         focus: options.builtinCapabilityAccess?.homepageFocus === true,
@@ -170,6 +183,7 @@ export function createAgentWorkbenchRuntime(
         review: options.builtinCapabilityAccess?.homepageReview === true,
         music: options.builtinCapabilityAccess?.homepageMusic === true,
       },
+      sharedSiyuanActionBindings,
     });
   }
 

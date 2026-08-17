@@ -11,7 +11,7 @@
     {#if identity.showIcon}
         <div class="hp-identity__icon" aria-hidden="true">
             {#if identity.icon.type === "emoji"}
-                {@html normalizeSiyuanDocIcon(identity.icon.emoji) || "🏠"}
+                {normalizeSiyuanDocIcon(identity.icon.emoji) || "🏠"}
             {:else if identity.icon.imageSrc}
                 <img class="hp-identity__icon-image" src={identity.icon.imageSrc} alt="" style={`border-radius: ${radius};`} />
             {/if}

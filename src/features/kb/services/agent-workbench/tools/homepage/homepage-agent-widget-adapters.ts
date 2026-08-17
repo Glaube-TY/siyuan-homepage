@@ -97,6 +97,9 @@ export function validateAndNormalizeHomepageWidgetPatch(
 ): Record<string, unknown> {
   const descriptor = getHomepageAgentWidgetDescriptor(type);
   if (!descriptor || descriptor.editableFields.length === 0) throw new Error(`组件 ${type} 不支持 Agent 修改展示配置`);
+  if (!options.advancedEnabled && descriptor.advancedRequired) {
+    throw new Error(`组件 ${type} 的展示配置修改需要高级功能`);
+  }
   if (!options.advancedEnabled) {
     if (type === "favorites" && ("favoritesGroupingEnabled" in patch || "favoritesGroupIds" in patch)) throw new Error("收藏分组展示设置需要高级功能");
     if (type === "dailyQuote" && (patch.dailyQuoteMode === "remote" || "dailyQuoteSource" in patch)) throw new Error("远程每日一句设置需要高级功能");
@@ -125,12 +128,17 @@ export function applyHomepageWidgetPatch(config: Record<string, unknown>, type: 
   return { ...config, data: Array.isArray(config.data) || ARRAY_DATA_TYPES.has(type) ? [data] : data };
 }
 
-export function createHomepageWidgetConfig(type: string, instanceId: string, initialConfig: Record<string, unknown> = {}, options: { advancedEnabled?: boolean } = {}): Record<string, unknown> {
+export function createHomepageWidgetConfig(type: string, instanceId: string, initialConfig: Record<string, unknown> = {}, options: { advancedEnabled?: boolean; surface?: "desktop-homepage" | "mobile-homepage" } = {}): Record<string, unknown> {
   const descriptor = getHomepageAgentWidgetDescriptor(type);
   if (!descriptor) throw new Error(`不支持的组件类型：${type}`);
   const normalizedInitial = Object.keys(initialConfig).length > 0
     ? validateAndNormalizeHomepageWidgetPatch(type, initialConfig, options)
     : {};
   const data = { ...(DEFAULT_DATA[type] ?? {}), ...normalizedInitial };
-  return { activeTab: getMobileWidgetActiveTab(type), type, instanceId, data: ARRAY_DATA_TYPES.has(type) ? [data] : data };
+  return {
+    ...(options.surface === "mobile-homepage" ? { activeTab: getMobileWidgetActiveTab(type) } : {}),
+    type,
+    instanceId,
+    data: ARRAY_DATA_TYPES.has(type) ? [data] : data,
+  };
 }

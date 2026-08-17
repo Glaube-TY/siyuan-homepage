@@ -6,6 +6,7 @@ import type { RobotProviderId } from "../contracts/robot-provider";
 import { createRobotId } from "../contracts/robot-id";
 import type { RobotConfirmationOutcome } from "../core/robot-core";
 import type { RobotToolPolicy } from "../settings/robot-settings-types";
+import { resolveRobotWriteAction } from "../settings/robot-settings-types";
 
 export interface RobotConfirmationBridgeContext {
   provider: RobotProviderId;
@@ -29,16 +30,17 @@ export class RobotConfirmationBridge implements ToolConfirmationBridge {
   constructor(private readonly ctx: RobotConfirmationBridgeContext) {}
 
   async request(preview: ToolPermissionPreview): Promise<ToolPermissionDecision> {
-    const writeAction = this.ctx.toolPolicy.tools[preview.toolName]?.writeAction
-      ?? this.ctx.toolPolicy.defaultWriteAction;
-    if (writeAction === "deny") {
-      return { type: "deny", reason: "远程机器人策略禁止该写操作。", reasonCode: "robot_write_denied" };
-    }
-    const now = this.ctx.now?.() ?? Date.now();
     const action = preview.argsPreview && typeof preview.argsPreview === "object"
       && typeof (preview.argsPreview as Record<string, unknown>).action === "string"
       ? String((preview.argsPreview as Record<string, unknown>).action)
       : undefined;
+    // 聚合工具按完整 dotted action 的第一个前缀查子工具策略（homepage_components.<prefix>），
+    // 避免顶层聚合打开后意外放行全部组件写操作；writeAction=deny 在发起远程确认前拒绝。
+    const writeAction = resolveRobotWriteAction(this.ctx.toolPolicy, preview.toolName, action);
+    if (writeAction === "deny") {
+      return { type: "deny", reason: "远程机器人策略禁止该写操作。", reasonCode: "robot_write_denied" };
+    }
+    const now = this.ctx.now?.() ?? Date.now();
     const requestKey = this.requestKey(preview, action);
     if (this.deniedRequestKeys.has(requestKey)) {
       return {

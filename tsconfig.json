@@ -36,7 +36,7 @@
             "vite/client",
             "svelte"
         ],
-        // "baseUrl": "./src",
+        "baseUrl": "./",
         "paths": {
             "@/*": ["./src/*"],
             "@/libs/*": ["./src/libs/*"],

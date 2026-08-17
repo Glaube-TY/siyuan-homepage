@@ -1,3 +1,10 @@
+import { HOMEPAGE_COMPONENT_ROUTE_DEFINITIONS } from "../../agent-workbench/tools/homepage/homepage-agent-business-capabilities";
+
+const HOMEPAGE_COMPONENT_SUBTOOL_HINT = HOMEPAGE_COMPONENT_ROUTE_DEFINITIONS
+  .map((route) => route.prefix)
+  .join("/ ");
+const HOMEPAGE_COMPONENT_INSTANCE_HINT = "<prefix>.instance.get/add/update/update_style/move/remove";
+
 export function buildAgentSystemPrompt(options?: {
   isToolAvailable?: (toolName: string) => boolean;
   isActionAvailable?: (toolName: string, action: string) => boolean;
@@ -42,17 +49,17 @@ export function buildAgentSystemPrompt(options?: {
     "- 如果工具结果已足以回答，必须直接回答。",
     toolLine("notebrain_file", "- 检查本机安装或本地环境时使用 notebrain_file.run_command；不能用网页结果冒充本机检查结果。", "run_command"),
     toolLine("web_fetch", "- 联网结果必须来自 web_fetch 的真实结果，不要声称执行了未发生的联网查询。"),
-    toolLine("homepage_manage", "- 需要读取或调整 siyuan-homepage 主页时使用 homepage_manage；写操作前先读取当前主页和 revision，不得用 workspace file 直接修改主页数据；不确定可编辑字段时先调用可用的读取 action。"),
-    toolLine("homepage_quick_note", "- 快速笔记使用 homepage_quick_note。组件没有放在主页时，这个共享业务工具仍然可用。"),
-    toolLine("homepage_focus", "- 专注统计或补记使用 homepage_focus。组件没有放在主页时，这个共享业务工具仍然可用。"),
-    toolLine("homepage_accounting", "- 记账、收支、资产账户和财务统计使用 homepage_accounting；合计问题优先调用 summary，不要默认读取全部历史流水。"),
-    toolLine("homepage_fixed_assets", "- 固定资产和日/周/月/季/年成本统计使用 homepage_fixed_assets；修改或归档前先读取 expectedUpdatedAt。"),
-    toolLine("homepage_anniversary", "- 纪念日、生日、周年和重要日期使用 homepage_anniversary；农历与周年日期以工具返回为准，永久删除不得冒充归档。"),
-    toolLine("diary_task", "- TaskMan、TaskManPlus 与强化日记任务统一优先使用 diary_task；普通文档里的任务可使用知识库文档编辑能力直接修改目标文档。"),
-    toolLine("homepage_favorites", "- 收藏文档和收藏分组使用 homepage_favorites。"),
-    toolLine("homepage_review", "- 插件自有的文档/块复习计划使用 homepage_review。"),
+    toolLine("homepage_manage", "- 需要读取或调整 siyuan-homepage 主页（概况、布局、分栏、横幅、标题、页脚、背景、特效、状态语、主题、快捷按钮）时使用 homepage_manage；写操作前先读取当前主页和 revision，不得用 workspace file 直接修改主页数据；不确定可编辑字段时先调用可用的读取 action。"),
+    toolLine("homepage_components", `- 主页组件统一使用 homepage_components；catalog.list_types/catalog.get_type 用于查询目录，instance.list 用于获取当前主页组件及其 type/subtool；具体组件的读取、添加、修改、样式、移动、移除统一使用对应的 ${HOMEPAGE_COMPONENT_INSTANCE_HINT}，业务操作使用按组件提供的 action ${HOMEPAGE_COMPONENT_SUBTOOL_HINT}。组件没有放在主页时，业务子工具仍然可用。`),
+    toolLine("homepage_components", "- 记账、收支、资产账户和财务统计使用 accounting.*；合计问题优先调用 accounting.summary，不要默认读取全部历史流水。"),
+    toolLine("homepage_components", "- 固定资产和日/周/月/季/年成本统计使用 fixed_assets.*；修改或归档前先读取 expectedUpdatedAt。"),
+    toolLine("homepage_components", "- 纪念日、生日、周年和重要日期使用 anniversary.*；农历与周年日期以工具返回为准，永久删除不得冒充归档。"),
+    toolLine("homepage_components", "- 强化日记组件操作明确使用 homepage_components.enhanced_diary.*；通用日记任务场景才使用 diary_task。"),
+    toolLine("diary_task", "- 通用日记任务场景使用 diary_task；强化日记组件操作使用 homepage_components.enhanced_diary.*；普通文档里的任务可使用知识库文档编辑能力直接修改目标文档。"),
+    toolLine("homepage_components", "- 收藏文档和收藏分组使用 favorites.*。"),
+    toolLine("homepage_components", "- 插件自有的文档/块复习计划使用 review.*。"),
     toolLine("siyuan_riff", "- 思源官方闪卡使用 siyuan_riff。"),
-    toolLine("homepage_music", "- 音乐搜索、云端歌单/收藏和已挂载播放器控制使用 homepage_music。运行时不存在时不得创建隐藏播放器或第二个播放实例。"),
+    toolLine("homepage_components", "- 音乐搜索、云端歌单/收藏和已挂载播放器控制使用 music.*。运行时不存在时不得创建隐藏播放器或第二个播放实例。"),
     toolLine("memory_manage", "- 记忆中枢应主动但克制地使用：只记用户明确表达、长期稳定、今后有用的身份、偏好、目标、约束和项目事实；用户明确要求“记住”时 remember.reason=explicit，AI 主动学习时 reason=learned；重复事实可强化，用户更正时更新，明确要求遗忘时删除。临时请求、工具结果、助手推断、第三方资料、密码和令牌绝不能写入。"),
     "",
     "## 证据原则",

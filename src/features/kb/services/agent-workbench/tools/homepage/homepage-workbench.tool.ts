@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { ToolContract } from "../../contracts/tool-contract";
 import type { ToolResultEntry } from "../../runtime/tool-result-log";
+import { getNotebrainPlugin } from "../../storage/notebrain-plugin-storage";
 import { saveTemporaryWorkbench } from "./temporary-workbench-store";
 import {
   hasTemporaryWorkbenchLayout,
@@ -25,7 +26,9 @@ export type {
   AgentTemporaryWorkbenchSource,
 } from "./temporary-workbench-contract";
 
-export const HOMEPAGE_WORKBENCH_TOOL_NAME = "homepage_workbench";
+export const HOMEPAGE_WORKBENCH_TOOL_NAME = "temporary_workbench";
+/** 旧工具名（homepage_workbench）的历史引用兼容：collect 时同时匹配。 */
+export const LEGACY_WORKBENCH_TOOL_NAME = "homepage_workbench";
 
 const inputSchema = z.object({
   title: z.string().trim().min(1).max(80).describe("工作台标题。"),
@@ -37,7 +40,7 @@ const inputSchema = z.object({
 export function collectTemporaryWorkbenches(entries: readonly ToolResultEntry[]): AgentTemporaryWorkbench[] {
   const workbenches = new Map<string, AgentTemporaryWorkbench>();
   for (const entry of entries) {
-    if (entry.toolName !== HOMEPAGE_WORKBENCH_TOOL_NAME
+    if ((entry.toolName !== HOMEPAGE_WORKBENCH_TOOL_NAME && entry.toolName !== LEGACY_WORKBENCH_TOOL_NAME)
       || (entry.kind !== "tool_executed" && entry.kind !== "tool_observation")) continue;
     const parsed = temporaryWorkbenchManifestSchema.safeParse(entry.content);
     if (parsed.success) workbenches.set(parsed.data.id, parsed.data);
@@ -60,7 +63,14 @@ export function createHomepageWorkbenchTool(
     providerVisible: true,
     boundary: "只渲染统一仓库中的临时界面；禁止脚本、样式、外链、表单和写操作。仅 button 上的 data-siyuan-doc-id/data-siyuan-block-id 可导航到思源内容。",
     inputHint: "直接传 title 与 html，不要包 action/args。工作台不是文章：先用 wb-grid-* 排版，再把数据做成至少两个 wb-card/wb-stat/wb-item/wb-button。已有真实 docId 时可生成跳转按钮。",
-    availability: () => ({ available: true }),
+    availability: () => {
+      try {
+        getNotebrainPlugin();
+        return { available: true };
+      } catch {
+        return { available: false, reasonCode: "prerequisite_missing", hint: "插件尚未完成初始化。" };
+      }
+    },
     async execute(_ctx, args) {
       const html = sanitizeTemporaryWorkbenchHtml(args.html);
       if (!html) {

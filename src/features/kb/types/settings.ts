@@ -145,15 +145,8 @@ export type KbGlobalToolName =
   | "siyuan_asset"
   | "siyuan_riff"
   | "homepage_manage"
-  | "homepage_workbench"
-  | "homepage_quick_note"
-  | "homepage_focus"
-  | "homepage_accounting"
-  | "homepage_fixed_assets"
-  | "homepage_anniversary"
-  | "homepage_favorites"
-  | "homepage_review"
-  | "homepage_music"
+  | "homepage_components"
+  | "temporary_workbench"
   | "skill_manage"
   | "mcp_manage"
   | "notebrain_file"
@@ -163,8 +156,19 @@ export type KbGlobalToolName =
 
 /** 全局工具设置 */
 export type KbToolSettings = {
+  /**
+   * 工具设置结构版本。1 = 两顶层主页工具结构（homepage_manage + homepage_components + temporary_workbench）。
+   * 旧存储无此字段，归一化时执行一次迁移并写入 1；后续读取幂等。
+   */
+  schemaVersion?: 1;
   /** 被禁用的全局工具名称列表。agent_tool_help 永远不在此列表中（系统必需，固定启用）。 */
   disabledGlobalToolNames: KbGlobalToolName[];
+  /**
+   * 聚合工具内的子工具（dotted action 前缀）禁用列表。
+   * key = 聚合工具名（当前为 homepage_components），value = 被禁用的前缀，如 ["music"]。
+   * 父工具关闭时不注册任何子操作；重新开启后恢复原有子工具开关状态。
+   */
+  disabledSubtools?: Record<string, string[]>;
   /**
    * 无 action 的直接写工具的可信免确认名单。
    * 有 action 的聚合工具应使用 toolActionConfirmOverrides 进行 action 级覆盖。

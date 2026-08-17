@@ -60,7 +60,11 @@ const removeSectionInputSchema = z.object({ ...sectionBase, sectionId: z.string(
 const setSectionModeInputSchema = z.object({ ...sectionBase, enabled: z.boolean() }).strict();
 const setActiveSectionInputSchema = z.object({ surface: z.literal("desktop-homepage").optional(), sectionId: z.string().trim().min(1), expectedLayoutRevision: z.number().int().positive() }).strict();
 
-type ReadAction = "overview" | "list_widgets" | "get_widget" | "list_widget_types" | "get_widget_type" | "get_layout" | "list_sections";
+/** homepage_manage 的只读 action（主页级）。 */
+type GlobalReadAction = "overview" | "get_layout" | "list_sections";
+/** homepage_components 的只读 action（组件级，dotted 前缀）。 */
+type ComponentReadAction = "catalog.list_types" | "catalog.get_type" | "instance.list" | "instance.get";
+type ReadAction = GlobalReadAction | ComponentReadAction;
 
 function failure(error: unknown): ToolResult<HomepageAgentReadResult> {
   if (error instanceof HomepageAgentServiceError) {
@@ -79,7 +83,7 @@ function failure(error: unknown): ToolResult<HomepageAgentReadResult> {
   return {
     ok: false,
     data: null,
-    error: { code: "homepage_read_failed", message: error instanceof Error ? error.message : "读取主页失败。", recoverable: true },
+    error: { code: "homepage_tool_failed", message: error instanceof Error ? error.message : "主页操作失败。", recoverable: true },
   };
 }
 
@@ -87,18 +91,17 @@ function createReadActionTool(
   action: ReadAction,
   service: HomepageAgentService,
 ): ToolContract<Record<string, unknown>, HomepageAgentReadResult> {
-  const needsWidget = action === "get_widget";
-  const inputSchema = needsWidget
-    ? widgetInputSchema
-    : action === "list_widget_types"
-      ? widgetTypeListInputSchema
-      : action === "get_widget_type"
-        ? widgetTypeInputSchema
+  const inputSchema = action === "catalog.list_types"
+    ? widgetTypeListInputSchema
+    : action === "catalog.get_type"
+      ? widgetTypeInputSchema
+      : action === "instance.get"
+        ? widgetInputSchema
         : surfaceInputSchema;
   return {
     name: `homepage_${action}`,
     title: action,
-    description: `homepage_manage.${action}`,
+    description: `homepage_components.${action}`,
     inputSchema,
     readOnly: true,
     safety: { readOnly: true },
@@ -122,12 +125,12 @@ function createReadActionTool(
           categoryId?: string;
         };
         if (action === "overview") return { ok: true, data: await service.overview(args.surface) };
-        if (action === "list_widgets") return { ok: true, data: await service.listWidgets(args.surface) };
-        if (action === "get_widget") return { ok: true, data: await service.getWidget(args.surface, args.widgetId!, args.expectedType) };
-        if (action === "list_widget_types") return { ok: true, data: await service.listWidgetTypes(args.surface, args.categoryId) };
-        if (action === "get_widget_type") return { ok: true, data: await service.getWidgetType(args.surface, args.widgetType!) };
         if (action === "get_layout") return { ok: true, data: await service.getLayout(args.surface) };
-        return { ok: true, data: await service.listSections(args.surface) };
+        if (action === "list_sections") return { ok: true, data: await service.listSections(args.surface) };
+        if (action === "catalog.list_types") return { ok: true, data: await service.listWidgetTypes(args.surface, args.categoryId) };
+        if (action === "catalog.get_type") return { ok: true, data: await service.getWidgetType(args.surface, args.widgetType!) };
+        if (action === "instance.list") return { ok: true, data: await service.listWidgets(args.surface) };
+        return { ok: true, data: await service.getWidget(args.surface, args.widgetId!, args.expectedType) };
       } catch (error) {
         return failure(error);
       }
@@ -138,39 +141,48 @@ function createReadActionTool(
   };
 }
 
-export function createHomepageManageReadActionTools(service: HomepageAgentService) {
-  return (["overview", "list_widgets", "get_widget", "list_widget_types", "get_widget_type", "get_layout", "list_sections"] as const)
+export function createHomepageGlobalReadActionTools(service: HomepageAgentService) {
+  return (["overview", "get_layout", "list_sections"] as const)
     .map((action) => ({ action, tool: createReadActionTool(action, service) }));
 }
 
-type WriteAction = "add_widget" | "update_widget" | "update_widget_style" | "move_widget" | "remove_widget" | "update_layout" | "create_section" | "rename_section" | "reorder_sections" | "remove_section" | "set_section_mode" | "set_active_section";
+export function createHomepageComponentReadActionTools(service: HomepageAgentService) {
+  return (["catalog.list_types", "catalog.get_type", "instance.list", "instance.get"] as const)
+    .map((action) => ({ action, tool: createReadActionTool(action, service) }));
+}
+
+/** homepage_manage 的写 action（布局/分栏）。 */
+type GlobalWriteAction = "update_layout" | "create_section" | "rename_section" | "reorder_sections" | "remove_section" | "set_section_mode" | "set_active_section";
+/** homepage_components 的写 action（组件实例，dotted 前缀）。 */
+type ComponentWriteAction = "instance.add" | "instance.update" | "instance.update_style" | "instance.move" | "instance.remove";
+type WriteAction = GlobalWriteAction | ComponentWriteAction;
 
 function createWriteActionTool(action: WriteAction, service: HomepageAgentService): ToolContract<Record<string, unknown>, HomepageAgentReadResult> {
-  const schema = action === "add_widget" ? addWidgetInputSchema
-    : action === "update_widget" ? updateWidgetInputSchema
-      : action === "update_widget_style" ? updateWidgetStyleInputSchema
-        : action === "move_widget" ? moveWidgetInputSchema
-        : action === "remove_widget" ? removeWidgetInputSchema
-          : action === "update_layout" ? updateLayoutInputSchema
-            : action === "create_section" ? createSectionInputSchema
-              : action === "rename_section" ? renameSectionInputSchema
-                : action === "reorder_sections" ? reorderSectionsInputSchema
-                  : action === "remove_section" ? removeSectionInputSchema
-                    : action === "set_section_mode" ? setSectionModeInputSchema
-                      : setActiveSectionInputSchema;
+  const schema = action === "instance.add" ? addWidgetInputSchema
+    : action === "instance.update" ? updateWidgetInputSchema
+      : action === "instance.update_style" ? updateWidgetStyleInputSchema
+        : action === "instance.move" ? moveWidgetInputSchema
+          : action === "instance.remove" ? removeWidgetInputSchema
+            : action === "update_layout" ? updateLayoutInputSchema
+              : action === "create_section" ? createSectionInputSchema
+                : action === "rename_section" ? renameSectionInputSchema
+                  : action === "reorder_sections" ? reorderSectionsInputSchema
+                    : action === "remove_section" ? removeSectionInputSchema
+                      : action === "set_section_mode" ? setSectionModeInputSchema
+                        : setActiveSectionInputSchema;
   return {
     name: `homepage_${action}`,
     title: action,
-    description: `homepage_manage.${action}`,
+    description: `homepage_components.${action}`,
     inputSchema: schema,
     readOnly: false,
-    safety: { readOnly: false, canWrite: true, requiresConfirmation: true, riskLevel: action === "remove_widget" || action === "remove_section" ? "high" : "medium" },
+    safety: { readOnly: false, canWrite: true, requiresConfirmation: true, riskLevel: action === "instance.remove" || action === "remove_section" ? "high" : "medium" },
     source: "builtin",
     providerVisible: false,
     availability() {
       try {
         const currentSurface = service.resolveSurface();
-        if (action === "update_widget_style" && currentSurface !== "desktop-homepage") {
+        if (action === "instance.update_style" && currentSurface !== "desktop-homepage") {
           return { available: false, reasonCode: "permission_denied", hint: "移动端组件样式请由用户在界面中手动设置。" };
         }
         return { available: true };
@@ -179,11 +191,11 @@ function createWriteActionTool(action: WriteAction, service: HomepageAgentServic
     },
     async execute(_ctx, rawArgs): Promise<ToolResult<HomepageAgentReadResult>> {
       try {
-        if (action === "add_widget") return { ok: true, data: await service.addWidget(rawArgs as Parameters<HomepageAgentService["addWidget"]>[0]) };
-        if (action === "update_widget") return { ok: true, data: await service.updateWidget(rawArgs as Parameters<HomepageAgentService["updateWidget"]>[0]) };
-        if (action === "update_widget_style") return { ok: true, data: await service.updateWidgetStyle(rawArgs as Parameters<HomepageAgentService["updateWidgetStyle"]>[0]) };
-        if (action === "move_widget") return { ok: true, data: await service.moveWidget(rawArgs as Parameters<HomepageAgentService["moveWidget"]>[0]) };
-        if (action === "remove_widget") return { ok: true, data: await service.removeWidget(rawArgs as Parameters<HomepageAgentService["removeWidget"]>[0]) };
+        if (action === "instance.add") return { ok: true, data: await service.addWidget(rawArgs as Parameters<HomepageAgentService["addWidget"]>[0]) };
+        if (action === "instance.update") return { ok: true, data: await service.updateWidget(rawArgs as Parameters<HomepageAgentService["updateWidget"]>[0]) };
+        if (action === "instance.update_style") return { ok: true, data: await service.updateWidgetStyle(rawArgs as Parameters<HomepageAgentService["updateWidgetStyle"]>[0]) };
+        if (action === "instance.move") return { ok: true, data: await service.moveWidget(rawArgs as Parameters<HomepageAgentService["moveWidget"]>[0]) };
+        if (action === "instance.remove") return { ok: true, data: await service.removeWidget(rawArgs as Parameters<HomepageAgentService["removeWidget"]>[0]) };
         if (action === "update_layout") return { ok: true, data: await service.updateLayout(rawArgs as Parameters<HomepageAgentService["updateLayout"]>[0]) };
         if (action === "create_section") return { ok: true, data: await service.createSection(rawArgs as Parameters<HomepageAgentService["createSection"]>[0]) };
         if (action === "rename_section") return { ok: true, data: await service.renameSection(rawArgs as Parameters<HomepageAgentService["renameSection"]>[0]) };
@@ -197,9 +209,12 @@ function createWriteActionTool(action: WriteAction, service: HomepageAgentServic
   };
 }
 
-export function createHomepageManageActionTools(service: HomepageAgentService) {
-  return [
-    ...createHomepageManageReadActionTools(service),
-    ...(["add_widget", "update_widget", "update_widget_style", "move_widget", "remove_widget", "update_layout", "create_section", "rename_section", "reorder_sections", "remove_section", "set_section_mode", "set_active_section"] as const).map((action) => ({ action, tool: createWriteActionTool(action, service) })),
-  ];
+export function createHomepageGlobalWriteActionTools(service: HomepageAgentService) {
+  return (["update_layout", "create_section", "rename_section", "reorder_sections", "remove_section", "set_section_mode", "set_active_section"] as const)
+    .map((action) => ({ action, tool: createWriteActionTool(action, service) }));
+}
+
+export function createHomepageComponentWriteActionTools(service: HomepageAgentService) {
+  return (["instance.add", "instance.update", "instance.update_style", "instance.move", "instance.remove"] as const)
+    .map((action) => ({ action, tool: createWriteActionTool(action, service) }));
 }

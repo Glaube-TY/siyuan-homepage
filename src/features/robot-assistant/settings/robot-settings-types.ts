@@ -41,12 +41,76 @@ export interface RobotRuntimeOwner {
 
 /** 远程机器人工具权限：只回答“该工具是否允许通过远程聊天使用”。 */
 export interface RobotToolPolicy {
-  /** key = 聚合工具名（如 siyuan_kb / diary_task / homepage_accounting）。 */
+  /** key = 聚合工具名（如 siyuan_kb / diary_task / homepage_components.<subtool>）。 */
   tools: Record<string, { remoteAllowed: boolean; writeAction?: "ask" | "deny" }>;
   /** 写操作默认策略：allow / ask / deny（可被 tools 单项覆盖）。 */
   defaultWriteAction: "ask" | "deny";
   /** 只读工具默认允许。 */
   readOnlyDefaultAllowed: boolean;
+}
+
+export interface RobotAllowanceResolution {
+  remoteAllowed: boolean;
+  /** 写操作策略（仅写 action 有意义）；undefined 表示继承 defaultWriteAction。 */
+  writeAction?: "ask" | "deny";
+  /** 命中层级：subtool（完整 dotted 前缀策略）→ tool（顶层策略）→ default。 */
+  source: "subtool" | "tool" | "default";
+}
+
+/**
+ * 解析聚合工具（或直接工具）的远程策略。优先级：
+ * 完整子工具策略（homepage_components.<prefix>）→ 顶层工具策略 → 默认策略。
+ * 零依赖纯函数，可在 Node 验证脚本中直接测试。
+ */
+export function resolveRobotAllowance(
+  policy: RobotToolPolicy,
+  toolName: string,
+  action: string | undefined,
+  readOnly: boolean,
+): RobotAllowanceResolution {
+  const prefix = action?.split(".")[0];
+  const subtool = prefix ? policy.tools[`${toolName}.${prefix}`] : undefined;
+  if (subtool) {
+    return {
+      remoteAllowed: subtool.remoteAllowed,
+      ...(subtool.writeAction ? { writeAction: subtool.writeAction } : {}),
+      source: "subtool",
+    };
+  }
+  const top = policy.tools[toolName];
+  if (top) {
+    return {
+      remoteAllowed: top.remoteAllowed,
+      ...(top.writeAction ? { writeAction: top.writeAction } : {}),
+      source: "tool",
+    };
+  }
+  return {
+    remoteAllowed: readOnly && policy.readOnlyDefaultAllowed,
+    source: "default",
+  };
+}
+
+/** 解析写操作的确认策略：子工具 → 顶层 → 默认。 */
+export function resolveRobotWriteAction(
+  policy: RobotToolPolicy,
+  toolName: string,
+  action: string | undefined,
+): "ask" | "deny" {
+  const resolution = resolveRobotAllowance(policy, toolName, action, false);
+  return resolution.writeAction ?? policy.defaultWriteAction;
+}
+
+/**
+ * 判断聚合工具是否至少有一个 action 被允许（用于 homepage_components 是否注册）。
+ * 只读 action 按默认只读策略判断。
+ */
+export function hasAnyAllowedRobotAction(
+  policy: RobotToolPolicy,
+  toolName: string,
+  actions: readonly { action: string; readOnly: boolean }[],
+): boolean {
+  return actions.some((entry) => resolveRobotAllowance(policy, toolName, entry.action, entry.readOnly).remoteAllowed);
 }
 
 export interface RobotAssistantSettings {
@@ -87,12 +151,13 @@ export const ROBOT_SETTINGS_VERSION = 2;
 export const DEFAULT_ROBOT_REMOTE_TOOLS: RobotToolPolicy["tools"] = {
   siyuan_kb: { remoteAllowed: true, writeAction: "ask" },
   diary_task: { remoteAllowed: true, writeAction: "ask" },
-  homepage_quick_note: { remoteAllowed: true, writeAction: "ask" },
-  homepage_accounting: { remoteAllowed: true, writeAction: "ask" },
-  homepage_fixed_assets: { remoteAllowed: true, writeAction: "ask" },
-  homepage_anniversary: { remoteAllowed: true, writeAction: "ask" },
-  homepage_favorites: { remoteAllowed: true, writeAction: "ask" },
-  homepage_review: { remoteAllowed: true, writeAction: "ask" },
+  // 主页组件按子工具前缀开放；顶层 homepage_components 不整体开放，避免聚合后意外放行全部组件。
+  "homepage_components.quick_note": { remoteAllowed: true, writeAction: "ask" },
+  "homepage_components.accounting": { remoteAllowed: true, writeAction: "ask" },
+  "homepage_components.fixed_assets": { remoteAllowed: true, writeAction: "ask" },
+  "homepage_components.anniversary": { remoteAllowed: true, writeAction: "ask" },
+  "homepage_components.favorites": { remoteAllowed: true, writeAction: "ask" },
+  "homepage_components.review": { remoteAllowed: true, writeAction: "ask" },
   memory_manage: { remoteAllowed: true, writeAction: "ask" },
   automation_manage: { remoteAllowed: true, writeAction: "ask" },
   notification_manage: { remoteAllowed: true, writeAction: "ask" },
