@@ -3,11 +3,12 @@
  * 仅在用户通过 UI 弹窗确认后调用，不暴露给 Agent。
  * 真实写入统一走 src/api.ts 的 insertBlock wrapper。
  */
-import { sql, insertBlock } from "../../../../api";
+import { insertBlock } from "../../../../api";
 import {
   getDocContentEditConfirmation,
   removeDocContentEditConfirmation,
 } from "./doc-content-edit-confirmation-store";
+import { resolveDocEditBlock } from "./doc-content-edit-block-resolver";
 
 export interface ExecuteConfirmedInsertBlockInput {
   confirmationId: string;
@@ -24,10 +25,6 @@ export interface ExecuteConfirmedInsertBlockResult {
     docId?: string;
     title?: string;
   };
-}
-
-function escapeSqlId(id: string): string {
-  return id.replace(/'/g, "''");
 }
 
 export async function executeConfirmedInsertBlock(
@@ -85,24 +82,16 @@ export async function executeConfirmedInsertBlock(
     };
   }
 
-  // 5. 再次确认目标块存在
-  try {
-    const rows = await sql(`SELECT * FROM blocks WHERE id = '${escapeSqlId(referenceBlockId)}'`);
-    const block = rows[0] as Block | undefined;
-    if (!block) {
-      await removeDocContentEditConfirmation(confirmationId);
-      return {
-        ok: false,
-        status: "failed",
-        message: "参考块已不存在，未执行插入。",
-      };
-    }
-  } catch {
+  // 5. 再次确认目标块真实存在：SQL miss 不等同于块不存在。
+  const referenceResolution = await resolveDocEditBlock(referenceBlockId);
+  if (referenceResolution.status !== "exists") {
     await removeDocContentEditConfirmation(confirmationId);
     return {
       ok: false,
       status: "failed",
-      message: "无法查询参考块，未执行插入。",
+      message: referenceResolution.status === "missing"
+        ? "参考块已不存在，未执行插入。"
+        : "无法确认参考块状态，未执行插入。",
     };
   }
 
@@ -137,20 +126,38 @@ export async function executeConfirmedInsertBlock(
     };
   }
 
-  let insertedBlockId: string | undefined;
-  const ops = (res[0] as { doOperations?: Array<{ id?: string }> })?.doOperations;
-  if (Array.isArray(ops) && ops.length > 0) {
-    insertedBlockId = ops[0]?.id ?? undefined;
+  const operationGroups = res as Array<{ doOperations?: Array<{ action?: string; id?: string }> }>;
+  const operations = operationGroups.flatMap((group) => Array.isArray(group?.doOperations) ? group.doOperations : []);
+  const insertedOperation = operations.find((operation) => operation.action === "insert" && typeof operation.id === "string" && operation.id.trim())
+    ?? operations.find((operation) => typeof operation.id === "string" && operation.id.trim());
+  const insertedBlockId = insertedOperation?.id?.trim();
+  if (!insertedBlockId) {
+    await removeDocContentEditConfirmation(confirmationId);
+    return {
+      ok: false,
+      status: "failed",
+      message: "内容已提交，但未能确认真实 insertedBlockId。",
+    };
   }
 
-  // 内核事务先返回、SQL 索引后可见。Agent 常会立刻把 insertedBlockId 交给
-  // move/update/delete；这里短暂等待索引可见，避免下一步误报“目标块不存在”。
-  if (insertedBlockId) {
-    for (let attempt = 0; attempt < 20; attempt += 1) {
-      const rows = await sql(`SELECT id FROM blocks WHERE id = '${escapeSqlId(insertedBlockId)}' LIMIT 1`);
-      if (rows[0]) break;
-      await new Promise((resolve) => setTimeout(resolve, 50));
-    }
+  // 写入成功以内核操作返回为主；SQL 索引未同步不能阻断成功结果。
+  const insertedResolution = await resolveDocEditBlock(insertedBlockId);
+  if (insertedResolution.status !== "exists") {
+    await removeDocContentEditConfirmation(confirmationId);
+    return {
+      ok: false,
+      status: "failed",
+      message: insertedResolution.status === "missing"
+        ? "内容已提交，但新块已无法读取，未能确认写入结果。"
+        : "内容已提交，但暂时无法确认新块可读性。",
+      target: {
+        referenceBlockId,
+        position,
+        insertedBlockId,
+        docId: confirmation.target.docId,
+        title: confirmation.target.title,
+      },
+    };
   }
 
   // 8. 成功后清理 confirmation

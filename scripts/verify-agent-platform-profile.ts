@@ -52,8 +52,18 @@ import { createComponentSubtoolGate } from "../src/features/robot-assistant/agen
 import { HOMEPAGE_AGENT_WIDGET_CATALOG } from "../src/features/kb/services/agent-workbench/tools/homepage/homepage-agent-widget-catalog";
 import { HomepageAgentService, providerBusinessCapability } from "../src/features/kb/services/agent-workbench/tools/homepage/homepage-agent-service";
 import { validateTitleIconEmoji } from "../src/features/kb/services/agent-workbench/tools/homepage/homepage-settings-whitelist";
+import { siyuanNotebookManageInputSchema } from "../src/features/kb/services/agent-workbench/tools/siyuan/contracts/siyuan-notebook-manage.contract";
 
 const profile = getAgentProfile(KNOWLEDGE_CHAT_AGENT_PROFILE_ID);
+
+// siyuan_notebook_manage.set_icon 允许空字符串清除图标，但仍要求字段存在且为字符串。
+assert.equal(siyuanNotebookManageInputSchema.safeParse({ action: "set_icon", notebook: "verify-notebook", icon: "1f4d4" }).success, true);
+assert.equal(siyuanNotebookManageInputSchema.safeParse({ action: "set_icon", notebook: "verify-notebook", icon: "" }).success, true);
+assert.equal(siyuanNotebookManageInputSchema.safeParse({ action: "set_icon", notebook: "verify-notebook" }).success, false);
+assert.equal(siyuanNotebookManageInputSchema.safeParse({ action: "set_icon", notebook: "verify-notebook", icon: null }).success, false);
+assert.equal(siyuanNotebookManageInputSchema.safeParse({ action: "list" }).success, true);
+assert.equal(siyuanNotebookManageInputSchema.safeParse({ action: "create", name: "verify-notebook" }).success, true);
+assert.equal(siyuanNotebookManageInputSchema.safeParse({ action: "set_conf", notebook: "verify-notebook", conf: {} }).success, true);
 
 assert.equal(profile.schemaVersion, AGENT_PROFILE_SCHEMA_VERSION);
 assert.equal(profile.execution.defaultMaxToolCalls, 20);
@@ -759,6 +769,26 @@ for (const [action, expectedRisk] of [
   assert.equal((preview.argsPreview as Record<string, unknown>).action, action, `${action} 预览必须保留完整 dotted action`);
   assert.equal(preview.risk, expectedRisk, `${action} 风险等级必须保持`);
 }
+const fakeNotebookManageTool: NativeTool = {
+  ...fakeComponentsTool,
+  name: "siyuan_notebook_manage",
+  title: "管理笔记本",
+};
+const clearNotebookIconPreview = buildToolPermissionPreview(fakeNotebookManageTool, {
+  action: "set_icon",
+  notebook: "verify-notebook",
+  icon: "",
+});
+const setNotebookIconPreview = buildToolPermissionPreview(fakeNotebookManageTool, {
+  action: "set_icon",
+  notebook: "verify-notebook",
+  icon: "1f4d4",
+});
+assert.equal(clearNotebookIconPreview.toolName, "siyuan_notebook_manage");
+assert.equal((clearNotebookIconPreview.argsPreview as Record<string, unknown>).icon, "");
+assert.equal(clearNotebookIconPreview.targetSummary, "notebook: verify-notebook");
+assert.match(clearNotebookIconPreview.impactSummary ?? "", /清除笔记本图标/);
+assert.match(setNotebookIconPreview.impactSummary ?? "", /设置笔记本图标：1f4d4/);
 
 // ── 9. catalog.get_type 不返回旧死工具名 ──
 for (const type of ["musicPlayer", "accounting", "quick-notes", "focus"]) {

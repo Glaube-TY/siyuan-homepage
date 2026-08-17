@@ -7,12 +7,9 @@ import { createDocContentEditConfirmation } from "../../../../doc-content-edit/d
 import { requestDocContentEditConfirmation } from "../../../../doc-content-edit/doc-content-edit-confirmation-bridge";
 import { executeConfirmedInsertBlock } from "../../../../doc-content-edit/doc-content-edit-insert-block-executor";
 import { removeDocContentEditConfirmation } from "../../../../doc-content-edit/doc-content-edit-confirmation-store";
+import { resolveDocEditBlock } from "../../../../doc-content-edit/doc-content-edit-block-resolver";
 import type { SiyuanToolDeps } from "../siyuan-tool-deps";
 import { resolveDisplayPath, resolveNotebookName } from "../../../../doc-content-edit/doc-content-edit-display";
-
-function escapeSqlId(id: string): string {
-  return id.replace(/'/g, "''");
-}
 
 export interface InsertBlockImplDeps extends SiyuanToolDeps {
   conversationId: string;
@@ -29,43 +26,59 @@ export async function prepareInsertBlockConfirmation(
   const position = args.position;
   const markdown = args.markdown;
 
-  // 1. 确认目标块存在
-  const rows = await sql(`SELECT * FROM blocks WHERE id = '${escapeSqlId(referenceBlockId)}'`);
-  const block = rows[0] as Block | undefined;
-  if (!block) {
+  // 1. 确认目标块存在：SQL miss 时使用思源内核 API，不把索引延迟当成不存在。
+  const resolution = await resolveDocEditBlock(referenceBlockId);
+  if (resolution.status !== "exists") {
     const prepareResult: PreparedInsertBlockConfirmation = {
       confirmationId: "",
       action: "insert_block",
       target: { referenceBlockId, position },
       riskLevel: "high",
-      message: "参考块不存在。",
+      message: resolution.status === "missing" ? "参考块不存在。" : "无法确认参考块状态，未准备添加确认。",
     };
     return { prepareResult };
+  }
+  const block = resolution.block;
+  if (!block.rootId) {
+    return {
+      prepareResult: {
+        confirmationId: "",
+        action: "insert_block",
+        target: { referenceBlockId, position },
+        riskLevel: "high",
+        message: "无法读取参考块所在文档，未准备添加确认。",
+      },
+    };
   }
 
   // 2. beforeSnapshot：参考块内容（用于展示上下文）
   let beforeSnapshot: string;
   let warnings: string[] = [];
   try {
-    const kramdownRes = await getBlockKramdown(referenceBlockId);
-    beforeSnapshot = kramdownRes?.kramdown ?? "";
+    beforeSnapshot = block.kramdown ?? (await getBlockKramdown(referenceBlockId))?.kramdown ?? "";
   } catch {
-    beforeSnapshot = (block as Block).markdown ?? (block as Block).content ?? "";
+    beforeSnapshot = block.markdown ?? block.content ?? block.rootTitle ?? "";
     warnings.push("无法读取参考块 kramdown，已回退到 markdown/content。");
   }
 
   // 3. 保留执行快照，同时用真实文档上下文构造 Git 式新增 Diff。
   const positionLabel = position === "before" ? "上方" : position === "after" ? "下方" : "子块";
   const afterSnapshot = markdown;
-  const displayPath = await resolveDisplayPath(block.root_id);
-  const notebookName = await resolveNotebookName(block.box);
-  const documentResult = await getBlockKramdown(block.root_id);
+  const displayPath = await resolveDisplayPath(block.rootId);
+  const notebookName = block.box ? await resolveNotebookName(block.box) : undefined;
+  const documentResult = await getBlockKramdown(block.rootId);
   const documentKramdown = documentResult?.kramdown ?? "";
   if (!documentKramdown) {
     throw new Error("无法读取参考块所在文档的完整上下文，未准备添加确认。");
   }
-  const documentRows = await sql(`SELECT content FROM blocks WHERE id = '${escapeSqlId(block.root_id)}' AND type = 'd' LIMIT 1`);
-  const documentTitle = (documentRows[0] as Pick<Block, "content"> | undefined)?.content || "未命名文档";
+  let documentTitle = block.rootTitle || "未命名文档";
+  try {
+    const documentRows = await sql(`SELECT content FROM blocks WHERE id = '${block.rootId.replace(/'/g, "''")}' AND type = 'd' LIMIT 1`);
+    documentTitle = (documentRows[0] as Pick<Block, "content"> | undefined)?.content || documentTitle;
+  } catch {
+    warnings.push("文档索引尚未同步，已使用内核返回的文档标题。");
+  }
+  const referenceTitle = block.content?.slice(0, 100) || block.rootTitle || "参考内容块";
   const proposedDocument = previewInsertedBlockInDocument(documentKramdown, beforeSnapshot, markdown, position);
   if (proposedDocument === undefined) {
     throw new Error("无法在完整文档中定位参考内容块，未准备添加确认。");
@@ -97,8 +110,8 @@ export async function prepareInsertBlockConfirmation(
     toolInput: { referenceBlockId, position, markdown, summary: undefined },
     target: {
       referenceBlockId,
-      docId: block.root_id,
-      title: block.content?.slice(0, 100),
+      docId: block.rootId,
+      title: referenceTitle,
       displayPath,
       notebookName,
     },
@@ -109,7 +122,7 @@ export async function prepareInsertBlockConfirmation(
       destination: {
         label: notebookName || "目标笔记本",
         path: displayPath,
-        detail: `在「${block.content?.slice(0, 100) || "参考内容块"}」${positionLabel}`,
+        detail: `在「${referenceTitle}」${positionLabel}`,
       },
       method: `以 Markdown 内容块形式插入到参考块${positionLabel}`,
       addedContent: markdown,
@@ -127,8 +140,8 @@ export async function prepareInsertBlockConfirmation(
     target: {
       referenceBlockId,
       position,
-      docId: block.root_id,
-      title: block.content?.slice(0, 100),
+      docId: block.rootId,
+      title: referenceTitle,
     },
     riskLevel: riskResult.riskLevel,
     warnings: warnings.length > 0 ? warnings : undefined,
@@ -175,12 +188,12 @@ export async function executeInsertBlock(
     };
   }
 
-  // 若准备阶段已发现参考块不存在，直接返回失败
-  if (prepareResult.message === "参考块不存在。") {
+  // 准备阶段未能建立确认时，不进入确认桥，更不能让空 confirmationId 继续执行。
+  if (!prepareResult.confirmationId) {
     return {
       output: {
         status: "failed",
-        message: "参考块不存在。",
+        message: prepareResult.message,
         target: { referenceBlockId, position },
       },
     };

@@ -13,6 +13,13 @@ import type { SiyuanToolOutput } from "../contracts/siyuan-common.contract";
 import type { SiyuanNotebookManageInput } from "../contracts/siyuan-notebook-manage.contract";
 import { outputForAction, requireString } from "./siyuan-tool-impl-utils.impl";
 
+function requirePresentString(value: unknown, field: string): string {
+  if (typeof value !== "string") {
+    throw new Error(`${field} 必须是字符串。`);
+  }
+  return value;
+}
+
 export async function executeSiyuanNotebookManage(args: SiyuanNotebookManageInput): Promise<{ output: SiyuanToolOutput }> {
   let data: unknown;
   switch (args.action) {
@@ -41,7 +48,7 @@ export async function executeSiyuanNotebookManage(args: SiyuanNotebookManageInpu
       data = await setNotebookConfChecked(requireString(args.notebook, "notebook"), args.conf as any);
       break;
     case "set_icon":
-      data = await setNotebookIcon(requireString(args.notebook, "notebook"), requireString(args.icon, "icon"));
+      data = await setNotebookIcon(requireString(args.notebook, "notebook"), requirePresentString(args.icon, "icon"));
       break;
     case "remove":
       await removeNotebookChecked(requireString(args.notebook, "notebook"));

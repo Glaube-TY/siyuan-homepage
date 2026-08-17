@@ -60,11 +60,21 @@ export type {
   AgentContextManifestEntry,
   AgentContextSourceId,
 } from "./runtime/agent-context-ledger";
-export { inspectAgentRunResume } from "../agent-core/session/agent-run-checkpoint";
+export {
+  buildAgentResumeProgress,
+  getAgentRecoveryContextFingerprint,
+  hasAgentResumeProgress,
+  inspectAgentRunResume,
+  isRecoveryGuardOnlyResult,
+  markAgentRunCheckpointNoProgress,
+} from "../agent-core/session/agent-run-checkpoint";
 export type {
   AgentRunCheckpoint,
   AgentRunCheckpointPhase,
   AgentRunResumeDecision,
+  AgentRecoveryContext,
+  AgentResumeProgress,
+  AgentSuccessfulWriteGuard,
 } from "../agent-core/session/agent-run-checkpoint";
 export { ToolExecutor } from "./runtime/tool-executor";
 export type { ToolCall, ExecutionOutcome } from "./runtime/tool-executor";

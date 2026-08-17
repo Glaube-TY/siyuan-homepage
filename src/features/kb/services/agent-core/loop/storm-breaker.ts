@@ -1,4 +1,5 @@
 import type { AgentToolCall } from "../messages/agent-message";
+import type { AgentSuccessfulWriteGuard } from "../session/agent-run-checkpoint";
 import type { NativeTool } from "../tools/native-tool";
 
 function stableStringify(value: unknown): string {
@@ -127,6 +128,7 @@ export class StormBreaker {
   private readonly successfulWriteCalls = new Set<string>();
   private readonly readCallHistory = new Set<string>();
   private readonly successfulWriteCallInfo = new Map<string, DuplicateGuardInfo>();
+  private readonly successfulWriteGuardInfoByDigest = new Map<string, AgentSuccessfulWriteGuard>();
   private readonly readCallInfo = new Map<string, DuplicateGuardInfo>();
   private readonly failedCallHistory = new Map<string, FailedCallInfo>();
   private readonly failedCallByGuardKey = new Map<string, FailedCallInfo>();
@@ -142,12 +144,34 @@ export class StormBreaker {
 
   shouldBlockWrite(toolCall: AgentToolCall, args: Record<string, unknown>): boolean {
     const key = buildGuardKey(toolCall.name, args);
-    return this.successfulWriteCalls.has(key);
+    return this.successfulWriteCalls.has(key)
+      || this.successfulWriteGuardInfoByDigest.has(digestText(key));
   }
 
   getDuplicateWriteInfo(toolCall: AgentToolCall, args: Record<string, unknown>): DuplicateGuardInfo {
     const key = buildGuardKey(toolCall.name, args);
-    return this.successfulWriteCallInfo.get(key) ?? { keyDigest: digestText(key) };
+    const keyDigest = digestText(key);
+    return this.successfulWriteCallInfo.get(key)
+      ?? this.successfulWriteGuardInfoByDigest.get(keyDigest)
+      ?? { keyDigest };
+  }
+
+  hydrateSuccessfulWriteGuards(guards: readonly AgentSuccessfulWriteGuard[] | undefined): void {
+    for (const guard of guards ?? []) {
+      if (!guard || typeof guard.toolName !== "string" || !guard.toolName.trim()) continue;
+      if (!/^[0-9a-f]{8}$/i.test(guard.keyDigest)) continue;
+      this.successfulWriteGuardInfoByDigest.set(guard.keyDigest.toLowerCase(), {
+        toolName: guard.toolName.trim(),
+        keyDigest: guard.keyDigest.toLowerCase(),
+        ...(Number.isInteger(guard.firstStepIndex) && guard.firstStepIndex >= 0
+          ? { firstStepIndex: guard.firstStepIndex }
+          : {}),
+      });
+    }
+  }
+
+  getSuccessfulWriteGuards(): AgentSuccessfulWriteGuard[] {
+    return [...this.successfulWriteGuardInfoByDigest.values()].map((guard) => ({ ...guard }));
   }
 
   getDuplicateReadInfo(toolCall: AgentToolCall, args: Record<string, unknown>): DuplicateGuardInfo {
@@ -265,9 +289,13 @@ export class StormBreaker {
 
   markWriteSuccess(toolCall: AgentToolCall, args: Record<string, unknown>, stepIndex?: number): void {
     const key = buildGuardKey(toolCall.name, args);
+    const keyDigest = digestText(key);
     this.successfulWriteCalls.add(key);
     if (!this.successfulWriteCallInfo.has(key)) {
-      this.successfulWriteCallInfo.set(key, { firstStepIndex: stepIndex, keyDigest: digestText(key) });
+      this.successfulWriteCallInfo.set(key, { firstStepIndex: stepIndex, keyDigest });
+    }
+    if (!this.successfulWriteGuardInfoByDigest.has(keyDigest)) {
+      this.successfulWriteGuardInfoByDigest.set(keyDigest, { toolName: toolCall.name, firstStepIndex: stepIndex, keyDigest });
     }
     this.readStateEpoch += 1;
   }

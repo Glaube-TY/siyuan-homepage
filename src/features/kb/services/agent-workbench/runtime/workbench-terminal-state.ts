@@ -94,12 +94,18 @@ export function getAgentRecoveryPresentation(
     };
   }
 
-  const reason = decision.reason === "side_effect_unknown"
+  const reason = decision.reason === "no_progress"
+    ? "从当前检查点恢复后模型仍未产生有效输出，已停止重复恢复；请重新尝试本轮或更换模型。"
+    : decision.reason === "side_effect_unknown"
     ? "上一个操作结果未知，为避免重复写入，已禁止自动继续。"
     : decision.reason === "confirmation_pending"
       ? "中断时仍在等待操作确认，本次确认已失效。"
       : decision.reason === "tool_pending"
         ? "中断前已有尚未执行的工具计划，为避免误操作，已禁止自动继续。"
         : "本轮已经结束，不能继续执行。";
-  return { resumable: false, title: "需要重新确认", summary: `${prefix}${reason}` };
+  return {
+    resumable: false,
+    title: decision.reason === "no_progress" ? "恢复未取得进展" : "需要重新确认",
+    summary: `${prefix}${reason}`,
+  };
 }

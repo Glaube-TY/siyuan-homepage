@@ -1181,12 +1181,19 @@ function buildSiyuanActionPreview(tool: NativeTool, args: Record<string, unknown
   if (tool.name === "siyuan_tag_manage" || tool.name === "siyuan_bookmark_manage") {
     impactLines.push("会改变标签/书签组织信息，删除后可能影响资料组织。");
   }
+  if (tool.name === "siyuan_notebook_manage" && action === "set_icon") {
+    if (args.icon === "") {
+      impactLines.push("清除笔记本图标。");
+    } else if (typeof args.icon === "string") {
+      impactLines.push(`设置笔记本图标：${args.icon}。`);
+    }
+  }
   if (impactLines.length === 0) {
     impactLines.push("该操作会写入思源数据或状态；用户拒绝、取消或失败时不能声称成功。");
   }
 
   const argsPreview: Record<string, unknown> = { action };
-  for (const key of ["id", "notebook", "path", "label", "deckID", "cardID", "avID", "viewID"]) {
+  for (const key of ["id", "notebook", "icon", "path", "label", "deckID", "cardID", "avID", "viewID"]) {
     if (args[key] !== undefined) argsPreview[key] = compactValue(args[key]);
   }
 

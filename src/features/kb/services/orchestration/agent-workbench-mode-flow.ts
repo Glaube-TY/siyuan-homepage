@@ -994,6 +994,11 @@ export async function runAgentWorkbenchModeFlow(
       && inspectAgentRunResume(latestRunCheckpoint).resumable
       ? latestRunCheckpoint
       : undefined;
+    const noProgressFailureCheckpoint = !agentTurnOutcome.ok
+      && latestRunCheckpoint?.recoveryExhausted === true
+      ? latestRunCheckpoint
+      : undefined;
+    const failureCheckpointForDisplay = resumableFailureCheckpoint ?? noProgressFailureCheckpoint;
     if (resumableFailureCheckpoint) {
       failTurnJournal({ reason: "recoverable_failure" });
     }
@@ -1104,8 +1109,8 @@ export async function runAgentWorkbenchModeFlow(
                 temporaryWorkbenches: result.temporaryWorkbenches,
                 isComplete: !isPartialProviderAnswer,
                 agentStatus: undefined,
-                agentRecovery: resumableFailureCheckpoint && actualUserMessageId
-                  ? { checkpoint: resumableFailureCheckpoint, userMessageId: actualUserMessageId }
+                agentRecovery: failureCheckpointForDisplay && actualUserMessageId
+                  ? { checkpoint: failureCheckpointForDisplay, userMessageId: actualUserMessageId }
                   : undefined,
                 // Ensure reasoning status is "done" at finalize
                 reasoning: m.reasoning && m.reasoning.status === "streaming"

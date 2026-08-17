@@ -35,7 +35,14 @@ import {
 } from "../skills/external/external-skill-index";
 import type { AgentStreamEvent } from "../../agent-core/loop/stream-event";
 import { AgentSession } from "../../agent-core/session/agent-session";
-import { inspectAgentRunResume, type AgentRunCheckpoint } from "../../agent-core/session/agent-run-checkpoint";
+import {
+  buildAgentResumeProgress,
+  hasAgentResumeProgress,
+  inspectAgentRunResume,
+  markAgentRunCheckpointNoProgress,
+  type AgentRunCheckpoint,
+  type AgentSuccessfulWriteGuard,
+} from "../../agent-core/session/agent-run-checkpoint";
 import type { AgentContextManifest } from "./agent-context-ledger";
 import type { AgentMessage, AgentToolCall } from "../../agent-core/messages/agent-message";
 import { compactAgentSessionMessagesForStorage } from "../../agent-core/messages/message-compactor";
@@ -198,6 +205,26 @@ function sanitizePendingToolCalls(calls: readonly AgentToolCall[] | undefined): 
   if (!calls?.length) return undefined;
   const message = sanitizeMessageForStorage({ role: "assistant", content: "", toolCalls: [...calls] });
   return message.role === "assistant" ? message.toolCalls : undefined;
+}
+
+function sanitizeSuccessfulWriteGuards(
+  guards: readonly AgentSuccessfulWriteGuard[] | undefined,
+): AgentSuccessfulWriteGuard[] | undefined {
+  const sanitized = (guards ?? [])
+    .filter((guard) => (
+      typeof guard?.toolName === "string"
+      && guard.toolName.trim().length > 0
+      && typeof guard.keyDigest === "string"
+      && /^[0-9a-f]{8}$/i.test(guard.keyDigest)
+    ))
+    .map((guard) => ({
+      toolName: guard.toolName.trim(),
+      keyDigest: guard.keyDigest.toLowerCase(),
+      ...(Number.isInteger(guard.firstStepIndex) && guard.firstStepIndex >= 0
+        ? { firstStepIndex: guard.firstStepIndex }
+        : {}),
+    }));
+  return sanitized.length > 0 ? sanitized : undefined;
 }
 
 export async function runAgentProfile<TResult>(
@@ -532,6 +559,17 @@ export async function runAgentProfile<TResult>(
         identity,
       });
     }
+    const resumeAttempt = params.resumeCheckpoint
+      ? (params.resumeCheckpoint.resumeAttempt ?? 0) + 1
+      : undefined;
+    if (params.resumeCheckpoint) {
+      pushAgentDebugEvent("AGENT_RESUME_STARTED_SAFE", {
+        checkpointPhase: params.resumeCheckpoint.phase,
+        stepIndex: params.resumeCheckpoint.stepIndex,
+        resumeAttempt,
+        sideEffectState: params.resumeCheckpoint.sideEffectState,
+      }, "info");
+    }
     const session = new AgentSession(conversationId, params.resumeCheckpoint?.messages ?? []);
     let reasoningStarted = false;
     let answerFinished = false;
@@ -554,6 +592,21 @@ export async function runAgentProfile<TResult>(
       }
     }
 
+    let latestCheckpoint: AgentRunCheckpoint | undefined = params.resumeCheckpoint;
+    const handleCheckpoint = (checkpoint: AgentRunCheckpoint): void => {
+      if (!params.onCheckpoint) {
+        latestCheckpoint = checkpoint;
+        return;
+      }
+      const safeCheckpoint: AgentRunCheckpoint = {
+        ...checkpoint,
+        messages: compactAndSanitizeAgentMessages(checkpoint.messages),
+        pendingToolCalls: sanitizePendingToolCalls(checkpoint.pendingToolCalls),
+        successfulWriteGuards: sanitizeSuccessfulWriteGuards(checkpoint.successfulWriteGuards),
+      };
+      latestCheckpoint = safeCheckpoint;
+      params.onCheckpoint?.(safeCheckpoint);
+    };
     const loop = new NativeToolAgentLoop({
       provider,
       toolRegistry: nativeToolRegistry,
@@ -575,16 +628,14 @@ export async function runAgentProfile<TResult>(
       unattendedWritePolicy: params.unattendedWritePolicy,
       abortSignal: params.abortSignal,
       maxToolCalls: params.maxToolCalls ?? settings.agentMaxToolCallsPerTurn ?? agentProfile.execution.defaultMaxToolCalls,
+      resumeAttempt,
+      resumeStepIndex: params.resumeCheckpoint?.stepIndex,
+      resumeContext: params.resumeCheckpoint?.recoveryContext,
+      successfulWriteGuards: params.resumeCheckpoint?.successfulWriteGuards,
       validateFinalAnswer: params.validateFinalAnswer
         ? (answer) => params.validateFinalAnswer?.(answer, wb.observationLog.all())
         : undefined,
-      onCheckpoint: params.onCheckpoint
-        ? (checkpoint) => params.onCheckpoint?.({
-            ...checkpoint,
-            messages: compactAndSanitizeAgentMessages(checkpoint.messages),
-            pendingToolCalls: sanitizePendingToolCalls(checkpoint.pendingToolCalls),
-          })
-        : undefined,
+      onCheckpoint: handleCheckpoint,
       onEvent: (event) => {
         if (shouldStoreWorkbenchEvent(event)) {
           emitNativeEvent(event);
@@ -616,6 +667,39 @@ export async function runAgentProfile<TResult>(
       },
     });
     const loopResult = params.resumeCheckpoint ? await loop.resume() : await loop.run(params.question);
+    if (params.resumeCheckpoint) {
+      const resumeToolResults = localEvents.filter((event) => event.type === "tool_result");
+      const resumeProgress = buildAgentResumeProgress({
+        producedToolCall: localEvents.some((event) => event.type === "tool_start"),
+        addedToolResult: resumeToolResults.length > 0,
+        producedSuccessfulToolResult: resumeToolResults.some((event) => event.result.ok),
+        producedFinal: loopResult.answer.trim().length > 0,
+        stepAdvanced: loopResult.steps > (params.resumeCheckpoint.stepIndex ?? 0),
+        toolResultCodes: resumeToolResults
+          .map((event) => event.result.errorCode ?? event.result.code)
+          .filter((code): code is string => typeof code === "string"),
+        previousRecoveryContext: params.resumeCheckpoint.recoveryContext,
+        latestRecoveryContext: latestCheckpoint?.recoveryContext,
+      });
+      const exhaustedCheckpoint = markAgentRunCheckpointNoProgress(
+        latestCheckpoint,
+        resumeProgress,
+        loopResult.errorCode,
+      );
+      if (exhaustedCheckpoint) handleCheckpoint(exhaustedCheckpoint);
+      pushAgentDebugEvent("AGENT_RESUME_PROGRESS_SAFE", {
+        resumeAttempt,
+        ...resumeProgress,
+      }, "info");
+      if (!hasAgentResumeProgress(resumeProgress)) {
+        pushAgentDebugEvent("AGENT_RESUME_NO_PROGRESS", {
+          resumeAttempt,
+          checkpointPhase: latestCheckpoint?.phase,
+          stepIndex: latestCheckpoint?.stepIndex,
+          failureCode: loopResult.errorCode,
+        }, "warn");
+      }
+    }
     const loopOk = loopResult.status === "answer_ready";
 
     if (loopOk && !answerFinished) {

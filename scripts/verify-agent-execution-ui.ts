@@ -52,6 +52,9 @@ const toolResult = event({
 assert.equal(getWorkbenchRunPresentation([toolResult]).active, false);
 assert.equal(getAgentRecoveryPresentation(checkpoint, [toolResult]).resumable, true);
 assert.match(getAgentRecoveryPresentation({ ...checkpoint, sideEffectState: "unknown" }, [toolResult]).summary, /禁止自动继续/);
+const exhaustedRecovery = getAgentRecoveryPresentation({ ...checkpoint, recoveryExhausted: true }, [toolResult]);
+assert.equal(exhaustedRecovery.resumable, false);
+assert.match(exhaustedRecovery.summary, /仍未产生有效输出/);
 
 const diaryTool = { name: "diary_task", title: "日记任务", readOnly: false } as NativeTool;
 const diaryPreview = buildToolPermissionPreview(diaryTool, {

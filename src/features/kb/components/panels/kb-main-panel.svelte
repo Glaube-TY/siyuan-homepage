@@ -89,6 +89,7 @@
 
   // 使用 $ 前缀自动订阅 store 状态
   $: asking = $kbSessionStore.asking;
+  let resumeAgentInFlight = false;
   $: messages = $kbSessionStore.messages;
   $: storedSelectedMode = $kbSessionStore.selectedMode;
   $: draftQuestion = $kbSessionStore.draftQuestion;
@@ -759,7 +760,7 @@
   }
 
   async function handleResumeAgent(e: CustomEvent<{ assistantMessageId: string }>) {
-    if (asking) return;
+    if (asking || resumeAgentInFlight) return;
     const assistant = messages.find((message) =>
       message.role === "assistant" && message.id === e.detail.assistantMessageId
     );
@@ -774,17 +775,31 @@
     const effectiveMode = rawMode && CHAT_MODES.some((item) => item.id === rawMode)
       ? rawMode
       : selectedMode;
-    await handleAskByModeWithExistingUser(
-      effectiveMode,
-      user.content,
-      user.id,
-      undefined,
-      requestContext?.customDocIds,
-      requestContext?.attachedDocs,
-      $kbSessionStore.thinkingMode ?? (requestContext?.thinkingMode as import("../../types/session").ThinkingMode | undefined) ?? "off",
-      webSearchEnabled ? (requestContext?.webAccessMode ?? storedWebAccessMode) : "off",
-      assistant.agentRecovery,
-    );
+    resumeAgentInFlight = true;
+    kbSessionStore.update((state) => ({
+      ...state,
+      asking: true,
+      qaError: "",
+      error: "",
+    }));
+    try {
+      await handleAskByModeWithExistingUser(
+        effectiveMode,
+        user.content,
+        user.id,
+        undefined,
+        requestContext?.customDocIds,
+        requestContext?.attachedDocs,
+        $kbSessionStore.thinkingMode ?? (requestContext?.thinkingMode as import("../../types/session").ThinkingMode | undefined) ?? "off",
+        webSearchEnabled ? (requestContext?.webAccessMode ?? storedWebAccessMode) : "off",
+        assistant.agentRecovery,
+      );
+    } finally {
+      resumeAgentInFlight = false;
+      if ($kbSessionStore.asking) {
+        kbSessionStore.update((state) => ({ ...state, asking: false }));
+      }
+    }
   }
 
   // 切换会话侧边栏显示

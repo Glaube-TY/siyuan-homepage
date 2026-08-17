@@ -1341,10 +1341,11 @@ export const AGGREGATE_TOOL_CATALOG: AggregateToolMeta[] = [
       {
         name: "notebook",
         title: "管理笔记本",
-        description: "列出、创建、打开、关闭、重命名、配置、设置图标或删除笔记本。",
+        description: "列出、创建、打开、关闭、重命名、配置、设置图标或删除笔记本；set_icon 的 icon 为非空字符串时设置图标，传空字符串时清除图标。",
         readOnly: false,
         notes: [
           "create/open/close/rename/set_conf/set_icon/remove 必须只用于临时测试笔记本。",
+          "set_icon 的 icon 为非空字符串时设置图标，传空字符串时清除自定义图标；两者都调用 set_icon。",
           "remove 只能删除本轮创建的临时空笔记本，不得删除用户真实笔记本。",
         ],
       },

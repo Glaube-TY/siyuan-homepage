@@ -16,7 +16,7 @@ export const siyuanNotebookManageInputSchema = z.object({
   if (value.action === "rename" && !value.name) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, message: "rename 需要 notebook 和 name。", path: ["name"] });
   }
-  if (value.action === "set_icon" && !value.icon) {
+  if (value.action === "set_icon" && value.icon === undefined) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, message: "set_icon 需要 notebook 和 icon。", path: ["icon"] });
   }
   if (value.action === "set_conf" && value.conf === undefined) {
