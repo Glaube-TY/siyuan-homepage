@@ -7,7 +7,7 @@ import {
   setImageOCRText,
 } from "../../../../../../../api";
 import type { SiyuanToolOutput } from "../contracts/siyuan-common.contract";
-import { isDisposableAssetPath, toSiyuanAssetApiPath, type SiyuanAssetManageInput } from "../contracts/siyuan-asset-manage.contract";
+import { isDisposableAssetPath, isPdfAnnotationAssetPath, toSiyuanAssetApiPath, type SiyuanAssetManageInput } from "../contracts/siyuan-asset-manage.contract";
 import { outputForAction, requireString, requireStringArray } from "./siyuan-tool-impl-utils.impl";
 
 function requireDisposablePath(value: unknown, field: string): string {
@@ -25,7 +25,16 @@ export async function executeSiyuanAssetManage(args: SiyuanAssetManageInput): Pr
       data = await renameAsset(toSiyuanAssetApiPath(requireString(args.path, "path")), requireString(args.newName, "newName"));
       break;
     case "set_annotation":
-      data = await setFileAnnotation(toSiyuanAssetApiPath(requireString(args.path, "path")), args.annotation ?? "");
+      {
+        const path = requireString(args.path, "path");
+        if (!isPdfAnnotationAssetPath(path)) {
+          throw new Error("[invalid_args] set_annotation 只支持 PDF 资源或对应的 .pdf.sya 标注文件。");
+        }
+        data = await setFileAnnotation(
+          toSiyuanAssetApiPath(path),
+          args.clear === true ? { clear: true } : { annotation: args.annotation },
+        );
+      }
       break;
     case "set_image_ocr":
       data = await setImageOCRText(toSiyuanAssetApiPath(requireString(args.path, "path")), args.text ?? "");

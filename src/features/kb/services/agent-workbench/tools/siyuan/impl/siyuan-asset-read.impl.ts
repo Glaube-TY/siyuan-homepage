@@ -10,7 +10,7 @@ import {
 } from "../../../../../../../api";
 import type { SiyuanToolOutput } from "../contracts/siyuan-common.contract";
 import type { SiyuanAssetReadInput } from "../contracts/siyuan-asset-read.contract";
-import { toSiyuanAssetApiPath } from "../contracts/siyuan-asset-manage.contract";
+import { isPdfAnnotationAssetPath, toSiyuanAssetApiPath } from "../contracts/siyuan-asset-manage.contract";
 import { readAssetTextContentByPath } from "./siyuan-asset-content.impl";
 import { outputForAction, requireString } from "./siyuan-tool-impl-utils.impl";
 
@@ -33,7 +33,13 @@ export async function executeSiyuanAssetRead(args: SiyuanAssetReadInput): Promis
       data = await getMissingAssets();
       break;
     case "file_annotation":
-      data = await getFileAnnotation(toSiyuanAssetApiPath(requireString(args.path, "path")));
+      {
+        const path = requireString(args.path, "path");
+        if (!isPdfAnnotationAssetPath(path)) {
+          throw new Error("[invalid_args] file_annotation 只支持 PDF 资源或对应的 .pdf.sya 标注文件。");
+        }
+        data = await getFileAnnotation(toSiyuanAssetApiPath(path));
+      }
       break;
     case "image_ocr":
       data = await getImageOCRText(toSiyuanAssetApiPath(requireString(args.path, "path")));

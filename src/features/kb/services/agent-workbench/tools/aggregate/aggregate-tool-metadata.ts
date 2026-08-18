@@ -1479,13 +1479,14 @@ export const AGGREGATE_TOOL_CATALOG: AggregateToolMeta[] = [
               { action: "read", args: { action: "missing_assets", maxItems: 20 } },
               { action: "read", args: { action: "doc_assets", docId: "真实docId" } },
               { action: "read", args: { action: "resolve_path", path: "真实资源path" } },
+              { action: "read", args: { action: "file_annotation", path: "assets/nb_agent_test.pdf.sya" } },
               { action: "read", args: { action: "asset_content", path: "真实资源path", maxChars: 2000 } },
             ],
             notes: [
               "这里有两层 action：外层 action 固定为 read，内层 args.action 必填，才是资源读取类型。",
               "unused_assets/missing_assets 可只传 action/maxItems。",
               "doc_assets/doc_image_assets 需要 docId。",
-              "resolve_path/file_annotation/image_ocr/asset_content 需要 path；asset_content 优先读取索引，索引无内容时仅回退读取小型安全文本资源，返回 source=indexed/raw_text/unavailable。",
+              "resolve_path/file_annotation/image_ocr/asset_content 需要 path；file_annotation 只读取思源 PDF .sya 标注 JSON，没有 sidecar 返回 exists=false，历史非法 JSON 返回 valid=false；asset_content 优先读取索引，索引无内容时仅回退读取小型安全文本资源，返回 source=indexed/raw_text/unavailable。",
               "当前实现中 stat 需要 path，不需要 docId。",
               "image_ocr 读取的是已缓存/写入的 OCR 文本；真实 OCR 识别需要本机 Tesseract OCR 环境，未配置时应标记为环境限制。",
             ],
@@ -1498,6 +1499,8 @@ export const AGGREGATE_TOOL_CATALOG: AggregateToolMeta[] = [
             required: ["action"],
             examples: [
               { action: "manage", args: { action: "rename", path: "assets/nb_agent_temp_old.png", newName: "nb_agent_temp_renamed.png" } },
+              { action: "manage", args: { action: "set_annotation", path: "assets/nb_agent_test.pdf", annotation: { "annotation-id": { pages: [{ index: 0, positions: [[10, 20, 100, 120]] }], color: "var(--b3-pdf-background1)", type: "text", content: "PDF 摘要", mode: "text" } } } },
+              { action: "manage", args: { action: "set_annotation", path: "assets/nb_agent_test.pdf", clear: true } },
               { action: "manage", args: { action: "ocr", path: "assets/nb_agent_temp.png" } },
               { action: "manage", args: { action: "remove_unused_one", path: "assets/nb_agent_temp_unused.png" } },
               { action: "manage", args: { action: "remove_unused_batch", paths: ["assets/nb_agent_temp_a.png", "assets/nb_agent_temp_b.png"] } },
@@ -1505,7 +1508,7 @@ export const AGGREGATE_TOOL_CATALOG: AggregateToolMeta[] = [
             ],
             notes: [
               "这里有两层 action：外层 action 固定为 manage，内层 args.action 必填。",
-              "rename/set_annotation/set_image_ocr/ocr 需要 path。",
+              "rename/set_image_ocr/ocr 需要 path；set_annotation 只支持 PDF 或 .pdf.sya，传结构化 annotation 对象设置 PDF 标注，传 clear:true 清除全部标注，不能同时传两者。",
               "remove_unused_one 和 remove_unused_batch 只能删除本轮 disposable 测试资源；路径必须位于 assets/... 或 /data/assets/...，且路径/文件名需包含 nb_agent / notebrain_agent / notebrain_test / notebrain-agent-test 之一。",
               "不要删除 unused_assets 返回的普通用户资源，即使它们显示为未使用。",
               "full_reindex_content 是全局资源内容索引重建，普通测试默认跳过；只有用户明确要求并传 confirmGlobal:true 时才执行。",

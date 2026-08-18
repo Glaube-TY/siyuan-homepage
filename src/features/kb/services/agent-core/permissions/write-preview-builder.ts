@@ -1146,7 +1146,19 @@ function buildSiyuanActionPreview(tool: NativeTool, args: Record<string, unknown
     impactLines.push("会修改数据库视图结构、排序、布局或分组，建议已先读取 schema/view。");
   }
   if (tool.name === "siyuan_asset_manage") {
-    impactLines.push("会修改资源元信息、OCR、索引或删除未使用资源。");
+    if (action === "set_annotation") {
+      if (args.clear === true) {
+        impactLines.push("清除 PDF 标注。");
+      } else {
+        const annotation = args.annotation && typeof args.annotation === "object" && !Array.isArray(args.annotation)
+          ? args.annotation as Record<string, unknown>
+          : {};
+        const ids = Object.keys(annotation);
+        impactLines.push(`设置 PDF 标注，共 ${ids.length} 个标注${ids.length > 0 ? `；标注 ID：${formatIdList(ids)}` : ""}。`);
+      }
+    } else {
+      impactLines.push("会修改资源元信息、OCR、索引或删除未使用资源。");
+    }
   }
   if (tool.name === "siyuan_riff_card") {
     const riffAction = typeof args.action === "string" ? args.action : "";
@@ -1192,9 +1204,20 @@ function buildSiyuanActionPreview(tool: NativeTool, args: Record<string, unknown
     impactLines.push("该操作会写入思源数据或状态；用户拒绝、取消或失败时不能声称成功。");
   }
 
+  const operationLabel = tool.name === "siyuan_asset_manage" && action === "set_annotation"
+    ? (args.clear === true ? "清除 PDF 标注" : "设置 PDF 标注")
+    : action;
   const argsPreview: Record<string, unknown> = { action };
   for (const key of ["id", "notebook", "icon", "path", "label", "deckID", "cardID", "avID", "viewID"]) {
     if (args[key] !== undefined) argsPreview[key] = compactValue(args[key]);
+  }
+  if (tool.name === "siyuan_asset_manage" && action === "set_annotation") {
+    argsPreview.clear = args.clear === true;
+    if (args.clear !== true && args.annotation && typeof args.annotation === "object" && !Array.isArray(args.annotation)) {
+      const annotationIds = Object.keys(args.annotation as Record<string, unknown>);
+      argsPreview.annotationCount = annotationIds.length;
+      argsPreview.annotationIds = formatIdList(annotationIds);
+    }
   }
 
   return {
@@ -1203,8 +1226,8 @@ function buildSiyuanActionPreview(tool: NativeTool, args: Record<string, unknown
     readOnly: false,
     risk: isHighRisk ? "high" : "medium",
     argsPreview,
-    summary: [`操作：${action}`, `目标：${targetLines.split("\n")[0]}`, `影响：${impactLines[0]}`].join("\n"),
-    operationLabel: action,
+    summary: [`操作：${operationLabel}`, `目标：${targetLines.split("\n")[0]}`, `影响：${impactLines[0]}`].join("\n"),
+    operationLabel,
     targetSummary: targetLines.split("\n")[0],
     impactSummary: impactLines.join("；"),
     riskReason: isHighRisk ? "该动作会修改或删除思源数据/结构，系统不会自动回滚。" : undefined,
@@ -1213,7 +1236,7 @@ function buildSiyuanActionPreview(tool: NativeTool, args: Record<string, unknown
       ? "目标缺少标题或路径说明，请确认 ID 来自读取结果。"
       : undefined,
     sections: [
-      { label: "操作", value: action },
+      { label: "操作", value: operationLabel },
       { label: "目标", value: targetLines },
       { label: "影响", value: impactLines.join("\n") },
     ],

@@ -2152,13 +2152,96 @@ export async function resolveAssetPath(path: string): Promise<any> {
     return requestChecked('/api/asset/resolveAssetPath', { path }, 'resolveAssetPath');
 }
 
-export async function getFileAnnotation(path: string): Promise<any> {
-    return requestChecked('/api/asset/getFileAnnotation', { path }, 'getFileAnnotation');
+export interface SiyuanFileAnnotationPage {
+    index: number;
+    positions: number[][];
 }
 
-export async function setFileAnnotation(path: string, annotation: string): Promise<any> {
-    // SiYuan kernel names the annotation payload field `data`.
-    return requestChecked('/api/asset/setFileAnnotation', { path, data: annotation }, 'setFileAnnotation');
+export interface SiyuanFileAnnotation {
+    pages: SiyuanFileAnnotationPage[];
+    color: string;
+    type: string;
+    content: string;
+    mode: string;
+    ids?: string[];
+}
+
+export type SiyuanFileAnnotationMap = Record<string, SiyuanFileAnnotation>;
+
+export type SiyuanFileAnnotationReadResult =
+    | { exists: false; valid: true; annotation: SiyuanFileAnnotationMap }
+    | { exists: true; valid: true; annotation: SiyuanFileAnnotationMap }
+    | { exists: true; valid: false; rawData: string; reason: 'legacy_or_invalid_annotation_json' };
+
+export type SiyuanFileAnnotationWrite =
+    | { clear: true }
+    | { annotation: SiyuanFileAnnotationMap };
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function isSiyuanFileAnnotation(value: unknown): value is SiyuanFileAnnotation {
+    if (!isRecord(value)
+        || !Array.isArray(value.pages)
+        || typeof value.color !== 'string'
+        || typeof value.type !== 'string'
+        || typeof value.content !== 'string'
+        || typeof value.mode !== 'string') {
+        return false;
+    }
+    if (value.ids !== undefined && (!Array.isArray(value.ids) || !value.ids.every((id) => typeof id === 'string'))) {
+        return false;
+    }
+    return value.pages.every((page) => {
+        if (!isRecord(page) || !Number.isInteger(page.index) || (page.index as number) < 0 || !Array.isArray(page.positions)) {
+            return false;
+        }
+        return page.positions.every((position) =>
+            Array.isArray(position) && position.every((coordinate) => typeof coordinate === 'number' && Number.isFinite(coordinate)));
+    });
+}
+
+function isSiyuanFileAnnotationMap(value: unknown): value is SiyuanFileAnnotationMap {
+    return isRecord(value)
+        && Object.entries(value).every(([key, annotation]) => key.length > 0 && isSiyuanFileAnnotation(annotation));
+}
+
+export async function getFileAnnotation(path: string): Promise<SiyuanFileAnnotationReadResult> {
+    const response = await requestRaw('/api/asset/getFileAnnotation', { path });
+    if (response.code === 1 && !String(response.msg ?? '').trim()) {
+        return { exists: false, valid: true, annotation: {} };
+    }
+    if (response.code !== 0) {
+        throw new Error(`[getFileAnnotation] 思源 API 调用失败：code=${response.code}，msg=${response.msg ?? '(无)'}`);
+    }
+    const rawData = isRecord(response.data) ? response.data.data : undefined;
+    if (typeof rawData !== 'string') {
+        throw new Error('[getFileAnnotation] 思源 API 返回了无效标注数据。');
+    }
+    try {
+        const parsed = JSON.parse(rawData);
+        return isSiyuanFileAnnotationMap(parsed)
+            ? { exists: true, valid: true, annotation: parsed }
+            : { exists: true, valid: false, rawData, reason: 'legacy_or_invalid_annotation_json' };
+    } catch {
+        return { exists: true, valid: false, rawData, reason: 'legacy_or_invalid_annotation_json' };
+    }
+}
+
+export async function setFileAnnotation(path: string, write: SiyuanFileAnnotationWrite): Promise<any> {
+    let data: string;
+    if (isRecord(write) && 'clear' in write) {
+        if (write.clear !== true || 'annotation' in write) {
+            throw new Error('[invalid_args] set_annotation 只能传 annotation 对象或 clear:true，不能同时传入两者。');
+        }
+        data = '{}';
+    } else if (isRecord(write) && 'annotation' in write && isSiyuanFileAnnotationMap(write.annotation) && Object.keys(write.annotation).length > 0) {
+        data = JSON.stringify(write.annotation);
+    } else {
+        throw new Error('[invalid_args] set_annotation 需要非空 annotation 对象，或 clear:true。');
+    }
+    return requestChecked('/api/asset/setFileAnnotation', { path, data }, 'setFileAnnotation');
 }
 
 export async function getUnusedAssets(): Promise<any> {

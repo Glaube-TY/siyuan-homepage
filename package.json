@@ -37,6 +37,7 @@
     "verify:agent-platform": "cross-env TS_NODE_TRANSPILE_ONLY=true node --loader ts-node/esm --loader ./scripts/ts-node-alias-loader.mjs --experimental-specifier-resolution=node scripts/verify-agent-platform-profile.ts",
     "verify:agent-runtime": "node --loader ts-node/esm --experimental-specifier-resolution=node scripts/verify-agent-runtime-protocol.ts",
     "verify:siyuan-asset-content": "cross-env TS_NODE_TRANSPILE_ONLY=true node --loader ts-node/esm --experimental-specifier-resolution=node scripts/verify-siyuan-asset-content.ts",
+    "verify:siyuan-asset-annotation": "cross-env TS_NODE_TRANSPILE_ONLY=true node --loader ts-node/esm --experimental-specifier-resolution=node scripts/verify-siyuan-asset-annotation.ts",
     "verify:agent-continuation": "node --loader ts-node/esm --experimental-specifier-resolution=node scripts/verify-agent-continuation-guard.ts",
     "verify:agent-context": "node --loader ts-node/esm --experimental-specifier-resolution=node scripts/verify-agent-context-recovery.ts",
     "verify:agent-ui": "node --loader ts-node/esm --experimental-specifier-resolution=node scripts/verify-agent-execution-ui.ts",
