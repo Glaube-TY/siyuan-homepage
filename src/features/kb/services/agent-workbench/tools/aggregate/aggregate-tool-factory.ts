@@ -103,21 +103,55 @@ function resolveActionArgsSchema(contract: ToolContract): unknown | undefined {
   }
 }
 
+function getStrictFieldDiagnostics(params: {
+  schema: unknown;
+  args: unknown;
+  issues: readonly { code?: string; path?: readonly PropertyKey[]; keys?: readonly string[] }[];
+}) {
+  const issue = params.issues.find((item) => item.code === "unrecognized_keys" && (item.path?.length ?? 0) === 0);
+  if (!issue || !params.args || typeof params.args !== "object" || Array.isArray(params.args)) return undefined;
+  const schema = params.schema && typeof params.schema === "object" ? params.schema as Record<string, unknown> : undefined;
+  if (schema?.type !== "object" || schema.additionalProperties !== false) return undefined;
+  const properties = schema.properties && typeof schema.properties === "object" && !Array.isArray(schema.properties)
+    ? schema.properties as Record<string, unknown>
+    : {};
+  const allowedFields = Object.keys(properties);
+  const providedFields = Object.keys(params.args as Record<string, unknown>);
+  const unexpectedFields = [...(issue.keys ?? providedFields.filter((field) => !allowedFields.includes(field)))];
+  if (unexpectedFields.length === 0) return undefined;
+  return { strictSchema: true, allowedFields, unexpectedFields };
+}
+
+function formatInvalidActionArgsMessage(action: string, issueMessage: string, diagnostics?: ReturnType<typeof getStrictFieldDiagnostics>) {
+  if (!diagnostics) return `action ${action} 参数校验失败：${issueMessage}`;
+  return `action ${action} 参数校验失败：${issueMessage}；该 action 使用严格 Schema，只允许字段 ${diagnostics.allowedFields.join("、")}，请删除未声明字段 ${diagnostics.unexpectedFields.join("、")}。`;
+}
+
+function formatInvalidActionArgsHint(diagnostics?: ReturnType<typeof getStrictFieldDiagnostics>) {
+  return diagnostics
+    ? "该 action 的 argsSchema additionalProperties=false；只传 allowedFields 中声明的字段，不要猜测或补充未声明字段。"
+    : "请调用 agent_tool_help.describe_action，并严格按返回的 argsSchema/examples 传入 args；不要猜字段名。";
+}
+
 function buildInvalidActionArgsDetails(params: {
   action: string;
   binding: AggregateActionBinding;
+  args: unknown;
+  issues: readonly { code?: string; path?: readonly PropertyKey[]; keys?: readonly string[] }[];
   field?: string;
   required?: string[];
   notes?: string[];
 }) {
+  const argsSchema = resolveActionArgsSchema(params.binding.tool);
   return {
     action: params.action,
     field: params.field,
     required: params.required,
     notes: params.notes,
-    argsSchema: sanitizeProviderVisibleValue(resolveActionArgsSchema(params.binding.tool)),
+    argsSchema: sanitizeProviderVisibleValue(argsSchema),
     inputHint: params.binding.tool.inputHint,
     boundary: params.binding.tool.boundary,
+    ...getStrictFieldDiagnostics({ schema: argsSchema, args: params.args, issues: params.issues }),
   };
 }
 
@@ -209,17 +243,21 @@ export function createAggregateTool(options: AggregateToolFactoryOptions): ToolC
       if (!actionParsed.success) {
         const issue = actionParsed.error.issues[0];
         const actionMeta = meta?.actions.find((item) => item.name === parsed.data.action);
+        const argsSchema = resolveActionArgsSchema(binding.tool);
+        const diagnostics = getStrictFieldDiagnostics({ schema: argsSchema, args: actionArgs, issues: actionParsed.error.issues });
         return {
           ok: false,
           error: {
             code: "invalid_action_args",
-            message: `action ${parsed.data.action} 参数校验失败：${issue?.message ?? "格式错误"}`,
+            message: formatInvalidActionArgsMessage(parsed.data.action, issue?.message ?? "格式错误", diagnostics),
             details: buildInvalidActionArgsDetails({
               action: parsed.data.action,
               field: issue?.path.join(".") || undefined,
               required: actionMeta?.required,
               notes: actionMeta?.notes,
               binding,
+              args: actionArgs,
+              issues: actionParsed.error.issues,
             }),
           },
         };
@@ -303,21 +341,25 @@ export function createAggregateTool(options: AggregateToolFactoryOptions): ToolC
       if (!actionParsed.success) {
         const issue = actionParsed.error.issues[0];
         const actionMeta = meta?.actions.find((item) => item.name === parsed.data.action);
+        const argsSchema = resolveActionArgsSchema(binding.tool);
+        const diagnostics = getStrictFieldDiagnostics({ schema: argsSchema, args: actionArgs, issues: actionParsed.error.issues });
         return {
           ok: false,
           data: null,
           error: {
             code: "invalid_action_args",
-            message: `action ${parsed.data.action} 参数校验失败：${issue?.message ?? "格式错误"}`,
+            message: formatInvalidActionArgsMessage(parsed.data.action, issue?.message ?? "格式错误", diagnostics),
             field: issue?.path.join(".") || undefined,
             recoverable: true,
-            hint: "请调用 agent_tool_help.describe_action，并严格按返回的 argsSchema/examples 传入 args；不要猜字段名。",
+            hint: formatInvalidActionArgsHint(diagnostics),
             details: buildInvalidActionArgsDetails({
               action: parsed.data.action,
               field: issue?.path.join(".") || undefined,
               required: actionMeta?.required,
               notes: actionMeta?.notes,
               binding,
+              args: actionArgs,
+              issues: actionParsed.error.issues,
             }),
           },
         };

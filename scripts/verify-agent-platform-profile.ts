@@ -53,6 +53,10 @@ import { HOMEPAGE_AGENT_WIDGET_CATALOG } from "../src/features/kb/services/agent
 import { HomepageAgentService, providerBusinessCapability } from "../src/features/kb/services/agent-workbench/tools/homepage/homepage-agent-service";
 import { validateTitleIconEmoji } from "../src/features/kb/services/agent-workbench/tools/homepage/homepage-settings-whitelist";
 import { siyuanNotebookManageInputSchema } from "../src/features/kb/services/agent-workbench/tools/siyuan/contracts/siyuan-notebook-manage.contract";
+import { createDocInputSchema } from "../src/features/kb/services/agent-workbench/tools/siyuan/contracts/create-doc.contract";
+import { createCreateDocTool } from "../src/features/kb/services/agent-workbench/tools/siyuan/create-doc.tool";
+import { createAggregateTool } from "../src/features/kb/services/agent-workbench/tools/aggregate/aggregate-tool-factory";
+import { createAgentToolHelpTool } from "../src/features/kb/services/agent-workbench/tools/aggregate/agent-tool-help.tool";
 
 const profile = getAgentProfile(KNOWLEDGE_CHAT_AGENT_PROFILE_ID);
 
@@ -555,6 +559,82 @@ assert.equal((settingsPatchSchema.properties as Record<string, unknown>).preferr
 assert.equal((settingsPatchSchema.properties as Record<string, unknown>).bannerRemoteUrl !== undefined, true);
 assert.equal((settingsPatchSchema.properties as Record<string, unknown>).customTitle !== undefined, true);
 assert.equal((settingsPatchSchema as { additionalProperties: boolean }).additionalProperties, false);
+
+// ── 严格 action 参数：create_doc 不接受模型凭常识添加的 title 等字段 ──
+assert.equal(createDocInputSchema.safeParse({ notebookId: "notebook-id", path: "/测试文档", markdown: "# 测试" }).success, true, "create_doc 带 markdown 必须通过");
+assert.equal(createDocInputSchema.safeParse({ notebookId: "notebook-id", path: "/测试文档" }).success, true, "create_doc 不带 markdown 必须通过");
+assert.equal(createDocInputSchema.safeParse({ notebookId: "notebook-id", path: "/测试文档", title: "测试文档" }).success, false, "create_doc 的未知 title 必须被拒绝");
+
+const createDocAggregate = createAggregateTool({
+  name: "siyuan_doc_edit",
+  title: "思源知识库",
+  description: "严格参数验证器",
+  boundary: "仅用于验证。",
+  actions: [{
+    action: "create_doc",
+    internallyConfirmed: true,
+    tool: createCreateDocTool({
+      executeCreateDoc: async () => { throw new Error("invalid args 不得进入 create_doc 执行器"); },
+    }),
+  }],
+});
+const invalidCreateDocArgs = { action: "create_doc", args: { notebookId: "notebook-id", path: "/测试文档", title: "测试文档" } };
+const createDocPreviewFailure = createDocAggregate.validateInputForPreview?.(invalidCreateDocArgs);
+assert.equal(createDocPreviewFailure?.ok, false, "create_doc preflight 必须拒绝未知字段");
+const createDocPreviewDetails = createDocPreviewFailure?.error?.details as Record<string, unknown>;
+assert.deepEqual(createDocPreviewDetails.allowedFields, ["notebookId", "path", "markdown"]);
+assert.deepEqual(createDocPreviewDetails.unexpectedFields, ["title"]);
+const createDocExecuteFailure = await createDocAggregate.execute({ question: "", callCounts: {} }, invalidCreateDocArgs);
+assert.equal(createDocExecuteFailure.ok, false, "create_doc execute 必须拒绝未知字段");
+assert.equal(createDocExecuteFailure.error?.code, "invalid_action_args", "create_doc 未知字段必须返回 invalid_action_args");
+assert.deepEqual((createDocExecuteFailure.error?.details as Record<string, unknown>).allowedFields, ["notebookId", "path", "markdown"]);
+assert.deepEqual((createDocExecuteFailure.error?.details as Record<string, unknown>).unexpectedFields, ["title"]);
+assert.match(createDocExecuteFailure.error?.message ?? "", /严格 Schema/);
+assert.match(createDocExecuteFailure.error?.hint ?? "", /additionalProperties=false/);
+
+const strictArgsTool: ToolContract = {
+  name: "strict_args",
+  title: "严格参数测试",
+  description: "严格参数测试",
+  inputSchema: z.object({ id: z.string(), value: z.number() }).strict(),
+  readOnly: true,
+  safety: { readOnly: true },
+  source: "builtin",
+  providerVisible: true,
+  availability: () => ({ available: true }),
+  async execute(_ctx, args) { return { ok: true, data: args }; },
+};
+const strictArgsAggregate = createAggregateTool({
+  name: "siyuan_doc_edit",
+  title: "严格参数聚合测试",
+  description: "严格参数聚合测试",
+  boundary: "仅用于验证。",
+  actions: [{ action: "strict_args", tool: strictArgsTool }],
+});
+const strictArgsFailure = await strictArgsAggregate.execute(
+  { question: "", callCounts: {} },
+  { action: "strict_args", args: { id: "id", value: 1, name: "不允许" } },
+);
+assert.equal(strictArgsFailure.error?.code, "invalid_action_args", "通用严格 action 未知字段必须返回 invalid_action_args");
+assert.deepEqual((strictArgsFailure.error?.details as Record<string, unknown>).allowedFields, ["id", "value"]);
+assert.deepEqual((strictArgsFailure.error?.details as Record<string, unknown>).unexpectedFields, ["name"]);
+
+const helpTool = createAgentToolHelpTool({
+  externalSkillSettings: { enabled: false, maxSkillReadChars: 8000, autoInstallEnabled: false, disabledSkillIds: [] },
+  availableTools: [{ name: "siyuan_doc_edit", actions: ["create_doc"], actionHelp: createDocAggregate.aggregateActionHelp }],
+});
+const createDocHelp = await helpTool.execute(
+  { question: "", callCounts: {} },
+  { action: "describe_action", toolName: "siyuan_doc_edit", actionName: "create_doc" },
+);
+assert.equal(createDocHelp.ok, true, "agent_tool_help 必须能描述 create_doc");
+const createDocHelpData = createDocHelp.data as Record<string, any>;
+assert.deepEqual(createDocHelpData.required, ["notebookId", "path"]);
+assert.deepEqual(Object.keys(createDocHelpData.argsSchema.properties), ["notebookId", "path", "markdown"]);
+assert.equal(createDocHelpData.argsSchema.additionalProperties, false);
+assert.match(createDocHelpData.inputHint, /只允许传 notebookId、path、markdown/);
+assert.match(createDocHelpData.inputHint, /不要传 title/);
+assert.ok(createDocHelpData.examples.every((example: { args: Record<string, unknown> }) => !Object.hasOwn(example.args, "title")));
 
 // ── 1. homepage_manage / homepage_components 四种开关组合（真实注册行为）──
 setNotebrainPlugin({ isMobile: false } as never);

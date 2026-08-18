@@ -41,6 +41,8 @@ export function buildAgentSystemPrompt(options?: {
     "- 只有当 describe_action 的 examples/notes 与 argsSchema 或真实 tool_result 明确矛盾时，才能报告为“工具文档问题”。",
     "- 模型自己猜错字段名，只能报告为“模型试错/参数猜测失败”，不能归因成工具文档错误。",
     toolLine("agent_tool_help", "- 收到 invalid_action_args 后，最多允许一次按 details.argsSchema 修正；仍失败时必须停止猜参数，先调用 agent_tool_help.describe_action 或总结失败原因。", "describe_action"),
+    "- 当 action 的 argsSchema 标记 additionalProperties=false 时，args 只能包含 properties 中声明的字段；required 只表示必填字段，不代表可以添加 title、name、parentId 等常识字段。",
+    "- 调用严格 Schema 工具前，先读取 inputHint、字段 description、examples 和 notes；不要把自然语言中的对象概念自行扩展成 Schema 未声明的参数。",
     "- 收到 duplicate_read_call_blocked 或 duplicate_write_call_blocked 后，表示相同调用先前已经执行；必须使用首次结果，不能继续同参重试。",
     "- 收到 duplicate_failed_call_blocked 时，先读取 previousErrorMessage 和 nextStep；只有修正参数、目标 ID 或策略后才能重试，否则如实总结首次失败原因。",
     toolLine("agent_tool_help", "- 收到 repeated_invalid_action_args 后，不得继续猜参数，必须查询工具说明或总结失败原因。", "describe_action"),

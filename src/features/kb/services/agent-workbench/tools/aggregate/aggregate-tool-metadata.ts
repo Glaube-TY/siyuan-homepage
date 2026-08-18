@@ -1199,17 +1199,18 @@ export const AGGREGATE_TOOL_CATALOG: AggregateToolMeta[] = [
       {
         name: "create_doc",
         title: "创建文档",
-        description: "在指定笔记本路径下创建新文档。",
+        description: "在指定笔记本路径下创建新文档；参数只允许 notebookId、path、markdown。",
         readOnly: false,
         required: ["notebookId", "path"],
         examples: [
           { action: "create_doc", args: { notebookId: "真实notebookId", path: "/Notebrain-Agent-Test/测试文档", markdown: "# 测试文档\n" } },
         ],
         notes: [
-          "create_doc 使用 notebookId，不是 notebook。",
+          "严格 Schema 只允许 notebookId、path、markdown；不要传 title、name、docTitle、parentId 或 parentPath。",
+          "create_doc 使用 notebookId，不是 notebook；notebookId 和 path 必填，markdown 可选。",
           "notebookId 必须来自 siyuan_tree.notebook 的 list 真实结果。",
           "如果同一轮已经成功拿到 notebookId，后续测试应复用同一个有效 notebookId，不要从失败的路径/旧结果里猜新的 notebookId。",
-          "path 必须以 / 开头，表示目标文档路径。",
+          "path 必须以 / 开头，表示目标文档路径；最后一段就是新文档标题，不需要另传 title。",
           "测试只允许创建 disposable 文档，例如 /Notebrain-Agent-Test/ 下的临时测试文档。",
         ],
       },

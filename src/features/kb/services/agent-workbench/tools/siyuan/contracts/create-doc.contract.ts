@@ -1,11 +1,11 @@
 ﻿import { z } from "zod";
 
 export const createDocInputSchema = z.object({
-  notebookId: z.string().trim().min(1).max(256),
+  notebookId: z.string().trim().min(1).max(256).describe("真实目标笔记本 ID；必须来自笔记本查询结果。"),
   path: z.string().trim().min(1).max(1024).refine((val) => val.startsWith("/"), {
     message: "path 必须以 / 开头",
-  }),
-  markdown: z.string().optional(),
+  }).describe("笔记本内的文档路径，必须以 / 开头；最后一段就是新文档标题。"),
+  markdown: z.string().optional().describe("可选的初始 Markdown 内容；不传表示创建空文档。"),
 }).strict();
 
 export type CreateDocInput = z.infer<typeof createDocInputSchema>;
@@ -44,8 +44,8 @@ export interface PreparedCreateDocConfirmation {
 export const createDocInputJsonSchemaOverride = {
   type: "object",
   properties: {
-    notebookId: { type: "string", minLength: 1, maxLength: 256, description: "目标笔记本 ID" },
-    path: { type: "string", minLength: 1, maxLength: 1024, pattern: "^/", description: "文档路径，必须以 / 开头，例如 \"/folder/doc\"" },
+    notebookId: { type: "string", minLength: 1, maxLength: 256, description: "真实目标笔记本 ID；必须来自笔记本查询结果" },
+    path: { type: "string", minLength: 1, maxLength: 1024, pattern: "^/", description: "笔记本内的文档路径，必须以 / 开头；最后一段就是新文档标题，例如 \"/folder/doc\"" },
     markdown: { type: "string", description: "文档初始 Markdown 内容，可选；不传或空字符串则创建空文档" },
   },
   additionalProperties: false,

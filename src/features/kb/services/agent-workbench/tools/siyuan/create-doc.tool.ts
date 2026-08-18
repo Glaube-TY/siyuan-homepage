@@ -21,8 +21,8 @@ export function createCreateDocTool(deps: CreateDocDeps): ToolContract<CreateDoc
     readOnly: false,
     safety: { readOnly: false, canWrite: true, requiresConfirmation: true },
     source: "builtin",
-    inputHint: "notebookId（目标笔记本 ID），path（文档路径，如 \"/父文档/子文档\"），markdown（初始 Markdown 内容，可选）",
-    boundary: "只能基于明确给出的真实 notebookId 和 path 创建文档。path 是笔记本内的文档路径，可表示层级；不编造 ID 或路径。",
+    inputHint: "只允许传 notebookId、path、markdown 三个字段；notebookId 和 path 必填，markdown 可选。不要传 title、name、docTitle、parentId 等未声明字段；path 最后一段就是文档标题，例如 /父文档/子文档。",
+    boundary: "只能基于明确给出的真实 notebookId 和 path 创建文档。path 是笔记本内的文档路径，可表示层级，最后一段作为标题；严格 Schema 拒绝任何未声明字段。",
     providerVisible: false,
     inputJsonSchemaOverride: createDocInputJsonSchemaOverride,
 
