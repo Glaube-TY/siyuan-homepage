@@ -20,6 +20,15 @@ export function toSiyuanAssetApiPath(raw: string): string {
   return path;
 }
 
+/** 工作区文件 API 使用 /data/assets/...；只允许读取资源目录。 */
+export function toSiyuanAssetWorkspaceFilePath(raw: string): string {
+  const path = toSiyuanAssetApiPath(raw);
+  if (!path.startsWith("assets/") || path.includes("..")) {
+    throw new Error("[invalid_args] 资源路径必须位于 assets/ 目录。");
+  }
+  return `/data/${path}`;
+}
+
 export function isDisposableAssetPath(raw: string): boolean {
   const path = normalizeAssetPath(raw);
   if (path.includes("..") || path.includes("/..") || path.includes("../")) {

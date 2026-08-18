@@ -745,7 +745,7 @@ export const AGGREGATE_TOOL_CATALOG: AggregateToolMeta[] = [
         notes: [
           "这里有两层 action：外层 action 固定为 extra_search，内层 args.action 才是特殊检索类型。",
           "search_asset 只搜索资源文件路径/名称，不读取资源内容。",
-          "asset_content 才读取资源内容；优先传 path，path 应来自 search_asset 结果；也可传 keyword 做资源内容全文检索。",
+          "asset_content 传 path 时先读取 /api/search/getAssetContentByPath 的索引内容；索引无内容时仅对 statAsset 判定为小型安全文本的资源回退读取 /data/assets/...，二进制、未知大小或超限资源返回 source=unavailable；也可传 keyword 做资源内容全文检索。",
           "get_embed_block 必须传真实 id。",
           "invalid_block_refs 不需要 keyword/path/id。",
           "空数组/无命中不等于工具失败，应在报告里标记为“通过但无命中”。",
@@ -1485,7 +1485,7 @@ export const AGGREGATE_TOOL_CATALOG: AggregateToolMeta[] = [
               "这里有两层 action：外层 action 固定为 read，内层 args.action 必填，才是资源读取类型。",
               "unused_assets/missing_assets 可只传 action/maxItems。",
               "doc_assets/doc_image_assets 需要 docId。",
-              "resolve_path/file_annotation/image_ocr/asset_content 需要 path。",
+              "resolve_path/file_annotation/image_ocr/asset_content 需要 path；asset_content 优先读取索引，索引无内容时仅回退读取小型安全文本资源，返回 source=indexed/raw_text/unavailable。",
               "当前实现中 stat 需要 path，不需要 docId。",
               "image_ocr 读取的是已缓存/写入的 OCR 文本；真实 OCR 识别需要本机 Tesseract OCR 环境，未配置时应标记为环境限制。",
             ],

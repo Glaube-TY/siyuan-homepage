@@ -1,5 +1,4 @@
 import {
-  getAssetContent,
   getDocAssets,
   getDocImageAssets,
   getFileAnnotation,
@@ -12,6 +11,7 @@ import {
 import type { SiyuanToolOutput } from "../contracts/siyuan-common.contract";
 import type { SiyuanAssetReadInput } from "../contracts/siyuan-asset-read.contract";
 import { toSiyuanAssetApiPath } from "../contracts/siyuan-asset-manage.contract";
+import { readAssetTextContentByPath } from "./siyuan-asset-content.impl";
 import { outputForAction, requireString } from "./siyuan-tool-impl-utils.impl";
 
 export async function executeSiyuanAssetRead(args: SiyuanAssetReadInput): Promise<{ output: SiyuanToolOutput }> {
@@ -42,7 +42,7 @@ export async function executeSiyuanAssetRead(args: SiyuanAssetReadInput): Promis
       data = await statAsset(toSiyuanAssetApiPath(requireString(args.path, "path")));
       break;
     case "asset_content":
-      data = await getAssetContent(toSiyuanAssetApiPath(requireString(args.path, "path")));
+      data = await readAssetTextContentByPath(requireString(args.path, "path"));
       break;
   }
   return { output: outputForAction(args.action, data, { maxItems: args.maxItems, maxChars: args.maxChars }) };

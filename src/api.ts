@@ -1909,8 +1909,43 @@ export async function fullTextSearchAssetContent(params: SiyuanApiPayload): Prom
     return requestChecked('/api/search/fullTextSearchAssetContent', params, 'fullTextSearchAssetContent');
 }
 
-export async function getAssetContent(path: string): Promise<any> {
-    return requestChecked('/api/search/getAssetContent', { path }, 'getAssetContent');
+export interface SiyuanAssetContent {
+    id: string;
+    name: string;
+    ext: string;
+    path: string;
+    size: number;
+    hSize: string;
+    updated: number;
+    content: string;
+}
+
+function isSiyuanAssetContent(value: unknown): value is SiyuanAssetContent {
+    if (!value || typeof value !== 'object') return false;
+    const asset = value as Record<string, unknown>;
+    return typeof asset.id === 'string'
+        && typeof asset.name === 'string'
+        && typeof asset.ext === 'string'
+        && typeof asset.path === 'string'
+        && typeof asset.size === 'number'
+        && Number.isFinite(asset.size)
+        && typeof asset.hSize === 'string'
+        && typeof asset.updated === 'number'
+        && Number.isFinite(asset.updated)
+        && typeof asset.content === 'string';
+}
+
+export async function getAssetContentByPath(path: string): Promise<SiyuanAssetContent | null> {
+    const data = await requestChecked('/api/search/getAssetContentByPath', { path }, 'getAssetContentByPath');
+    if (!data || typeof data !== 'object' || !Object.prototype.hasOwnProperty.call(data, 'assetContent')) {
+        throw new Error('[getAssetContentByPath] 思源 API 返回了无效资源内容。');
+    }
+    const assetContent = (data as { assetContent: unknown }).assetContent;
+    if (assetContent === null) return null;
+    if (!isSiyuanAssetContent(assetContent)) {
+        throw new Error('[getAssetContentByPath] 思源 API 返回了无效资源内容。');
+    }
+    return assetContent;
 }
 
 export async function listInvalidBlockRefs(): Promise<any> {
