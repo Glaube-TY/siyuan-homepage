@@ -57,6 +57,10 @@ import { createDocInputSchema } from "../src/features/kb/services/agent-workbenc
 import { createCreateDocTool } from "../src/features/kb/services/agent-workbench/tools/siyuan/create-doc.tool";
 import { createAggregateTool } from "../src/features/kb/services/agent-workbench/tools/aggregate/aggregate-tool-factory";
 import { createAgentToolHelpTool } from "../src/features/kb/services/agent-workbench/tools/aggregate/agent-tool-help.tool";
+import { registerSiyuanTools } from "../src/features/kb/services/agent-workbench/composition/register-siyuan-tools";
+import { createNativeToolRegistryFromWorkbench } from "../src/features/kb/services/agent-core/tools/workbench-tool-adapter";
+import { ToolResultLog } from "../src/features/kb/services/agent-workbench/runtime/tool-result-log";
+import { parseToolCallArguments } from "../src/features/kb/services/agent-core/messages/tool-call-message";
 
 const profile = getAgentProfile(KNOWLEDGE_CHAT_AGENT_PROFILE_ID);
 
@@ -635,6 +639,81 @@ assert.equal(createDocHelpData.argsSchema.additionalProperties, false);
 assert.match(createDocHelpData.inputHint, /只允许传 notebookId、path、markdown/);
 assert.match(createDocHelpData.inputHint, /不要传 title/);
 assert.ok(createDocHelpData.examples.every((example: { args: Record<string, unknown> }) => !Object.hasOwn(example.args, "title")));
+
+// ── 真实 Siyuan Aggregate → NativeTool preflight：双层 action 不得被外层 Schema 拒绝 ──
+const siyuanDocEditRegistry = new ToolRegistry();
+registerSiyuanTools(siyuanDocEditRegistry, {
+  kbRetrievalToolDeps: { getScope: () => undefined, getEffectiveScope: () => undefined },
+  builtinCapabilityAccess: {
+    knowledgeBase: false,
+    scheduleTaskDiary: false,
+    databaseAssistant: false,
+    docContentEditing: true,
+    notebookDocTree: false,
+    tagBookmarkOutline: false,
+    assetManagement: false,
+    riffReview: false,
+  },
+});
+const siyuanDocEdit = siyuanDocEditRegistry.getTool("siyuan_doc_edit");
+assert.ok(siyuanDocEdit, "真实 siyuan_doc_edit 必须注册");
+const siyuanNativeRegistry = createNativeToolRegistryFromWorkbench({
+  toolRegistry: siyuanDocEditRegistry,
+  observationLog: new ToolResultLog(),
+  question: "aggregate 参数链验证",
+});
+const siyuanDocEditNative = siyuanNativeRegistry.get("siyuan_doc_edit");
+assert.ok(siyuanDocEditNative, "真实 siyuan_doc_edit 必须进入 NativeToolRegistry");
+
+const listItemToDocArgs = {
+  action: "doc_transform",
+  args: {
+    action: "list_item_to_doc",
+    sourceListItemId: "valid-test-list-item",
+    targetNotebookId: "valid-test-notebook",
+    targetPath: "/",
+  },
+};
+const parsedProviderCall = parseToolCallArguments({
+  id: "verify-doc-transform",
+  name: "siyuan_doc_edit",
+  arguments: JSON.stringify(listItemToDocArgs),
+});
+assert.equal(parsedProviderCall.ok, true, "Provider 原始 JSON 必须能解析");
+if (!parsedProviderCall.ok) throw new Error(parsedProviderCall.message);
+assert.deepEqual(parsedProviderCall.args, listItemToDocArgs, "Parser 不得 flatten 或提升内层 action");
+assert.equal(siyuanDocEdit.inputSchema.safeParse(listItemToDocArgs).success, true, "Aggregate 外层 inputSchema 必须接受 doc_transform");
+assert.equal(siyuanDocEdit.validateInputForPreview?.(listItemToDocArgs).ok, true, "doc_transform 内层 contract 必须接受 list_item_to_doc");
+assert.equal((await siyuanDocEditNative.preflightValidate?.(listItemToDocArgs))?.ok, true, "NativeTool preflight 必须接受双层 doc_transform");
+
+const blockReadArgs = { action: "block_read", args: { action: "info", id: "valid-test-block" } };
+assert.equal(siyuanDocEdit.validateInputForPreview?.(blockReadArgs).ok, true, "block_read 外层和内层 Schema 必须通过");
+assert.equal((await siyuanDocEditNative.preflightValidate?.(blockReadArgs))?.ok, true, "NativeTool preflight 必须接受 block_read");
+
+const blockStateArgs = { action: "block_state", args: { action: "fold", id: "valid-test-block" } };
+assert.equal(siyuanDocEdit.validateInputForPreview?.(blockStateArgs).ok, true, "block_state 双层 action 必须通过");
+assert.equal((await siyuanDocEditNative.preflightValidate?.(blockStateArgs))?.ok, true, "NativeTool preflight 必须接受 block_state");
+
+const wrongOuterAction = siyuanDocEdit.validateInputForPreview?.({
+  action: "list_item_to_doc",
+  args: { sourceListItemId: "valid-test-list-item", targetNotebookId: "valid-test-notebook", targetPath: "/" },
+});
+assert.equal(wrongOuterAction?.ok, false, "内层 action 不得直接作为聚合外层 action");
+const wrongOuterDetails = wrongOuterAction?.error?.details as Record<string, unknown>;
+assert.equal(wrongOuterDetails.validationStage, "aggregate");
+assert.equal(wrongOuterDetails.receivedAction, "list_item_to_doc");
+assert.deepEqual(wrongOuterDetails.allowedActions, ["read_blocks", "block_read", "block_attr", "block_ref", "block_state", "doc_transform"]);
+assert.deepEqual(wrongOuterDetails.providedTopLevelFields, ["action", "args"]);
+assert.deepEqual(wrongOuterDetails.expectedTopLevelFields, ["action", "args"]);
+assert.equal(typeof wrongOuterDetails.issueCode, "string");
+assert.match(wrongOuterAction?.error?.message ?? "", /聚合工具 action 无效：收到/);
+
+const wrongInnerAction = siyuanDocEdit.validateInputForPreview?.({
+  action: "doc_transform",
+  args: { action: "not_a_transform", sourceListItemId: "valid-test-list-item", targetNotebookId: "valid-test-notebook", targetPath: "/" },
+});
+assert.equal(wrongInnerAction?.ok, false, "错误内层 action 必须被拒绝");
+assert.equal((wrongInnerAction?.error?.details as Record<string, unknown>).validationStage, "action");
 
 // ── 1. homepage_manage / homepage_components 四种开关组合（真实注册行为）──
 setNotebrainPlugin({ isMobile: false } as never);

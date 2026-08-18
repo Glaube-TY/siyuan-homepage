@@ -8,6 +8,7 @@ import type {
   ToolSafetyInfo,
   ToolSource,
 } from "../../contracts/tool-contract";
+import { pushAgentDebugEvent } from "../../debug/workbench-debug";
 import type { AggregateToolName } from "./aggregate-tool-metadata";
 import { findAggregateToolMeta } from "./aggregate-tool-metadata";
 
@@ -28,6 +29,7 @@ export interface AggregateToolFactoryOptions {
 }
 
 const aggregateArgsSchema = z.record(z.string(), z.unknown());
+const AGGREGATE_TOP_LEVEL_FIELDS = ["action", "args"] as const;
 
 function createInputSchema(actions: readonly string[]) {
   const actionTuple = actions as [string, ...string[]];
@@ -122,6 +124,43 @@ function getStrictFieldDiagnostics(params: {
   return { strictSchema: true, allowedFields, unexpectedFields };
 }
 
+function safeAggregateAction(rawArgs: unknown): string | undefined {
+  if (!rawArgs || typeof rawArgs !== "object" || Array.isArray(rawArgs)) return undefined;
+  const action = (rawArgs as Record<string, unknown>).action;
+  return typeof action === "string" ? action.slice(0, 120) : undefined;
+}
+
+function aggregateTopLevelDiagnostics(params: {
+  rawArgs: unknown;
+  actionNames: readonly string[];
+  issue?: { code?: string; path?: readonly PropertyKey[] };
+}) {
+  const isObject = !!params.rawArgs && typeof params.rawArgs === "object" && !Array.isArray(params.rawArgs);
+  const rawRecord = isObject ? params.rawArgs as Record<string, unknown> : undefined;
+  const receivedAction = safeAggregateAction(params.rawArgs);
+  return {
+    validationStage: "aggregate",
+    receivedAction,
+    allowedActions: [...params.actionNames],
+    providedTopLevelFields: rawRecord ? Object.keys(rawRecord).slice(0, 100) : [],
+    expectedTopLevelFields: [...AGGREGATE_TOP_LEVEL_FIELDS],
+    issueCode: params.issue?.code,
+    field: params.issue?.path?.map(String).join(".") || undefined,
+  };
+}
+
+function aggregateTopLevelErrorMessage(params: {
+  rawArgs: unknown;
+  actionNames: readonly string[];
+  issueMessage: string;
+}) {
+  const receivedAction = safeAggregateAction(params.rawArgs);
+  if (receivedAction && !params.actionNames.includes(receivedAction)) {
+    return `聚合工具 action 无效：收到 ${JSON.stringify(receivedAction)}，允许值为 ${params.actionNames.join(" / ")}。`;
+  }
+  return `聚合工具参数校验失败：${params.issueMessage}`;
+}
+
 function formatInvalidActionArgsMessage(action: string, issueMessage: string, diagnostics?: ReturnType<typeof getStrictFieldDiagnostics>) {
   if (!diagnostics) return `action ${action} 参数校验失败：${issueMessage}`;
   return `action ${action} 参数校验失败：${issueMessage}；该 action 使用严格 Schema，只允许字段 ${diagnostics.allowedFields.join("、")}，请删除未声明字段 ${diagnostics.unexpectedFields.join("、")}。`;
@@ -144,6 +183,7 @@ function buildInvalidActionArgsDetails(params: {
 }) {
   const argsSchema = resolveActionArgsSchema(params.binding.tool);
   return {
+    validationStage: "action",
     action: params.action,
     field: params.field,
     required: params.required,
@@ -220,11 +260,27 @@ export function createAggregateTool(options: AggregateToolFactoryOptions): ToolC
       const parsed = createInputSchema(actionNames).safeParse(rawArgs);
       if (!parsed.success) {
         const issue = parsed.error.issues[0];
+        const details = aggregateTopLevelDiagnostics({
+          rawArgs,
+          actionNames,
+          issue,
+        });
+        pushAgentDebugEvent("AGENT_AGGREGATE_ARGS_INVALID_SAFE", {
+          toolName: options.name,
+          receivedAction: details.receivedAction,
+          allowedActions: details.allowedActions,
+          providedTopLevelFields: details.providedTopLevelFields,
+          validationStage: details.validationStage,
+        }, "warn");
         return {
           ok: false,
           error: {
-            message: `聚合工具参数校验失败：${issue?.message ?? "格式错误"}`,
-            details: { field: issue?.path.join(".") || undefined },
+            message: aggregateTopLevelErrorMessage({
+              rawArgs,
+              actionNames,
+              issueMessage: issue?.message ?? "格式错误",
+            }),
+            details,
           },
         };
       }
@@ -298,13 +354,23 @@ export function createAggregateTool(options: AggregateToolFactoryOptions): ToolC
       const parsed = createInputSchema(actionNames).safeParse(rawArgs);
       if (!parsed.success) {
         const issue = parsed.error.issues[0];
+        const details = aggregateTopLevelDiagnostics({
+          rawArgs,
+          actionNames,
+          issue,
+        });
         return {
           ok: false,
           data: null,
           error: {
             code: "invalid_args",
-            message: issue?.message ?? "聚合工具参数错误。",
+            message: aggregateTopLevelErrorMessage({
+              rawArgs,
+              actionNames,
+              issueMessage: issue?.message ?? "聚合工具参数错误。",
+            }),
             recoverable: true,
+            details,
           },
         };
       }

@@ -13,7 +13,7 @@ export function createSiyuanBlockStateTool(deps: SiyuanBlockStateDeps) {
     description: "折叠/展开块、设置提醒、更新任务列表 marker。",
     inputSchema: siyuanBlockStateInputSchema,
     readOnly: false,
-    inputHint: "action 指定 fold/unfold/set_reminder/update_task_marker/batch_update_task_marker。",
+    inputHint: "这是 siyuan_doc_edit 的双层 action：外层 action 必须是 block_state；内层 args.action 才指定 fold/unfold/set_reminder/update_task_marker/batch_update_task_marker。",
     boundary: "全部 action 都会写入块状态，执行前必须确认；批量最多 50 项。",
     deps: { execute: deps.executeSiyuanBlockState },
     inputJsonSchemaOverride: undefined,
