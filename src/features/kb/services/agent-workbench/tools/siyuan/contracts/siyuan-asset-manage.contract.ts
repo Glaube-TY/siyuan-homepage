@@ -44,6 +44,40 @@ export function isDisposableAssetPath(raw: string): boolean {
   return DISPOSABLE_MARKERS.some((marker) => lower.includes(marker));
 }
 
+function getAssetPathWithoutQuery(raw: string): string {
+  return raw.trim().replace(/\\/g, "/").split("?", 1)[0];
+}
+
+export function getSiyuanAssetExtension(raw: string): string {
+  const path = getAssetPathWithoutQuery(raw);
+  const basename = path.slice(path.lastIndexOf("/") + 1);
+  const dotIndex = basename.lastIndexOf(".");
+  return dotIndex > 0 ? basename.slice(dotIndex) : "";
+}
+
+export function getSiyuanAssetDisplayName(raw: string): string {
+  const path = getAssetPathWithoutQuery(raw);
+  const basename = path.slice(path.lastIndexOf("/") + 1);
+  const extension = getSiyuanAssetExtension(raw);
+  const basenameWithoutExtension = extension ? basename.slice(0, -extension.length) : basename;
+  return basenameWithoutExtension.replace(/-\d{14}-\w{7}/, "");
+}
+
+export function getSiyuanAssetRenameNameError(path: string, rawName: string): string | undefined {
+  const newName = rawName.trim();
+  const extension = getSiyuanAssetExtension(path);
+  if (/[\\/]/.test(newName)) {
+    return "newName 只能填写资源显示名称，不能包含目录路径。";
+  }
+  if (extension && newName.toLowerCase().endsWith(extension.toLowerCase())) {
+    const displayName = newName.slice(0, -extension.length);
+    return `newName 应为资源显示名称 ${displayName}，不要包含原扩展名 ${extension}；扩展名由思源自动保留。`;
+  }
+  if (/-\d{14}-\w{7}$/.test(newName)) {
+    return "newName 不应包含思源内部资源唯一后缀 -YYYYMMDDHHMMSS-xxxxxxx；请只填写资源显示名称。";
+  }
+}
+
 export function isPdfAnnotationAssetPath(raw: string): boolean {
   const path = toSiyuanAssetApiPath(raw).split("?", 1)[0].replace(/\.sya$/i, "");
   return path.toLowerCase().endsWith(".pdf");
@@ -84,7 +118,7 @@ export const siyuanAssetManageInputSchema = z.object({
   action: z.enum(["rename", "set_annotation", "set_image_ocr", "ocr", "remove_unused_one", "remove_unused_batch", "full_reindex_content"]),
   path: z.string().trim().max(1024).optional(),
   paths: z.array(z.string().trim().min(1).max(1024)).max(20).optional(),
-  newName: z.string().trim().min(1).max(255).optional(),
+  newName: z.string().trim().min(1).max(255).describe("资源显示名称/基础名称；不含目录、原扩展名或思源内部唯一后缀，扩展名由 Kernel 自动保留。" ).optional(),
   annotation: siyuanFileAnnotationMapSchema.optional(),
   clear: z.boolean().optional(),
   text: z.string().max(20000).optional(),
@@ -97,6 +131,11 @@ export const siyuanAssetManageInputSchema = z.object({
       }
       if (typeof value.newName !== "string" || value.newName.trim().length === 0) {
         ctx.addIssue({ code: z.ZodIssueCode.custom, message: "rename 需要不含目录的新文件名 newName。", path: ["newName"] });
+      } else if (typeof value.path === "string" && value.path.trim().length > 0) {
+        const nameError = getSiyuanAssetRenameNameError(value.path, value.newName);
+        if (nameError) {
+          ctx.addIssue({ code: z.ZodIssueCode.custom, message: nameError, path: ["newName"] });
+        }
       }
       break;
     case "set_annotation":

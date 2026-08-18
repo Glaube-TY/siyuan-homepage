@@ -3,6 +3,7 @@ import type { ToolPermissionPreview } from "./tool-preview";
 import { isDangerousCommand } from "../../agent-workbench/mcp/mcp-safety";
 import { SETTINGS_FIELD_LABELS } from "../../agent-workbench/tools/homepage/homepage-settings-whitelist";
 import { getHomepageComponentRouteByPrefix } from "../../agent-workbench/tools/homepage/homepage-agent-business-capabilities";
+import { getSiyuanAssetDisplayName, getSiyuanAssetExtension } from "../../agent-workbench/tools/siyuan/contracts/siyuan-asset-manage.contract";
 
 /** Header keys whose values must be redacted in logs/debug/permission previews. */
 const SENSITIVE_HEADER_KEYS = new Set([
@@ -1146,7 +1147,12 @@ function buildSiyuanActionPreview(tool: NativeTool, args: Record<string, unknown
     impactLines.push("会修改数据库视图结构、排序、布局或分组，建议已先读取 schema/view。");
   }
   if (tool.name === "siyuan_asset_manage") {
-    if (action === "set_annotation") {
+    if (action === "rename") {
+      const assetPath = typeof args.path === "string" ? args.path : "";
+      const newName = typeof args.newName === "string" ? args.newName : "";
+      const extension = getSiyuanAssetExtension(assetPath);
+      impactLines.push(`重命名资源显示名称：${getSiyuanAssetDisplayName(assetPath) || "未识别"} → ${newName || "未提供"}；原扩展名 ${extension || "无"} 由 Kernel 保留，实际 Asset Path 将由 Kernel 重新生成。`);
+    } else if (action === "set_annotation") {
       if (args.clear === true) {
         impactLines.push("清除 PDF 标注。");
       } else {
@@ -1208,7 +1214,7 @@ function buildSiyuanActionPreview(tool: NativeTool, args: Record<string, unknown
     ? (args.clear === true ? "清除 PDF 标注" : "设置 PDF 标注")
     : action;
   const argsPreview: Record<string, unknown> = { action };
-  for (const key of ["id", "notebook", "icon", "path", "label", "deckID", "cardID", "avID", "viewID"]) {
+  for (const key of ["id", "notebook", "icon", "path", "newName", "label", "deckID", "cardID", "avID", "viewID"]) {
     if (args[key] !== undefined) argsPreview[key] = compactValue(args[key]);
   }
   if (tool.name === "siyuan_asset_manage" && action === "set_annotation") {

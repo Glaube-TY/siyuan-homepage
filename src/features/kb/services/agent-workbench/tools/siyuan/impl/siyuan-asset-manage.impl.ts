@@ -7,7 +7,7 @@ import {
   setImageOCRText,
 } from "../../../../../../../api";
 import type { SiyuanToolOutput } from "../contracts/siyuan-common.contract";
-import { isDisposableAssetPath, isPdfAnnotationAssetPath, toSiyuanAssetApiPath, type SiyuanAssetManageInput } from "../contracts/siyuan-asset-manage.contract";
+import { getSiyuanAssetRenameNameError, isDisposableAssetPath, isPdfAnnotationAssetPath, toSiyuanAssetApiPath, type SiyuanAssetManageInput } from "../contracts/siyuan-asset-manage.contract";
 import { outputForAction, requireString, requireStringArray } from "./siyuan-tool-impl-utils.impl";
 
 function requireDisposablePath(value: unknown, field: string): string {
@@ -22,7 +22,15 @@ export async function executeSiyuanAssetManage(args: SiyuanAssetManageInput): Pr
   let data: unknown;
   switch (args.action) {
     case "rename":
-      data = await renameAsset(toSiyuanAssetApiPath(requireString(args.path, "path")), requireString(args.newName, "newName"));
+      {
+        const path = requireString(args.path, "path");
+        const newName = requireString(args.newName, "newName");
+        const nameError = getSiyuanAssetRenameNameError(path, newName);
+        if (nameError) {
+          throw new Error(`[invalid_args] ${nameError}`);
+        }
+        data = await renameAsset(toSiyuanAssetApiPath(path), newName);
+      }
       break;
     case "set_annotation":
       {

@@ -1463,7 +1463,7 @@ export const AGGREGATE_TOOL_CATALOG: AggregateToolMeta[] = [
   {
         name: "siyuan_asset",
         title: "思源资源",
-        description: "读取和管理 assets 以及受限工作区文件。",
+        description: "读取和管理 assets 以及受限工作区文件；资源 rename 使用显示名称/基础名称，扩展名与实际物理路径由 Kernel 保留/生成。",
         readOnly: false,
         requiresConfirmation: true,
         boundary: "资源写入、删除、重命名或工作区文件操作前必须确认；路径守卫会限制敏感目录。",
@@ -1494,11 +1494,11 @@ export const AGGREGATE_TOOL_CATALOG: AggregateToolMeta[] = [
           {
             name: "manage",
             title: "管理资源",
-            description: "重命名资源、设置标注/OCR、执行 OCR、删除未使用资源或重建索引。",
+            description: "重命名资源的显示名称/基础名称、设置标注/OCR、执行 OCR、删除未使用资源或重建索引。rename 的 newName 不含目录、扩展名或思源内部唯一后缀；扩展名和新的物理 Asset Path 由 Kernel 保留/生成。",
             readOnly: false,
             required: ["action"],
             examples: [
-              { action: "manage", args: { action: "rename", path: "assets/nb_agent_temp_old.png", newName: "nb_agent_temp_renamed.png" } },
+              { action: "manage", args: { action: "rename", path: "assets/nb_agent_temp_old-20260818120000-abcdefg.png", newName: "nb_agent_temp_renamed" } },
               { action: "manage", args: { action: "set_annotation", path: "assets/nb_agent_test.pdf", annotation: { "annotation-id": { pages: [{ index: 0, positions: [[10, 20, 100, 120]] }], color: "var(--b3-pdf-background1)", type: "text", content: "PDF 摘要", mode: "text" } } } },
               { action: "manage", args: { action: "set_annotation", path: "assets/nb_agent_test.pdf", clear: true } },
               { action: "manage", args: { action: "ocr", path: "assets/nb_agent_temp.png" } },
@@ -1508,7 +1508,9 @@ export const AGGREGATE_TOOL_CATALOG: AggregateToolMeta[] = [
             ],
             notes: [
               "这里有两层 action：外层 action 固定为 manage，内层 args.action 必填。",
-              "rename/set_image_ocr/ocr 需要 path；set_annotation 只支持 PDF 或 .pdf.sya，传结构化 annotation 对象设置 PDF 标注，传 clear:true 清除全部标注，不能同时传两者。",
+              "rename 需要真实物理 Asset Path + newName 显示名称；newName 不含 assets/ 目录、原扩展名或 -YYYYMMDDHHMMSS-xxxxxxx 内部后缀，扩展名由 Kernel 自动保留，成功后以后续结果中的 newPath 为准。",
+              "rename 的反向恢复只验证最终 displayName、扩展名、内容/大小和文档引用语义；Kernel 每次可能生成新的时间戳/随机后缀，因此 finalPath 不要求逐字符等于最初 oldPath。",
+              "set_image_ocr/ocr 需要 path；set_annotation 只支持 PDF 或 .pdf.sya，传结构化 annotation 对象设置 PDF 标注，传 clear:true 清除全部标注，不能同时传两者。",
               "remove_unused_one 和 remove_unused_batch 只能删除本轮 disposable 测试资源；路径必须位于 assets/... 或 /data/assets/...，且路径/文件名需包含 nb_agent / notebrain_agent / notebrain_test / notebrain-agent-test 之一。",
               "不要删除 unused_assets 返回的普通用户资源，即使它们显示为未使用。",
               "full_reindex_content 是全局资源内容索引重建，普通测试默认跳过；只有用户明确要求并传 confirmGlobal:true 时才执行。",

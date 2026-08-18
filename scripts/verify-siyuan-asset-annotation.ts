@@ -121,7 +121,7 @@ async function main() {
     path: "assets/example.pdf",
     annotation: { infinity: { ...annotation["annotation-test-id"], pages: [{ index: 0, positions: [[Number.POSITIVE_INFINITY]] }] } },
   }, false);
-  assertSchema({ action: "rename", path: "assets/example.txt", newName: "renamed.txt" }, true);
+  assertSchema({ action: "rename", path: "assets/example.txt", newName: "renamed" }, true);
   assertSchema({ action: "set_image_ocr", path: "assets/example.png", text: "OCR" }, true);
 
   const setCalls = installRuntime(() => ({ code: 0, data: null }));
