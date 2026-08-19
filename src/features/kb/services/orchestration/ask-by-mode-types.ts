@@ -20,6 +20,8 @@ export interface AskByModeParams {
   mode: ChatMode;
   question: string;
   conversationId?: string;
+  /** Legacy archive conversations are visible but never executable. */
+  conversationKind?: "current" | "legacy";
   panelInstanceId?: string;
   turnId?: string;
   getState: () => KbSessionState;

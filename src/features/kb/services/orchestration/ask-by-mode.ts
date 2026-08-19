@@ -38,6 +38,10 @@ export async function askByMode(params: AskByModeParams): Promise<AskByModeResul
 async function askByModeInner(params: AskByModeParams): Promise<AskByModeResult> {
   const { mode, question, addMessage, updateState, existingUserMessageId, attachedDocs } = params;
 
+  if (params.conversationKind !== undefined && params.conversationKind !== "current") {
+    return { success: false, error: "LEGACY_CONVERSATION_READ_ONLY" };
+  }
+
   // 检查模式可用性
   if (!isChatModeAvailable(mode)) {
     const modeLabel = CHAT_MODES.find((m) => m.id === mode)?.label || mode;

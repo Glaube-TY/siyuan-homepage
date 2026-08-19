@@ -4,7 +4,13 @@ import { filterStaleToolCalls } from "../messages/message-normalizer";
 import { parseToolResultContentEnvelope } from "../tools/tool-execution-result";
 import type { ProviderAdapter } from "../providers/provider-adapter";
 import { classifyProviderFinishReason } from "../providers/provider-finish-reason";
-import type { NativeToolRegistry } from "../tools/native-tool-registry";
+import {
+  ProviderToolsetController,
+  resolveNativeToolReadOnly,
+  type NativeToolRegistry,
+  type ProviderToolsetSelection,
+} from "../tools/native-tool-registry";
+import type { NativeTool } from "../tools/native-tool";
 import { AgentSession } from "../session/agent-session";
 import type { AgentRecoveryContext, AgentRunCheckpoint, AgentRunCheckpointPhase, AgentSuccessfulWriteGuard } from "../session/agent-run-checkpoint";
 import { RegisteredConfirmationBridge, type ToolConfirmationBridge } from "../permissions/confirmation-bridge";
@@ -22,6 +28,13 @@ import {
   type AgentTokenUsage,
 } from "../../../../agent-platform/agent-run-protocol";
 import { addAgentTokenUsage, mergeLatestAgentTokenUsage } from "../providers/provider-usage";
+import {
+  buildPromptBudget,
+  estimateAgentMessagesTokens,
+  estimateValueTokens,
+  resolveRuntimeObservationBudget,
+  type PromptBudget,
+} from "../../../types/context-usage";
 
 export interface NativeToolAgentLoopResult {
   status: "answer_ready" | "failed" | "cancelled";
@@ -38,11 +51,19 @@ export interface NativeToolAgentLoopResult {
 export interface NativeToolAgentLoopOptions {
   provider: ProviderAdapter;
   toolRegistry: NativeToolRegistry;
+  /** 本轮 provider schema 的延迟激活控制器。 */
+  providerToolsetController?: ProviderToolsetController;
   session?: AgentSession;
   conversationId?: string;
   identity?: AgentRunIdentity;
   systemPrompt: string;
+  /** 每次 Provider Call 前按当前 active toolset 重建 System Prompt。 */
+  buildSystemPrompt?: (activeToolNames: ReadonlySet<string>) => string;
   contextInstructions?: string;
+  /** Uncovered completed turns as real provider messages. */
+  historicalMessages?: AgentMessage[];
+  contextWindowTokens?: number;
+  maxOutputTokens?: number;
   /** Maximum tool calls per turn; 0 disables this count-based limit. */
   maxToolCalls?: number;
   /** Confirmation bridge — defaults to RegisteredConfirmationBridge (singleton). */
@@ -339,10 +360,30 @@ export class NativeToolAgentLoop {
         };
       }
 
-      this.emitCheckpoint("before_model", steps);
-      const messages = this.buildProviderMessages(nextTransientInstruction);
+      const transientInstruction = nextTransientInstruction;
       nextTransientInstruction = undefined;
-      const tools = this.options.toolRegistry.listProviderVisible();
+      const prepared = this.prepareProviderPayload(question, transientInstruction);
+      if (prepared.ok === false) {
+        const message = prepared.message;
+        this.options.onEvent?.({ type: "error", code: prepared.failureCode, message });
+        return {
+          status: "failed",
+          answer: "",
+          steps,
+          messages: this.session.snapshot(),
+          errorCode: prepared.failureCode,
+          errorMessage: message,
+        };
+      }
+      const messages = prepared.messages;
+      const tools = prepared.tools;
+      // Resolve is provisional; only this exact payload is allowed to fulfill
+      // pending activation requests before the provider stream starts.
+      this.options.providerToolsetController?.commitProviderStep(tools);
+      // This is the only execution allowlist for the response below. Help
+      // calls may update the controller, but never this model-step snapshot.
+      const modelStepAllowedToolNames = new Set(tools.map((tool) => tool.name));
+      this.emitCheckpoint("before_model", steps);
       const toolChoice = requireToolCallForNextTurn && this.options.provider.capabilities.requiredToolChoice
         ? "required" as const
         : "auto" as const;
@@ -628,6 +669,7 @@ export class NativeToolAgentLoop {
       const dispatch = await dispatchToolCalls({
         calls: toolCalls,
         registry: this.options.toolRegistry,
+        modelStepAllowedToolNames,
         ctx: {
           question,
           callCounts: this.buildCallCounts(),
@@ -742,7 +784,22 @@ export class NativeToolAgentLoop {
       "只调用 agent_tool_help.list_actions 或 describe_action 只能说明已查看工具说明，不能说明 action 已测试或通过。",
     ].join("\n")));
 
-    const messages = this.buildProviderMessages();
+    const question = [...this.session.snapshot()]
+      .reverse()
+      .find((message) => message.role === "user")?.content ?? "";
+    const prepared = this.prepareProviderPayload(question, undefined);
+    if (prepared.ok === false) {
+      return this.finishSoftToolStopFallback({
+        code: prepared.failureCode,
+        message: prepared.message,
+        steps: params.steps,
+      });
+    }
+    const messages = prepared.messages.map((message, index) => (
+      index === 0 && message.role === "system"
+        ? { ...message, content: this.options.buildSystemPrompt?.(new Set()) ?? this.options.systemPrompt }
+        : message
+    ));
     let answer = "";
     let reasoning = "";
     let emittedTextLive = false;
@@ -951,7 +1008,7 @@ export class NativeToolAgentLoop {
     const recoveryContext = buildAgentRecoveryContext(this.session.snapshot());
     const successfulWriteGuards = this.stormBreaker.getSuccessfulWriteGuards();
     this.options.onCheckpoint?.({
-      schemaVersion: 1,
+      schemaVersion: 2,
       identity: this.identity,
       phase,
       stepIndex,
@@ -962,27 +1019,269 @@ export class NativeToolAgentLoop {
       ...(recoveryState?.recoveryExhausted ? recoveryState : {}),
       ...(recoveryContext ? { recoveryContext } : {}),
       ...(successfulWriteGuards.length > 0 ? { successfulWriteGuards } : {}),
+      ...(this.options.providerToolsetController
+        ? { providerToolsetState: this.options.providerToolsetController.snapshotState() }
+        : {}),
       createdAt: Date.now(),
     });
   }
 
-  private buildProviderMessages(transientInstruction?: string): AgentMessage[] {
+  private buildProviderMessages(
+    transientInstruction: string | undefined,
+    systemPrompt: string,
+    maxInputTokens?: number,
+  ): AgentMessage[] {
+    const observationBudget = resolveRuntimeObservationBudget(this.options.contextWindowTokens);
     const prefix = [
-      createSystemMessage(this.options.systemPrompt),
+      createSystemMessage(systemPrompt),
       ...(this.options.contextInstructions ? [createSystemMessage(this.options.contextInstructions)] : []),
+      ...(this.options.historicalMessages ?? []),
     ];
     const compacted = compactAgentMessages([
       ...prefix,
       ...this.session.snapshot(),
       ...(transientInstruction ? [createSystemMessage(transientInstruction)] : []),
-    ]);
+    ], {
+      maxObservationTokens: observationBudget,
+      maxToolResultTokens: observationBudget,
+      ...(maxInputTokens !== undefined ? { maxInputTokens } : {}),
+      resolveCallReadOnly: (toolName, args) => resolveNativeToolReadOnly(this.options.toolRegistry, toolName, args),
+    });
     // Filter historical tool_calls for tools no longer in the current registry.
     // Prevents the provider from re-attempting deprecated tools like
     // read_attribute_view_stats or batch_update_attribute_view_cells.
-    const availableNames = new Set(
-      this.options.toolRegistry.listProviderVisible().map((t) => t.name),
-    );
+    const availableNames = new Set(this.options.toolRegistry.listProviderVisible().map((t) => t.name));
     return filterStaleToolCalls(compacted, availableNames);
+  }
+
+  private collectRuntimeRequiredToolNames(messages: readonly AgentMessage[]): Set<string> {
+    const registeredNames = new Set(this.options.toolRegistry.listProviderVisible().map((tool) => tool.name));
+    const pendingCalls = new Map<string, string>();
+    for (const message of messages) {
+      if (message.role === "assistant") {
+        for (const call of message.toolCalls ?? []) pendingCalls.set(call.id, call.name);
+      } else if (message.role === "tool") {
+        pendingCalls.delete(message.toolCallId);
+      }
+    }
+    return new Set(
+      [...pendingCalls.values()].filter((toolName) => registeredNames.has(toolName)),
+    );
+  }
+
+  private classifyProviderMessageSources(messages: readonly AgentMessage[]): {
+    historicalMessages: AgentMessage[];
+    currentRunMessages: AgentMessage[];
+  } {
+    const historicalMessages = this.options.historicalMessages ?? [];
+    const currentRunMessages = this.session.snapshot();
+    const historicalRefs = new Set(historicalMessages);
+    const currentRefs = new Set(currentRunMessages);
+    const historicalCallIds = new Set(
+      historicalMessages.flatMap((message) => message.role === "assistant"
+        ? (message.toolCalls ?? []).map((call) => call.id)
+        : message.role === "tool" ? [message.toolCallId] : []),
+    );
+    const currentCallIds = new Set(
+      currentRunMessages.flatMap((message) => message.role === "assistant"
+        ? (message.toolCalls ?? []).map((call) => call.id)
+        : message.role === "tool" ? [message.toolCallId] : []),
+    );
+    const result = { historicalMessages: [] as AgentMessage[], currentRunMessages: [] as AgentMessage[] };
+    for (const message of messages) {
+      if (historicalRefs.has(message)) {
+        result.historicalMessages.push(message);
+        continue;
+      }
+      if (currentRefs.has(message)) {
+        result.currentRunMessages.push(message);
+        continue;
+      }
+      if (message.role === "tool" && historicalCallIds.has(message.toolCallId)) {
+        result.historicalMessages.push(message);
+        continue;
+      }
+      if (message.role === "tool" && currentCallIds.has(message.toolCallId)) {
+        result.currentRunMessages.push(message);
+        continue;
+      }
+      if (message.role === "assistant" && message.toolCalls?.some((call) => historicalCallIds.has(call.id))) {
+        result.historicalMessages.push(message);
+        continue;
+      }
+      if (message.role === "assistant" && message.toolCalls?.some((call) => currentCallIds.has(call.id))) {
+        result.currentRunMessages.push(message);
+        continue;
+      }
+      // Unknown user/assistant messages are current-run messages. Dynamic and
+      // transient system prompts are fixed prompt parts, not conversation.
+      if (message.role !== "system") result.currentRunMessages.push(message);
+    }
+    return result;
+  }
+
+  private resolveProviderToolset(
+    question: string,
+    transientInstruction: string | undefined,
+    runtimeRequiredToolNames?: ReadonlySet<string>,
+    providerMessageTokens?: number,
+  ): { selection: ProviderToolsetSelection; systemPrompt: string } {
+    const controller = this.options.providerToolsetController;
+    if (!controller) {
+      return {
+        selection: {
+          tools: this.options.toolRegistry.listProviderVisible(),
+          activeProviderToolNames: new Set(this.options.toolRegistry.listProviderVisible().map((tool) => tool.name)),
+          registeredToolCount: this.options.toolRegistry.listProviderVisible().length,
+          budgetTokens: Number.POSITIVE_INFINITY,
+          toolsetReduced: false,
+          activationBudgetExceeded: false,
+          unavailableToolNames: [],
+        },
+        systemPrompt: this.options.systemPrompt,
+      };
+    }
+
+    const tools = this.options.toolRegistry.listProviderVisible();
+    const resolve = (systemPrompt: string) => controller.resolve({
+      tools,
+      question,
+      contextWindowTokens: this.options.contextWindowTokens,
+      maxOutputTokens: this.options.maxOutputTokens,
+      providerMessageTokens,
+      fixedPromptTokens: estimateValueTokens(systemPrompt)
+        + estimateValueTokens(this.options.contextInstructions)
+        + estimateValueTokens(transientInstruction),
+      runtimeRequiredToolNames,
+    });
+
+    const provisionalPrompt = this.options.buildSystemPrompt?.(controller.getActiveProviderToolNames())
+      ?? this.options.systemPrompt;
+    let selection = resolve(provisionalPrompt);
+    let systemPrompt = this.options.buildSystemPrompt?.(selection.activeProviderToolNames)
+      ?? this.options.systemPrompt;
+    selection = resolve(systemPrompt);
+    systemPrompt = this.options.buildSystemPrompt?.(selection.activeProviderToolNames)
+      ?? this.options.systemPrompt;
+    return { selection, systemPrompt };
+  }
+
+  private buildProviderBudget(
+    messages: readonly AgentMessage[],
+    tools: readonly NativeTool[],
+    systemPrompt: string,
+    transientInstruction: string | undefined,
+  ): PromptBudget {
+    const sources = this.classifyProviderMessageSources(messages);
+    return buildPromptBudget({
+      providerMessages: messages,
+      providerTools: tools,
+      systemPrompt,
+      contextInstructions: this.options.contextInstructions,
+      recoveryInstruction: transientInstruction,
+      historicalMessages: sources.historicalMessages,
+      currentRunMessages: sources.currentRunMessages,
+      contextWindowTokens: this.options.contextWindowTokens,
+      maxOutputTokens: this.options.maxOutputTokens,
+    });
+  }
+
+  private resolveProviderPayload(
+    question: string,
+    transientInstruction: string | undefined,
+    maxInputTokens?: number,
+  ): { messages: AgentMessage[]; budget: PromptBudget; tools: NativeTool[]; systemPrompt: string; selection: ProviderToolsetSelection } {
+    const controller = this.options.providerToolsetController;
+    let resolved = this.resolveProviderToolset(question, transientInstruction);
+    let systemPrompt = resolved.systemPrompt;
+    let messages = this.buildProviderMessages(transientInstruction, systemPrompt, maxInputTokens);
+
+    for (let iteration = 0; iteration < 3; iteration += 1) {
+      const runtimeRequiredToolNames = this.collectRuntimeRequiredToolNames(messages);
+      const providerMessageTokens = estimateAgentMessagesTokens(messages);
+      const nextResolved = this.resolveProviderToolset(
+        question,
+        transientInstruction,
+        runtimeRequiredToolNames,
+        providerMessageTokens,
+      );
+      const nextMessages = this.buildProviderMessages(transientInstruction, nextResolved.systemPrompt, maxInputTokens);
+      const stable = nextResolved.systemPrompt === systemPrompt
+        && nextResolved.selection.tools.map((tool) => tool.name).join("\n") === resolved.selection.tools.map((tool) => tool.name).join("\n");
+      resolved = nextResolved;
+      systemPrompt = nextResolved.systemPrompt;
+      messages = nextMessages;
+      if (stable || !controller) break;
+    }
+
+    return {
+      messages,
+      budget: this.buildProviderBudget(messages, resolved.selection.tools, systemPrompt, transientInstruction),
+      tools: resolved.selection.tools,
+      systemPrompt,
+      selection: resolved.selection,
+    };
+  }
+
+  private prepareProviderPayload(
+    question: string,
+    transientInstruction: string | undefined,
+  ): { ok: true; messages: AgentMessage[]; budget: PromptBudget; tools: NativeTool[]; systemPrompt: string; selection: ProviderToolsetSelection } | {
+    ok: false;
+    failureCode: "tool_activation_budget_exceeded" | "provider_toolset_budget_exceeded" | "context_budget_exceeded" | "irreducible_context_overflow";
+    message: string;
+  } {
+    let prepared = this.resolveProviderPayload(question, transientInstruction);
+    let budget = prepared.budget;
+    const needsRebuild = prepared.selection.activationBudgetExceeded
+      || budget.inputTokens >= budget.hardThresholdTokens;
+    if (!needsRebuild) {
+      return { ok: true, ...prepared };
+    }
+
+    // Compaction changes the real payload; recompute pending calls, dynamic
+    // prompt and tool budget from that payload instead of a raw-session cache.
+    prepared = this.resolveProviderPayload(
+      question,
+      transientInstruction,
+      Math.max(1, budget.targetInputTokens),
+    );
+    budget = prepared.budget;
+    if (!prepared.selection.activationBudgetExceeded && budget.inputTokens < budget.hardThresholdTokens) {
+      return { ok: true, ...prepared };
+    }
+
+    if (prepared.selection.activationBudgetExceeded) {
+      const toolNames = prepared.selection.unavailableToolNames;
+      const requestedTools = toolNames.length > 0 ? toolNames.join(", ") : "请求的工具";
+      return {
+        ok: false,
+        failureCode: "tool_activation_budget_exceeded",
+        message: `已注册且已请求的工具（${requestedTools}）无法在当前上下文窗口中激活；请切换更大上下文模型或缩短当前输入。`,
+      };
+    }
+
+    if (budget.inputTokens >= budget.hardThresholdTokens) {
+      const breakdown = budget.breakdown;
+      const toolsetPressure = prepared.tools.length > 0
+        && breakdown.toolDefinitionTokens >= Math.max(1_024, breakdown.conversationTokens + breakdown.currentUserTokens);
+      const observationPressure = breakdown.runtimeObservationTokens > 0;
+      const failureCode = toolsetPressure
+        ? "provider_toolset_budget_exceeded"
+        : observationPressure
+          ? "context_budget_exceeded"
+          : "irreducible_context_overflow";
+      return {
+        ok: false,
+        failureCode,
+        message: failureCode === "provider_toolset_budget_exceeded"
+          ? "当前 provider 工具定义仍超过动态工具预算，本轮未发送请求。"
+          : failureCode === "context_budget_exceeded"
+            ? "当前运行中的工具结果已达到上下文上限，本轮已停止。"
+            : "当前 Agent 基础运行上下文已达到不可安全容纳的上限，本轮已停止。",
+      };
+    }
+    return { ok: true, ...prepared };
   }
 
   private buildCallCounts(): Record<string, number> {

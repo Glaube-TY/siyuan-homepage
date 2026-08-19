@@ -3,6 +3,7 @@
  */
 
 import type { ThinkingMode, WebAccessMode } from "./session";
+import type { ContextCompactionSnapshot } from "./context-compaction";
 
 /** 引用项（轻量结构） */
 export type ReferenceItem = {
@@ -89,8 +90,6 @@ export type UserChatMessage = {
   attachedDocs?: AttachedKbDoc[];
   /** 请求上下文（可选，用于 regenerate 复用原 scope） */
   requestContext?: UserMessageRequestContext;
-  /** 已被压缩标记（true 时不再全文进入 runtime context） */
-  compacted?: boolean;
 };
 
 /** 引用段落实体 */
@@ -153,8 +152,6 @@ export type AssistantChatMessage = {
     partCount: number;
     chars: number;
   };
-  /** 已被压缩标记（true 时不再全文进入 runtime context） */
-  compacted?: boolean;
 };
 
 /** 错误消息 */
@@ -223,12 +220,8 @@ export type KbConversationSession = {
   updatedAt: number;
   /** 消息列表 */
   messages: ChatMessage[];
-  /** Agent 生成的会话内阶段摘要，仅用于当前会话上下文预算管理 */
-  stageSummaries?: ConversationStageSummary[];
-  /** 当前会话压缩状态。 */
-  compressionState?: import("./context-usage").ContextCompressionState;
-  /** 压缩摘要文本（可选） */
-  compressedContextSummary?: string;
+  /** 最新结构化压缩快照；完整 messages 始终是会话事实来源。 */
+  latestCompactionSnapshot?: ContextCompactionSnapshot;
   /**
    * 当前会话输入区"深度思考"按钮状态
    * - 跟随会话持久化，切换会话/重启插件后恢复
@@ -240,18 +233,10 @@ export type KbConversationSession = {
    * - 全局 webSearch 关闭时 UI 临时显示 off，但不覆盖会话保存值
    */
   webAccessMode?: WebAccessMode;
-};
-
-export type ConversationStageSummary = {
-  id: string;
-  index: number;
-  summary: string;
-  createdAt: number;
-  startAfterAssistantMessageId?: string;
-  startTurnIndex: number;
-  endUserMessageId: string;
-  endAssistantMessageId: string;
-  endTurnIndex: number;
-  source: "agent_stage_summary" | "emergency_llm_stage_summary";
-  summaryChars: number;
+  /** Runtime/archive discriminator; absent records are not executable until normalized. */
+  kind?: "current" | "legacy";
+  readOnly?: boolean;
+  legacySchemaVersion?: unknown;
+  archiveError?: string;
+  corrupted?: boolean;
 };

@@ -46,7 +46,7 @@ export type { SkillSource } from "./registries/skill-registry";
 
 // runtime — native Agent path only
 export { ToolResultLog } from "./runtime/tool-result-log";
-export { buildConversationContext } from "./runtime/conversation-context-builder";
+export { buildConversationContext, buildUncoveredVerbatimAgentMessages } from "./runtime/conversation-context-builder";
 export type {
   BuildConversationContextParams,
   ConversationContextSnapshot,

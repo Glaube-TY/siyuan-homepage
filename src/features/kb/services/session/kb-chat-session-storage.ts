@@ -1,7 +1,8 @@
 import type {
   AssistantChatMessage,
+  AttachedKbDoc,
   ChatMessage,
-  ConversationStageSummary,
+  CitationSegment,
   ErrorChatMessage,
   KbConversationSession,
   ReferenceItem,
@@ -10,6 +11,8 @@ import type {
 import type { AgentTurnMemory } from "../agent-workbench/memory/agent-turn-memory";
 import type { AgentWorkbenchEvent } from "../agent-workbench/contracts/turn-event";
 import type { ThinkingMode, WebAccessMode } from "../../types/session";
+import type { ContextCompactionSnapshot } from "../../types/context-compaction";
+import { CURRENT_CONVERSATION_SCHEMA_VERSION, type CurrentConversationRecord, type LegacyConversationRecord } from "../../types/conversation-record";
 import { sanitizePersistedSummaryText } from "./persisted-summary-sanitizer";
 import {
   hasSettledWorkbenchTerminal,
@@ -107,7 +110,6 @@ export type PersistedChatMessage =
       createdAt: number;
       attachedDocs?: import("../../types/chat").AttachedKbDoc[];
       requestContext?: import("../../types/chat").UserMessageRequestContext;
-      compacted?: boolean;
     }
   | {
       id: string;
@@ -121,18 +123,16 @@ export type PersistedChatMessage =
       workbenchEvents?: PersistedWorkbenchEvent[];
       temporaryWorkbenches?: AgentTemporaryWorkbenchReference[];
       reasoning?: { content: string; chars: number; partCount: number };
-      compacted?: boolean;
     };
 
 export interface PersistedConversation {
+  schemaVersion: 3;
   id: string;
   title: string;
   createdAt: number;
   updatedAt: number;
   messages: PersistedChatMessage[];
-  stageSummaries?: ConversationStageSummary[];
-  compressionState?: import("../../types/context-usage").ContextCompressionState;
-  compressedContextSummary?: string;
+  latestCompactionSnapshot?: ContextCompactionSnapshot;
   /** 会话级"深度思考"按钮状态；旧文件缺字段时默认 "off" */
   thinkingMode?: ThinkingMode;
   /** 会话级"联网搜索"按钮状态；旧文件缺字段时默认 "off" */
@@ -234,14 +234,48 @@ function sanitizePersistedActionOutcome(
   };
 }
 
-function sanitizeConversationStageSummary(
-  summary: import("../../types/chat").ConversationStageSummary,
-): import("../../types/chat").ConversationStageSummary {
-  const sanitizedSummary = sanitizePersistedSummaryText(summary.summary, 6000) ?? summary.summary;
+function sanitizeCompactionSnapshot(
+  snapshot: ContextCompactionSnapshot | undefined,
+): ContextCompactionSnapshot | undefined {
+  // V1 snapshots used a different coverage/merge contract. They are ignored
+  // deliberately; the transcript remains readable and can be compacted again.
+  if (!snapshot || snapshot.version !== 2) return undefined;
+  const list = (values: unknown): string[] => Array.isArray(values)
+    ? [...new Set(values
+      .map((value) => sanitizePersistedSummaryText(value, 320))
+      .filter((value): value is string => !!value))]
+      .slice(0, 20)
+    : [];
+  const state = snapshot.state;
   return {
-    ...summary,
-    summary: sanitizedSummary,
-    summaryChars: sanitizedSummary.length,
+    version: 2,
+    generation: Number.isSafeInteger(snapshot.generation) && snapshot.generation >= 0 ? snapshot.generation : 0,
+    createdAt: Number.isFinite(snapshot.createdAt) ? snapshot.createdAt : Date.now(),
+    trigger: snapshot.trigger === "manual" || snapshot.trigger === "auto" || snapshot.trigger === "hard"
+      ? snapshot.trigger
+      : "auto",
+    coveredThroughTurnIndex: Number.isSafeInteger(snapshot.coveredThroughTurnIndex)
+      ? snapshot.coveredThroughTurnIndex
+      : 0,
+    coveredThroughMessageId: typeof snapshot.coveredThroughMessageId === "string"
+      ? snapshot.coveredThroughMessageId.slice(0, 200)
+      : "",
+    sourceHash: typeof snapshot.sourceHash === "string" ? snapshot.sourceHash.slice(0, 32) : "",
+    state: {
+      currentGoal: sanitizePersistedSummaryText(state.currentGoal, 500) ?? "",
+      userConstraints: list(state.userConstraints),
+      importantDecisions: list(state.importantDecisions),
+      completedWork: list(state.completedWork),
+      currentState: list(state.currentState),
+      unresolvedIssues: list(state.unresolvedIssues),
+      nextActions: list(state.nextActions),
+      importantReferences: list(state.importantReferences),
+      verifiedWriteOutcomes: list(state.verifiedWriteOutcomes),
+    },
+    ...(Number.isSafeInteger(snapshot.estimatedTokens) && snapshot.estimatedTokens >= 0
+      ? { estimatedTokens: snapshot.estimatedTokens }
+      : {}),
+    ...(snapshot.stale ? { stale: true } : {}),
   };
 }
 
@@ -478,9 +512,6 @@ function toPersistedMessage(message: ChatMessage): PersistedChatMessage | null {
         if (message.requestContext) {
           persisted.requestContext = message.requestContext;
         }
-        if (message.compacted) {
-          persisted.compacted = true;
-        }
       }
       return persisted;
     }
@@ -525,7 +556,6 @@ function toPersistedMessage(message: ChatMessage): PersistedChatMessage | null {
           partCount: message.reasoning.partCount,
         };
       }
-      if (message.compacted) persisted.compacted = true;
       return persisted;
     }
     case "loading":
@@ -549,7 +579,6 @@ function fromPersistedMessage(message: PersistedChatMessage, conversationId: str
         const userRestored = restored as UserChatMessage;
         if (message.attachedDocs) userRestored.attachedDocs = message.attachedDocs;
         if (message.requestContext) userRestored.requestContext = message.requestContext;
-        if (message.compacted) userRestored.compacted = true;
       }
       return restored;
     }
@@ -623,7 +652,6 @@ function fromPersistedMessage(message: PersistedChatMessage, conversationId: str
           partCount: message.reasoning.partCount,
         };
       }
-      if (message.compacted) assistantMsg.compacted = true;
       return assistantMsg;
     }
   }
@@ -641,16 +669,13 @@ function normalizeWebAccessMode(value: unknown): WebAccessMode {
 
 export function toPersistedConversation(session: KbConversationSession): PersistedConversation {
   return {
+    schemaVersion: CURRENT_CONVERSATION_SCHEMA_VERSION,
     id: session.id,
     title: session.title,
     createdAt: session.createdAt,
     updatedAt: session.updatedAt,
     messages: session.messages.map(toPersistedMessage).filter((m): m is PersistedChatMessage => !!m),
-    stageSummaries: session.stageSummaries?.map(sanitizeConversationStageSummary) ?? [],
-    compressionState: session.compressionState,
-    compressedContextSummary:
-      sanitizePersistedSummaryText(session.compressedContextSummary, 16000) ??
-      session.compressedContextSummary,
+    latestCompactionSnapshot: sanitizeCompactionSnapshot(session.latestCompactionSnapshot),
     thinkingMode: session.thinkingMode,
     webAccessMode: session.webAccessMode,
   };
@@ -666,14 +691,209 @@ export function fromPersistedConversation(
     createdAt: persisted.createdAt,
     updatedAt: persisted.updatedAt,
     messages: persisted.messages.map((message) => fromPersistedMessage(message, persisted.id)),
-    stageSummaries: persisted.stageSummaries?.map(sanitizeConversationStageSummary) ?? [],
-    compressionState: persisted.compressionState,
-    compressedContextSummary:
-      sanitizePersistedSummaryText(persisted.compressedContextSummary, 16000) ??
-      persisted.compressedContextSummary,
-    // 旧 session 文件没有这两个字段时，归一化为 "off"，保持向前兼容
+    latestCompactionSnapshot: sanitizeCompactionSnapshot(persisted.latestCompactionSnapshot),
+    // 会话按钮字段缺失时归一化为 "off"
     thinkingMode: normalizeThinkingMode(persisted.thinkingMode),
     webAccessMode: normalizeWebAccessMode(persisted.webAccessMode),
     ...defaults,
+  };
+}
+
+const LEGACY_INTERNAL_ROLES = new Set([
+  "tool",
+  "system",
+  "internal",
+  "runtime",
+  "agent_runtime",
+  "runtime_only",
+  "runtime-only",
+  "tool_result",
+  "tool_output",
+  "assistant_runtime",
+  "assistant-runtime",
+  "loading",
+]);
+
+function parseLegacyAttachedDocs(value: unknown, fallbackCreatedAt: number): AttachedKbDoc[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const docs = value.slice(0, 32).flatMap((item): AttachedKbDoc[] => {
+    if (!item || typeof item !== "object") return [];
+    const source = item as Record<string, unknown>;
+    const docId = sanitizePersistedSummaryText(source.docId, 200);
+    const title = sanitizePersistedSummaryText(source.title, 300);
+    if (!docId || !title) return [];
+    const box = sanitizePersistedSummaryText(source.box, 200);
+    const path = sanitizePersistedSummaryText(source.path, 500);
+    return [{
+      docId,
+      title,
+      source: source.source === "current_doc" ? "current_doc" : "manual_search",
+      createdAt: Number.isFinite(source.createdAt) ? Number(source.createdAt) : fallbackCreatedAt,
+      ...(box ? { box } : {}),
+      ...(path ? { path } : {}),
+    }];
+  });
+  return docs.length > 0 ? docs : undefined;
+}
+
+function parseLegacyCitationSegments(value: unknown): CitationSegment[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const segments = value.slice(0, 64).flatMap((item): CitationSegment[] => {
+    if (!item || typeof item !== "object") return [];
+    const source = item as Record<string, unknown>;
+    const text = sanitizePersistedSummaryText(source.text, 2_000);
+    const citationIds = Array.isArray(source.citationIds)
+      ? [...new Set(source.citationIds.filter((id): id is number => Number.isInteger(id) && id >= 0 && id < 100_000))]
+      : [];
+    return text && citationIds.length > 0 ? [{ text, citationIds }] : [];
+  });
+  return segments.length > 0 ? segments : undefined;
+}
+
+function parseLegacyReferences(value: unknown): ReferenceItem[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const references = value.slice(0, 32).flatMap((item, index): ReferenceItem[] => {
+    if (!item || typeof item !== "object") return [];
+    const source = item as Record<string, unknown>;
+    const docTitle = sanitizePersistedSummaryText(source.docTitle ?? source.title, 300);
+    if (!docTitle) return [];
+    const rawSourceBlockIds = Array.isArray(source.sourceBlockIds) ? source.sourceBlockIds : source.blockIds;
+    const sourceBlockIds = Array.isArray(rawSourceBlockIds)
+      ? rawSourceBlockIds
+        .filter((id): id is string => typeof id === "string" && id.trim().length > 0)
+        .slice(0, 32)
+      : [];
+    const sourceType = ["siyuan_doc", "web_page", "file", "mcp_resource", "api_result"]
+      .includes(String(source.sourceType))
+      ? source.sourceType as ReferenceItem["sourceType"]
+      : undefined;
+    const readLevel = ["content", "structure", "candidate"].includes(String(source.readLevel))
+      ? source.readLevel as ReferenceItem["readLevel"]
+      : undefined;
+    const referenceReason = ["agent_explicit", "read_content", "structure_result", "search_candidate"]
+      .includes(String(source.referenceReason))
+      ? source.referenceReason as ReferenceItem["referenceReason"]
+      : undefined;
+    const docId = sanitizePersistedSummaryText(source.docId, 200);
+    const displayTitle = sanitizePersistedSummaryText(source.displayTitle, 300);
+    const box = sanitizePersistedSummaryText(source.box, 200);
+    const path = sanitizePersistedSummaryText(source.path, 500);
+    const url = sanitizePersistedSummaryText(source.url, 1_000);
+    const sourceName = sanitizePersistedSummaryText(source.sourceName, 300);
+    const provider = sanitizePersistedSummaryText(source.provider, 200);
+    return [{
+      index: Number.isInteger(source.index) ? Number(source.index) : index,
+      docTitle,
+      headingPathText: sanitizePersistedSummaryText(
+        source.headingPathText
+          ?? (Array.isArray(source.headingPath) ? source.headingPath.join(" > ") : undefined),
+        500,
+      ) ?? "",
+      sourceBlockIds,
+      ...(docId ? { docId } : {}),
+      ...(displayTitle ? { displayTitle } : {}),
+      ...(box ? { box } : {}),
+      ...(path ? { path } : {}),
+      ...(sourceType ? { sourceType } : {}),
+      ...(url ? { url } : {}),
+      ...(sourceName ? { sourceName } : {}),
+      ...(provider ? { provider } : {}),
+      ...(readLevel ? { readLevel } : {}),
+      ...(referenceReason ? { referenceReason } : {}),
+      ...(typeof source.grounded === "boolean" ? { grounded: source.grounded } : {}),
+    }];
+  });
+  return references.length > 0 ? references : undefined;
+}
+
+/**
+ * Tolerant reader for pre-V4 records. It intentionally returns an archive
+ * record only; legacy compression/checkpoint/runtime fields never cross this
+ * boundary into the current Agent runtime.
+ */
+export function parseLegacyConversationRecord(
+  raw: unknown,
+  fallback: { id: string; title?: string; createdAt?: number; updatedAt?: number },
+): LegacyConversationRecord {
+  const source = raw && typeof raw === "object" ? raw as Record<string, unknown> : {};
+  // The index ID is authoritative when available; a damaged file must not
+  // escape its indexed archive slot by supplying a different ID.
+  const id = fallback.id || (typeof source.id === "string" && source.id.trim() ? source.id : "legacy");
+  const title = typeof source.title === "string" && source.title.trim()
+    ? source.title
+    : fallback.title ?? "旧版对话";
+  const createdAt = Number.isFinite(source.createdAt) ? Number(source.createdAt) : fallback.createdAt ?? Date.now();
+  const updatedAt = Number.isFinite(source.updatedAt) ? Number(source.updatedAt) : fallback.updatedAt ?? createdAt;
+  const rawMessages = Array.isArray(source.messages) ? source.messages : [];
+  const messages: ChatMessage[] = [];
+  let ignoredInternalCount = 0;
+  let unparseableVisibleCount = 0;
+  for (let index = 0; index < rawMessages.length; index += 1) {
+    const message = rawMessages[index];
+    if (!message || typeof message !== "object") continue;
+    const item = message as Record<string, unknown>;
+    const role = item.role;
+    if (typeof role === "string" && LEGACY_INTERNAL_ROLES.has(role)) {
+      ignoredInternalCount += 1;
+      continue;
+    }
+    if (role !== "user" && role !== "assistant" && role !== "error") continue;
+    if (typeof item.content !== "string") {
+      unparseableVisibleCount += 1;
+      continue;
+    }
+    const messageId = typeof item.id === "string" && item.id.trim()
+      ? item.id
+      : `${id}-legacy-${index}`;
+    const messageCreatedAt = Number.isFinite(item.createdAt) ? Number(item.createdAt) : createdAt + index;
+    if (role === "user") {
+      const attachedDocs = parseLegacyAttachedDocs(item.attachedDocs, messageCreatedAt);
+      messages.push({
+        id: messageId,
+        role,
+        content: item.content,
+        createdAt: messageCreatedAt,
+        ...(attachedDocs ? { attachedDocs } : {}),
+      });
+    } else if (role === "assistant") {
+      const citationSegments = parseLegacyCitationSegments(item.citationSegments);
+      const citedReferences = parseLegacyReferences(item.citedReferences);
+      messages.push({
+        id: messageId,
+        role,
+        content: item.content,
+        createdAt: messageCreatedAt,
+        isComplete: item.isComplete === false ? false : true,
+        ...(citationSegments ? { citationSegments } : {}),
+        ...(citedReferences ? { citedReferences } : {}),
+      });
+    } else {
+      messages.push({ id: messageId, role, content: item.content, createdAt: messageCreatedAt });
+    }
+  }
+  const corrupted = !Array.isArray(source.messages) || unparseableVisibleCount > 0;
+  return {
+    id,
+    title,
+    createdAt,
+    updatedAt,
+    messages,
+    kind: "legacy",
+    readOnly: true,
+    legacySchemaVersion: source.schemaVersion,
+    ...(ignoredInternalCount > 0 ? { ignoredInternalCount } : {}),
+    ...(unparseableVisibleCount > 0 ? { unparseableVisibleCount } : {}),
+    ...(corrupted ? { corrupted: true, archiveError: "旧版会话部分消息无法解析，已按可读归档保留。" } : {}),
+  };
+}
+
+export function asCurrentConversationRecord(
+  session: KbConversationSession,
+): CurrentConversationRecord {
+  return {
+    ...session,
+    kind: "current",
+    readOnly: false,
+    schemaVersion: 3,
   };
 }

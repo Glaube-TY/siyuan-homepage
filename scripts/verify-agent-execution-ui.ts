@@ -33,7 +33,7 @@ assert.deepEqual(getWorkbenchRunPresentation([
 ]), { active: false, label: "执行完成", status: "completed" });
 
 const checkpoint: AgentRunCheckpoint = {
-  schemaVersion: 1,
+  schemaVersion: 2,
   identity,
   phase: "after_tool",
   stepIndex: 1,

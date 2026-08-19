@@ -22,8 +22,4 @@ export interface AgentTurnResult {
   events: AgentWorkbenchEvent[];
   /** 本轮生成的工作台轻量引用；完整内容由统一工作台仓库存储。 */
   temporaryWorkbenches?: AgentTemporaryWorkbenchReference[];
-  /** Agent-provided stage summary for current-session context compression. */
-  stageSummary?: {
-    summary: string;
-  };
 }

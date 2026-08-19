@@ -92,6 +92,54 @@ const TERMINAL_RUN_STATUSES = new Set<AutomationRunRecord["status"]>([
   "cancelled",
   "skipped",
 ]);
+const AGENT_CHECKPOINT_PHASES = new Set([
+  "before_model",
+  "before_tool",
+  "waiting_confirmation",
+  "after_tool",
+  "final",
+]);
+const AGENT_CHECKPOINT_SIDE_EFFECT_STATES = new Set([
+  "not_started",
+  "committed",
+  "unknown",
+]);
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+function isStoredAgentRunCheckpoint(value: unknown, runId: string): value is AgentRunCheckpoint {
+  if (!isRecord(value) || value.schemaVersion !== 2) return false;
+  const identity = value.identity;
+  return isRecord(identity)
+    && identity.runId === runId
+    && typeof identity.sessionId === "string"
+    && typeof identity.correlationId === "string"
+    && typeof identity.startedAt === "number"
+    && Number.isFinite(identity.startedAt)
+    && typeof value.phase === "string"
+    && AGENT_CHECKPOINT_PHASES.has(value.phase)
+    && typeof value.stepIndex === "number"
+    && Number.isInteger(value.stepIndex)
+    && value.stepIndex >= 0
+    && Array.isArray(value.messages)
+    && typeof value.sideEffectState === "string"
+    && AGENT_CHECKPOINT_SIDE_EFFECT_STATES.has(value.sideEffectState)
+    && typeof value.createdAt === "number"
+    && Number.isFinite(value.createdAt)
+    && value.createdAt >= 0
+    && (value.pendingToolCalls === undefined || Array.isArray(value.pendingToolCalls))
+    && (value.resumeAttempt === undefined
+      || (typeof value.resumeAttempt === "number"
+        && Number.isInteger(value.resumeAttempt)
+        && value.resumeAttempt >= 0))
+    && (value.recoveryExhausted === undefined || typeof value.recoveryExhausted === "boolean")
+    && (value.recoveryFailureCode === undefined || typeof value.recoveryFailureCode === "string")
+    && (value.recoveryFingerprint === undefined || typeof value.recoveryFingerprint === "string")
+    && (value.successfulWriteGuards === undefined || Array.isArray(value.successfulWriteGuards))
+    && (value.providerToolsetState === undefined || isRecord(value.providerToolsetState));
+}
 
 function emptyJobIndex(): JobIndex {
   return { schemaVersion: 1, revision: 0, items: [], updatedAt: 0 };
@@ -367,9 +415,16 @@ export class AutomationJobStore {
 
   async getCheckpoint(runId: string): Promise<AgentRunCheckpoint | undefined> {
     if (!isValidStorageId(runId)) return undefined;
-    const result = await this.storage.load<AgentRunCheckpoint>(checkpointKey(runId));
+    const result = await this.storage.load<unknown>(checkpointKey(runId));
     if (result.status === "missing") return undefined;
-    if (result.status === "error" || !result.data || result.data.schemaVersion !== 1 || result.data.identity?.runId !== runId) {
+    if (result.status === "error") {
+      throw new Error("自动化检查点结构无效。");
+    }
+    // Schema 1 checkpoints predate the current recovery contract. They are
+    // intentionally not upgraded or resumed; recoverInterruptedRun handles
+    // them as an unsafe boundary and clears them during recovery.
+    if (isRecord(result.data) && result.data.schemaVersion === 1) return undefined;
+    if (!isStoredAgentRunCheckpoint(result.data, runId)) {
       throw new Error("自动化检查点结构无效。");
     }
     return result.data;

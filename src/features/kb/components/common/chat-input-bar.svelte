@@ -7,6 +7,7 @@
   import type { KbChatAppearanceStyle } from "../../types/settings";
   import type { ThinkingMode } from "../../types/session";
   import type { ContextUsageSnapshot } from "../../types/context-usage";
+  import type { ContextCompactionSnapshot } from "../../types/context-compaction";
   import type { AttachedKbDoc } from "../../types/chat";
   import { searchDocsForChatAttachment, type ChatDocSearchResult } from "../../services/siyuan/search-docs-for-chat";
   import { getCurrentDocumentId, resolveDocMetaForAttachment } from "../../services/siyuan/current-doc-service";
@@ -28,9 +29,9 @@
   export let availableModes: ChatMode[] | undefined = undefined;
   export let thinkingMode: ThinkingMode = "off";
   export let contextUsage: ContextUsageSnapshot | undefined = undefined;
-  export let compressionState: import("../../types/context-usage").ContextCompressionState | undefined = undefined;
-  export let compressedContextSummary: string | undefined = undefined;
-  export let stageSummaryCount: number = 0;
+  export let latestCompactionSnapshot: ContextCompactionSnapshot | undefined = undefined;
+  export let uncoveredCompletedTurnCount: number = 0;
+  export let compactableTurnCount: number = 0;
   export let webSearchEnabled: boolean = false;
   export let webAccessMode: "off" | "smart" | "required" = "off";
   export let quickPromptsEnabled: boolean = false;
@@ -101,17 +102,13 @@
 
   $: canCompress = (() => {
     if (asking) return false;
-    if (stageSummaryCount === 0) return false;
-    const latestCompressedStageIndex = compressionState?.latestCompressedStageIndex ?? 0;
-    if (compressionState?.enabled && latestCompressedStageIndex >= stageSummaryCount) return false;
-    return true;
+    return compactableTurnCount > 0;
   })();
 
   $: compressDisabledReason = (() => {
     if (asking) return "正在问答中";
-    if (stageSummaryCount === 0) return "当前还没有历史摘要，暂时无法压缩。";
-    const latestCompressedStageIndex = compressionState?.latestCompressedStageIndex ?? 0;
-    if (compressionState?.enabled && latestCompressedStageIndex >= stageSummaryCount) return "压缩已是最新";
+    if (uncoveredCompletedTurnCount <= 0) return "没有未覆盖的完整历史";
+    if (compactableTurnCount <= 0) return "当前历史没有可压缩轮次";
     return "";
   })();
 
@@ -126,7 +123,7 @@
     if (!wasOpen) {
       pushAgentDebugEvent("CONTEXT_USAGE_POPOVER_OPEN_SAFE", {
         level: contextUsage?.level ?? "normal",
-        hasCompression: !!compressionState?.enabled,
+        hasCompactionSnapshot: !!latestCompactionSnapshot,
         canCompress,
         trigger,
       }, "info");
@@ -199,24 +196,14 @@
   }
 
   function handleCompressAction() {
-    const action = compressionState?.enabled ? "update_compression" : "compress";
+    const action = latestCompactionSnapshot ? "update_compaction" : "compact";
     pushAgentDebugEvent("CONTEXT_USAGE_POPOVER_ACTION_SAFE", {
       action,
-      hasCompression: !!compressionState?.enabled,
+      hasCompactionSnapshot: !!latestCompactionSnapshot,
       canCompress,
     }, "info");
     closeContextPopover();
     dispatch("compressionRequest");
-  }
-
-  function handleClearCompressionAction() {
-    pushAgentDebugEvent("CONTEXT_USAGE_POPOVER_ACTION_SAFE", {
-      action: "clear_compression",
-      hasCompression: !!compressionState?.enabled,
-      canCompress,
-    }, "info");
-    closeContextPopover();
-    dispatch("compressionClear");
   }
 
   let attachedDocs: AttachedKbDoc[] = [];
@@ -282,14 +269,14 @@
 
   let lastCompressionTraceKey: string | null = null;
   $: {
-    const hasSummary = !!compressedContextSummary;
-    const traceKey = `${hasSummary}_${compressionState?.compressedMessageCount ?? 0}`;
+    const traceKey = `${latestCompactionSnapshot?.generation ?? 0}_${latestCompactionSnapshot?.coveredThroughTurnIndex ?? 0}`;
     if (traceKey !== lastCompressionTraceKey) {
       lastCompressionTraceKey = traceKey;
       pushAgentDebugEvent("CONTEXT_COMPRESSION_STATE_RENDER_SAFE", {
-        hasSummary,
-        compressedMessageCount: compressionState?.compressedMessageCount ?? 0,
-        summaryTokenEstimate: compressionState?.summaryTokenEstimate ?? 0,
+        hasCompactionSnapshot: !!latestCompactionSnapshot,
+        generation: latestCompactionSnapshot?.generation ?? 0,
+        coveredThroughTurnIndex: latestCompactionSnapshot?.coveredThroughTurnIndex ?? 0,
+        snapshotEstimatedTokens: latestCompactionSnapshot?.estimatedTokens ?? 0,
       }, "info");
     }
   }
@@ -341,7 +328,6 @@
     thinkingModeChange: ThinkingMode;
     attachedDocsChange: { docIds: string[] };
     compressionRequest: void;
-    compressionClear: void;
     webAccessModeChange: "off" | "smart" | "required";
   }>();
 
@@ -434,10 +420,6 @@
     closeMobileActions();
   }
 
-  function handleMobileClearCompressionAction() {
-    handleClearCompressionAction();
-    closeMobileActions();
-  }
 
   function handleMobileQuickPromptClick(item: QuickPromptItem) {
     handleQuickPromptClick(item);
@@ -1181,13 +1163,7 @@
                 {#if canCompress}
                   <button type="button" class="mobile-action-row" on:click={handleMobileCompressAction}>
                     <SiyuanIcon name="iconRefresh" size={16} />
-                    <span>{compressionState?.enabled ? "更新上下文压缩" : "压缩上下文"}</span>
-                  </button>
-                {/if}
-                {#if compressionState?.enabled}
-                  <button type="button" class="mobile-action-row" on:click={handleMobileClearCompressionAction}>
-                    <SiyuanIcon name="iconTrashcan" size={16} />
-                    <span>清除上下文压缩</span>
+                    <span>{latestCompactionSnapshot ? "更新上下文压缩" : "压缩上下文"}</span>
                   </button>
                 {/if}
               </section>
@@ -1264,6 +1240,7 @@
         {@const offset = circumference * (1 - drawRatio)}
         {@const usageLevel = hasUsage ? contextUsage.level : "normal"}
         {@const windowTokens = hasUsage ? contextUsage.maxContextTokens : 128000}
+        {@const effectiveInputBudget = hasUsage ? contextUsage.budget?.effectiveInputBudget ?? windowTokens : 128000}
         {@const estTokens = hasUsage ? contextUsage.estimatedTokens : 0}
         {@const windowSourceLabel = hasUsage && contextUsage.maxContextSource === "model_config" ? "模型配置" : "默认估算窗口"}
         {@const displayPct = pct > 100 ? "100+" : String(pct)}
@@ -1320,28 +1297,35 @@
             <span class="popover-grid">
               <span class="popover-grid-label">上下文使用</span>
               <span class="popover-grid-value">{displayPct}%</span>
-              <span class="popover-grid-label">估算 token</span>
-              <span class="popover-grid-value">{estTokens.toLocaleString()} / {windowTokens.toLocaleString()}</span>
+              <span class="popover-grid-label">有效输入预算</span>
+              <span class="popover-grid-value">{estTokens.toLocaleString()} / {effectiveInputBudget.toLocaleString()}</span>
+              <span class="popover-grid-label">模型总窗口</span>
+              <span class="popover-grid-value">{windowTokens.toLocaleString()} token</span>
               <span class="popover-grid-label">状态</span>
               <span class="popover-grid-value">{windowSourceLabel}</span>
-              {#if compressionState?.enabled && compressedContextSummary}
+              <span class="popover-grid-label">估算范围</span>
+              <span class="popover-grid-value">
+                {contextUsage?.estimateKind === "full_provider_prompt"
+                  ? "完整 Provider Prompt"
+                  : "会话上下文估算（发送前补齐系统提示和工具）"}
+              </span>
+              {#if latestCompactionSnapshot && !latestCompactionSnapshot.stale}
                 <span class="popover-grid-label">压缩状态</span>
-                <span class="popover-grid-value">已压缩 {compressionState.compressedMessageCount ?? 0} 条</span>
+                <span class="popover-grid-value">覆盖到第 {latestCompactionSnapshot.coveredThroughTurnIndex} 轮</span>
               {/if}
             </span>
             <span class="popover-divider"></span>
-            {#if compressionState?.enabled && compressedContextSummary}
+            {#if latestCompactionSnapshot && !latestCompactionSnapshot.stale}
               <span class="popover-compression-detail">
-                历史摘要 {compressionState.summaryTokenEstimate ?? 0} token，已压缩到第 {compressionState.latestCompressedTurnIndex ?? 0} 轮
+                快照约 {latestCompactionSnapshot.estimatedTokens ?? 0} token，最近更新于 {new Date(latestCompactionSnapshot.createdAt).toLocaleString()}
               </span>
               <div class="popover-actions">
                 <button type="button" class="popover-btn primary" class:highlight={usageLevel === "warn" || usageLevel === "critical"} on:click|stopPropagation={handleCompressAction} disabled={!canCompress}>
-                  {canCompress ? "更新压缩" : "压缩已是最新"}
+                  {canCompress ? "更新压缩" : "暂无可压缩历史"}
                 </button>
-                <button type="button" class="popover-btn secondary" on:click|stopPropagation={handleClearCompressionAction} disabled={asking}>清除压缩</button>
               </div>
             {:else}
-              <span class="popover-info">仅压缩已形成历史摘要的较早对话，最近对话会保留原文。</span>
+              <span class="popover-info">完整对话始终保留；压缩只生成结构化快照，最近完整对话保留原文。</span>
               {#if compressDisabledReason}
                 <span class="popover-warning">{compressDisabledReason}</span>
               {/if}
@@ -2147,12 +2131,6 @@
       &.primary.highlight {
         color: var(--b3-card-warning-color, #e6a817);
         border-color: var(--b3-card-warning-color, #e6a817);
-      }
-
-      &.secondary {
-        color: var(--b3-theme-on-surface-light, #666);
-        border-color: var(--b3-border-color);
-        font-size: 11px;
       }
 
       &:disabled {

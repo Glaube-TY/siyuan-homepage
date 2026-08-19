@@ -4,7 +4,7 @@
  * Stores only lightweight metadata needed by chat history.
  * It does NOT persist tool observations, read content, candidate caches,
  * answer summaries, answer items, or internal workspace state.
- * Stage summaries (agent_stage_summary) are the sole compression source.
+ * It is one of the safe inputs used by the structured compaction snapshot.
  *
  * ── Lightweight Session Working Memory ──
  *

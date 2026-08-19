@@ -6,6 +6,8 @@
 import { writable, get } from "svelte/store";
 import type { KbSessionState } from "../types/session";
 import type { ChatMessage, KbConversationSession } from "../types/chat";
+import type { CurrentConversationRecord } from "../types/conversation-record";
+import { isCurrentConversationRecord, LEGACY_CONVERSATION_READ_ONLY } from "../types/conversation-record";
 import type { ChatMode } from "../constants/chat-modes";
 import type { ChatModelSelection } from "../types/chat-model-selection";
 import type { ThinkingMode, WebAccessMode } from "../types/session";
@@ -19,9 +21,17 @@ import {
   isTransientAssistantPlaceholder,
 } from "../services/agent-workbench/storage/chat-session-facade";
 import type { ResolvedReferenceDocInfo } from "../services/session/reference-doc-resolver";
-import { estimateContextUsage } from "../types/context-usage";
+import {
+  estimateContextUsage,
+  resolveIdleProviderReserve,
+} from "../types/context-usage";
+import { buildUncoveredVerbatimAgentMessages } from "../services/agent-workbench/runtime/conversation-context-builder";
 import { pushAgentDebugEvent } from "../services/agent-workbench/debug/workbench-debug";
-import { executeCompression as doCompress } from "../services/context-compression";
+import {
+  markCompactionSnapshotStale,
+  runContextCompaction,
+  selectCompactionTurns,
+} from "../services/context-compression";
 import {
   clearTurnJournalAfterPersistence,
   readTurnJournal,
@@ -137,25 +147,12 @@ function restoreSafeWorkbenchEvent(
   }
 }
 
-function removeCompactedFlag<T extends ChatMessage>(message: T): T {
-  if (
-    (message.role !== "user" && message.role !== "assistant") ||
-    !message.compacted
-  ) {
-    return message;
-  }
-  const next = { ...message } as T & { compacted?: boolean };
-  delete next.compacted;
-  return next as T;
-}
-
 // 初始状态
 const initialState: KbSessionState = {
   error: "",
   asking: false,
   qaError: "",
   messages: [],
-  stageSummaries: [],
   thinkingMode: "off",
   webAccessMode: "off",
   // selectedMode 初始 undefined，由组件决定默认值
@@ -180,7 +177,7 @@ export function getNewAbortController(): AbortController {
 }
 
 // 创建默认会话
-function createDefaultConversation(): KbConversationSession {
+function createDefaultConversation(): CurrentConversationRecord {
   const now = Date.now();
   return {
     id: generateConversationId(),
@@ -188,9 +185,11 @@ function createDefaultConversation(): KbConversationSession {
     createdAt: now,
     updatedAt: now,
     messages: [],
-    stageSummaries: [],
     thinkingMode: "off",
     webAccessMode: "off",
+    kind: "current",
+    readOnly: false,
+    schemaVersion: 3,
   };
 }
 
@@ -206,7 +205,7 @@ export function createKbSessionStore(
     ...initialState,
     // 将会话数据同步到 KbSessionState 的对应字段
     messages: defaultConversation.messages,
-    stageSummaries: defaultConversation.stageSummaries ?? [],
+    latestCompactionSnapshot: defaultConversation.latestCompactionSnapshot,
   };
 
   const {
@@ -260,6 +259,11 @@ export function createKbSessionStore(
   ): Promise<void> {
     const seq = ++contextUsageRequestSeq;
     const state = get({ subscribe });
+    const activeConversation = state.conversations.find((item) => item.id === state.activeConversationId);
+    if (!isCurrentConversationRecord(activeConversation)) {
+      storeUpdate((current) => ({ ...current, contextUsage: undefined }));
+      return;
+    }
 
     // 竞态防护：如果已有更新的请求，跳过本次写入
     if (seq !== contextUsageRequestSeq) return;
@@ -273,15 +277,45 @@ export function createKbSessionStore(
       }
     }
 
+    const latestUserIndex = [...state.messages].map((message, index) => ({ message, index }))
+      .reverse().find((item) => item.message.role === "user");
+    const currentUserMessageId = latestUserIndex && latestUserIndex.index === state.messages.length - 1
+      && latestUserIndex.message.role === "user"
+      ? latestUserIndex.message.id
+      : undefined;
+    const latestUserQuestion = currentUserMessageId && latestUserIndex?.message.role === "user"
+      ? latestUserIndex.message.content
+      : state.draftQuestion?.trim();
+    const historicalMessages = buildUncoveredVerbatimAgentMessages({
+      messages: state.messages,
+      currentUserMessageId,
+      compactionSnapshot: state.latestCompactionSnapshot,
+    });
     const snapshot = estimateContextUsage({
       messages: state.messages,
       attachedDocCount: composerDocIds.length,
       runtimeReferenceDocCount: refDocIds.size,
       contextWindowTokens,
-      compressedSummaryChars: state.compressedContextSummary?.length ?? 0,
-      stageSummaryStatusChars:
-        160 + ((state.stageSummaries?.length ?? 0) > 0 ? 80 : 0),
+      historicalMessages,
+      currentRunMessages: latestUserQuestion ? [{ role: "user", content: latestUserQuestion }] : [],
+      compactionSnapshot: state.latestCompactionSnapshot,
+      providerStaticReserveTokens: resolveIdleProviderReserve(contextWindowTokens),
+      estimateKind: "conversation_context",
     });
+    const selection = selectCompactionTurns({
+      messages: state.messages,
+      currentUserMessageId,
+      previousSnapshot: state.latestCompactionSnapshot,
+      promptBudget: snapshot.budget!,
+      trigger: "manual",
+    });
+    snapshot.uncoveredCompletedTurnCount = selection.completeTurns.filter((turn) => {
+      const covered = state.latestCompactionSnapshot?.version === 2 && !state.latestCompactionSnapshot.stale
+        ? state.latestCompactionSnapshot.coveredThroughTurnIndex
+        : 0;
+      return turn.turnIndex > covered;
+    }).length;
+    snapshot.compactableTurnCount = selection.compactableTurns.length;
 
     // 写入前再次检查竞态
     if (seq !== contextUsageRequestSeq) return;
@@ -356,22 +390,18 @@ export function createKbSessionStore(
         title: a.title,
         createdAt: a.createdAt,
         messages: a.messages,
-        stageSummaries: a.stageSummaries ?? [],
+        latestCompactionSnapshot: a.latestCompactionSnapshot,
         thinkingMode: a.thinkingMode ?? "off",
         webAccessMode: a.webAccessMode ?? "off",
-        compressedContextSummary: a.compressedContextSummary,
-        compressionState: a.compressionState,
       }) ===
       JSON.stringify({
         id: b.id,
         title: b.title,
         createdAt: b.createdAt,
         messages: b.messages,
-        stageSummaries: b.stageSummaries ?? [],
+        latestCompactionSnapshot: b.latestCompactionSnapshot,
         thinkingMode: b.thinkingMode ?? "off",
         webAccessMode: b.webAccessMode ?? "off",
-        compressedContextSummary: b.compressedContextSummary,
-        compressionState: b.compressionState,
       })
     );
   }
@@ -444,11 +474,9 @@ export function createKbSessionStore(
       conversations,
       activeConversationId,
       messages: active.messages,
-      stageSummaries: active.stageSummaries ?? [],
+      latestCompactionSnapshot: active.latestCompactionSnapshot,
       thinkingMode: active.thinkingMode ?? "off",
       webAccessMode: active.webAccessMode ?? "off",
-      compressedContextSummary: active.compressedContextSummary,
-      compressionState: active.compressionState,
       error: state.error,
     };
   }
@@ -480,6 +508,24 @@ export function createKbSessionStore(
       (c) => c.id === state.activeConversationId,
     );
     if (!activeConv) return null;
+    if (!isCurrentConversationRecord(activeConv)) {
+      const captured: CapturedPersistenceSnapshot = {
+        conversations: state.conversations,
+        activeConversationId: state.activeConversationId,
+        selectedMode: state.selectedMode,
+        mutationVersion: localMutationVersion,
+      };
+      const result = await saveKbChatSessionStorage({
+        activeConversationId: captured.activeConversationId,
+        conversations: captured.conversations,
+        selectedMode: captured.selectedMode,
+        explicitDeletedSessionIds: [...pendingExplicitDeletedSessionIds],
+      });
+      if (result.success) {
+        for (const id of result.deletedSessionIds) pendingExplicitDeletedSessionIds.delete(id);
+      }
+      return result;
+    }
     const updatedConv = buildConversationSnapshot(state, activeConv);
     const conversations = state.conversations.map((c) =>
       c.id === state.activeConversationId ? updatedConv : c,
@@ -613,7 +659,9 @@ export function createKbSessionStore(
     conversations: KbConversationSession[],
     infoMap: Map<string, ResolvedReferenceDocInfo>,
   ): KbConversationSession[] {
-    return conversations.map((conv) => ({
+    return conversations.map((conv) => {
+      if (!isCurrentConversationRecord(conv)) return conv;
+      return {
       ...conv,
       messages: conv.messages.map((message) => {
         if (message.role === "assistant" && message.citedReferences) {
@@ -635,21 +683,21 @@ export function createKbSessionStore(
         }
         return message;
       }),
-    }));
+      };
+    });
   }
 
   // 统一快照 helper - 将当前 active state 写回会话
-  // 注意：运行态字段不进入快照，避免持久化；但压缩状态需要持久化
+  // 注意：运行态字段不进入快照；结构化压缩快照随会话持久化。
   function buildConversationSnapshot(
     state: ExtendedState,
     conversation: KbConversationSession,
   ): KbConversationSession {
+    if (!isCurrentConversationRecord(conversation)) return conversation;
     const snapshot: KbConversationSession = {
       ...conversation,
       messages: state.messages,
-      stageSummaries: state.stageSummaries ?? [],
-      compressedContextSummary: state.compressedContextSummary,
-      compressionState: state.compressionState,
+      latestCompactionSnapshot: state.latestCompactionSnapshot,
       // 会话级按钮状态：写入快照使其随会话持久化
       thinkingMode: state.thinkingMode ?? "off",
       webAccessMode: state.webAccessMode ?? "off",
@@ -702,13 +750,17 @@ export function createKbSessionStore(
 
     // 设置思考模式
     setThinkingMode: (thinkingMode: ThinkingMode) => {
-      update((state) => ({ ...state, thinkingMode }));
+      update((state) => !isCurrentConversationRecord(state.conversations.find((item) => item.id === state.activeConversationId))
+        ? state
+        : { ...state, thinkingMode });
       schedulePersist();
     },
 
     // 设置联网搜索模式（会话级持久化）
     setWebAccessMode: (webAccessMode: WebAccessMode) => {
-      update((state) => ({ ...state, webAccessMode }));
+      update((state) => !isCurrentConversationRecord(state.conversations.find((item) => item.id === state.activeConversationId))
+        ? state
+        : { ...state, webAccessMode });
       schedulePersist();
     },
 
@@ -777,6 +829,8 @@ export function createKbSessionStore(
     // 立即将当前运行中的 assistant 气泡标记为手动停止
     markLatestAssistantManuallyStopped: () => {
       update((state) => {
+        const active = state.conversations.find((item) => item.id === state.activeConversationId);
+        if (!isCurrentConversationRecord(active)) return state;
         const messages = [...state.messages];
         for (let i = messages.length - 1; i >= 0; i--) {
           const m = messages[i];
@@ -810,31 +864,25 @@ export function createKbSessionStore(
     },
     // 清空当前对话（保留模式和设置，只清聊天/问答运行态）
     clearConversation: () => {
-      update((state) => ({
-        ...state,
-        messages: [],
-        stageSummaries: [],
-        asking: false,
-        qaError: "",
-        error: "",
-        draftQuestion: "",
-        agentStatus: undefined,
-        contextUsage: undefined,
-        compressedContextSummary: undefined,
-        compressionState: undefined,
-        conversations: state.conversations.map((c) =>
-          c.id === state.activeConversationId
-            ? {
-                ...c,
-                messages: [],
-                stageSummaries: [],
-                compressedContextSummary: undefined,
-                compressionState: undefined,
-                updatedAt: Date.now(),
-              }
-            : c,
-        ),
-      }));
+      update((state) => {
+        if (!isCurrentConversationRecord(state.conversations.find((item) => item.id === state.activeConversationId))) return state;
+        return {
+          ...state,
+          messages: [],
+          latestCompactionSnapshot: undefined,
+          asking: false,
+          qaError: "",
+          error: "",
+          draftQuestion: "",
+          agentStatus: undefined,
+          contextUsage: undefined,
+          conversations: state.conversations.map((c) =>
+            c.id === state.activeConversationId
+              ? { ...c, messages: [], latestCompactionSnapshot: undefined, updatedAt: Date.now() }
+              : c,
+          ),
+        };
+      });
       // 触发持久化
       schedulePersist();
     },
@@ -871,7 +919,7 @@ export function createKbSessionStore(
         const target =
           created ??
           state.conversations.find((item) => item.id === input.conversationId);
-        if (!target) return state;
+        if (!target || !isCurrentConversationRecord(target)) return state;
         found = true;
         const sourceMessages =
           target.id === state.activeConversationId
@@ -928,14 +976,12 @@ export function createKbSessionStore(
           conversations: [...stateWithSnapshot.conversations, newConversation],
           activeConversationId: newConversation.id,
           messages: newConversation.messages,
-          stageSummaries: newConversation.stageSummaries ?? [],
+          latestCompactionSnapshot: newConversation.latestCompactionSnapshot,
           agentStatus: undefined,
           asking: false,
           qaError: "",
           draftQuestion: "",
           contextUsage: undefined,
-          compressedContextSummary: undefined,
-          compressionState: undefined,
           // 新会话默认按钮状态为 off，并把当前运行态切到新会话的 off
           thinkingMode: newConversation.thinkingMode ?? "off",
           webAccessMode: newConversation.webAccessMode ?? "off",
@@ -957,6 +1003,10 @@ export function createKbSessionStore(
 
     // 切换会话
     switchConversation: (id: string) => {
+      if (currentAbortController) {
+        currentAbortController.abort();
+        currentAbortController = null;
+      }
       update((state) => {
         const targetConv = state.conversations.find((c) => c.id === id);
         if (!targetConv || id === state.activeConversationId) return state;
@@ -968,15 +1018,13 @@ export function createKbSessionStore(
           ...stateWithSnapshot,
           activeConversationId: id,
           messages: targetConv.messages,
-          stageSummaries: targetConv.stageSummaries ?? [],
+          latestCompactionSnapshot: targetConv.latestCompactionSnapshot,
           agentStatus: undefined,
           asking: false,
           qaError: "",
           draftQuestion: "",
           error: "",
           contextUsage: undefined,
-          compressedContextSummary: targetConv.compressedContextSummary,
-          compressionState: targetConv.compressionState,
           // 恢复目标会话的输入区按钮状态
           thinkingMode: targetConv.thinkingMode ?? "off",
           webAccessMode: targetConv.webAccessMode ?? "off",
@@ -991,7 +1039,7 @@ export function createKbSessionStore(
       update((state) => ({
         ...state,
         conversations: state.conversations.map((c) =>
-          c.id === id
+          c.id === id && isCurrentConversationRecord(c)
             ? {
                 ...c,
                 title: title.trim() || DEFAULT_CONVERSATION_TITLE,
@@ -1031,15 +1079,13 @@ export function createKbSessionStore(
             conversations: remainingConversations,
             activeConversationId: newActiveConv.id,
             messages: newActiveConv.messages,
-            stageSummaries: newActiveConv.stageSummaries ?? [],
+            latestCompactionSnapshot: newActiveConv.latestCompactionSnapshot,
             agentStatus: undefined,
             asking: false,
             qaError: "",
             draftQuestion: "",
             error: "",
             contextUsage: undefined,
-            compressedContextSummary: newActiveConv.compressedContextSummary,
-            compressionState: newActiveConv.compressionState,
             // 恢复新 active 会话的输入区按钮状态
             thinkingMode: newActiveConv.thinkingMode ?? "off",
             webAccessMode: newActiveConv.webAccessMode ?? "off",
@@ -1084,7 +1130,7 @@ export function createKbSessionStore(
         const activeConv = state.conversations.find(
           (c) => c.id === state.activeConversationId,
         );
-        if (!activeConv || activeConv.title !== DEFAULT_CONVERSATION_TITLE)
+        if (!activeConv || !isCurrentConversationRecord(activeConv) || activeConv.title !== DEFAULT_CONVERSATION_TITLE)
           return state;
 
         // 截取用户问题前 20 字作为标题
@@ -1115,7 +1161,7 @@ export function createKbSessionStore(
       set({
         ...initialState,
         messages: defaultConv.messages,
-        stageSummaries: defaultConv.stageSummaries ?? [],
+        latestCompactionSnapshot: defaultConv.latestCompactionSnapshot,
         conversations: [defaultConv],
         activeConversationId: defaultConv.id,
       });
@@ -1258,14 +1304,12 @@ export function createKbSessionStore(
               conversations: cleanedConversations,
               activeConversationId: activeId,
               messages: targetConv.messages,
-              stageSummaries: targetConv.stageSummaries ?? [],
+              latestCompactionSnapshot: targetConv.latestCompactionSnapshot,
               agentStatus: undefined,
               asking: false,
               qaError: "",
               error: restoreWarning,
               selectedMode: restored.selectedMode as ChatMode | undefined,
-              compressedContextSummary: targetConv.compressedContextSummary,
-              compressionState: targetConv.compressionState,
               // 恢复 active 会话的输入区按钮状态（旧会话缺字段时为 "off"）
               thinkingMode: targetConv.thinkingMode ?? "off",
               webAccessMode: targetConv.webAccessMode ?? "off",
@@ -1344,6 +1388,15 @@ export function createKbSessionStore(
               let journalAlreadyPersisted = false;
               let recoveredPartialAnswer = false;
               const recoveryCheckpoint = journal.agentRunCheckpoint;
+              const journalTarget = get({ subscribe }).conversations.find(
+                (conversation) => conversation.id === journal.conversationId,
+              );
+              if (!isCurrentConversationRecord(journalTarget)) {
+                // Legacy archives are never a recovery target. Leave the
+                // journal untouched so a current conversation can recover it.
+                hydrationState = "ready";
+                return;
+              }
               const recoveryDecision = recoveryCheckpoint
                 ? inspectAgentRunResume(recoveryCheckpoint)
                 : undefined;
@@ -1601,15 +1654,7 @@ export function createKbSessionStore(
       };
     },
 
-    /**
-     * 执行上下文压缩（用户手动触发）
-     * - 手动常规压缩不调用 LLM；Emergency Compaction 只在发送前硬阈值兜底触发
-     * - 只使用 Agent 阶段摘要做边界 compact
-     * - 未覆盖对话继续保留原文
-     * - 标记旧消息为 compacted（不物理删除）
-     * - 保存 compressionState 和 compressedContextSummary
-     * - 失败时不修改 messages
-     */
+    /** 执行统一上下文压缩；只更新结构化快照，不修改完整 transcript。 */
     executeCompression: async (): Promise<{
       success: boolean;
       error?: string;
@@ -1618,44 +1663,47 @@ export function createKbSessionStore(
       if (state.asking) {
         return { success: false, error: "正在问答中，请等待完成" };
       }
+      const activeConversation = state.conversations.find((item) => item.id === state.activeConversationId);
+      if (!isCurrentConversationRecord(activeConversation)) {
+        return { success: false, error: LEGACY_CONVERSATION_READ_ONLY };
+      }
 
-      const result = await doCompress(
-        state.messages,
-        state.stageSummaries ?? [],
-        state.compressedContextSummary,
-        state.compressionState,
-      );
+      const historicalMessages = buildUncoveredVerbatimAgentMessages({
+        messages: state.messages,
+        currentUserMessageId: [...state.messages].reverse().find((message) => message.role === "user")?.id,
+        compactionSnapshot: state.latestCompactionSnapshot,
+      });
+      const budget = estimateContextUsage({
+        messages: state.messages,
+        attachedDocCount: 0,
+        contextWindowTokens: state.contextUsage?.maxContextTokens,
+        compactionSnapshot: state.latestCompactionSnapshot,
+        historicalMessages,
+        providerStaticReserveTokens: resolveIdleProviderReserve(state.contextUsage?.maxContextTokens),
+        estimateKind: "conversation_context",
+      }).budget!;
+      const result = await runContextCompaction({
+        messages: state.messages,
+        previousSnapshot: state.latestCompactionSnapshot,
+        currentUserMessageId: [...state.messages].reverse().find((message) => message.role === "user")?.id,
+        promptBudget: budget,
+        trigger: "manual",
+        chatModelSelection: state.selectedChatModelSelection,
+      });
 
       if (!result.success) {
         return { success: false, error: result.error };
       }
 
       update((s) => {
-        const updatedMessages = s.messages.map((m) => {
-          if (result.compactedMessageIds?.includes(m.id)) {
-            if (m.role === "user") {
-              return { ...m, compacted: true };
-            }
-            if (m.role === "assistant") {
-              return { ...m, compacted: true };
-            }
-          }
-          return m;
-        });
-
         return {
           ...s,
-          messages: updatedMessages,
-          compressedContextSummary: result.summary,
-          compressionState: result.compressionState,
+          latestCompactionSnapshot: result.snapshot,
           conversations: s.conversations.map((c) =>
             c.id === s.activeConversationId
               ? {
                   ...c,
-                  messages: updatedMessages,
-                  stageSummaries: s.stageSummaries ?? [],
-                  compressionState: result.compressionState,
-                  compressedContextSummary: result.summary,
+                  latestCompactionSnapshot: result.snapshot,
                   updatedAt: Date.now(),
                 }
               : c,
@@ -1669,42 +1717,14 @@ export function createKbSessionStore(
     },
 
     /**
-     * 清除压缩摘要，恢复旧消息进入上下文
-     */
-    clearCompression: () => {
-      update((s) => {
-        const updatedMessages = s.messages.map(removeCompactedFlag);
-
-        return {
-          ...s,
-          messages: updatedMessages,
-          stageSummaries: [],
-          contextUsage: undefined,
-          compressedContextSummary: undefined,
-          compressionState: undefined,
-          conversations: s.conversations.map((c) =>
-            c.id === s.activeConversationId
-              ? {
-                  ...c,
-                  messages: updatedMessages,
-                  stageSummaries: [],
-                  compressionState: undefined,
-                  compressedContextSummary: undefined,
-                  updatedAt: Date.now(),
-                }
-              : c,
-          ),
-        };
-      });
-
-      schedulePersist();
-    },
-
-    /**
      * 根据 assistant 消息 ID 删除整轮对话（包含对应的 user 消息）
-     * 删除后清空阶段摘要和压缩状态，避免被删内容继续出现在上下文中
+     * 如果删除范围触及快照覆盖范围，则标记快照 stale；下次统一压缩从完整 transcript 重建。
      */
     deleteTurnByAssistantId: (assistantMessageId: string): boolean => {
+      const current = get({ subscribe });
+      if (!isCurrentConversationRecord(current.conversations.find((item) => item.id === current.activeConversationId))) {
+        return false;
+      }
       let deleted = false;
       let deletedConversationId = "";
       update((state) => {
@@ -1724,14 +1744,18 @@ export function createKbSessionStore(
           (_, i) => i < startIndex || i > assistantIndex,
         );
 
-        // 移除剩余消息的 compacted 标记
-        const unCompactedMessages = newMessages.map(removeCompactedFlag);
+        const coveredMessageIndex = state.latestCompactionSnapshot
+          ? state.messages.findIndex((message) => message.id === state.latestCompactionSnapshot?.coveredThroughMessageId)
+          : -1;
+        const nextCompactionSnapshot = coveredMessageIndex >= startIndex
+          ? markCompactionSnapshotStale(state.latestCompactionSnapshot)
+          : state.latestCompactionSnapshot;
 
         // 重新生成标题：无消息则恢复默认，否则取第一条 user 消息前 20 字
         let newTitle =
           state.conversations.find((c) => c.id === state.activeConversationId)
             ?.title ?? DEFAULT_CONVERSATION_TITLE;
-        const firstUser = unCompactedMessages.find((m) => m.role === "user");
+        const firstUser = newMessages.find((m) => m.role === "user");
         if (!firstUser) {
           newTitle = DEFAULT_CONVERSATION_TITLE;
         } else if (newTitle !== DEFAULT_CONVERSATION_TITLE) {
@@ -1749,19 +1773,15 @@ export function createKbSessionStore(
         deletedConversationId = state.activeConversationId;
         return {
           ...state,
-          messages: unCompactedMessages,
-          stageSummaries: [],
-          compressedContextSummary: undefined,
-          compressionState: undefined,
+          messages: newMessages,
+          latestCompactionSnapshot: nextCompactionSnapshot,
           contextUsage: undefined,
           conversations: state.conversations.map((c) =>
             c.id === state.activeConversationId
               ? {
                   ...c,
-                  messages: unCompactedMessages,
-                  stageSummaries: [],
-                  compressedContextSummary: undefined,
-                  compressionState: undefined,
+                  messages: newMessages,
+                  latestCompactionSnapshot: nextCompactionSnapshot,
                   title: newTitle,
                   updatedAt: Date.now(),
                 }

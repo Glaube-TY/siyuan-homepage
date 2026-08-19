@@ -52,6 +52,8 @@ export interface AgentProfile {
   label: string;
   capabilities: readonly AgentCapabilityId[];
   permissions: AgentProfilePermissions;
+  /** 明确指定本轮默认预加载的少量 provider tool；不配置则不预加载业务工具。 */
+  providerToolSeeds?: readonly string[];
   execution: {
     defaultMaxToolCalls: number;
   };
@@ -132,6 +134,9 @@ export function registerAgentProfile(profile: AgentProfile): AgentProfile {
     if (!toolName.trim()) throw new Error("Agent Profile action 白名单工具名无效");
     validateResourceAccess(actions, `${toolName} action`);
   }
+  if (profile.providerToolSeeds?.some((name) => typeof name !== "string" || !name.trim())) {
+    throw new Error(`Agent Profile provider tool seed 无效: ${profile.id}`);
+  }
 
   const frozenActions = Object.freeze(Object.fromEntries(
     Object.entries(profile.permissions.tools.actions)
@@ -152,6 +157,9 @@ export function registerAgentProfile(profile: AgentProfile): AgentProfile {
       mcpServerIds: freezeResourceAccess(profile.permissions.mcpServerIds),
       mcpToolNames: freezeResourceAccess(profile.permissions.mcpToolNames),
     }),
+    ...(profile.providerToolSeeds
+      ? { providerToolSeeds: Object.freeze([...new Set(profile.providerToolSeeds.map((name) => name.trim()))]) }
+      : {}),
     execution: Object.freeze({ ...profile.execution }),
   });
   profiles.set(profile.id, registered);

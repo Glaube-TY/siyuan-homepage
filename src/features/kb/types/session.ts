@@ -4,11 +4,12 @@
  * 为 orchestration 层函数提供命名返回类型
  */
 
-import type { ChatMessage, ConversationStageSummary } from "./chat";
+import type { ChatMessage } from "./chat";
 import type { ChatMode } from "../constants/chat-modes";
 import type { ChatModelSelection } from "./chat-model-selection";
 import type { KbConversationSession } from "./chat";
-import type { ContextUsageSnapshot, ContextCompressionState } from "./context-usage";
+import type { ContextUsageSnapshot } from "./context-usage";
+import type { ContextCompactionSnapshot } from "./context-compaction";
 
 export type ThinkingMode = "off" | "on";
 
@@ -22,7 +23,14 @@ export type ThinkingMode = "off" | "on";
  */
 export type WebAccessMode = "off" | "smart" | "required";
 
-export type { ContextUsageSnapshot, ContextUsageLevel, ContextCompressionState, ContextUsageMaxContextSource } from "./context-usage";
+export type { ContextUsageSnapshot, ContextUsageLevel, ContextUsageMaxContextSource, ContextUsageEstimateKind, PromptBudget } from "./context-usage";
+export type { ContextCompactionSnapshot, ContextCompactionSnapshotState, ContextCompactionTrigger } from "./context-compaction";
+export type {
+  ConversationRecord,
+  CurrentConversationRecord,
+  LegacyConversationRecord,
+} from "./conversation-record";
+export { LEGACY_CONVERSATION_READ_ONLY, isCurrentConversationRecord, isLegacyConversationRecord } from "./conversation-record";
 
 /**
  * KB Session 完整状态
@@ -84,25 +92,8 @@ export type KbSessionState = {
    */
   contextUsage?: ContextUsageSnapshot;
 
-  /**
-   * 压缩摘要文本（运行时，从会话层同步）
-   * - 用于 runtime context 构建
-   * - 不影响 Agent 决策和工具链路
-   */
-  compressedContextSummary?: string;
-
-  /**
-   * Agent 生成的会话内阶段摘要。
-   * 仅用于当前会话上下文预算管理，不写入长期记忆或思源文档。
-   */
-  stageSummaries?: ConversationStageSummary[];
-
-  /**
-   * 压缩状态（运行时，从会话层同步）
-   * - 仅用于 UI 显示
-   * - 不影响 Agent 决策和工具链路
-   */
-  compressionState?: ContextCompressionState;
+  /** 最新结构化压缩快照（完整 transcript 仍保留）。 */
+  latestCompactionSnapshot?: ContextCompactionSnapshot;
 };
 
 /**

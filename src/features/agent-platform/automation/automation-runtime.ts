@@ -5,6 +5,7 @@ import {
 } from "@/features/notification-center/notification-center-locks";
 import {
   buildConversationContext,
+  buildUncoveredVerbatimAgentMessages,
   runAgentProfile,
 } from "@/features/kb/services/agent-workbench";
 import type { AgentWorkbenchEvent } from "@/features/kb/services/agent-workbench/contracts/turn-event";
@@ -178,13 +179,21 @@ async function loadConversationContext(
       (item) => item.id === target.conversationId,
     );
     if (!conversation) throw new Error("绑定的本地 AI 会话不存在或已被删除。");
-    return buildConversationContext({
+    if (conversation.kind === "legacy") {
+      throw new Error("LEGACY_CONVERSATION_READ_ONLY");
+    }
+    const conversationContext = buildConversationContext({
       messages: conversation.messages,
-      stageSummaries: conversation.stageSummaries,
       currentQuestion: goal,
-      compressedContextSummary: conversation.compressedContextSummary,
-      compressionState: conversation.compressionState,
+      compactionSnapshot: conversation.latestCompactionSnapshot,
     });
+    return {
+      conversationContext,
+      historicalMessages: buildUncoveredVerbatimAgentMessages({
+        messages: conversation.messages,
+        compactionSnapshot: conversation.latestCompactionSnapshot,
+      }),
+    };
   }
   if (target.kind === "robot") {
     const client = new RobotKernelClient(
@@ -233,7 +242,10 @@ async function loadConversationContext(
         } as ChatMessage,
       ];
     });
-    return buildConversationContext({ messages, currentQuestion: goal });
+    return {
+      conversationContext: buildConversationContext({ messages, currentQuestion: goal }),
+      historicalMessages: buildUncoveredVerbatimAgentMessages({ messages }),
+    };
   }
 }
 
@@ -268,7 +280,8 @@ async function executeAgent(
   );
   const events: AgentWorkbenchEvent[] = [];
   let checkpointWrite = Promise.resolve();
-  const conversationContext = await loadConversationContext(job, goal);
+  const loadedConversationContext = await loadConversationContext(job, goal);
+  const conversationContext = loadedConversationContext?.conversationContext;
   let allowedToolNames = execution.allowedToolNames;
   if (job.output.replyTarget?.kind === "robot") {
     const client = new RobotSettingsClient(new RobotKernelClient(getPluginKernelPort(getNotebrainPlugin())));
@@ -292,6 +305,7 @@ async function executeAgent(
       profile,
       question: goal,
       conversationContext,
+      historicalMessages: loadedConversationContext?.historicalMessages,
       mode: "whole_kb",
       conversationId:
         job.output.replyTarget?.conversationMode === "existing"

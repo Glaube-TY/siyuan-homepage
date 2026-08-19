@@ -8,11 +8,10 @@
 import type {
   AssistantChatMessage,
   ChatMessage,
-  ConversationStageSummary,
   ReferenceItem,
   UserChatMessage,
 } from "../../../types/chat";
-import type { ContextCompressionState } from "../../../types/context-usage";
+import type { ContextCompactionSnapshot } from "../../../types/context-compaction";
 import { buildAgentContextManifest, type AgentContextManifest } from "./agent-context-ledger";
 import type { ActiveWorkingTarget, AgentTurnActionOutcome, AgentTurnTargetIndex } from "../memory/agent-turn-memory";
 import { outcomePriority } from "../memory/agent-turn-memory";
@@ -20,6 +19,8 @@ import {
   getCompleteConversationTurns,
   isCompletedAssistantMessage,
 } from "./conversation-turns";
+import { createAssistantMessage, createUserMessage, type AgentMessage } from "../../agent-core/messages/agent-message";
+import { isCompactionSnapshotStale } from "../../context-compression";
 
 export interface ConversationReferenceContext {
   sourceType?: "siyuan_doc" | "web_page" | "file" | "mcp_resource" | "api_result";
@@ -71,15 +72,15 @@ export interface ConversationTurnContext {
   };
 }
 
-export type StageSummaryPressureLevel = "none" | "suggested" | "recommended" | "urgent" | "required";
+export type CompactionPressureLevel = "none" | "suggested" | "recommended" | "urgent" | "required";
 
-export interface StageSummaryStatus {
-  existingCount: number;
-  lastSummarizedTurnIndex: number;
-  unsummarizedTurnCount: number;
-  lastSummaryCreatedAt?: number;
+export interface CompactionStatus {
+  hasSnapshot: boolean;
+  coveredThroughTurnIndex: number;
+  uncoveredTurnCount: number;
+  lastCompactedAt?: number;
   note: string;
-  pressureLevel: StageSummaryPressureLevel;
+  pressureLevel: CompactionPressureLevel;
   pressureReason: string;
 }
 
@@ -94,7 +95,6 @@ export interface RuntimeNowInfo {
 export interface ConversationContextSnapshot {
   version: number;
   currentTurn: {
-    userQuestion: string;
     scope?: {
       type?: string;
       customDocCount?: number;
@@ -118,17 +118,8 @@ export interface ConversationContextSnapshot {
       enabled: true;
     };
   };
-  stageSummaryStatus: StageSummaryStatus;
-  compressed?: {
-    summary: string;
-    compressedMessageCount?: number;
-    compressedTurnCount?: number;
-    compressedStageSummaryCount?: number;
-    latestCompressedStageIndex?: number;
-    latestCompressedTurnIndex?: number;
-    summaryChars?: number;
-    lastCompressedAt?: number;
-  };
+  compactionStatus: CompactionStatus;
+  compactionSnapshot?: ContextCompactionSnapshot;
   recentTurns: ConversationTurnContext[];
   recentTargetIndex?: AgentTurnTargetIndex[];
   activeWorkingTarget?: ActiveWorkingTarget;
@@ -139,11 +130,9 @@ export interface ConversationContextSnapshot {
 
 export interface BuildConversationContextParams {
   messages: ChatMessage[];
-  stageSummaries?: ConversationStageSummary[];
   currentUserMessageId?: string;
   currentQuestion: string;
-  compressedContextSummary?: string;
-  compressionState?: ContextCompressionState;
+  compactionSnapshot?: ContextCompactionSnapshot;
   usageRatio?: number;
   webSearchSettings?: {
     enabled: boolean;
@@ -155,12 +144,10 @@ export interface BuildConversationContextParams {
   webAccessModeOverride?: "off" | "smart" | "required";
 }
 
-const SNAPSHOT_VERSION = 3;
+const SNAPSHOT_VERSION = 4;
 const MAX_USER_TEXT_CHARS = 1000;
 const MAX_ASSISTANT_FINAL_ANSWER_CHARS = 3000;
 const MAX_REFERENCES = 10;
-const MAX_COMPRESSED_SUMMARY_CHARS = 8000;
-const MAX_RECENT_TURNS = 10;
 const MAX_TARGET_INDEX_TURNS = 20;
 const MAX_TARGET_INDEX_CHARS = 5000;
 const MAX_ACTIONS_CHARS = 10000;
@@ -173,13 +160,7 @@ const MAX_INDEX_BLOCK_IDS = 10;
 const MAX_INDEX_TITLES = 5;
 
 const SNAPSHOT_NOTE =
-  "本上下文只包含当前问题、阶段摘要状态、已压缩阶段摘要、未压缩的历史问答原文，以及用于连续对话指代的轻量操作记忆；不包含历史工具 observation、工具返回正文、调试信息、snapshot、confirmationId 或内部路径。需要正文时，请根据可信资源 ID 决定是否使用读取能力。";
-
-const STAGE_SUMMARY_STATUS_NOTE_UNCOMPRESSED =
-  "已有阶段摘要正文暂不展示；如果本轮要输出 stageSummary，只总结 lastSummarizedTurnIndex 之后的新对话，并覆盖到当前最终回答为止；不要重述已有阶段摘要。";
-
-const STAGE_SUMMARY_STATUS_NOTE_COMPRESSED =
-  "已压缩阶段摘要见 compressed.summary；如果本轮要输出 stageSummary，只总结 lastSummarizedTurnIndex 之后的新对话，不要重述已有阶段摘要。";
+  "本上下文由完整 transcript、结构化 compaction snapshot、最近完整问答和轻量工作记忆组成；不包含历史工具 observation、工具返回正文、调试信息、推理过程、confirmationId、内部路径或密钥。需要正文时，请根据可信资源 ID 决定是否使用读取能力。";
 
 function truncateText(value: string | undefined, maxChars: number): string {
   const text = (value ?? "").trim();
@@ -384,65 +365,45 @@ function buildAssistantContext(message: AssistantChatMessage): NonNullable<Conve
   };
 }
 
-function buildCompressed(
-  summary: string | undefined,
-  state: ContextCompressionState | undefined,
-  maxChars: number = MAX_COMPRESSED_SUMMARY_CHARS,
-): ConversationContextSnapshot["compressed"] {
-  const trimmed = truncateText(summary, maxChars);
-  if (!trimmed) return undefined;
-  return {
-    summary: trimmed,
-    ...(typeof state?.compressedMessageCount === "number" ? { compressedMessageCount: state.compressedMessageCount } : {}),
-    ...(typeof state?.compressedTurnCount === "number" ? { compressedTurnCount: state.compressedTurnCount } : {}),
-    ...(typeof state?.compressedStageSummaryCount === "number" ? { compressedStageSummaryCount: state.compressedStageSummaryCount } : {}),
-    ...(typeof state?.latestCompressedStageIndex === "number" ? { latestCompressedStageIndex: state.latestCompressedStageIndex } : {}),
-    ...(typeof state?.latestCompressedTurnIndex === "number" ? { latestCompressedTurnIndex: state.latestCompressedTurnIndex } : {}),
-    ...(typeof state?.summaryChars === "number" ? { summaryChars: state.summaryChars } : {}),
-    ...(typeof state?.lastCompressedAt === "number" ? { lastCompressedAt: state.lastCompressedAt } : {}),
-  };
-}
-
 function calculatePressureLevel(
   unsummarizedTurnCount: number,
   usageRatio: number,
-  stageSummaryCoverage: boolean,
-): { level: StageSummaryPressureLevel; reason: string } {
-  if (usageRatio >= 0.9 && !stageSummaryCoverage) {
-    return { level: "required", reason: `上下文用量已达 ${Math.round(usageRatio * 100)}%，且阶段摘要覆盖不足` };
+  hasSnapshot: boolean,
+): { level: CompactionPressureLevel; reason: string } {
+  if (usageRatio >= 0.88 && !hasSnapshot) {
+    return { level: "required", reason: `上下文用量已达 ${Math.round(usageRatio * 100)}%，且没有压缩快照` };
   }
-  if (usageRatio >= 0.75 && !stageSummaryCoverage) {
-    return { level: "urgent", reason: `上下文用量已达 ${Math.round(usageRatio * 100)}%，阶段摘要覆盖不足` };
+  if (usageRatio >= 0.72 && !hasSnapshot) {
+    return { level: "urgent", reason: `上下文用量已达 ${Math.round(usageRatio * 100)}%，需要生成压缩快照` };
   }
   if (unsummarizedTurnCount >= 8 || usageRatio >= 0.65) {
-    return { level: "recommended", reason: `未总结轮次 ${unsummarizedTurnCount} 轮，上下文用量 ${Math.round(usageRatio * 100)}%` };
+    return { level: "recommended", reason: `未覆盖轮次 ${unsummarizedTurnCount} 轮，上下文用量 ${Math.round(usageRatio * 100)}%` };
   }
   if (unsummarizedTurnCount >= 4 || usageRatio >= 0.5) {
-    return { level: "suggested", reason: `未总结轮次 ${unsummarizedTurnCount} 轮，上下文用量 ${Math.round(usageRatio * 100)}%` };
+    return { level: "suggested", reason: `未覆盖轮次 ${unsummarizedTurnCount} 轮，上下文用量 ${Math.round(usageRatio * 100)}%` };
   }
-  return { level: "none", reason: "未总结轮次少且上下文用量低" };
+  return { level: "none", reason: "未覆盖轮次少且上下文用量低" };
 }
 
-function buildStageSummaryStatus(
+function buildCompactionStatus(
   messages: ChatMessage[],
-  stageSummaries: readonly ConversationStageSummary[],
-  hasCompressedSummary: boolean,
+  snapshot: ContextCompactionSnapshot | undefined,
   usageRatio: number = 0,
-): StageSummaryStatus {
-  const completeTurnCount = getCompleteConversationTurns(messages).length;
-  const sortedStageSummaries = [...stageSummaries].sort((a, b) => a.index - b.index);
-  const latest = sortedStageSummaries[sortedStageSummaries.length - 1];
-  const lastSummarizedTurnIndex = latest?.endTurnIndex ?? 0;
-  const unsummarizedTurnCount = Math.max(0, completeTurnCount - lastSummarizedTurnIndex);
-  const stageSummaryCoverage = lastSummarizedTurnIndex > 0 && unsummarizedTurnCount <= 2;
-  const pressure = calculatePressureLevel(unsummarizedTurnCount, usageRatio, stageSummaryCoverage);
+): CompactionStatus {
+  const usableSnapshot = snapshot?.version === 2 && !snapshot.stale ? snapshot : undefined;
+  const coveredThroughTurnIndex = usableSnapshot?.coveredThroughTurnIndex ?? 0;
+  const uncoveredTurnCount = getCompleteConversationTurns(messages)
+    .filter((turn) => turn.turnIndex > coveredThroughTurnIndex).length;
+  const pressure = calculatePressureLevel(uncoveredTurnCount, usageRatio, !!usableSnapshot);
 
   return {
-    existingCount: stageSummaries.length,
-    lastSummarizedTurnIndex,
-    unsummarizedTurnCount,
-    ...(latest?.createdAt ? { lastSummaryCreatedAt: latest.createdAt } : {}),
-    note: hasCompressedSummary ? STAGE_SUMMARY_STATUS_NOTE_COMPRESSED : STAGE_SUMMARY_STATUS_NOTE_UNCOMPRESSED,
+    hasSnapshot: !!usableSnapshot,
+    coveredThroughTurnIndex,
+    uncoveredTurnCount,
+    ...(usableSnapshot?.createdAt ? { lastCompactedAt: usableSnapshot.createdAt } : {}),
+    note: usableSnapshot
+      ? "压缩快照只保留结构化工作状态；完整历史 transcript 仍然保留并可在编辑后重建。"
+      : "尚未生成可用的压缩快照。",
     pressureLevel: pressure.level,
     pressureReason: pressure.reason,
   };
@@ -459,8 +420,6 @@ function buildRecentTargetIndex(
   for (let i = messages.length - 1; i >= 0 && assistantFound < MAX_TARGET_INDEX_TURNS; i--) {
     const message = messages[i];
     if (message.role !== "assistant" || !isCompletedAssistantMessage(message)) continue;
-    if (message.compacted) continue;
-
     const traceSummary = message.agentMemory?.actionTraceSummary;
     if (!traceSummary) continue;
 
@@ -529,8 +488,6 @@ function buildActiveWorkingTarget(
   for (let i = messages.length - 1; i >= 0; i--) {
     const message = messages[i];
     if (message.role !== "assistant" || !isCompletedAssistantMessage(message)) continue;
-    if (message.compacted) continue;
-
     // Find the paired user message
     let userMessage: ChatMessage | undefined;
     for (let j = i - 1; j >= 0; j--) {
@@ -594,6 +551,7 @@ function buildActiveWorkingTarget(
 function buildRecentTurns(
   messages: ChatMessage[],
   currentUserMessageId?: string,
+  compactionSnapshot?: ContextCompactionSnapshot,
 ): ConversationTurnContext[] {
   const turns: ConversationTurnContext[] = [];
   let pendingUserTurn: ConversationTurnContext | null = null;
@@ -606,11 +564,14 @@ function buildRecentTurns(
     }
   };
 
+  const coveredThroughTurnIndex = compactionSnapshot?.version === 2 && !compactionSnapshot.stale
+    ? compactionSnapshot.coveredThroughTurnIndex
+    : 0;
   for (const message of messages) {
     if (message.role === "user") {
       flushPendingUserTurn();
       turnIndex += 1;
-      if (message.id === currentUserMessageId || message.compacted) {
+      if (message.id === currentUserMessageId) {
         pendingUserTurn = null;
         continue;
       }
@@ -625,15 +586,11 @@ function buildRecentTurns(
           ...(attachedDocs ? { attachedDocs } : {}),
         },
       };
+      if (turnIndex <= coveredThroughTurnIndex) pendingUserTurn = null;
       continue;
     }
 
     if (!isCompletedAssistantMessage(message)) continue;
-
-    if (message.compacted) {
-      pendingUserTurn = null;
-      continue;
-    }
 
     if (pendingUserTurn) {
       pendingUserTurn.assistantMessageId = message.id;
@@ -644,26 +601,49 @@ function buildRecentTurns(
   }
 
   flushPendingUserTurn();
-  return turns.slice(-MAX_RECENT_TURNS);
+  return turns;
+}
+
+/**
+ * Builds the exact uncovered historical provider messages. These are kept
+ * outside Conversation Context so they retain real user/assistant roles.
+ */
+export function buildUncoveredVerbatimAgentMessages(params: {
+  messages: ChatMessage[];
+  currentUserMessageId?: string;
+  compactionSnapshot?: ContextCompactionSnapshot;
+}): AgentMessage[] {
+  const coveredThroughTurnIndex = params.compactionSnapshot?.version === 2 && !params.compactionSnapshot.stale
+    ? params.compactionSnapshot.coveredThroughTurnIndex
+    : 0;
+  return getCompleteConversationTurns(params.messages)
+    .filter((turn) => turn.turnIndex > coveredThroughTurnIndex && turn.user.id !== params.currentUserMessageId)
+    .flatMap((turn) => [
+      createUserMessage(turn.user.content),
+      createAssistantMessage({ content: turn.assistant.content }),
+    ]);
 }
 
 export function buildConversationContext(
   params: BuildConversationContextParams,
 ): ConversationContextSnapshot {
-  const stageSummaries = params.stageSummaries ?? [];
   const currentUserMessage = params.currentUserMessageId
     ? params.messages.find((m): m is UserChatMessage => m.role === "user" && m.id === params.currentUserMessageId)
     : undefined;
   const attachedDocs = buildAttachedDocs(currentUserMessage);
   const currentScope = buildCurrentScope(currentUserMessage);
-  const compressed = buildCompressed(params.compressedContextSummary, params.compressionState);
+  const compactionSnapshot = params.compactionSnapshot
+    && !params.compactionSnapshot.stale
+    && !isCompactionSnapshotStale(params.compactionSnapshot, params.messages)
+    ? params.compactionSnapshot
+    : undefined;
   const webSearchAccess = buildWebSearchAccess(currentUserMessage, params.webSearchSettings, params.webAccessModeOverride);
   const webReadAccess = buildWebReadAccess(currentUserMessage, params.webSearchSettings, params.webAccessModeOverride);
 
   const recentTargetIndex = buildRecentTargetIndex(params.messages, params.currentUserMessageId);
   const activeWorkingTarget = buildActiveWorkingTarget(params.messages, params.currentUserMessageId);
 
-  const recentTurns = buildRecentTurns(params.messages, params.currentUserMessageId);
+  const recentTurns = buildRecentTurns(params.messages, params.currentUserMessageId, compactionSnapshot);
 
   // Enforce MAX_ACTIONS_CHARS on actions — newest turns first, highest-priority outcomes first
   const turnsWithOutcomes = recentTurns
@@ -704,27 +684,28 @@ export function buildConversationContext(
   }
 
   const currentTurn = {
-    userQuestion: truncateText(params.currentQuestion, MAX_USER_TEXT_CHARS),
     ...(currentScope ? { scope: currentScope } : {}),
     ...(attachedDocs ? { attachedDocs } : {}),
     runtimeNow: buildRuntimeNow(),
     ...(webSearchAccess ? { webAccess: webSearchAccess } : {}),
     ...(webReadAccess ? { webReadAccess: webReadAccess } : {}),
   };
-  const stageSummaryStatus = buildStageSummaryStatus(params.messages, stageSummaries, !!compressed, params.usageRatio ?? 0);
+  const compactionStatus = buildCompactionStatus(params.messages, compactionSnapshot, params.usageRatio ?? 0);
   return {
     version: SNAPSHOT_VERSION,
     currentTurn,
-    stageSummaryStatus,
-    ...(compressed ? { compressed } : {}),
+    compactionStatus,
+    ...(compactionSnapshot ? { compactionSnapshot } : {}),
     recentTurns,
     ...(recentTargetIndex ? { recentTargetIndex } : {}),
     ...(activeWorkingTarget ? { activeWorkingTarget } : {}),
     note: SNAPSHOT_NOTE,
     manifest: buildAgentContextManifest({
       currentTurn,
-      compressedHistory: compressed?.summary,
-      compressedCoverage: compressed ? { startTurnIndex: 1, endTurnIndex: compressed.latestCompressedTurnIndex } : undefined,
+      compactionSnapshot,
+      compactionCoverage: compactionSnapshot
+        ? { startTurnIndex: 1, endTurnIndex: compactionSnapshot.coveredThroughTurnIndex }
+        : undefined,
       recentTurns,
       workingTarget: activeWorkingTarget ?? recentTargetIndex,
       attachedDocuments: attachedDocs,

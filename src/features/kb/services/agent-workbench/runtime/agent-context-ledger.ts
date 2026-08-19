@@ -1,8 +1,10 @@
+import { estimateTextTokensConservative } from "../../../types/context-usage";
+
 export type AgentContextLayer = "constraints" | "working-state" | "recent-verbatim" | "summary" | "retrieval-index";
 
 export type AgentContextSourceId =
   | "current-turn"
-  | "compressed-history"
+  | "compaction-snapshot"
   | "recent-turns"
   | "working-target"
   | "global-memory"
@@ -44,7 +46,7 @@ export function createAgentContextManifestEntry(
     layer,
     included: chars > 0,
     chars,
-    estimatedTokens: Math.ceil(chars / 4),
+    estimatedTokens: estimateTextTokensConservative(text),
     ...(chars === 0 && options.reason ? { reason: options.reason } : {}),
     ...(options.coverage ? { coverage: options.coverage } : {}),
   };
@@ -52,8 +54,8 @@ export function createAgentContextManifestEntry(
 
 export function buildAgentContextManifest(params: {
   currentTurn: unknown;
-  compressedHistory?: string;
-  compressedCoverage?: { startTurnIndex?: number; endTurnIndex?: number };
+  compactionSnapshot?: unknown;
+  compactionCoverage?: { startTurnIndex?: number; endTurnIndex?: number };
   recentTurns: unknown;
   workingTarget?: unknown;
   globalMemory?: string;
@@ -61,9 +63,9 @@ export function buildAgentContextManifest(params: {
 }): AgentContextManifest {
   const entries = [
     createAgentContextManifestEntry("current-turn", "constraints", params.currentTurn),
-    createAgentContextManifestEntry("compressed-history", "summary", params.compressedHistory, {
-      reason: "尚未生成历史压缩摘要",
-      coverage: params.compressedCoverage,
+    createAgentContextManifestEntry("compaction-snapshot", "summary", params.compactionSnapshot, {
+      reason: "尚未生成上下文压缩快照",
+      coverage: params.compactionCoverage,
     }),
     createAgentContextManifestEntry("recent-turns", "recent-verbatim", params.recentTurns),
     createAgentContextManifestEntry("working-target", "working-state", params.workingTarget, { reason: "没有活动工作对象" }),

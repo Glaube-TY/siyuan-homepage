@@ -51,6 +51,30 @@ export function mapAgentErrorToUserFacing(input: {
     };
   }
 
+  if (code === "irreducible_context_overflow") {
+    return {
+      title: "上下文窗口不足",
+      message: "上下文窗口不足以容纳 Agent 基础运行上下文，本轮未发送给模型。",
+      suggestion: "可以缩短当前问题、减少附加内容，或切换到更大上下文窗口的模型。",
+    };
+  }
+
+  if (code === "provider_toolset_budget_exceeded") {
+    return {
+      title: "工具定义超出上下文预算",
+      message: "当前可用工具定义过大，无法安全放入模型上下文，本轮未执行工具。",
+      suggestion: "可以先用 agent_tool_help 查询并激活需要的具体工具，或切换到更大上下文窗口的模型。",
+    };
+  }
+
+  if (code === "context_budget_exceeded" || code === "conversation_context_budget_exceeded") {
+    return {
+      title: "会话上下文过长",
+      message: "会话历史超过当前模型预算，系统未能安全压缩，本轮未发送给模型。",
+      suggestion: "可以缩短当前问题，或切换到更大上下文窗口的模型。",
+    };
+  }
+
   // 输出被截断
   if (code.includes("output_truncated")) {
     return {
@@ -209,6 +233,22 @@ export function mapAgentErrorToUserFacing(input: {
       title: "工具未注册且被重复调用",
       message: "模型重复调用了当前未注册的工具，本轮已停止。",
       suggestion: "可以重新同步 MCP 工具，或让 AI 先使用 mcp_manage.list_tools 查看实际可用工具名。",
+    };
+  }
+
+  if (code === "tool_not_active") {
+    return {
+      title: "工具尚未激活",
+      message: "该工具当前没有出现在本轮 provider 工具列表中，系统没有执行调用。",
+      suggestion: "请先调用 agent_tool_help 查询并激活该工具。",
+    };
+  }
+
+  if (code === "tool_activation_budget_exceeded") {
+    return {
+      title: "工具激活超出上下文预算",
+      message: "当前上下文预算不足以激活该工具，系统没有发送超预算的 Provider 请求。",
+      suggestion: "可以缩短当前问题、先完成当前步骤，或切换到更大上下文窗口的模型。",
     };
   }
 

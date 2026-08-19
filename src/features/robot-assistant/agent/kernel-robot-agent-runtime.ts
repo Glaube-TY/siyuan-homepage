@@ -4,7 +4,7 @@ import { AgentSession } from "../../../features/kb/services/agent-core/session/a
 import type { AgentMessage } from "../../../features/kb/services/agent-core/messages/agent-message";
 import { compactAgentSessionMessagesForStorage } from "../../../features/kb/services/agent-core/messages/message-compactor";
 import { createProviderAdapterForKbModel } from "../../../features/kb/services/agent-core/providers/agent-provider-factory";
-import { NativeToolRegistry } from "../../../features/kb/services/agent-core/tools/native-tool-registry";
+import { NativeToolRegistry, resolveNativeToolReadOnly } from "../../../features/kb/services/agent-core/tools/native-tool-registry";
 import type { NativeTool } from "../../../features/kb/services/agent-core/tools/native-tool";
 import type { AgentHttpTransport } from "../../../features/kb/services/agent-core/providers/agent-http-transport";
 import type { KbChatModelConfig, KbChatProviderConfig, KbChatProviderType } from "../../../features/kb/types/settings";
@@ -114,7 +114,9 @@ export class KernelRobotAgentRuntime implements RobotAgentRuntime {
 
     try {
       const result = await loop.run(input.userText);
-      const agentMessages = compactAgentSessionMessagesForStorage(result.messages);
+      const agentMessages = compactAgentSessionMessagesForStorage(result.messages, {
+        resolveCallReadOnly: (toolName, args) => resolveNativeToolReadOnly(turnRegistry, toolName, args),
+      });
       if (timedOut) {
         return { ok: false, answer: "AI 模型响应超时，请稍后再试。", errorCode: "provider_timeout", toolSummaries: [], conversationId: input.conversationId, agentMessages };
       }
@@ -148,7 +150,9 @@ export class KernelRobotAgentRuntime implements RobotAgentRuntime {
         errorCode: timeout ? "provider_timeout" : runtimeCode,
         toolSummaries: [],
         conversationId: input.conversationId,
-        agentMessages: compactAgentSessionMessagesForStorage(session.snapshot()),
+        agentMessages: compactAgentSessionMessagesForStorage(session.snapshot(), {
+          resolveCallReadOnly: (toolName, args) => resolveNativeToolReadOnly(turnRegistry, toolName, args),
+        }),
       };
     } finally {
       cancelTimeout();

@@ -2,6 +2,7 @@
   import { createEventDispatcher } from "svelte";
   import { showMessage } from "siyuan";
   import type { KbConversationSession } from "../../types/chat";
+  import { isCurrentConversationRecord } from "../../types/conversation-record";
   import SiyuanIcon from "@/components/utils/shared/SiyuanIcon.svelte";
   import { inputDialogSync, confirmDialogBoolean, safeConfirmContent } from "@/libs/dialog";
   import {
@@ -41,7 +42,8 @@
   $: isSearching = searchQuery.trim().length > 0;
   // 只在 conversations 或 searchQuery 变化时重新计算结果
   $: searchResults = searchConversations(conversations, searchQuery);
-  $: displayItems = buildDisplayItems(isSearching, searchResults, conversations);
+  $: displayItems = buildDisplayItems(isSearching, searchResults, conversations)
+    .sort((a, b) => b.conversation.updatedAt - a.conversation.updatedAt);
 
   /** 列表项统一结构：非搜索时直接展示全部会话，搜索时展示结果 */
   function buildDisplayItems(
@@ -109,6 +111,7 @@
   // 处理重命名
   async function handleRename(id: string, currentTitle: string): Promise<void> {
     if (disabled) return;
+    if (!isCurrentConversationRecord(conversations.find((conversation) => conversation.id === id))) return;
 
     const newTitle = await inputDialogSync({
       title: "重命名会话",
@@ -210,7 +213,7 @@
         <div class="empty-state">未找到相关会话</div>
         <div class="empty-hint">请尝试其他关键词</div>
       {:else}
-        {#each displayItems.slice().reverse() as item (item.conversation.id)}
+        {#each displayItems as item (item.conversation.id)}
           <div
             class="conversation-item"
             class:active={item.conversation.id === activeConversationId}
@@ -241,6 +244,7 @@
                 {:else}
                   {item.conversation.title}
                 {/if}
+                {#if item.conversation.kind === "legacy"}<span class="legacy-badge">旧版归档</span>{/if}
               </div>
               {#if isSearching && item.matchSource === "user_message" && item.matchSnippet}
                 <div class="conversation-snippet">
@@ -264,7 +268,7 @@
                 class="action-btn rename-btn"
                 on:click|stopPropagation={() => handleRename(item.conversation.id, item.conversation.title)}
                 title={disabled ? "回答生成中，请稍后切换会话" : "重命名"}
-                disabled={disabled}
+                disabled={disabled || !isCurrentConversationRecord(item.conversation)}
               >
                 <SiyuanIcon name="iconEdit" size={12} />
               </button>

@@ -10,8 +10,8 @@
  * - sessionId 和文件名必须安全，禁止路径穿越。
  */
 
-import type { ConversationStageSummary } from "../../../types/chat";
 import type { ThinkingMode, WebAccessMode } from "../../../types/session";
+import type { ContextCompactionSnapshot } from "../../../types/context-compaction";
 
 export interface ChatSessionIndexEntry {
   id: string;
@@ -54,6 +54,7 @@ export interface ChatSessionMessage {
 
 export interface ChatSessionData {
   version: 1;
+  schemaVersion: 3;
   id: string;
   title: string;
   createdAt: number;
@@ -64,9 +65,7 @@ export interface ChatSessionData {
   messages: ChatSessionMessage[];
   summary?: string;
   references?: unknown[];
-  stageSummaries?: ConversationStageSummary[];
-  compressionState?: unknown;
-  compressedContextSummary?: string;
+  latestCompactionSnapshot?: ContextCompactionSnapshot;
   /**
    * 当前会话输入区"深度思考"按钮状态（会话级持久化）
    * 旧 session 文件缺字段时默认 "off"

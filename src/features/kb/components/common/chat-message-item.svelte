@@ -33,6 +33,7 @@
   export let isLastError: boolean = false;
   export let canRegenerate: boolean = false;
   export let canRetry: boolean = false;
+  export let readOnly: boolean = false;
   // asking 状态，用于控制按钮显示
   export let asking: boolean = false;
   export let assistantActionAlignment: KbAssistantActionAlignment = "left";
@@ -824,7 +825,7 @@
           <div class="agent-recovery" class:is-blocked={!recoveryPresentation.resumable}>
             <div class="agent-recovery-title">{recoveryPresentation.title}</div>
             <div class="agent-recovery-summary">{recoveryPresentation.summary}</div>
-            {#if recoveryPresentation.resumable}
+            {#if recoveryPresentation.resumable && !readOnly}
               <button
                 type="button"
                 class="agent-recovery-button"
@@ -845,7 +846,7 @@
         <!-- 操作按钮区 -->
         {#if shouldShowAssistantActions}
           <div class={`assistant-actions align-${assistantActionAlignment}`}>
-            {#if isLastAssistant}
+            {#if isLastAssistant && !readOnly}
               <button
                 class="action-btn regenerate-btn"
                 on:click={() => dispatch("regenerate")}
@@ -869,16 +870,16 @@
                 />
               </span>
             </button>
-            <button
+            {#if !readOnly}<button
               class="action-btn delete-btn"
               on:click={() => dispatch("deleteTurn", { assistantMessageId: message.id })}
-              disabled={asking}
+              disabled={asking || readOnly}
               title="删除本轮对话"
             >
               <span class="action-icon">
                 <SiyuanIcon name="iconTrashcan" size={14} />
               </span>
-            </button>
+            </button>{/if}
           </div>
         {/if}
 
@@ -951,6 +952,7 @@
                   <SiyuanIcon name={isCopied ? "iconCheck" : "iconCopy"} size={14} />
                 </span>
               </button>
+              {#if !readOnly}<button
               <button
                 type="button"
                 class="action-btn user-action-btn"
@@ -960,7 +962,7 @@
                 <span class="action-icon">
                   <SiyuanIcon name="iconEdit" size={14} />
                 </span>
-              </button>
+              </button>{/if}
             </div>
           {/if}
         {/if}

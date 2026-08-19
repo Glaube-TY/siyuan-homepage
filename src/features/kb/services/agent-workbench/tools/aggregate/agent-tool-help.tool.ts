@@ -10,6 +10,7 @@ import {
   listAllExternalSkillEntries,
   readExternalSkillEntryFile,
 } from "../../skills/external/external-skill-index";
+import type { ProviderToolActivationResult } from "../../../agent-core/tools/native-tool-registry";
 
 const helpActionSchema = z.enum([
   "list_tools",
@@ -64,6 +65,28 @@ export interface AvailableToolSnapshot {
 export interface AgentToolHelpOptions {
   externalSkillSettings: ExternalSkillSettings;
   availableTools: readonly AvailableToolSnapshot[];
+  /** 成功查询业务工具说明后，在下一次 provider 请求中启用其 schema。 */
+  onToolDescribed?: (toolName: string) => ProviderToolActivationResult | void;
+}
+
+function withActivation<T extends Record<string, unknown>>(
+  data: T,
+  activation: ReturnType<NonNullable<AgentToolHelpOptions["onToolDescribed"]>>,
+): ToolResult {
+  if (!activation || activation.status === "requested") {
+    return { ok: true, data: { ...data, ...(activation ? { activation } : {}) } };
+  }
+  return {
+    ok: false,
+    data: { ...data, activation },
+    error: {
+      code: activation.reason ?? "tool_activation_budget_exceeded",
+      message: activation.reason === "tool_activation_not_available"
+        ? "工具说明查询成功，但该工具当前不可激活。"
+        : "工具说明查询成功，但当前上下文预算不足以激活该工具；请缩短问题或先完成当前步骤。",
+      recoverable: true,
+    },
+  };
 }
 
 function compactTool(tool: AggregateToolCatalogEntry, availableActions?: string[]) {
@@ -225,13 +248,13 @@ export function createAgentToolHelpTool(options: AgentToolHelpOptions): ToolCont
   return {
     name: "agent_tool_help",
     title: "Agent 工具帮助",
-    description: "只读帮助工具。列出可用聚合工具，查看工具 action、关键参数、读写风险和使用边界；也可列出外部/自定义 Skill。",
+    description: "只读帮助工具。列出可用聚合工具，查看工具 action、关键参数、读写风险和使用边界；成功 describe_tool/list_actions/describe_action 后返回 activation.status=requested，该业务工具最早在下一次 provider 请求中激活；也可列出外部/自定义 Skill。",
     inputSchema: agentToolHelpInputSchema,
     readOnly: true,
     safety: { readOnly: true },
     source: "system",
     providerVisible: true,
-    inputHint: "action=list_tools/describe_tool/list_actions/describe_action/list_custom_skills/describe_custom_skill；describe_tool/list_actions 需要 toolName；describe_action 需要 toolName+actionName；describe_custom_skill 需要 skillName。",
+    inputHint: "action=list_tools/describe_tool/list_actions/describe_action/list_custom_skills/describe_custom_skill；describe_tool/list_actions 需要 toolName；describe_action 需要 toolName+actionName；成功查询返回 activation.status=requested，业务工具最早在下一次 provider 请求才会看到 schema；describe_custom_skill 需要 skillName。",
     boundary: "不执行业务，不写思源，不读取敏感配置；内置 Skill 不作为可管理 Skill 返回。",
     inputJsonSchemaOverride: agentToolHelpInputJsonSchema,
     availability() {
@@ -252,9 +275,10 @@ export function createAgentToolHelpTool(options: AgentToolHelpOptions): ToolCont
       if (args.action === "describe_tool") {
         const toolName = args.toolName?.trim() ?? "";
         const tool = describeTool(toolName, availableTools);
-        return tool
-          ? { ok: true, data: tool }
-          : { ok: false, data: null, error: { code: "tool_not_available", message: "指定工具当前未注册或已禁用。", recoverable: true } };
+        if (tool) {
+          return withActivation(tool, options.onToolDescribed?.(toolName));
+        }
+        return { ok: false, data: null, error: { code: "tool_not_available", message: "指定工具当前未注册或已禁用。", recoverable: true } };
       }
 
       if (args.action === "list_actions") {
@@ -264,16 +288,15 @@ export function createAgentToolHelpTool(options: AgentToolHelpOptions): ToolCont
           return { ok: false, data: null, error: { code: "tool_not_available", message: "指定工具当前未注册或已禁用。", recoverable: true } };
         }
         const actions = filterActions(entry.tool, entry.snapshot.actions);
-        return {
-          ok: true,
-          data: {
-            toolName: entry.tool.name,
-            actions: actions.map((action) => ({ name: action.name, title: action.title, readOnly: action.readOnly })),
-            ...(actions.length === 0 ? {
-              note: `${entry.tool.name} 不是 action 聚合工具，请直接按该工具的 input schema 调用。`,
-            } : {}),
-          },
+        const activation = options.onToolDescribed?.(toolName);
+        const data = {
+          toolName: entry.tool.name,
+          actions: actions.map((action) => ({ name: action.name, title: action.title, readOnly: action.readOnly })),
+          ...(actions.length === 0 ? {
+            note: `${entry.tool.name} 不是 action 聚合工具，请直接按该工具的 input schema 调用。`,
+          } : {}),
         };
+        return withActivation(data, activation);
       }
 
       if (args.action === "describe_action") {
@@ -288,9 +311,10 @@ export function createAgentToolHelpTool(options: AgentToolHelpOptions): ToolCont
           return { ok: false, data: null, error: { code: "tool_has_no_actions", message: "指定工具不是 action 聚合工具，不能查询 action。", recoverable: true } };
         }
         const action = describeAction(toolName, actionName, availableTools);
-        return action
-          ? { ok: true, data: action }
-          : { ok: false, data: null, error: { code: "action_not_found", message: "未找到指定 action。", recoverable: true } };
+        if (action) {
+          return withActivation(action, options.onToolDescribed?.(toolName));
+        }
+        return { ok: false, data: null, error: { code: "action_not_found", message: "未找到指定 action。", recoverable: true } };
       }
 
       if (args.action === "list_custom_skills") {

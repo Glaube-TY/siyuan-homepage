@@ -16,6 +16,7 @@ export interface SystemToolOptions {
   };
   externalSkillSettings?: ExternalSkillSettings;
   agentToolHelpAvailableTools?: readonly AvailableToolSnapshot[];
+  agentToolHelpOnToolDescribed?: (toolName: string) => void;
   automation?: AutomationManageToolOptions;
   notification?: boolean;
 }
@@ -38,6 +39,7 @@ export function registerSystemTools(
     toolRegistry.ensureTool(createAgentToolHelpTool({
       externalSkillSettings: options.externalSkillSettings,
       availableTools: options.agentToolHelpAvailableTools,
+      onToolDescribed: options.agentToolHelpOnToolDescribed,
     }));
   }
 }

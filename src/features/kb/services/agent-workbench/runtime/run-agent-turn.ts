@@ -3,7 +3,6 @@ import {
   KNOWLEDGE_CHAT_AGENT_PROFILE_ID,
 } from "../../../../agent-platform/agent-profile";
 import type { AgentTurnResult } from "../contracts/turn-result";
-import { buildSafeTurnStageSummary } from "../memory/build-safe-turn-stage-summary";
 import { buildMissingCitationRetryInstruction, resolveInlineCitations } from "./inline-citation";
 import {
   buildReferenceGroundingSet,
@@ -28,7 +27,7 @@ export type RunAgentTurnParams = Omit<
 
 export type AgentTurnOutcome = AgentProfileRunOutcome<AgentTurnResult>;
 
-/** 知识库领域适配器：Profile 运行结束后只负责引用与阶段摘要。 */
+/** 知识库领域适配器：Profile 运行结束后只负责引用与安全工作台记忆。 */
 export async function runAgentTurn(params: RunAgentTurnParams): Promise<AgentTurnOutcome> {
   return runAgentProfile({
     ...params,
@@ -53,30 +52,6 @@ export async function runAgentTurn(params: RunAgentTurnParams): Promise<AgentTur
         rejectedCount: citationResolution.rejectedCount,
         citedReferenceCount: footerReferences.length,
       }, citationResolution.rejectedCount > 0 ? "warn" : "info");
-
-      let stageSummary: { summary: string } | undefined;
-      if (finalAnswer.trim().length > 0) {
-        try {
-          stageSummary = buildSafeTurnStageSummary({
-            userQuestion: params.question,
-            answer: finalAnswer,
-            footerReferences,
-            events,
-            scopeSummary: resolvedScope.summary,
-          });
-          if (stageSummary) {
-            pushAgentDebugEvent("TURN_STAGE_SUMMARY_GENERATED_SAFE", {
-              summaryChars: stageSummary.summary.length,
-              footerReferenceCount: footerReferences.length,
-              eventCount: events.length,
-            }, "info");
-          }
-        } catch (error) {
-          pushAgentDebugEvent("TURN_STAGE_SUMMARY_GENERATION_FAILED", {
-            error: error instanceof Error ? error.message.slice(0, 80) : String(error),
-          }, "warn");
-        }
-      }
 
       const temporaryWorkbenches = collectTemporaryWorkbenches(observations).map(toTemporaryWorkbenchReference);
       if (temporaryWorkbenches.length > 0 && params.conversationId && params.turnId) {
@@ -105,7 +80,6 @@ export async function runAgentTurn(params: RunAgentTurnParams): Promise<AgentTur
           warnings: [],
           events,
           temporaryWorkbenches,
-          stageSummary,
         },
         footerReferencesCount: footerReferences.length,
       };

@@ -26,7 +26,7 @@ export function renderContextInstructions(params: {
   }
 
   if (params.conversationContext) {
-    const { manifest: _manifest, ...contextWithoutManifest } = params.conversationContext;
+    const { manifest: _manifest, recentTurns: _recentTurns, ...contextWithoutManifest } = params.conversationContext;
     const contextWithoutMemory = params.globalMemory
       ? { ...contextWithoutManifest, globalMemory: undefined }
       : contextWithoutManifest;

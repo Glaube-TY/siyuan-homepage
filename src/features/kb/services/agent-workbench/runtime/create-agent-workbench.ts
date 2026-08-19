@@ -33,6 +33,7 @@ import {
 } from "../../../../agent-platform/agent-profile";
 import type { AgentSurfaceCapabilitySnapshot } from "../../../../agent-platform/agent-surface-capability";
 import type { GlobalMemoryProfile } from "../memory/global-memory-store";
+import type { ProviderToolsetController } from "../../agent-core/tools/native-tool-registry";
 
 // User skill loader (uses new agent-workbench contracts directly)
 import { MarkdownSkillLoader } from "../skills/user/markdown-skill-loader";
@@ -98,6 +99,8 @@ export interface AgentWorkbenchRuntimeOptions {
     webFetch: boolean;
     agentToolHelp: boolean;
   };
+  /** 本轮 provider schema 的延迟激活控制器；Registry 本身仍保留全部工具。 */
+  providerToolsetController?: ProviderToolsetController;
   /** 当前对话标识，用于 confirmation store 等需要关联 conversation 的场景。 */
   conversationId?: string;
   turnId?: string;
@@ -224,6 +227,7 @@ export function createAgentWorkbenchRuntime(
       globalToolAccess: options.globalToolAccess,
       externalSkillSettings,
       agentToolHelpAvailableTools: [...currentProviderVisibleTools, { name: "agent_tool_help" }],
+      agentToolHelpOnToolDescribed: (toolName) => options.providerToolsetController?.requestActivation(toolName),
     });
   }
 

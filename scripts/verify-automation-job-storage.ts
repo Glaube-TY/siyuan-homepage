@@ -11,11 +11,19 @@ import {
   AutomationJobStore,
   type AutomationStoragePort,
 } from "../src/features/agent-platform/automation/automation-job-store";
+import { createAgentRunIdentity } from "../src/features/agent-platform/agent-run-protocol";
+import {
+  inspectAgentRunResume,
+  type AgentRunCheckpoint,
+} from "../src/features/kb/services/agent-core/session/agent-run-checkpoint";
 
 class MemoryStorage implements AutomationStoragePort {
   readonly files = new Map<string, unknown>();
+  readonly errors = new Map<string, string>();
 
   async load<T>(key: string): Promise<StorageReadResult<T>> {
+    const error = this.errors.get(key);
+    if (error) return { status: "error", error };
     return this.files.has(key)
       ? { status: "ok", data: structuredClone(this.files.get(key)) as T }
       : { status: "missing" };
@@ -168,6 +176,40 @@ const runMonth = new Date(now).toISOString().slice(0, 7);
 assert.equal((await store.listRuns(runMonth))[0]?.status, "succeeded");
 assert.equal((await store.getRun(runMonth, queuedRun.runId))?.revision, 2);
 assert.equal((await store.getRun(runMonth, queuedRun.runId))?.delivery?.status, "succeeded");
+
+const checkpointRunId = "automation-checkpoint-v2";
+const checkpoint: AgentRunCheckpoint = {
+  schemaVersion: 2,
+  identity: createAgentRunIdentity({
+    sessionId: "automation-checkpoint-session",
+    runId: checkpointRunId,
+    startedAt: now,
+  }),
+  phase: "after_tool",
+  stepIndex: 1,
+  messages: [],
+  sideEffectState: "not_started",
+  createdAt: now,
+};
+await store.saveCheckpoint(checkpointRunId, checkpoint);
+assert.equal((await store.getCheckpoint(checkpointRunId))?.schemaVersion, 2, "当前 schema=2 检查点应可读取");
+assert.equal(inspectAgentRunResume(checkpoint).resumable, true);
+const checkpointStorageKey = [...storage.files.keys()].find((key) => key.endsWith(`${checkpointRunId}.json`));
+assert.ok(checkpointStorageKey);
+
+storage.files.set(checkpointStorageKey, { ...checkpoint, schemaVersion: 1 });
+assert.equal(await store.getCheckpoint(checkpointRunId), undefined, "旧 schema=1 检查点不得转换为 v2 或恢复");
+assert.equal(storage.files.has(checkpointStorageKey), true, "存储边界只识别旧检查点，清理由恢复流程负责");
+await store.deleteCheckpoint(checkpointRunId);
+assert.equal(storage.files.has(checkpointStorageKey), false, "恢复清理旧检查点后不得残留");
+
+await store.saveCheckpoint(checkpointRunId, checkpoint);
+storage.files.set(checkpointStorageKey, { ...checkpoint, identity: { ...checkpoint.identity, runId: "other-run" } });
+await assert.rejects(() => store.getCheckpoint(checkpointRunId), /结构无效/);
+storage.files.set(checkpointStorageKey, { schemaVersion: 2, identity: checkpoint.identity });
+await assert.rejects(() => store.getCheckpoint(checkpointRunId), /结构无效/);
+storage.errors.set(checkpointStorageKey, "模拟读取失败");
+await assert.rejects(() => store.getCheckpoint(checkpointRunId), /结构无效/);
 
 assert.equal(
   automationJobDefinitionSchema.safeParse({

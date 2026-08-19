@@ -287,6 +287,8 @@ async function executeOne(params: {
   registry: NativeToolRegistry;
   executor: NativeToolExecutor;
   bridge: ToolConfirmationBridge;
+  /** Immutable tool names exposed in the Provider request that produced this call. */
+  modelStepAllowedToolNames?: ReadonlySet<string>;
   autoAllowedToolNames?: string[];
   unattendedWritePolicy?: "deny" | "safe";
   stormBreaker: StormBreaker;
@@ -362,6 +364,19 @@ async function executeOne(params: {
       code,
       message,
       recoverable: false,
+      stepIndex: params.stepIndex,
+      startedAt,
+      onEvent: params.onEvent,
+    });
+  }
+  if (params.modelStepAllowedToolNames && !params.modelStepAllowedToolNames.has(tool.name)) {
+    return finishToolFailure({
+      call: params.call,
+      toolName: tool.name,
+      code: "tool_not_active",
+      message: `工具 ${tool.name} 在生成本次模型响应时未出现在 provider 工具列表中，未执行调用。请先调用 agent_tool_help 查询，并等待下一次模型请求。`,
+      recoverable: true,
+      hint: "先调用 agent_tool_help.describe_tool、list_actions 或 describe_action 激活该工具。",
       stepIndex: params.stepIndex,
       startedAt,
       onEvent: params.onEvent,
@@ -665,6 +680,8 @@ export async function dispatchToolCalls(params: {
   ctx: ToolExecutionContext;
   stepOffset?: number;
   bridge: ToolConfirmationBridge;
+  /** Immutable tool names exposed in the Provider request that produced this batch. */
+  modelStepAllowedToolNames?: ReadonlySet<string>;
   autoAllowedToolNames?: string[];
   unattendedWritePolicy?: "deny" | "safe";
   stormBreaker?: StormBreaker;
@@ -699,6 +716,7 @@ export async function dispatchToolCalls(params: {
         registry: params.registry,
         executor,
         bridge: params.bridge,
+        modelStepAllowedToolNames: params.modelStepAllowedToolNames,
         autoAllowedToolNames: params.autoAllowedToolNames,
         unattendedWritePolicy: params.unattendedWritePolicy,
         stormBreaker,
@@ -718,6 +736,7 @@ export async function dispatchToolCalls(params: {
       registry: params.registry,
       executor,
       bridge: params.bridge,
+      modelStepAllowedToolNames: params.modelStepAllowedToolNames,
       autoAllowedToolNames: params.autoAllowedToolNames,
       unattendedWritePolicy: params.unattendedWritePolicy,
       stormBreaker,

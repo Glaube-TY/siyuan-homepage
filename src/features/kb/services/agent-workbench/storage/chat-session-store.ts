@@ -53,10 +53,16 @@ export async function loadChatSession(sessionId: string): Promise<ChatSessionDat
   if (!isValidStorageId(sessionId)) return null;
   const key = toSessionKey(sessionId);
   const data = await loadData<ChatSessionData>(key);
-  if (data && data.version === 1) {
+  if (data && data.version === 1 && data.schemaVersion === 3) {
     return data;
   }
   return null;
+}
+
+/** Read without applying the current schema validator; used only by archive parsing. */
+export async function loadChatSessionRaw(sessionId: string): Promise<StorageReadResult<unknown>> {
+  if (!isValidStorageId(sessionId)) return { status: "error", error: "会话 ID 无效。" };
+  return loadDataStrict<unknown>(toSessionKey(sessionId));
 }
 
 export async function loadChatSessionStrict(sessionId: string): Promise<ValidatedStorageRead<ChatSessionData>> {
@@ -65,7 +71,7 @@ export async function loadChatSessionStrict(sessionId: string): Promise<Validate
   if (result.status !== "ok") return result;
   if (isMissingPluginFileValue(result.data)) return { status: "missing" };
   const data = result.data;
-  if (!data || data.version !== 1 || data.id !== sessionId || !Array.isArray(data.messages)) {
+  if (!data || data.version !== 1 || data.schemaVersion !== 3 || data.id !== sessionId || !Array.isArray(data.messages)) {
     return { status: "invalid", error: `会话 ${sessionId} JSON 结构无效。` };
   }
   return result;

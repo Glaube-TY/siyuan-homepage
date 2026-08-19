@@ -14,6 +14,7 @@
   export let chatAppearanceStyle: KbChatAppearanceStyle = "default";
   export let userAvatar: KbChatAvatarSettings = { kind: "default" };
   export let assistantAvatar: KbChatAvatarSettings = { kind: "default" };
+  export let readOnly: boolean = false;
 
   export let emptyTitle: string = "开始对话";
   export let emptyDescription: string = "读取当前文档后，即可开始提问";
@@ -56,31 +57,10 @@
   // 内部推导：是否可以重新生成
   // 需要存在至少一条 user 消息，且最后一条消息是 assistant，且当前不是 asking 状态
   $: hasUserMessage = messages.some((m) => m.role === "user");
-  $: canRegenerate = !asking && lastMessage?.role === "assistant" && hasUserMessage;
+  $: canRegenerate = !readOnly && !asking && lastMessage?.role === "assistant" && hasUserMessage;
 
   // 内部推导：是否可以重试（最后一条消息是 error）
-  $: canRetry = !asking && lastMessage?.role === "error" && hasUserMessage;
-
-  // 找到 compacted → 非 compacted 的边界：最后一个 compacted 消息之后的第一个非 compacted 消息索引
-  // 分隔线应该显示在这个位置之前
-  $: compressionBoundaryIndex = (() => {
-    let lastCompactedIdx = -1;
-    for (let i = messages.length - 1; i >= 0; i--) {
-      if ((messages[i] as { compacted?: boolean }).compacted) {
-        lastCompactedIdx = i;
-        break;
-      }
-    }
-    if (lastCompactedIdx < 0) return -1;
-    // 找到 lastCompactedIdx 之后第一个非 compacted 消息
-    for (let i = lastCompactedIdx + 1; i < messages.length; i++) {
-      if (!(messages[i] as { compacted?: boolean }).compacted) {
-        return i;
-      }
-    }
-    // 所有 compacted 消息之后没有非 compacted 消息，不显示分隔线
-    return -1;
-  })();
+  $: canRetry = !readOnly && !asking && lastMessage?.role === "error" && hasUserMessage;
 
   const dispatch = createEventDispatcher<{
     regenerate: void;
@@ -326,12 +306,7 @@
       </div>
     {:else}
       <div class="messages">
-        {#each messages as message, msgIdx (message.id)}
-          {#if compressionBoundaryIndex >= 0 && msgIdx === compressionBoundaryIndex}
-            <div class="compression-separator">
-              <span class="compression-separator-text">以上对话已压缩，仅保留阶段摘要用于上下文</span>
-            </div>
-          {/if}
+        {#each messages as message (message.id)}
           <!-- 消息项：传入消息数据和状态标识 -->
           <div
             class="message-anchor"
@@ -346,6 +321,7 @@
               {canRegenerate}
               {canRetry}
               {asking}
+              {readOnly}
               {assistantActionAlignment}
               {workbenchDisplayMode}
               {reasoningDisplayMode}
@@ -609,27 +585,6 @@
     .empty-desc {
       opacity: 0.8;
     }
-  }
-
-  .compression-separator {
-    display: flex;
-    align-items: center;
-    gap: $kb-space-sm;
-    padding: $kb-space-xs 0;
-
-    &::before,
-    &::after {
-      content: "";
-      flex: 1;
-      height: 1px;
-      background: var(--b3-border-color);
-    }
-  }
-
-  .compression-separator-text {
-    font-size: $kb-fs-xs;
-    color: var(--b3-theme-on-surface-light);
-    white-space: nowrap;
   }
 
   .message-anchor {

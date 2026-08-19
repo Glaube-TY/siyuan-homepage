@@ -28,25 +28,25 @@
 
 import type { AskByModeParams, AskByModeResult } from "./ask-by-mode-types";
 import type { ChatMode } from "../../constants/chat-modes";
-import type { AssistantChatMessage, ChatMessage, ConversationStageSummary, UserChatMessage } from "../../types/chat";
+import type { AssistantChatMessage, UserChatMessage } from "../../types/chat";
 import type { ChatModelSelection } from "../../types/chat-model-selection";
 import type { AgentScopeMode } from "../agent-workbench/scope/types";
 import { runAgentTurn, type AgentTurnOutcome } from "../agent-workbench/runtime/run-agent-turn";
 import type { AgentTurnResult, AgentWorkbenchEvent } from "../agent-workbench";
 import { buildAgentTurnMemory } from "../agent-workbench/memory/agent-turn-memory";
 import { pushAgentDebugEvent } from "../agent-workbench/debug/workbench-debug";
-import { maybeAutoCompressContext, emergencyCompressContext } from "../context-compression";
-import type { MaybeAutoCompressResult } from "../context-compression";
+import { runContextCompaction, selectCompactionTurns } from "../context-compression";
+import { buildPromptBudget, type PromptBudget } from "../../types/context-usage";
 import { getKbSettings } from "../settings/kb-settings-service";
 import { estimateContextUsage } from "../../types/context-usage";
-import { buildConversationContext } from "../agent-workbench/runtime/conversation-context-builder";
+import {
+  buildConversationContext,
+  buildUncoveredVerbatimAgentMessages,
+} from "../agent-workbench/runtime/conversation-context-builder";
 import type { BuildConversationContextParams } from "../agent-workbench/runtime/conversation-context-builder";
-import { findCompleteConversationTurn, getCompleteConversationTurns } from "../agent-workbench/runtime/conversation-turns";
+import type { AgentMessage } from "../agent-core/messages/agent-message";
 import { mapAgentErrorToUserFacing } from "../agent-workbench/runtime/user-facing-agent-error";
-import { sanitizePersistedSummaryText } from "../session/persisted-summary-sanitizer";
-import { showMessage } from "siyuan";
 import type { KbSessionState } from "../../types/session";
-import type { ContextUsageSnapshot } from "../../types/context-usage";
 import {
   createTurnJournal,
   checkpointTurnJournal,
@@ -64,6 +64,7 @@ import {
   inspectAgentRunResume,
   type AgentRunCheckpoint,
 } from "../agent-core/session/agent-run-checkpoint";
+import { AgentProviderError } from "../agent-core/providers/provider-error";
 
 /**
  * Agent Workbench Mode Flow 参数
@@ -79,189 +80,229 @@ function createMessageId(): string {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 }
 
-function createStageSummaryId(): string {
-  return `stage-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
-}
-
-interface PreflightCompressionResult {
+export interface PreflightCompressionResult {
   ok: boolean;
   reason?: string;
+  failureCode?: "context_budget_exceeded" | "provider_toolset_budget_exceeded" | "irreducible_context_overflow";
+  pressureSource?: "conversation" | "tool_definitions" | "fixed_prompt" | "runtime_observations";
+  budget?: PromptBudget;
+  inputTokens?: number;
+  effectiveInputBudget?: number;
+  breakdown?: PromptBudget["breakdown"];
+  compactableCompletedTurnCount?: number;
+  compactionAttempted: boolean;
+  toolsetReduced: boolean;
 }
 
-async function resolvePreflightCompression(
+export interface ActualPromptContext {
+  systemPrompt: string;
+  contextInstructions: string;
+  activeToolDefinitions: unknown;
+  registeredToolCount?: number;
+  toolsetReduced?: boolean;
+  contextWindowTokens?: number;
+  maxOutputTokens?: number;
+  currentQuestion?: string;
+  historicalMessages: AgentMessage[];
+  rebuildProviderContext: (
+    conversationContext: ReturnType<typeof buildConversationContext>,
+    historicalMessages: AgentMessage[],
+  ) => {
+    conversationContext?: ReturnType<typeof buildConversationContext>;
+    contextInstructions: string;
+    historicalMessages: AgentMessage[];
+    manifest: import("../agent-workbench/runtime/agent-context-ledger").AgentContextManifest;
+  };
+}
+
+export async function resolvePreflightCompression(
   params: {
     getState: () => KbSessionState;
     updateState: (updater: (state: KbSessionState) => Partial<KbSessionState>) => void;
-    initialUsageSnapshot: ContextUsageSnapshot;
-    contextWindowTokens: number | undefined;
+    actualPromptContext: ActualPromptContext;
+    currentUserMessageId?: string;
     chatModelSelection: ChatModelSelection | null | undefined;
     abortSignal: AbortSignal | undefined;
-    schedulePersist: (() => void) | undefined;
+    persistConversationNow: (() => Promise<{ success: boolean; error?: string }>) | undefined;
+    runCompaction?: typeof runContextCompaction;
+    buildConversationContextForState?: (state: KbSessionState) => {
+      conversationContext: ReturnType<typeof buildConversationContext>;
+      historicalMessages: AgentMessage[];
+    };
   }
 ): Promise<PreflightCompressionResult> {
-  const { getState, updateState, initialUsageSnapshot, contextWindowTokens, chatModelSelection, abortSignal, schedulePersist } = params;
-
-  const forceCompressionRatio = getState().compressionState?.forceCompressionRatio ?? 0.9;
-  const isForce = initialUsageSnapshot.usageRatio >= forceCompressionRatio;
-
-  const reEstimate = (state: KbSessionState): ContextUsageSnapshot => {
-    return estimateContextUsage({
-      messages: state.messages,
-      attachedDocCount: 0,
-      compressedSummaryChars: state.compressedContextSummary?.length ?? 0,
-      stageSummaryStatusChars: 160 + ((state.stageSummaries?.length ?? 0) > 0 ? 80 : 0),
-      contextWindowTokens: contextWindowTokens ?? initialUsageSnapshot.maxContextTokens,
-    });
-  };
-
-  const applyCompressResult = (result: MaybeAutoCompressResult): boolean => {
-    if (result.action === "compressed" && result.updatedMessages) {
-      updateState((state) => ({
-        ...state,
-        messages: result.updatedMessages!,
-        compressedContextSummary: result.newCompressedContextSummary ?? state.compressedContextSummary,
-        compressionState: result.newCompressionState ?? state.compressionState,
-      }));
-      return true;
-    }
-    if (result.action === "emergency_compressed" && result.newStageSummaries) {
-      updateState((state) => ({
-        ...state,
-        stageSummaries: [...(state.stageSummaries ?? []), ...result.newStageSummaries!],
-      }));
-      return true;
-    }
-    return false;
-  };
-
-  const tryCompress = async (allowEmergency: boolean): Promise<MaybeAutoCompressResult> => {
-    const state = getState();
-    const snapshot = reEstimate(state);
-    return maybeAutoCompressContext({
-      messages: state.messages,
-      stageSummaries: state.stageSummaries ?? [],
-      compressedContextSummary: state.compressedContextSummary,
-      compressionState: state.compressionState,
-      usageRatio: snapshot.usageRatio,
-      maxContextTokens: snapshot.maxContextTokens,
-      maxContextSource: snapshot.maxContextSource,
-      chatModelSelection,
-      abortSignal,
-      allowEmergency,
-    });
-  };
-
-  // Step 1: try compression (allow emergency fallback inside maybeAutoCompressContext)
-  const step1 = await tryCompress(true);
-  const step1Applied = applyCompressResult(step1);
-  if (step1Applied) {
-    try { schedulePersist?.(); } catch { /* persist failure is non-blocking */ }
-  }
-
-  if (!isForce) {
-    return { ok: true };
-  }
-
-  // Force path: must re-estimate after each step
-  let state = getState();
-  let snapshot = reEstimate(state);
-
-  if (snapshot.usageRatio < forceCompressionRatio) {
-    return { ok: true };
-  }
-
-  // Still over limit after step 1
-  const completeTurns = getCompleteConversationTurns(state.messages);
-  const lastSummarizedTurnIndex = state.stageSummaries?.length
-    ? Math.max(...state.stageSummaries.map((s) => s.endTurnIndex))
-    : 0;
-  const hasUncoveredTurns = completeTurns.some(
-    (t) => t.turnIndex > lastSummarizedTurnIndex && !t.user.compacted && !t.assistant.compacted
-  );
-
-  if (!hasUncoveredTurns) {
-    pushAgentDebugEvent("CONTEXT_FORCE_COMPRESSION_STILL_OVER_LIMIT", {
-      usageRatioPct: Math.round(snapshot.usageRatio * 100),
-      maxContextTokens: snapshot.maxContextTokens,
-      messageCount: state.messages.length,
-      stageSummaryCount: state.stageSummaries?.length ?? 0,
-      compressedMessageCount: state.compressionState?.compressedMessageCount ?? 0,
-    }, "warn");
-    return { ok: false, reason: "普通压缩后仍超过硬阈值，且没有可进一步压缩的轮次" };
-  }
-
-  // If step1 already triggered emergency, retry normal compression then re-estimate
-  if (step1.action === "emergency_compressed") {
-    const retry = await tryCompress(false);
-    if (applyCompressResult(retry)) {
-      try { schedulePersist?.(); } catch { /* persist failure is non-blocking */ }
-    }
-
-    state = getState();
-    snapshot = reEstimate(state);
-
-    if (snapshot.usageRatio < forceCompressionRatio) {
-      return { ok: true };
-    }
-
-    pushAgentDebugEvent("CONTEXT_EMERGENCY_COMPACTION_STILL_OVER_LIMIT", {
-      usageRatioPct: Math.round(snapshot.usageRatio * 100),
-      maxContextTokens: snapshot.maxContextTokens,
-      messageCount: state.messages.length,
-      stageSummaryCount: state.stageSummaries?.length ?? 0,
-      compressedMessageCount: state.compressionState?.compressedMessageCount ?? 0,
-    }, "warn");
-    return { ok: false, reason: "emergency 压缩后仍超过硬阈值" };
-  }
-
-  // Step 1 was "compressed" or "no_op". We have uncovered turns. Trigger emergency manually.
-  const emergencyResult = await emergencyCompressContext({
-    messages: state.messages,
-    stageSummaries: state.stageSummaries ?? [],
-    usageRatio: snapshot.usageRatio,
-    maxContextTokens: snapshot.maxContextTokens,
-    chatModelSelection,
-    abortSignal,
+  const { getState, updateState, actualPromptContext, currentUserMessageId, chatModelSelection, abortSignal, persistConversationNow } = params;
+  const buildBudget = () => buildPromptBudget({
+    contextWindowTokens: actualPromptContext.contextWindowTokens,
+    maxOutputTokens: actualPromptContext.maxOutputTokens,
+    systemPrompt: actualPromptContext.systemPrompt,
+    contextInstructions: actualPromptContext.contextInstructions,
+    currentQuestion: actualPromptContext.currentQuestion,
+    activeToolDefinitions: actualPromptContext.activeToolDefinitions,
+    providerMessages: [
+      { role: "system", content: actualPromptContext.systemPrompt },
+      { role: "system", content: actualPromptContext.contextInstructions },
+      ...actualPromptContext.historicalMessages,
+      ...(actualPromptContext.currentQuestion
+        ? [{ role: "user", content: actualPromptContext.currentQuestion }]
+        : []),
+    ],
+    historicalMessages: actualPromptContext.historicalMessages,
+    currentRunMessages: actualPromptContext.currentQuestion
+      ? [{ role: "user", content: actualPromptContext.currentQuestion }]
+      : [],
+    providerTools: actualPromptContext.activeToolDefinitions,
   });
 
-  if (!emergencyResult.success || !emergencyResult.newStageSummaries) {
-    pushAgentDebugEvent("CONTEXT_FORCE_COMPRESSION_STILL_OVER_LIMIT", {
-      usageRatioPct: Math.round(snapshot.usageRatio * 100),
-      maxContextTokens: snapshot.maxContextTokens,
-      messageCount: state.messages.length,
-      stageSummaryCount: state.stageSummaries?.length ?? 0,
-      compressedMessageCount: state.compressionState?.compressedMessageCount ?? 0,
-    }, "warn");
-    return { ok: false, reason: "普通压缩后仍超过硬阈值，emergency 压缩失败" };
-  }
-
-  updateState((s) => ({
-    ...s,
-    stageSummaries: [...(s.stageSummaries ?? []), ...emergencyResult.newStageSummaries!],
-  }));
-  try { schedulePersist?.(); } catch { /* persist failure is non-blocking */ }
-
-  // Retry normal compression after emergency (allowEmergency = false)
-  const retry = await tryCompress(false);
-  if (applyCompressResult(retry)) {
-    try { schedulePersist?.(); } catch { /* persist failure is non-blocking */ }
+  let compactionAttempted = false;
+  const compactConversation = params.runCompaction ?? runContextCompaction;
+  let state = getState();
+  let budget = buildBudget();
+  const triggers = budget.inputTokens >= budget.hardThresholdTokens ? ["hard"] : budget.inputTokens >= budget.softThresholdTokens ? ["auto", "hard"] : [];
+  for (const trigger of triggers as Array<"auto" | "hard">) {
+    if (budget.inputTokens < budget.softThresholdTokens) break;
+    const selection = selectCompactionTurns({
+      messages: state.messages,
+      previousSnapshot: state.latestCompactionSnapshot,
+      currentUserMessageId,
+      promptBudget: budget,
+      trigger,
+    });
+    // Conversation compaction only handles completed history. A blank first
+    // turn has no reducible input and must never invoke the compactor.
+    if (selection.compactableTurns.length === 0) break;
+    compactionAttempted = true;
+    const result = await compactConversation({
+      messages: state.messages,
+      previousSnapshot: state.latestCompactionSnapshot,
+      currentUserMessageId,
+      promptBudget: budget,
+      trigger,
+      chatModelSelection,
+      abortSignal,
+    });
+    if (result.success && result.snapshot) {
+      updateState((current) => ({
+        ...current,
+        latestCompactionSnapshot: result.snapshot,
+      }));
+      state = getState();
+      const rebuiltContext = params.buildConversationContextForState?.(state);
+      if (rebuiltContext) {
+        const prepared = actualPromptContext.rebuildProviderContext(
+          rebuiltContext.conversationContext,
+          rebuiltContext.historicalMessages,
+        );
+        actualPromptContext.contextInstructions = prepared.contextInstructions;
+        actualPromptContext.historicalMessages = prepared.historicalMessages;
+      }
+      budget = buildBudget();
+      try {
+        const persisted = await persistConversationNow?.();
+        if (persisted && !persisted.success) {
+          pushAgentDebugEvent("CONTEXT_COMPACTION_PERSIST_FAILED", { error: persisted.error }, "warn");
+        }
+      } catch (error) {
+        pushAgentDebugEvent("CONTEXT_COMPACTION_PERSIST_FAILED", {
+          error: error instanceof Error ? error.message.slice(0, 120) : String(error),
+        }, "warn");
+      }
+    } else {
+      break;
+    }
   }
 
   state = getState();
-  snapshot = reEstimate(state);
-
-  if (snapshot.usageRatio < forceCompressionRatio) {
-    return { ok: true };
+  budget = buildBudget();
+  pushAgentDebugEvent("CONTEXT_PROMPT_BUDGET_READY", {
+    inputTokens: budget.inputTokens,
+    effectiveInputBudget: budget.effectiveInputBudget,
+    usageRatioPct: Math.round(budget.usageRatio * 100),
+    softThresholdTokens: budget.softThresholdTokens,
+    hardThresholdTokens: budget.hardThresholdTokens,
+    snapshotGeneration: state.latestCompactionSnapshot?.generation,
+    compactableCompletedTurnCount: selectCompactionTurns({
+      messages: state.messages,
+      previousSnapshot: state.latestCompactionSnapshot,
+      currentUserMessageId,
+      promptBudget: budget,
+      trigger: "hard",
+    }).compactableTurns.length,
+  }, budget.inputTokens >= budget.hardThresholdTokens ? "warn" : "info");
+  const breakdown = budget.breakdown;
+  const compactableCompletedTurnCount = selectCompactionTurns({
+    messages: state.messages,
+    previousSnapshot: state.latestCompactionSnapshot,
+    currentUserMessageId,
+    promptBudget: budget,
+    trigger: "hard",
+  }).compactableTurns.length;
+  const pressureSource: PreflightCompressionResult["pressureSource"] = breakdown.toolDefinitionTokens > 0
+    && breakdown.toolDefinitionTokens >= Math.max(1_024, breakdown.conversationTokens + breakdown.currentUserTokens)
+    ? "tool_definitions"
+    : breakdown.conversationTokens + breakdown.runtimeObservationTokens > 0 && compactableCompletedTurnCount > 0
+      ? "conversation"
+      : breakdown.runtimeObservationTokens > 0
+        ? "runtime_observations"
+        : "fixed_prompt";
+  pushAgentDebugEvent("PROVIDER_PROMPT_BUDGET_FINAL", {
+    contextWindow: budget.contextWindowTokens,
+    effectiveInput: budget.effectiveInputBudget,
+    inputTokens: budget.inputTokens,
+    systemPromptTokens: breakdown.systemPrompt,
+    contextInstructionTokens: breakdown.contextInstructions,
+    historicalTokens: breakdown.conversationTokens,
+    currentUserTokens: breakdown.currentUserTokens,
+    toolDefinitionTokens: breakdown.toolDefinitionTokens,
+    runtimeObservationTokens: breakdown.runtimeObservationTokens,
+    activeToolCount: Array.isArray(actualPromptContext.activeToolDefinitions)
+      ? actualPromptContext.activeToolDefinitions.length
+      : undefined,
+    registeredToolCount: actualPromptContext.registeredToolCount,
+    activeToolNames: Array.isArray(actualPromptContext.activeToolDefinitions)
+      ? actualPromptContext.activeToolDefinitions
+        .map((tool) => tool && typeof tool === "object" && typeof (tool as { name?: unknown }).name === "string"
+          ? (tool as { name: string }).name
+          : undefined)
+        .filter((name): name is string => !!name)
+      : [],
+    snapshotGeneration: state.latestCompactionSnapshot?.generation,
+    usageRatioPct: Math.round(budget.usageRatio * 100),
+  }, budget.inputTokens >= budget.hardThresholdTokens ? "warn" : "info");
+  if (budget.inputTokens >= budget.hardThresholdTokens) {
+    const failureCode = pressureSource === "tool_definitions"
+      ? "provider_toolset_budget_exceeded"
+      : pressureSource === "conversation" || pressureSource === "runtime_observations"
+        ? "context_budget_exceeded"
+        : "irreducible_context_overflow";
+    return {
+      ok: false,
+      failureCode,
+      pressureSource,
+      budget,
+      inputTokens: budget.inputTokens,
+      effectiveInputBudget: budget.effectiveInputBudget,
+      breakdown,
+      compactableCompletedTurnCount,
+      compactionAttempted,
+      toolsetReduced: actualPromptContext.toolsetReduced === true,
+      reason: failureCode === "provider_toolset_budget_exceeded"
+        ? "当前 provider 工具定义仍超过动态工具预算，无法安全发送。"
+        : failureCode === "irreducible_context_overflow"
+          ? "上下文窗口不足以容纳 Agent 基础运行上下文。"
+          : "会话历史超过当前模型预算，无法安全压缩。",
+    };
   }
-
-  pushAgentDebugEvent("CONTEXT_EMERGENCY_COMPACTION_STILL_OVER_LIMIT", {
-    usageRatioPct: Math.round(snapshot.usageRatio * 100),
-    maxContextTokens: snapshot.maxContextTokens,
-    messageCount: state.messages.length,
-    stageSummaryCount: state.stageSummaries?.length ?? 0,
-    compressedMessageCount: state.compressionState?.compressedMessageCount ?? 0,
-  }, "warn");
-  return { ok: false, reason: "emergency 压缩后仍超过硬阈值" };
+  return {
+    ok: true,
+    budget,
+    inputTokens: budget.inputTokens,
+    effectiveInputBudget: budget.effectiveInputBudget,
+    breakdown,
+    compactableCompletedTurnCount,
+    compactionAttempted,
+    toolsetReduced: actualPromptContext.toolsetReduced === true,
+  };
 }
 
 function mapChatModeToAgentScopeMode(mode: ChatMode): AgentScopeMode | null {
@@ -352,63 +393,6 @@ function mergeWorkbenchEvents(a: AgentWorkbenchEvent[], b: AgentWorkbenchEvent[]
   return out;
 }
 
-function appendAgentStageSummary(params: {
-  messages: ChatMessage[];
-  existing: readonly ConversationStageSummary[] | undefined;
-  result: AgentTurnResult;
-  userMessageId?: string;
-  assistantMessageId: string;
-}): ConversationStageSummary[] | undefined {
-  const rawSummary = params.result.stageSummary?.summary?.trim();
-  if (!rawSummary) return undefined;
-
-  const summary = sanitizePersistedSummaryText(rawSummary, 1200) ?? rawSummary;
-  if (!summary) return undefined;
-
-  const endTurn = findCompleteConversationTurn(params.messages, {
-    userMessageId: params.userMessageId,
-    assistantMessageId: params.assistantMessageId,
-  });
-  const existing = [...(params.existing ?? [])].sort((a, b) => a.index - b.index);
-  const previous = existing[existing.length - 1];
-  const startTurnIndex = previous ? previous.endTurnIndex + 1 : 1;
-
-  if (!endTurn || endTurn.turnIndex < startTurnIndex) {
-    pushAgentDebugEvent("STAGE_SUMMARY_DROPPED_INVALID_RANGE", {
-      hasEndTurn: !!endTurn,
-      startTurnIndex,
-      endTurnIndex: endTurn?.turnIndex ?? 0,
-      assistantMessageId: params.assistantMessageId,
-    }, "warn");
-    return undefined;
-  }
-
-  const next: ConversationStageSummary = {
-    id: createStageSummaryId(),
-    index: (previous?.index ?? 0) + 1,
-    summary,
-    createdAt: Date.now(),
-    ...(previous?.endAssistantMessageId
-      ? { startAfterAssistantMessageId: previous.endAssistantMessageId }
-      : {}),
-    startTurnIndex,
-    endUserMessageId: endTurn.user.id,
-    endAssistantMessageId: endTurn.assistant.id,
-    endTurnIndex: endTurn.turnIndex,
-    source: "agent_stage_summary",
-    summaryChars: summary.length,
-  };
-
-  pushAgentDebugEvent("STAGE_SUMMARY_RECORDED_SAFE", {
-    index: next.index,
-    startTurnIndex: next.startTurnIndex,
-    endTurnIndex: next.endTurnIndex,
-    summaryChars: next.summaryChars,
-  }, "info");
-
-  return [...existing, next];
-}
-
 /**
  * 运行 Agent Workbench Mode Flow
  * 适配层：将 runAgentTurn 结果转换为现有聊天消息和状态
@@ -418,6 +402,9 @@ function appendAgentStageSummary(params: {
 export async function runAgentWorkbenchModeFlow(
   params: RunAgentWorkbenchModeFlowParams
 ): Promise<AskByModeResult> {
+  if (params.conversationKind !== undefined && params.conversationKind !== "current") {
+    return { success: false, error: "LEGACY_CONVERSATION_READ_ONLY" };
+  }
   const {
     mode,
     question,
@@ -574,71 +561,22 @@ export async function runAgentWorkbenchModeFlow(
       ));
     }
 
-    // ── Auto compression check before building conversationContext ──
+    // Build the first context from the full transcript. The actual preflight
+    // runs after the provider registry and real prompt are assembled below.
     const usageSnapshot = estimateContextUsage({
       messages: stateForConversationContext.messages,
       attachedDocCount: 0,
-      compressedSummaryChars: stateForConversationContext.compressedContextSummary?.length ?? 0,
-      stageSummaryStatusChars: 160 + ((stateForConversationContext.stageSummaries?.length ?? 0) > 0 ? 80 : 0),
+      historicalMessages: buildUncoveredVerbatimAgentMessages({
+        messages: stateForConversationContext.messages,
+        currentUserMessageId: actualUserMessageId,
+        compactionSnapshot: stateForConversationContext.latestCompactionSnapshot,
+      }),
+      currentRunMessages: [{ role: "user", content: trimmed }],
+      compactionSnapshot: stateForConversationContext.latestCompactionSnapshot,
       contextWindowTokens,
     });
-
-    const preflightResult = await resolvePreflightCompression({
-      getState,
-      updateState,
-      initialUsageSnapshot: usageSnapshot,
-      contextWindowTokens,
-      chatModelSelection: params.chatModelSelection,
-      abortSignal: params.abortSignal,
-      schedulePersist: () => {
-        try {
-          const persistFn = (params as unknown as Record<string, unknown>).schedulePersist;
-          if (typeof persistFn === "function") {
-            (persistFn as () => void)();
-          }
-        } catch { /* persist failure is non-blocking */ }
-      },
-    });
-
-    if (!preflightResult.ok) {
-      try {
-        showMessage("上下文压力过大，紧急压缩未能完成。建议手动压缩或开启新对话。", 5000);
-      } catch { /* showMessage may not be available in all contexts */ }
-
-      if (setMessages) {
-        setMessages((messages) =>
-          messages.filter((m) => !(m.id === assistantMessageId && m.role === "assistant" && !m.content.trim()))
-        );
-      }
-
-      updateState((state) => ({
-        ...state,
-        asking: false,
-        qaError: "",
-        error: "",
-        agentStatus: undefined,
-      }));
-
-      failTurnJournal({ reason: "preflight_compression_failed" });
-      const failedCheckpoint = await runPersistenceCheckpoint("上下文压缩失败");
-      if (failedCheckpoint.success) {
-        await clearTurnJournalAfterPersistence();
-      }
-
-      return { success: false, error: preflightResult.reason ?? "上下文压力过大，紧急压缩未能完成" };
-    }
-
-    // Re-read state after potential auto compression
     const stateAfterCompression = getState();
-
-    // Calculate usageRatio for pressureLevel
-    const usageSnapshotForContext = estimateContextUsage({
-      messages: stateAfterCompression.messages,
-      attachedDocCount: 0,
-      compressedSummaryChars: stateAfterCompression.compressedContextSummary?.length ?? 0,
-      stageSummaryStatusChars: 160 + ((stateAfterCompression.stageSummaries?.length ?? 0) > 0 ? 80 : 0),
-      contextWindowTokens,
-    });
+    const usageSnapshotForContext = usageSnapshot;
 
     // Fetch web search settings for conversation context. Global memory is injected by the Agent profile.
     let webSearchSettings: BuildConversationContextParams["webSearchSettings"];
@@ -678,14 +616,17 @@ export async function runAgentWorkbenchModeFlow(
 
     const conversationContext = buildConversationContext({
       messages: stateAfterCompression.messages,
-      stageSummaries: stateAfterCompression.stageSummaries ?? [],
       currentUserMessageId: actualUserMessageId,
       currentQuestion: trimmed,
-      compressedContextSummary: stateAfterCompression.compressedContextSummary,
-      compressionState: stateAfterCompression.compressionState,
+      compactionSnapshot: stateAfterCompression.latestCompactionSnapshot,
       usageRatio: usageSnapshotForContext.usageRatio,
       webSearchSettings,
       webAccessModeOverride: effectiveWebAccessMode,
+    });
+    const historicalMessages = buildUncoveredVerbatimAgentMessages({
+      messages: stateAfterCompression.messages,
+      currentUserMessageId: actualUserMessageId,
+      compactionSnapshot: stateAfterCompression.latestCompactionSnapshot,
     });
 
     // Extract attachedDocs from current user message for reference grounding
@@ -823,6 +764,7 @@ export async function runAgentWorkbenchModeFlow(
       mode: scopeMode,
       customDocIds: hasCustomDocs ? customDocIds : undefined,
       attachedDocs,
+      historicalMessages,
       abortSignal,
       chatModelSelection,
       thinkingMode: userThinkingMode,
@@ -830,6 +772,101 @@ export async function runAgentWorkbenchModeFlow(
       panelInstanceId: params.panelInstanceId,
       turnId: assistantMessageId,
       kbSettings,
+      contextWindowTokens,
+      onContextPrepared: async (actualPrompt) => {
+        const preflightResult = await resolvePreflightCompression({
+          getState,
+          updateState,
+          actualPromptContext: {
+            systemPrompt: actualPrompt.systemPrompt,
+            contextInstructions: actualPrompt.contextInstructions,
+            activeToolDefinitions: actualPrompt.toolDefinitions,
+            registeredToolCount: actualPrompt.registeredToolCount,
+            toolsetReduced: actualPrompt.toolsetReduced,
+            contextWindowTokens: actualPrompt.contextWindowTokens ?? contextWindowTokens,
+            maxOutputTokens: actualPrompt.maxOutputTokens,
+            currentQuestion: trimmed,
+            historicalMessages: actualPrompt.historicalMessages,
+            rebuildProviderContext: actualPrompt.rebuildProviderContext,
+          },
+          currentUserMessageId: actualUserMessageId,
+          chatModelSelection: params.chatModelSelection,
+          abortSignal: params.abortSignal,
+          persistConversationNow: params.persistConversationNow,
+          buildConversationContextForState: (state) => {
+            const nextContext = buildConversationContext({
+              messages: state.messages,
+              currentUserMessageId: actualUserMessageId,
+              currentQuestion: trimmed,
+              compactionSnapshot: state.latestCompactionSnapshot,
+              usageRatio: state.contextUsage?.usageRatio ?? 0,
+              webSearchSettings,
+              webAccessModeOverride: effectiveWebAccessMode,
+            });
+            return {
+              conversationContext: nextContext,
+              historicalMessages: buildUncoveredVerbatimAgentMessages({
+                messages: state.messages,
+                currentUserMessageId: actualUserMessageId,
+                compactionSnapshot: state.latestCompactionSnapshot,
+              }),
+            };
+          },
+        });
+        if (!preflightResult.ok) {
+          throw new AgentProviderError(preflightResult.reason ?? "上下文预算不足。", {
+            code: preflightResult.failureCode ?? "context_budget_exceeded",
+            retryable: false,
+            safeToReplay: true,
+            userAction: "switch_model",
+          });
+        }
+        const preparedState = getState();
+        const preparedConversationContext = buildConversationContext({
+          messages: preparedState.messages,
+          currentUserMessageId: actualUserMessageId,
+          currentQuestion: trimmed,
+          compactionSnapshot: preparedState.latestCompactionSnapshot,
+          usageRatio: preparedState.contextUsage?.usageRatio ?? 0,
+          webSearchSettings,
+          webAccessModeOverride: effectiveWebAccessMode,
+        });
+        const preparedHistoricalMessages = buildUncoveredVerbatimAgentMessages({
+          messages: preparedState.messages,
+          currentUserMessageId: actualUserMessageId,
+          compactionSnapshot: preparedState.latestCompactionSnapshot,
+        });
+        const preparedProviderContext = actualPrompt.rebuildProviderContext(
+          preparedConversationContext,
+          preparedHistoricalMessages,
+        );
+        const preparedUsage = estimateContextUsage({
+          messages: preparedState.messages,
+          attachedDocCount: 0,
+          systemPrompt: actualPrompt.systemPrompt,
+          contextInstructions: preparedProviderContext.contextInstructions,
+          currentQuestion: trimmed,
+          activeToolDefinitions: actualPrompt.toolDefinitions,
+          contextWindowTokens: actualPrompt.contextWindowTokens ?? contextWindowTokens,
+          providerMessages: [
+            { role: "system", content: actualPrompt.systemPrompt },
+            { role: "system", content: preparedProviderContext.contextInstructions },
+            ...preparedProviderContext.historicalMessages,
+            { role: "user", content: trimmed },
+          ],
+          historicalMessages: preparedProviderContext.historicalMessages,
+          currentRunMessages: [{ role: "user", content: trimmed }],
+          providerTools: actualPrompt.toolDefinitions,
+        });
+        updateState((state) => ({ ...state, contextUsage: preparedUsage }));
+        return {
+          conversationContext: preparedConversationContext,
+          contextInstructions: preparedProviderContext.contextInstructions,
+          historicalMessages: preparedProviderContext.historicalMessages,
+          manifest: preparedProviderContext.manifest,
+          toolDefinitions: actualPrompt.toolDefinitions,
+        };
+      },
       resumeCheckpoint: params.resumeCheckpoint,
       onCheckpoint: (checkpoint) => {
         latestRunCheckpoint = checkpoint;
@@ -1128,20 +1165,6 @@ export async function runAgentWorkbenchModeFlow(
         isComplete: !isPartialProviderAnswer,
       }, "debug");
 
-      if (result.stageSummary?.summary?.trim()) {
-        updateState((state) => {
-          const nextStageSummaries = appendAgentStageSummary({
-            messages: state.messages,
-            existing: state.stageSummaries,
-            result,
-            userMessageId: actualUserMessageId,
-            assistantMessageId,
-          });
-          return nextStageSummaries
-            ? { stageSummaries: nextStageSummaries }
-            : {};
-        });
-      }
     }
 
     await persistenceCheckpointTail;

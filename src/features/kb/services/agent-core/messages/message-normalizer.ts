@@ -58,7 +58,10 @@ export function filterStaleToolCalls(
   return filtered;
 }
 
-export function normalizeToolCallMessages(messages: readonly AgentMessage[]): AgentMessage[] {
+export function normalizeToolCallMessages(
+  messages: readonly AgentMessage[],
+  options: { preserveUnmatchedToolCalls?: boolean } = {},
+): AgentMessage[] {
   const toolResultsById = new Map<string, AgentToolMessage>();
   for (const message of messages) {
     if (isToolMessage(message) && !toolResultsById.has(message.toolCallId)) {
@@ -84,7 +87,13 @@ export function normalizeToolCallMessages(messages: readonly AgentMessage[]): Ag
     for (const call of message.toolCalls) {
       if (!call.id || seenCallIds.has(call.id)) continue;
       const toolMessage = toolResultsById.get(call.id);
-      if (!toolMessage || usedToolResultIds.has(call.id)) continue;
+      if (!toolMessage || usedToolResultIds.has(call.id)) {
+        if (options.preserveUnmatchedToolCalls && !seenCallIds.has(call.id)) {
+          keptCalls.push(call);
+          seenCallIds.add(call.id);
+        }
+        continue;
+      }
       keptCalls.push(call);
       pairedToolMessages.push(toolMessage);
       seenCallIds.add(call.id);

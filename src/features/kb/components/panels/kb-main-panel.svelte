@@ -52,6 +52,7 @@
     type SelectionAskPayload,
   } from "../../services/selection-ai/selection-ai-chat-bridge";
   import type { AttachedKbDoc } from "../../types/chat";
+  import { isCurrentConversationRecord } from "../../types/conversation-record";
   import { detachTemporaryWorkbenchUsages } from "../../services/agent-workbench/tools/homepage/temporary-workbench-store";
 
   export let placement: "dock" | "tab" | "mobile" = "dock";
@@ -185,6 +186,9 @@
   // 从 store 获取会话列表和当前活跃会话 ID（使用 ExtendedKbSessionState 类型）
   $: conversations = ($kbSessionStore as ExtendedKbSessionState).conversations ?? [];
   $: activeConversationId = ($kbSessionStore as ExtendedKbSessionState).activeConversationId ?? "";
+  $: activeConversation = conversations.find((conversation) => conversation.id === activeConversationId);
+  // Unknown/corrupt records are fail-closed like Legacy archives.
+  $: legacyReadOnly = !isCurrentConversationRecord(activeConversation);
 
   $: availableModes = placement === "tab" ? TAB_CHAT_MODES : undefined;
 
@@ -308,22 +312,13 @@
     if (!result.success && result.error) {
       console.warn("[KbMainPanel] Compression skipped:", result.error);
       showMessage(result.error, 4000);
-      const isNoStageSummary = result.error.includes("当前还没有历史摘要");
       pushAgentDebugEvent(
-        isNoStageSummary
-          ? "CONTEXT_COMPRESSION_MANUAL_SKIPPED_NO_STAGE_SUMMARY_COVERAGE"
-          : "CONTEXT_COMPRESSION_MANUAL_SKIPPED",
+        "CONTEXT_COMPACTION_MANUAL_SKIPPED",
         { reason: result.error },
         "info",
       );
     }
     refreshContextUsageSafe("compression_applied");
-  }
-
-  function handleCompressionClear() {
-    if (asking) return;
-    kbSessionStore.clearCompression();
-    refreshContextUsageSafe("compression_cleared");
   }
 
   async function cancelPendingDocContentEditConfirmation(message = "用户已取消操作。"): Promise<void> {
@@ -476,7 +471,7 @@
   }
 
   function handleEditUserMessage(e: CustomEvent<{ text: string }>) {
-    if (asking) return;
+    if (asking || legacyReadOnly) return;
     kbSessionStore.setDraftQuestion(e.detail.text);
     chatInputBarRef?.focusTextarea();
   }
@@ -596,42 +591,7 @@
       messageId: lastMessage.id,
     }).catch(() => undefined);
 
-    kbSessionStore.update((state) => {
-      const removedAssistantId = lastMessage.id;
-      const removedMessageIds = new Set([precedingUserMessage.id, removedAssistantId]);
-      const removedStageSummary = (state.stageSummaries ?? [])
-        .find((summary) => summary.endAssistantMessageId === removedAssistantId);
-      const stageSummaries = removedStageSummary
-        ? (state.stageSummaries ?? []).filter((summary) => summary.index < removedStageSummary.index)
-        : state.stageSummaries;
-
-      // If a stage summary was removed, compression state may be stale —
-      // clear it and un-compacted remaining messages to avoid stale compressedContextSummary
-      if (removedStageSummary) {
-        const unCompactedMessages = state.messages.map((m) => {
-          if ((m.role === "user" || m.role === "assistant") && (m as { compacted?: boolean }).compacted) {
-            const { compacted, ...rest } = m as typeof m & { compacted?: boolean };
-            return rest as typeof m;
-          }
-          return m;
-        });
-
-        return {
-          ...state,
-          messages: unCompactedMessages.filter((message) => !removedMessageIds.has(message.id)),
-          stageSummaries,
-          compressedContextSummary: undefined,
-          compressionState: undefined,
-          contextUsage: undefined,
-        };
-      }
-
-      return {
-        ...state,
-        messages: state.messages.filter((message) => !removedMessageIds.has(message.id)),
-        stageSummaries,
-      };
-    });
+    kbSessionStore.deleteTurnByAssistantId(lastMessage.id);
 
     const reusedThinkingMode = requestContext?.thinkingMode as import("../../types/session").ThinkingMode | undefined;
     const hasThinkingMode = !!reusedThinkingMode;
@@ -839,6 +799,7 @@
   function handleSwitchConversation(e: CustomEvent<string>) {
     if (!canMutateConversations(asking, sessionHydrationReady)) return;
     const id = e.detail;
+    cancelPendingNativePermission("会话已切换。");
     kbSessionStore.switchConversation(id);
   }
 
@@ -1098,6 +1059,10 @@
    * 统一提问入口：调用 orchestration 层
    */
   async function handleAskByMode(mode: ChatMode, question: string, submittedThinkingMode?: import("../../types/session").ThinkingMode, customDocIds?: string[], attachedDocs?: import("../../types/chat").AttachedKbDoc[], submittedWebAccessMode?: "off" | "smart" | "required", prevalidatedChatModelSelection?: ChatModelSelection) {
+    if (legacyReadOnly) {
+      appendKbErrorMessage("旧版会话只能作为归档查看，不能继续运行 Agent。");
+      return;
+    }
     if (import.meta.env.DEV) {
       console.debug("[KbMainPanel] askByMode called", {
         mode,
@@ -1144,6 +1109,7 @@
       mode,
       question,
       conversationId: activeConversationId,
+      conversationKind: legacyReadOnly ? "legacy" : "current",
       panelInstanceId,
       turnId: createPanelTurnId(),
       getState: () => $kbSessionStore,
@@ -1217,6 +1183,10 @@
     submittedWebAccessMode?: "off" | "smart" | "required",
     recovery?: import("../../types/chat").AgentRecoveryState,
   ) {
+    if (legacyReadOnly) {
+      appendKbErrorMessage("旧版会话只能作为归档查看，不能继续运行 Agent。");
+      return;
+    }
     if (!ensureCurrentDocumentModeAvailable(mode)) {
       return;
     }
@@ -1253,6 +1223,7 @@
       mode,
       question,
       conversationId: activeConversationId,
+      conversationKind: legacyReadOnly ? "legacy" : "current",
       panelInstanceId,
       turnId: recovery?.checkpoint.identity.runId ?? createPanelTurnId(),
       existingUserMessageId,
@@ -1528,6 +1499,11 @@
 
   <!-- 主内容区 -->
   <div class="main-content">
+    {#if legacyReadOnly}
+      <div class="legacy-archive-banner" role="status">
+        旧版会话归档：仅支持查看、搜索和删除，不会启动 Agent、恢复运行或压缩上下文。
+      </div>
+    {/if}
     <!-- 顶部工具栏 -->
     <div class="top-toolbar">
       <div class="toolbar-left">
@@ -1591,6 +1567,7 @@
       <div class="chat-area">
         <ChatMessageList
           {messages}
+          readOnly={legacyReadOnly}
           on:regenerate={handleRegenerate}
           on:retry={handleRetry}
           on:quoteSelection={handleQuoteSelection}
@@ -1616,16 +1593,16 @@
           bind:this={chatInputBarRef}
           selectedMode={selectedMode}
           value={draftQuestion ?? ""}
-          disabled={asking || !sessionHydrationReady}
-          placeholder="输入问题，按 Enter 发送"
+          disabled={asking || !sessionHydrationReady || legacyReadOnly}
+          placeholder={legacyReadOnly ? "旧版会话为只读归档" : "输入问题，按 Enter 发送"}
           asking={asking}
           modelOptions={chatModelOptions}
           selectedModelKey={selectedChatModelKey}
           thinkingMode={$kbSessionStore.thinkingMode ?? "off"}
           contextUsage={$kbSessionStore.contextUsage}
-          compressionState={$kbSessionStore.compressionState}
-          compressedContextSummary={$kbSessionStore.compressedContextSummary}
-          stageSummaryCount={($kbSessionStore.stageSummaries ?? []).length}
+          latestCompactionSnapshot={legacyReadOnly ? undefined : $kbSessionStore.latestCompactionSnapshot}
+          uncoveredCompletedTurnCount={$kbSessionStore.contextUsage?.uncoveredCompletedTurnCount ?? 0}
+          compactableTurnCount={$kbSessionStore.contextUsage?.compactableTurnCount ?? 0}
           {availableModes}
           webSearchEnabled={webSearchEnabled}
           webAccessMode={effectiveWebAccessMode}
@@ -1643,7 +1620,6 @@
           on:thinkingModeChange={handleThinkingModeChange}
           on:attachedDocsChange={handleComposerAttachedDocsChange}
           on:compressionRequest={handleCompressionRequest}
-          on:compressionClear={handleCompressionClear}
         />
       </div>
     </div>

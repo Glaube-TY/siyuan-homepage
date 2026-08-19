@@ -1,5 +1,6 @@
 import type { AgentMessage, AgentToolCall } from "../messages/agent-message";
 import type { AgentRunIdentity } from "../../../../agent-platform/agent-run-protocol";
+import type { ProviderToolsetState } from "../tools/native-tool-registry";
 
 export type AgentRunCheckpointPhase =
   | "before_model"
@@ -27,7 +28,7 @@ export interface AgentSuccessfulWriteGuard {
 }
 
 export interface AgentRunCheckpoint {
-  schemaVersion: 1;
+  schemaVersion: 2;
   identity: AgentRunIdentity;
   phase: AgentRunCheckpointPhase;
   stepIndex: number;
@@ -44,12 +45,14 @@ export interface AgentRunCheckpoint {
   recoveryContext?: AgentRecoveryContext;
   /** 成功写操作的不可逆 Guard；不包含原始 args。 */
   successfulWriteGuards?: AgentSuccessfulWriteGuard[];
+  /** Deferred Provider Tool Activation state; names only, never args, schema, prompt, or results. */
+  providerToolsetState?: ProviderToolsetState;
   createdAt: number;
 }
 
 export interface AgentRunResumeDecision {
   resumable: boolean;
-  reason: "safe_boundary" | "run_finished" | "side_effect_unknown" | "confirmation_pending" | "tool_pending" | "no_progress";
+  reason: "safe_boundary" | "run_finished" | "side_effect_unknown" | "confirmation_pending" | "tool_pending" | "no_progress" | "checkpoint_invalid";
 }
 
 export interface AgentResumeProgress {
@@ -155,6 +158,7 @@ export function markAgentRunCheckpointNoProgress(
 }
 
 export function inspectAgentRunResume(checkpoint: AgentRunCheckpoint): AgentRunResumeDecision {
+  if (checkpoint.schemaVersion !== 2) return { resumable: false, reason: "checkpoint_invalid" };
   if (checkpoint.phase === "final") return { resumable: false, reason: "run_finished" };
   if (checkpoint.sideEffectState === "unknown") return { resumable: false, reason: "side_effect_unknown" };
   if (checkpoint.phase === "waiting_confirmation") return { resumable: false, reason: "confirmation_pending" };

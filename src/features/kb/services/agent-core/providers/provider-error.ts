@@ -16,6 +16,8 @@ export interface AgentProviderErrorOptions {
   safeToReplay?: boolean;
   userAction?: "retry" | "check_credentials" | "switch_model" | "inspect_provider";
   correlationId?: string;
+  /** 原始 JS Error 名称，仅供调试，不作为对外错误码。 */
+  errorName?: string;
 }
 
 function categoryForCode(code: string): AgentProviderErrorCategory {
@@ -38,6 +40,7 @@ export class AgentProviderError extends Error {
   readonly sideEffectState = "not_started" as const;
   readonly userAction?: AgentProviderErrorOptions["userAction"];
   readonly correlationId?: string;
+  readonly errorName?: string;
 
   constructor(message: string, options: AgentProviderErrorOptions = {}) {
     super(message);
@@ -51,6 +54,7 @@ export class AgentProviderError extends Error {
     this.safeToReplay = options.safeToReplay ?? true;
     this.userAction = options.userAction;
     this.correlationId = options.correlationId;
+    this.errorName = options.errorName;
   }
 }
 
@@ -64,8 +68,12 @@ export function normalizeProviderError(err: unknown): AgentProviderError {
         retryable: false,
       });
     }
-    return new AgentProviderError(err.message, { code: err.name || "provider_error", retryable: false });
+    return new AgentProviderError(err.message || "Agent Workbench 运行异常。", {
+      code: "agent_workbench_unexpected_error",
+      retryable: false,
+      errorName: err.name || "Error",
+    });
   }
-  return new AgentProviderError(String(err), { code: "provider_error", retryable: false });
+  return new AgentProviderError(String(err), { code: "agent_workbench_unexpected_error", retryable: false });
 }
 

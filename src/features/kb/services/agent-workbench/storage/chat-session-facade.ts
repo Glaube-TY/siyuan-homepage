@@ -11,8 +11,11 @@ import type {
   ChatSessionTombstone,
 } from "./chat-session-types";
 import type { KbConversationSession } from "../../../types/chat";
+import { isCurrentConversationRecord, type ConversationRecord, type CurrentConversationRecord } from "../../../types/conversation-record";
 import {
+  asCurrentConversationRecord,
   fromPersistedConversation,
+  parseLegacyConversationRecord,
   toPersistedConversation,
   type PersistedConversation,
 } from "../../session/kb-chat-session-storage";
@@ -24,14 +27,13 @@ import {
   saveAndVerifyChatSessionIndex,
   loadChatSession,
   loadChatSessionStrict,
+  loadChatSessionRaw,
   saveChatSession,
   saveAndVerifyChatSession,
   deleteChatSession,
   createSessionIndexEntry,
 } from "./chat-session-store";
 import { enqueueStorageWrite, flushStorageWrites } from "./storage-write-queue";
-
-type StorageBackedConversation = KbConversationSession & { storageRevision?: number };
 
 export interface ChatStorageSnapshot {
   activeConversationId: string;
@@ -87,21 +89,22 @@ function toSessionData(conv: KbConversationSession): ChatSessionData {
   const persisted = toPersistedConversation(conv);
   return {
     version: 1,
+    schemaVersion: 3,
     id: persisted.id,
     title: persisted.title,
     createdAt: persisted.createdAt,
     updatedAt: persisted.updatedAt,
     messages: persisted.messages as ChatSessionData["messages"],
-    stageSummaries: persisted.stageSummaries,
-    compressionState: persisted.compressionState,
-    compressedContextSummary: persisted.compressedContextSummary,
+    latestCompactionSnapshot: persisted.latestCompactionSnapshot,
     thinkingMode: persisted.thinkingMode,
     webAccessMode: persisted.webAccessMode,
   };
 }
 
-function fromSessionData(data: ChatSessionData): KbConversationSession {
-  const conversation = fromPersistedConversation(data as PersistedConversation) as StorageBackedConversation;
+function fromSessionData(data: ChatSessionData): CurrentConversationRecord {
+  const conversation = asCurrentConversationRecord(
+    fromPersistedConversation(data as PersistedConversation),
+  ) as CurrentConversationRecord & { storageRevision?: number };
   conversation.storageRevision = revisionOf(data);
   return conversation;
 }
@@ -149,9 +152,16 @@ async function loadSessionForRestore(sessionId: string) {
   const maxAttempts = 3;
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     const result = await loadChatSessionStrict(sessionId);
-    if (result.status !== "error") return result;
+    if (result.status !== "error") {
+      if (result.status !== "invalid") return result;
+      const raw = await loadChatSessionRaw(sessionId);
+      return { status: "legacy" as const, raw };
+    }
     if (attempt === maxAttempts) {
-      throw new Error(`读取会话 ${sessionId} 失败（已重试 ${maxAttempts} 次）：${result.error}`);
+      // Keep an indexed record visible as a read-only archive when its file
+      // cannot be parsed/read reliably; never turn it into a runtime session.
+      const raw = await loadChatSessionRaw(sessionId);
+      return { status: "legacy" as const, raw };
     }
     await new Promise((resolve) => setTimeout(resolve, attempt * 30));
   }
@@ -160,17 +170,32 @@ async function loadSessionForRestore(sessionId: string) {
 
 async function loadSnapshotFromIndex(index: ChatSessionIndex): Promise<ChatStorageSnapshot> {
   const tombstoned = new Set((index.deletedSessions ?? []).map((item) => item.id));
-  const conversations: KbConversationSession[] = [];
+  const conversations: ConversationRecord[] = [];
   const sessionReadIssues: ChatSessionReadIssue[] = [];
   for (const entry of index.sessions) {
     if (tombstoned.has(entry.id)) continue;
     const session = await loadSessionForRestore(entry.id);
-    if (session.status === "missing") {
-      sessionReadIssues.push({ sessionId: entry.id, status: "missing" });
+    if (session.status === "legacy") {
+      if (session.raw.status === "ok") {
+        conversations.push(parseLegacyConversationRecord(session.raw.data, entry));
+      } else {
+        conversations.push(parseLegacyConversationRecord(undefined, {
+          id: entry.id,
+          title: entry.title,
+          createdAt: entry.createdAt,
+          updatedAt: entry.updatedAt,
+        }));
+      }
       continue;
     }
-    if (session.status === "invalid") {
-      sessionReadIssues.push({ sessionId: entry.id, status: "invalid", error: session.error });
+    if (session.status === "missing") {
+      sessionReadIssues.push({ sessionId: entry.id, status: "missing" });
+      conversations.push({
+        ...parseLegacyConversationRecord(undefined, entry),
+        corrupted: true,
+        recoverable: true,
+        archiveError: "历史会话内容文件暂时无法读取。",
+      });
       continue;
     }
     conversations.push(fromSessionData(session.data));
@@ -240,6 +265,9 @@ export async function saveKbChatSessionStorage(payload: {
 
       for (const conv of payload.conversations) {
         if (deletedIds.has(conv.id)) continue;
+        // Legacy records are read-only archives. Keep their index entry and
+        // raw file untouched; only explicit deletion may remove them.
+        if (!isCurrentConversationRecord(conv)) continue;
         const local = toSessionData(conv);
         const latest = await loadChatSessionStrict(conv.id);
         if (latest.status === "error" || latest.status === "invalid") {

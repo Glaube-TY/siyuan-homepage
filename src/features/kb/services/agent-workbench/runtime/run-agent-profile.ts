@@ -44,10 +44,18 @@ import {
   type AgentSuccessfulWriteGuard,
 } from "../../agent-core/session/agent-run-checkpoint";
 import type { AgentContextManifest } from "./agent-context-ledger";
+import type { NativeTool } from "../../agent-core/tools/native-tool";
+import {
+  resolveNativeToolReadOnly,
+  ProviderToolsetController,
+  sanitizeProviderToolsetState,
+  type NativeToolRegistry,
+} from "../../agent-core/tools/native-tool-registry";
 import type { AgentMessage, AgentToolCall } from "../../agent-core/messages/agent-message";
 import { compactAgentSessionMessagesForStorage } from "../../agent-core/messages/message-compactor";
 import { sanitizeMessageForStorage } from "../../agent-core/session/session-store";
 import type { ToolResultEntry } from "./tool-result-log";
+import { estimateAgentMessagesTokens } from "../../../types/context-usage";
 import {
   agentProfileAllowsContext,
   agentProfileAllowsMemory,
@@ -66,6 +74,8 @@ export interface RunAgentProfileParams<TResult> {
   profile: AgentProfile;
   question: string;
   conversationContext?: ConversationContextSnapshot;
+  /** Uncovered completed turns as real provider user/assistant messages. */
+  historicalMessages?: AgentMessage[];
   mode: AgentScopeMode;
   customDocIds?: string[];
   attachedDocs?: readonly { docId: string; title?: string }[];
@@ -77,6 +87,7 @@ export interface RunAgentProfileParams<TResult> {
   onAnswerFinish?: (fullContent: string) => void;
   onReasoningDelta?: (event: { type: "reasoning-start" | "reasoning-delta" | "reasoning-end" | "reasoning-reset"; delta?: string }) => void;
   conversationId?: string;
+  conversationKind?: "current" | "legacy";
   panelInstanceId?: string;
   turnId?: string;
   onCheckpoint?: (checkpoint: AgentRunCheckpoint) => void;
@@ -84,6 +95,41 @@ export interface RunAgentProfileParams<TResult> {
   maxToolCalls?: number;
   /** 已由用户保存任务预授权的无人值守写入；高风险操作仍拒绝。 */
   unattendedWritePolicy?: "deny" | "safe";
+  /** 本轮模型的上下文窗口；用于实际 provider prompt 预算。 */
+  contextWindowTokens?: number;
+  /** 在真实工具注册表和系统提示组装后执行统一上下文预检。 */
+  onContextPrepared?: (context: {
+    systemPrompt: string;
+    contextInstructions: string;
+    globalMemory?: string;
+    toolDefinitions: NativeTool[];
+    registeredToolCount: number;
+    toolsetReduced: boolean;
+    historicalMessages: AgentMessage[];
+    contextWindowTokens?: number;
+    maxOutputTokens?: number;
+    rebuildProviderContext: (
+      conversationContext: ConversationContextSnapshot | undefined,
+      historicalMessages: AgentMessage[],
+    ) => {
+      conversationContext?: ConversationContextSnapshot;
+      contextInstructions: string;
+      historicalMessages: AgentMessage[];
+      manifest: AgentContextManifest;
+    };
+  }) => Promise<{
+    conversationContext?: ConversationContextSnapshot;
+    contextInstructions: string;
+    historicalMessages: AgentMessage[];
+    manifest: AgentContextManifest;
+    toolDefinitions: NativeTool[];
+  } | undefined> | {
+    conversationContext?: ConversationContextSnapshot;
+    contextInstructions: string;
+    historicalMessages: AgentMessage[];
+    manifest: AgentContextManifest;
+    toolDefinitions: NativeTool[];
+  } | undefined;
   kbSettings?: Awaited<ReturnType<typeof getKbSettings>>;
   validateFinalAnswer?: (answer: string, observations: readonly ToolResultEntry[]) => string | undefined;
   finalize: (context: AgentProfileFinalizeContext) => Promise<{
@@ -165,8 +211,13 @@ function toTraceEvents(events: AgentWorkbenchEvent[]) {
   }));
 }
 
-function compactAndSanitizeAgentMessages(messages: readonly AgentMessage[]): AgentMessage[] {
-  const compacted = compactAgentSessionMessagesForStorage(messages);
+function compactAndSanitizeAgentMessages(
+  messages: readonly AgentMessage[],
+  toolRegistry: NativeToolRegistry,
+): AgentMessage[] {
+  const compacted = compactAgentSessionMessagesForStorage(messages, {
+    resolveCallReadOnly: (toolName, args) => resolveNativeToolReadOnly(toolRegistry, toolName, args),
+  });
   pushAgentDebugEvent("AGENT_SESSION_STORAGE_COMPACTED", {
     beforeMessageCount: messages.length,
     afterMessageCount: compacted.length,
@@ -237,6 +288,14 @@ export async function runAgentProfile<TResult>(
     sessionId: conversationId,
     runId: params.turnId,
   });
+  if (params.conversationKind !== undefined && params.conversationKind !== "current") {
+    return buildFailureOutcome({
+      code: "LEGACY_CONVERSATION_READ_ONLY",
+      message: "旧版会话只能作为归档查看，不能启动 Agent Runtime。",
+      events: [],
+      identity,
+    });
+  }
   let eventOrdinal = 0;
   let activeProviderId: string | undefined;
   let activeContextManifest: AgentContextManifest | undefined;
@@ -354,6 +413,10 @@ export async function runAgentProfile<TResult>(
       disabledComponentSubtools: [...disabledComponentSubtools],
     };
 
+    const providerToolsetController = new ProviderToolsetController({
+      profileSeedToolNames: agentProfile.providerToolSeeds,
+      restoredState: params.resumeCheckpoint?.providerToolsetState,
+    });
     const wb = createAgentWorkbenchRuntime({
       profile: agentProfile,
       kbRetrievalToolDeps: deps,
@@ -370,6 +433,7 @@ export async function runAgentProfile<TResult>(
       mcpSettings,
       notebrainWorkspaceSettings: settings.notebrainWorkspace,
       runtimeToolsSettings: settings.runtimeTools,
+      providerToolsetController,
     });
 
     pushAgentDebugEvent("AGENT_PROFILE_RESOLVED", {
@@ -514,13 +578,13 @@ export async function runAgentProfile<TResult>(
     const profileConversationContext = agentProfileAllowsContext(agentProfile, "conversation")
       ? params.conversationContext
       : undefined;
-    const context = buildAgentContextInstructions({
+    const buildContext = (conversationContext: ConversationContextSnapshot | undefined) => buildAgentContextInstructions({
       toolRegistry: wb.toolRegistry,
       skillRegistry: wb.skillRegistry,
       observationLog: wb.observationLog,
       question: params.question,
       abortSignal: params.abortSignal,
-      conversationContext: profileConversationContext,
+      conversationContext,
       globalMemory: globalMemoryText,
       attachedDocs: agentProfileAllowsContext(agentProfile, "attached-documents")
         ? params.attachedDocs
@@ -537,6 +601,75 @@ export async function runAgentProfile<TResult>(
         mcpClientEnabled,
       },
     });
+    let context = buildContext(profileConversationContext);
+    let historicalMessages = agentProfileAllowsContext(agentProfile, "conversation")
+      ? [...(params.historicalMessages ?? [])]
+      : [];
+    const providerTools = nativeToolRegistry.listProviderVisible();
+    const buildCurrentSystemPrompt = (activeToolNames: ReadonlySet<string>): string => buildAgentSystemPrompt({
+      isToolAvailable: (toolName) => activeToolNames.has(toolName)
+        && nativeToolRegistry.get(toolName)?.providerVisible === true,
+      isActionAvailable: (toolName, action) =>
+        wb.toolRegistry.getTool(toolName)?.aggregateActionHelp?.[action] !== undefined,
+    });
+    const resolveProviderToolset = (nextHistoricalMessages: readonly AgentMessage[] = historicalMessages) => {
+      const resolve = (prompt: string) => providerToolsetController.resolve({
+        tools: providerTools,
+        question: params.question,
+        contextWindowTokens: params.contextWindowTokens ?? selected.model.contextWindowTokens,
+        maxOutputTokens: selected.model.maxTokens,
+        providerMessageTokens: estimateAgentMessagesTokens([
+          { role: "system", content: prompt },
+          ...(context.contextInstructions ? [{ role: "system", content: context.contextInstructions }] : []),
+          ...nextHistoricalMessages,
+          { role: "user", content: params.question },
+        ]),
+      });
+      const provisionalPrompt = buildCurrentSystemPrompt(providerToolsetController.getActiveProviderToolNames());
+      let selection = resolve(provisionalPrompt);
+      let systemPrompt = buildCurrentSystemPrompt(selection.activeProviderToolNames);
+      selection = resolve(systemPrompt);
+      systemPrompt = buildCurrentSystemPrompt(selection.activeProviderToolNames);
+      return { selection, systemPrompt };
+    };
+    let { selection: providerToolSelection, systemPrompt } = resolveProviderToolset();
+    pushAgentDebugEvent("PROVIDER_TOOLSET_SELECTED", {
+      contextWindowTokens: params.contextWindowTokens ?? selected.model.contextWindowTokens,
+      registeredToolCount: providerToolSelection.registeredToolCount,
+      activeToolCount: providerToolSelection.tools.length,
+      activeToolNames: providerToolSelection.tools.map((tool) => tool.name),
+      toolsetBudgetTokens: providerToolSelection.budgetTokens,
+      toolsetReduced: providerToolSelection.toolsetReduced,
+    }, "info");
+    const preparedContext = await params.onContextPrepared?.({
+      systemPrompt,
+      contextInstructions: context.contextInstructions,
+      globalMemory: globalMemoryText,
+      toolDefinitions: providerToolSelection.tools,
+      registeredToolCount: providerToolSelection.registeredToolCount,
+      toolsetReduced: providerToolSelection.toolsetReduced,
+      historicalMessages,
+      contextWindowTokens: params.contextWindowTokens ?? selected.model.contextWindowTokens,
+      maxOutputTokens: selected.model.maxTokens,
+      rebuildProviderContext: (conversationContext, nextHistoricalMessages) => {
+        const rebuilt = buildContext(conversationContext);
+        return {
+          conversationContext,
+          contextInstructions: rebuilt.contextInstructions,
+          historicalMessages: [...nextHistoricalMessages],
+          manifest: rebuilt.manifest,
+        };
+      },
+    });
+    if (preparedContext) {
+      context = {
+        ...context,
+        contextInstructions: preparedContext.contextInstructions,
+        manifest: preparedContext.manifest,
+      };
+      historicalMessages = [...preparedContext.historicalMessages];
+      ({ selection: providerToolSelection, systemPrompt } = resolveProviderToolset(historicalMessages));
+    }
     activeContextManifest = context.manifest;
 
     if (params.resumeCheckpoint && params.resumeCheckpoint.identity.sessionId !== conversationId) {
@@ -598,11 +731,13 @@ export async function runAgentProfile<TResult>(
         latestCheckpoint = checkpoint;
         return;
       }
+      const providerToolsetState = sanitizeProviderToolsetState(checkpoint.providerToolsetState);
       const safeCheckpoint: AgentRunCheckpoint = {
         ...checkpoint,
-        messages: compactAndSanitizeAgentMessages(checkpoint.messages),
+        messages: compactAndSanitizeAgentMessages(checkpoint.messages, nativeToolRegistry),
         pendingToolCalls: sanitizePendingToolCalls(checkpoint.pendingToolCalls),
         successfulWriteGuards: sanitizeSuccessfulWriteGuards(checkpoint.successfulWriteGuards),
+        ...(providerToolsetState ? { providerToolsetState } : {}),
       };
       latestCheckpoint = safeCheckpoint;
       params.onCheckpoint?.(safeCheckpoint);
@@ -610,13 +745,14 @@ export async function runAgentProfile<TResult>(
     const loop = new NativeToolAgentLoop({
       provider,
       toolRegistry: nativeToolRegistry,
+      providerToolsetController,
       session,
-      systemPrompt: buildAgentSystemPrompt({
-        isToolAvailable: (toolName) => nativeToolRegistry.get(toolName)?.providerVisible === true,
-        isActionAvailable: (toolName, action) =>
-          wb.toolRegistry.getTool(toolName)?.aggregateActionHelp?.[action] !== undefined,
-      }),
+      systemPrompt,
+      buildSystemPrompt: (activeToolNames) => buildCurrentSystemPrompt(activeToolNames),
       contextInstructions: context.contextInstructions,
+      historicalMessages,
+      contextWindowTokens: params.contextWindowTokens ?? selected.model.contextWindowTokens,
+      maxOutputTokens: selected.model.maxTokens,
       conversationId,
       identity,
       bridge: new RegisteredConfirmationBridge(
