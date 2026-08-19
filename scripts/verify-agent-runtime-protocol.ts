@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { createAgentRunIdentity } from "../src/features/agent-platform/agent-run-protocol";
 import { NativeToolAgentLoop } from "../src/features/kb/services/agent-core/loop/native-tool-agent-loop";
 import type { AgentStreamEvent } from "../src/features/kb/services/agent-core/loop/stream-event";
-import type { AgentProviderEvent, ProviderAdapter } from "../src/features/kb/services/agent-core/providers/provider-adapter";
+import type { AgentChatRequest, AgentProviderEvent, ProviderAdapter } from "../src/features/kb/services/agent-core/providers/provider-adapter";
 import { OPENAI_COMPATIBLE_CAPABILITIES } from "../src/features/kb/services/agent-core/providers/provider-capabilities";
 import { AgentProviderError } from "../src/features/kb/services/agent-core/providers/provider-error";
 import { mergeLatestAgentTokenUsage, normalizeProviderUsage } from "../src/features/kb/services/agent-core/providers/provider-usage";
@@ -35,6 +35,29 @@ class TerminalProvider implements ProviderAdapter {
   async *streamChat(): AsyncGenerator<AgentProviderEvent> {
     if (this.answer) yield { type: "text_delta", delta: this.answer };
     yield { type: "done", finishReason: this.finishReason };
+  }
+}
+
+class ToolThenTimeoutProvider implements ProviderAdapter {
+  readonly id = "verify:provider-timeout-recovery";
+  readonly capabilities = OPENAI_COMPATIBLE_CAPABILITIES;
+  readonly requests: AgentChatRequest[] = [];
+
+  async *streamChat(request: AgentChatRequest): AsyncGenerator<AgentProviderEvent> {
+    this.requests.push(request);
+    if (this.requests.length === 1) {
+      yield {
+        type: "tool_call_done",
+        toolCall: { id: "write-once", name: "write_once", arguments: "{}" },
+      };
+      yield { type: "done", finishReason: "tool_calls" };
+      return;
+    }
+    if (this.requests.length === 2) {
+      throw new AgentProviderError("timeout before response", { code: "provider_timeout" });
+    }
+    yield { type: "text_delta", delta: "已完成" };
+    yield { type: "done", finishReason: "stop" };
   }
 }
 
@@ -128,9 +151,88 @@ async function verifySharedTimeout(): Promise<void> {
   );
 }
 
+async function verifyProviderTimeoutRecovery(): Promise<void> {
+  const provider = new ToolThenTimeoutProvider();
+  const registry = new NativeToolRegistry();
+  let executeCount = 0;
+  let confirmationCount = 0;
+  const events: AgentStreamEvent[] = [];
+  registry.register({
+    name: "write_once",
+    title: "单次写入",
+    description: "验证 Provider 超时不会重放已完成写入。",
+    parameters: { type: "object", additionalProperties: false, properties: {} },
+    readOnly: false,
+    providerVisible: true,
+    source: "builtin",
+    safety: { readOnly: false, canWrite: true, requiresConfirmation: true },
+    async execute() {
+      executeCount += 1;
+      return { ok: true, content: "{}", summary: "写入完成", sideEffectState: "committed" };
+    },
+  });
+  const result = await new NativeToolAgentLoop({
+    provider,
+    toolRegistry: registry,
+    systemPrompt: "test",
+    bridge: {
+      async request() {
+        confirmationCount += 1;
+        return { type: "allow" };
+      },
+    },
+    onEvent: (event) => events.push(event),
+  }).run("执行 write_once 后回答");
+
+  assert.equal(result.status, "answer_ready");
+  assert.equal(result.providerRequestCount, 3);
+  assert.equal(executeCount, 1, "Provider 超时重试不得重放已完成写入");
+  assert.equal(confirmationCount, 1, "Provider 超时重试不得重复确认");
+  assert.equal(events.filter((event) => event.type === "tool_result").length, 1);
+  assert.equal(events.filter((event) => event.type === "notice" && event.message.includes("安全检查点")).length, 1);
+  assert.deepEqual(provider.requests[1]?.messages, provider.requests[2]?.messages, "自动重试必须复用同一安全 Provider payload");
+
+  let repeatedTimeoutRequests = 0;
+  const repeatedTimeoutProvider: ProviderAdapter = {
+    id: "verify:repeated-provider-timeout",
+    capabilities: OPENAI_COMPATIBLE_CAPABILITIES,
+    async *streamChat() {
+      repeatedTimeoutRequests += 1;
+      throw new AgentProviderError("still timed out", { code: "provider_timeout" });
+    },
+  };
+  await assert.rejects(
+    () => new NativeToolAgentLoop({
+      provider: repeatedTimeoutProvider,
+      toolRegistry: new NativeToolRegistry(),
+      systemPrompt: "test",
+    }).run("test"),
+    (error: unknown) => error instanceof AgentProviderError && error.code === "provider_timeout",
+  );
+  assert.equal(repeatedTimeoutRequests, 2, "同一 Provider step 最多自动重试一次");
+
+  let partialTimeoutRequests = 0;
+  const partialTimeoutProvider: ProviderAdapter = {
+    id: "verify:partial-provider-timeout",
+    capabilities: OPENAI_COMPATIBLE_CAPABILITIES,
+    async *streamChat() {
+      partialTimeoutRequests += 1;
+      yield { type: "text_delta", delta: "partial" };
+      throw new AgentProviderError("timed out after output", { code: "provider_timeout" });
+    },
+  };
+  await assert.rejects(() => new NativeToolAgentLoop({
+    provider: partialTimeoutProvider,
+    toolRegistry: new NativeToolRegistry(),
+    systemPrompt: "test",
+  }).run("test"));
+  assert.equal(partialTimeoutRequests, 1, "已收到模型事件后不得自动重放 Provider 请求");
+}
+
 await verifyRunIdentityAndUsage();
 verifyProviderUsageNormalization();
 verifyRepeatedInvalidActionState();
 await verifyTerminalSemantics();
 await verifySharedTimeout();
+await verifyProviderTimeoutRecovery();
 console.log("agent runtime protocol verification passed");

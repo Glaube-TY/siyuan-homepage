@@ -2,8 +2,9 @@ import { createAssistantMessage, createSystemMessage, createToolMessage, createU
 import { compactAgentMessages } from "../messages/message-compactor";
 import { filterStaleToolCalls } from "../messages/message-normalizer";
 import { parseToolResultContentEnvelope } from "../tools/tool-execution-result";
-import type { ProviderAdapter } from "../providers/provider-adapter";
+import type { AgentChatRequest, AgentProviderEvent, ProviderAdapter } from "../providers/provider-adapter";
 import { classifyProviderFinishReason } from "../providers/provider-finish-reason";
+import { normalizeProviderError } from "../providers/provider-error";
 import {
   ProviderToolsetController,
   resolveNativeToolReadOnly,
@@ -428,15 +429,11 @@ export class NativeToolAgentLoop {
       let lastOutputInspectionAt = 0;
       let finishReason: string | undefined;
       let stepUsage: AgentTokenUsage | undefined;
-      const modelStepIndex = ++this.providerRequestCount;
-      this.options.onEvent?.({ type: "model_started", modelStepIndex, providerId: this.options.provider.id });
-
-      for await (const event of this.options.provider.streamChat({
+      for await (const event of this.streamProviderChat({
         messages,
         tools,
         toolChoice,
         abortSignal: this.options.abortSignal,
-        modelStepIndex,
       })) {
         if (event.type === "usage") {
           stepUsage = mergeLatestAgentTokenUsage(stepUsage, event.usage);
@@ -489,7 +486,7 @@ export class NativeToolAgentLoop {
           finishReason = event.finishReason;
         }
       }
-      this.recordStepUsage(modelStepIndex, stepUsage);
+      this.recordStepUsage(this.providerRequestCount, stepUsage);
 
       const finishKind = classifyProviderFinishReason(finishReason);
       if (finishKind === "aborted") {
@@ -850,14 +847,10 @@ export class NativeToolAgentLoop {
     let pseudoToolMarkupDetected = false;
     let finishReason: string | undefined;
     let stepUsage: AgentTokenUsage | undefined;
-    const modelStepIndex = ++this.providerRequestCount;
-    this.options.onEvent?.({ type: "model_started", modelStepIndex, providerId: this.options.provider.id });
-
-    for await (const event of this.options.provider.streamChat({
+    for await (const event of this.streamProviderChat({
       messages,
       tools: [],
       abortSignal: this.options.abortSignal,
-      modelStepIndex,
     })) {
       if (event.type === "usage") {
         stepUsage = mergeLatestAgentTokenUsage(stepUsage, event.usage);
@@ -883,7 +876,7 @@ export class NativeToolAgentLoop {
         finishReason = event.finishReason;
       }
     }
-    this.recordStepUsage(modelStepIndex, stepUsage);
+    this.recordStepUsage(this.providerRequestCount, stepUsage);
 
     const softFinishKind = classifyProviderFinishReason(finishReason);
     if (softFinishKind === "aborted") {
@@ -983,6 +976,42 @@ export class NativeToolAgentLoop {
       errorCode: params.code,
       errorMessage: params.message ?? params.code,
     };
+  }
+
+  private async *streamProviderChat(
+    request: Omit<AgentChatRequest, "modelStepIndex">,
+  ): AsyncGenerator<AgentProviderEvent> {
+    let timeoutRetried = false;
+    while (true) {
+      const modelStepIndex = ++this.providerRequestCount;
+      this.options.onEvent?.({ type: "model_started", modelStepIndex, providerId: this.options.provider.id });
+      let receivedEvent = false;
+      try {
+        for await (const event of this.options.provider.streamChat({ ...request, modelStepIndex })) {
+          receivedEvent = true;
+          yield event;
+        }
+        return;
+      } catch (error) {
+        const providerError = normalizeProviderError(error);
+        if (
+          !timeoutRetried
+          && !receivedEvent
+          && !this.options.abortSignal?.aborted
+          && providerError.code === "provider_timeout"
+          && providerError.retryable
+          && providerError.safeToReplay
+        ) {
+          timeoutRetried = true;
+          this.options.onEvent?.({
+            type: "notice",
+            message: "模型请求在返回内容前超时，正在从当前安全检查点自动重试一次。",
+          });
+          continue;
+        }
+        throw error;
+      }
+    }
   }
 
   private finishWithPseudoToolMarkupBlocked(params: {
