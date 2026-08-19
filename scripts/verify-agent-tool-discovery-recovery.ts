@@ -7,6 +7,9 @@ import type { AgentChatRequest, AgentProviderEvent, ProviderAdapter } from "../s
 import { OPENAI_COMPATIBLE_CAPABILITIES } from "../src/features/kb/services/agent-core/providers/provider-capabilities";
 import type { NativeTool } from "../src/features/kb/services/agent-core/tools/native-tool";
 import { NativeToolRegistry } from "../src/features/kb/services/agent-core/tools/native-tool-registry";
+import { compactAgentSessionMessagesForStorage } from "../src/features/kb/services/agent-core/messages/message-compactor";
+import { parseToolResultContentEnvelope } from "../src/features/kb/services/agent-core/tools/tool-execution-result";
+import { formatToolArgsPreview } from "../src/features/kb/services/agent-workbench/presentation/tool-step-presentation";
 
 async function verifyHelpDiagnostics(): Promise<void> {
   const help = createAgentToolHelpTool({
@@ -42,6 +45,76 @@ async function verifyHelpDiagnostics(): Promise<void> {
   assert.equal(actionDetails.requestedActionName, "execute_command");
   assert.deepEqual(actionDetails.availableActionNames, ["list_dir", "read_file", "write_file", "delete_path", "run_command"]);
   assert.doesNotMatch(JSON.stringify([missing, mixed, actionAsTool, action]), /api[_-]?key|authorization|password|secret/i);
+
+  assert.equal(help.inputSchema.safeParse({ action: "describe_tool" }).success, false, "describe_tool 缺少 toolName 必须在 Contract 层拒绝");
+  assert.equal(help.inputSchema.safeParse({ action: "describe_action", toolName: "notebrain_file" }).success, false, "describe_action 缺少 actionName 必须在 Contract 层拒绝");
+
+  const riffHelp = createAgentToolHelpTool({
+    externalSkillSettings: DEFAULT_EXTERNAL_SKILL_SETTINGS,
+    availableTools: [{
+      name: "siyuan_riff",
+      actions: ["deck"],
+      actionHelp: {
+        deck: {
+          action: "deck",
+          internalToolName: "siyuan_riff_deck",
+          argsSchema: {
+            type: "object",
+            properties: { action: { type: "string", enum: ["create", "list", "rename", "remove"] } },
+            required: ["action"],
+          },
+        },
+      },
+    }],
+  });
+  const internalAlias = await riffHelp.execute({} as never, {
+    action: "describe_action",
+    toolName: "siyuan_riff_deck",
+    actionName: "create",
+  });
+  assert.equal(internalAlias.ok, true, "内部 contract 名必须解析到真实公开聚合 action");
+  assert.deepEqual((internalAlias.data as Record<string, unknown>).publicRoute, { toolName: "siyuan_riff", actionName: "deck" });
+  assert.equal((internalAlias.data as Record<string, unknown>).requestedActionName, "create");
+  assert.match(formatToolArgsPreview({ action: "describe_action", toolName: "siyuan_riff_deck", actionName: "create" }), /siyuan_riff_deck.*create/);
+}
+
+function verifyFailedHelpStorageDiagnostics(): void {
+  const messages = compactAgentSessionMessagesForStorage([
+    { role: "user", content: "test" },
+    {
+      role: "assistant",
+      content: "",
+      toolCalls: [{
+        id: "help-1",
+        name: "agent_tool_help",
+        arguments: JSON.stringify({ action: "describe_tool", toolName: "siyuan_riff_deck" }),
+      }],
+    },
+    {
+      role: "tool",
+      toolCallId: "help-1",
+      name: "agent_tool_help",
+      content: `[TOOL_FAILED] ${JSON.stringify({
+        ok: false,
+        toolName: "agent_tool_help",
+        code: "tool_not_available",
+        message: "指定工具不可用。",
+        hint: "使用公开聚合工具。",
+        details: {
+          requestedToolName: "siyuan_riff_deck",
+          suggestedToolName: "siyuan_riff",
+          suggestedActionName: "deck",
+        },
+      })}`,
+    },
+  ], { resolveCallReadOnly: () => true });
+  const stored = messages.find((message) => message.role === "tool");
+  assert.ok(stored && stored.role === "tool");
+  const diagnostic = parseToolResultContentEnvelope(stored.content) as Record<string, unknown>;
+  assert.equal(diagnostic.errorCode, "tool_not_available");
+  assert.equal(diagnostic.requestedToolName, "siyuan_riff_deck");
+  assert.equal(diagnostic.suggestedToolName, "siyuan_riff");
+  assert.equal(diagnostic.suggestedActionName, "deck");
 }
 
 function discoveryHelpTool(): NativeTool {
@@ -142,5 +215,6 @@ async function verifyDiscoveryRounds(): Promise<void> {
 }
 
 await verifyHelpDiagnostics();
+verifyFailedHelpStorageDiagnostics();
 await verifyDiscoveryRounds();
 console.log("agent tool discovery recovery verification passed");

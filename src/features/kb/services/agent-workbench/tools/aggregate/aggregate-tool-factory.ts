@@ -203,6 +203,7 @@ function buildAggregateActionHelp(
     const contract = binding.tool;
     help[binding.action] = {
       action: binding.action,
+      internalToolName: contract.name,
       argsSchema: sanitizeProviderVisibleValue(resolveActionArgsSchema(contract)),
       inputHint: contract.inputHint,
       boundary: contract.boundary,

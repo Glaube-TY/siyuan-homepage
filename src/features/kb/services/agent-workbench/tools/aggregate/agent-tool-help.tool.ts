@@ -23,10 +23,20 @@ const helpActionSchema = z.enum([
 
 const agentToolHelpInputSchema = z.object({
   action: helpActionSchema,
-  toolName: z.string().optional(),
-  actionName: z.string().optional(),
-  skillName: z.string().optional(),
-}).strict();
+  toolName: z.string().trim().min(1).optional(),
+  actionName: z.string().trim().min(1).optional(),
+  skillName: z.string().trim().min(1).optional(),
+}).strict().superRefine((value, ctx) => {
+  if (["describe_tool", "list_actions", "describe_action"].includes(value.action) && value.toolName === undefined) {
+    ctx.addIssue({ code: "custom", path: ["toolName"], message: `${value.action} 必须提供 toolName。` });
+  }
+  if (value.action === "describe_action" && value.actionName === undefined) {
+    ctx.addIssue({ code: "custom", path: ["actionName"], message: "describe_action 必须提供 actionName。" });
+  }
+  if (value.action === "describe_custom_skill" && value.skillName === undefined) {
+    ctx.addIssue({ code: "custom", path: ["skillName"], message: "describe_custom_skill 必须提供 skillName。" });
+  }
+});
 
 const agentToolHelpInputJsonSchema = {
   type: "object",
@@ -44,9 +54,9 @@ const agentToolHelpInputJsonSchema = {
       ],
       description: "帮助动作。",
     },
-    toolName: { type: "string", description: "聚合工具名，例如 siyuan_kb。" },
-    actionName: { type: "string", description: "工具 action 名，例如 search。" },
-    skillName: { type: "string", description: "外部/自定义 Skill ID。" },
+    toolName: { type: "string", minLength: 1, description: "describe_tool/list_actions/describe_action 必填。必须使用公开聚合工具名，例如 siyuan_kb。" },
+    actionName: { type: "string", minLength: 1, description: "describe_action 必填。工具的公开 action 名，例如 search。" },
+    skillName: { type: "string", minLength: 1, description: "describe_custom_skill 必填。外部/自定义 Skill ID。" },
   },
   required: ["action"],
 };
@@ -131,6 +141,40 @@ function availableActionNames(
 ): string[] {
   const entry = findAvailableTool(toolName, availableTools);
   return entry ? filterActions(entry.tool, entry.snapshot.actions).map((action) => action.name) : [];
+}
+
+interface InternalToolAlias {
+  requestedToolName: string;
+  toolName: string;
+  actionName: string;
+}
+
+function findInternalToolAlias(
+  requestedToolName: string,
+  availableTools: ReadonlyMap<string, AvailableToolSnapshot>,
+): InternalToolAlias | undefined {
+  const matches = [...availableTools.values()].flatMap((snapshot) => Object.entries(snapshot.actionHelp ?? {})
+    .filter(([actionName, help]) => (
+      help.internalToolName === requestedToolName
+      && (snapshot.actions === undefined || snapshot.actions.includes(actionName))
+    ))
+    .map(([actionName]) => ({ requestedToolName, toolName: snapshot.name, actionName })));
+  return matches.length === 1 ? matches[0] : undefined;
+}
+
+function describeInternalToolAlias(
+  alias: InternalToolAlias,
+  requestedActionName: string | undefined,
+  availableTools: ReadonlyMap<string, AvailableToolSnapshot>,
+) {
+  const action = describeAction(alias.toolName, alias.actionName, availableTools);
+  return action ? {
+    ...action,
+    requestedToolName: alias.requestedToolName,
+    ...(requestedActionName ? { requestedActionName } : {}),
+    publicRoute: { toolName: alias.toolName, actionName: alias.actionName },
+    note: `${alias.requestedToolName} 是内部 contract 名；公开调用请使用 ${alias.toolName}，外层 action=${alias.actionName}。`,
+  } : null;
 }
 
 function suggestToolAndAction(
@@ -355,6 +399,14 @@ export function createAgentToolHelpTool(options: AgentToolHelpOptions): ToolCont
               .map((tool) => compactTool(tool, availableTools.get(tool.name)?.actions)),
           },
         };
+      }
+
+      if (["describe_tool", "list_actions", "describe_action"].includes(args.action) && args.toolName) {
+        const alias = findInternalToolAlias(args.toolName, availableTools);
+        if (alias) {
+          const action = describeInternalToolAlias(alias, args.actionName, availableTools);
+          if (action) return withActivation(action, options.onToolDescribed?.(alias.toolName));
+        }
       }
 
       if (args.action === "describe_tool") {

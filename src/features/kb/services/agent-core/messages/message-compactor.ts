@@ -1,5 +1,6 @@
 import type { AgentMessage, AgentToolMessage } from "./agent-message";
 import { normalizeToolCallMessages } from "./message-normalizer";
+import { parseToolResultContentEnvelope } from "../tools/tool-execution-result";
 import {
   estimateAgentMessagesTokens,
   estimateTextTokensConservative,
@@ -102,8 +103,7 @@ function actionAwareStorageContent(
   resolveCallReadOnly?: ToolCallReadOnlyResolver,
 ): string {
   const operation = resolveToolOperation(rawArgs);
-  let parsed: Record<string, any> = {};
-  try { parsed = asRecord(JSON.parse(message.content)); } catch { /* safe fallback below */ }
+  const parsed = asRecord(parseToolResultContentEnvelope(message.content));
   const payload = unwrapToolPayload(parsed);
   const ok = parsed.ok === true || payload.ok === true || payload.status === "success";
   const base = {
@@ -111,6 +111,26 @@ function actionAwareStorageContent(
     action: operation.action,
     ...(operation.innerAction ? { innerAction: operation.innerAction } : {}),
   };
+
+  if (!ok) {
+    const error = asRecord(parsed.error);
+    const details = asRecord(parsed.details ?? error.details ?? payload.details);
+    const diagnostic = (value: unknown, maxChars: number) => (
+      typeof value === "string" ? sanitizeToolResultString(value, maxChars) || undefined : undefined
+    );
+    return JSON.stringify({
+      ...base,
+      status: "failed",
+      errorCode: diagnostic(parsed.errorCode ?? parsed.code ?? error.code ?? payload.reasonCode, 80),
+      message: diagnostic(parsed.message ?? error.message ?? payload.message, 240),
+      hint: diagnostic(parsed.hint ?? error.hint ?? details.hint, 240),
+      requestedToolName: diagnostic(details.requestedToolName ?? payload.requestedToolName, 120),
+      requestedActionName: diagnostic(details.requestedActionName ?? payload.requestedActionName, 120),
+      suggestedToolName: diagnostic(details.suggestedToolName ?? payload.suggestedToolName, 120),
+      suggestedActionName: diagnostic(details.suggestedActionName ?? payload.suggestedActionName, 120),
+      note: "Failed tool result compacted for storage.",
+    });
+  }
 
   const isWrite = isWriteCall(message, rawArgs, resolveCallReadOnly);
   if (isWrite) {

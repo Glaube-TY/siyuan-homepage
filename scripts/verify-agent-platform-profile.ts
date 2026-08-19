@@ -652,11 +652,16 @@ registerSiyuanTools(siyuanDocEditRegistry, {
     notebookDocTree: false,
     tagBookmarkOutline: false,
     assetManagement: false,
-    riffReview: false,
+    riffReview: true,
   },
 });
 const siyuanDocEdit = siyuanDocEditRegistry.getTool("siyuan_doc_edit");
 assert.ok(siyuanDocEdit, "真实 siyuan_doc_edit 必须注册");
+assert.equal(
+  siyuanDocEditRegistry.getTool("siyuan_riff")?.aggregateActionHelp?.deck?.internalToolName,
+  "siyuan_riff_deck",
+  "真实 aggregateActionHelp 必须保留内部 contract 到公开 action 的 Help 映射",
+);
 const siyuanNativeRegistry = createNativeToolRegistryFromWorkbench({
   toolRegistry: siyuanDocEditRegistry,
   observationLog: new ToolResultLog(),

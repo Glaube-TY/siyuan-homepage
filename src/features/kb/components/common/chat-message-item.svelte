@@ -542,7 +542,7 @@
           event.toolName,
           event.result.errorCode ?? event.result.code,
         );
-        if (!existing && event.argsPreview) {
+        if (event.argsPreview) {
           const preview = formatToolArgsPreview(event.argsPreview);
           step.summary = preview === "已准备必要信息。"
             ? failureSummary

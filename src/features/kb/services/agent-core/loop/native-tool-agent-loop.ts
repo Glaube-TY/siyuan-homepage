@@ -135,7 +135,7 @@ function isToolDiscoveryFailureStep(messages: readonly AgentMessage[]): boolean 
 }
 
 const SAFE_RECOVERY_ARG_KEYS = new Set([
-  "action", "operation", "id", "ids", "docId", "docIds", "blockId", "blockIds",
+  "action", "toolName", "actionName", "operation", "id", "ids", "docId", "docIds", "blockId", "blockIds",
   "notebook", "notebookId", "recordId", "accountId", "widgetId", "type", "expectedUpdatedAt",
 ]);
 

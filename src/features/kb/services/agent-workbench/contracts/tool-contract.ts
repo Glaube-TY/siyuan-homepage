@@ -78,6 +78,8 @@ export interface ToolRuntimeContext {
 /** Tool contract — thin interface */
 export interface AggregateActionHelp {
   action: string;
+  /** 仅供运行时 Help 将内部 contract 名解析到公开聚合 action，不进入 Provider Schema。 */
+  internalToolName?: string;
   argsSchema?: unknown;
   inputHint?: string;
   boundary?: string;

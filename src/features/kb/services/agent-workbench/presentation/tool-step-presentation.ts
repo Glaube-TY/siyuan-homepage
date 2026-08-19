@@ -35,6 +35,9 @@ const ACTION_DISPLAY_OVERRIDES: Record<string, string> = {
 };
 
 const ARG_LABELS: Record<string, string> = {
+  action: "调用动作",
+  toolName: "目标工具",
+  actionName: "目标操作",
   query: "关键词",
   keyword: "关键词",
   limit: "数量",
@@ -141,6 +144,9 @@ function formatWebsite(value: string): string {
 
 function formatArgValue(key: string, value: unknown): string | undefined {
   if (value == null) return undefined;
+  if ((key === "action" || key === "toolName" || key === "actionName") && typeof value === "string") {
+    return compactPlainText(value, 80);
+  }
   if ((key === "query" || key === "keyword") && typeof value === "string") {
     const compact = compactPlainText(value);
     return compact ? `“${compact}”` : undefined;
