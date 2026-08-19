@@ -140,6 +140,7 @@ export class StormBreaker {
   private lastInvalidActionKey: string | undefined;
   private consecutiveInvalidActionArgCount = 0;
   private repeatedInvalidActionArgsFatal = false;
+  private consecutiveToolDiscoveryFailureRounds = 0;
   private readStateEpoch = 0;
 
   shouldBlockWrite(toolCall: AgentToolCall, args: Record<string, unknown>): boolean {
@@ -298,6 +299,14 @@ export class StormBreaker {
       this.successfulWriteGuardInfoByDigest.set(keyDigest, { toolName: toolCall.name, firstStepIndex: stepIndex, keyDigest });
     }
     this.readStateEpoch += 1;
+  }
+
+  /** One call represents one provider response, regardless of parallel Help call count. */
+  recordToolDiscoveryProviderStep(onlyDiscoveryFailures: boolean): number {
+    this.consecutiveToolDiscoveryFailureRounds = onlyDiscoveryFailures
+      ? this.consecutiveToolDiscoveryFailureRounds + 1
+      : 0;
+    return this.consecutiveToolDiscoveryFailureRounds;
   }
 
   /**

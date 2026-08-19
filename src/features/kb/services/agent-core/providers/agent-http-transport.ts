@@ -10,6 +10,8 @@
  */
 
 import { AgentProviderError } from "./provider-error";
+import { pushAgentDebugEvent } from "../../agent-workbench/debug/workbench-debug";
+import type { AgentProviderEvent } from "./provider-adapter";
 
 export interface AgentHttpResponse {
   ok: boolean;
@@ -33,6 +35,182 @@ export interface AgentHttpPostOptions {
 
 export interface AgentHttpTransport {
   post(options: AgentHttpPostOptions): Promise<AgentHttpResponse>;
+}
+
+export function resolveProviderSemanticIdleTimeoutMs(requestTimeoutMs: number | undefined): number | undefined {
+  return typeof requestTimeoutMs === "number" && Number.isFinite(requestTimeoutMs) && requestTimeoutMs > 0
+    ? Math.max(1, Math.round(requestTimeoutMs * 2))
+    : undefined;
+}
+
+export class ProviderStreamLivenessGuard {
+  private readonly semanticIdleTimeoutMs: number | undefined;
+  private readonly startedAt = Date.now();
+  private lastModelProgressAt = this.startedAt;
+  private lastTransportActivityAt = this.startedAt;
+  private hasModelProgress = false;
+
+  constructor(private readonly options: {
+    requestTimeoutMs?: number;
+    signal?: AbortSignal;
+    providerId: string;
+    modelStepIndex?: number;
+  }) {
+    this.semanticIdleTimeoutMs = resolveProviderSemanticIdleTimeoutMs(options.requestTimeoutMs);
+  }
+
+  markTransportActivity(): void {
+    this.lastTransportActivityAt = Date.now();
+  }
+
+  markModelProgress(event: AgentProviderEvent): void {
+    const progressed = event.type === "text_delta" || event.type === "reasoning_delta"
+      ? event.delta.length > 0
+      : event.type === "tool_call_delta"
+        ? !!(event.id || event.name || event.argumentsDelta)
+        : event.type === "tool_call_done" || event.type === "usage" || event.type === "done";
+    if (!progressed) return;
+    this.hasModelProgress = true;
+    this.lastModelProgressAt = Date.now();
+  }
+
+  throwIfSemanticIdle(): void {
+    if (this.options.signal?.aborted || this.semanticIdleTimeoutMs === undefined) return;
+    const now = Date.now();
+    const lastModelProgressAgeMs = now - this.lastModelProgressAt;
+    if (lastModelProgressAgeMs < this.semanticIdleTimeoutMs) return;
+    pushAgentDebugEvent("PROVIDER_STREAM_SEMANTIC_IDLE_TIMEOUT_SAFE", {
+      providerId: this.options.providerId,
+      modelStepIndex: this.options.modelStepIndex,
+      semanticIdleTimeoutMs: this.semanticIdleTimeoutMs,
+      streamPhase: this.hasModelProgress ? "awaiting_next_model_progress" : "awaiting_first_model_progress",
+      lastModelProgressAgeMs,
+      lastTransportActivityAgeMs: now - this.lastTransportActivityAt,
+    }, "warn");
+    throw new AgentProviderError(
+      "Provider 模型流连接仍在，但长时间没有返回可继续执行的内容，本轮已自动停止。",
+      {
+        code: "provider_stream_idle_timeout",
+        category: "timeout",
+        retryable: true,
+        userAction: "retry",
+        safeToReplay: true,
+      },
+    );
+  }
+}
+
+export async function* readProviderStreamWithIdleTimeout(
+  body: ReadableStream<Uint8Array>,
+  options: {
+    idleTimeoutMs?: number;
+    signal?: AbortSignal;
+    providerId: string;
+    modelStepIndex?: number;
+    livenessGuard?: ProviderStreamLivenessGuard;
+  },
+): AsyncGenerator<Uint8Array> {
+  const reader = body.getReader();
+  const idleTimeoutMs = typeof options.idleTimeoutMs === "number" && Number.isFinite(options.idleTimeoutMs)
+    ? Math.max(1, Math.round(options.idleTimeoutMs))
+    : undefined;
+  let lastActivityAt = Date.now();
+  let streamPhase = "awaiting_first_chunk";
+  let streamCompleted = false;
+
+  try {
+    while (true) {
+      const remainingMs = idleTimeoutMs === undefined
+        ? undefined
+        : Math.max(0, idleTimeoutMs - (Date.now() - lastActivityAt));
+      const outcome = await new Promise<
+        | { kind: "read"; result: ReadableStreamReadResult<Uint8Array> }
+        | { kind: "aborted" }
+        | { kind: "timeout" }
+      >((resolve, reject) => {
+        let settled = false;
+        let timer: ReturnType<typeof globalThis.setTimeout> | undefined;
+        const finish = (value: { kind: "read"; result: ReadableStreamReadResult<Uint8Array> } | { kind: "aborted" } | { kind: "timeout" }): void => {
+          if (settled) return;
+          settled = true;
+          if (timer !== undefined) globalThis.clearTimeout(timer);
+          options.signal?.removeEventListener("abort", onAbort);
+          resolve(value);
+        };
+        const fail = (error: unknown): void => {
+          if (settled) return;
+          settled = true;
+          if (timer !== undefined) globalThis.clearTimeout(timer);
+          options.signal?.removeEventListener("abort", onAbort);
+          reject(error);
+        };
+        const onAbort = (): void => finish({ kind: "aborted" });
+
+        if (options.signal?.aborted) {
+          finish({ kind: "aborted" });
+          return;
+        }
+        options.signal?.addEventListener("abort", onAbort, { once: true });
+        if (remainingMs !== undefined) {
+          timer = globalThis.setTimeout(() => {
+            finish(options.signal?.aborted ? { kind: "aborted" } : { kind: "timeout" });
+          }, remainingMs);
+        }
+        void reader.read().then(
+          (result) => finish({ kind: "read", result }),
+          fail,
+        );
+      });
+
+      if (outcome.kind === "aborted") {
+        try { await reader.cancel(); } catch { /* ignore cancellation failures */ }
+        return;
+      }
+      if (outcome.kind === "timeout") {
+        const lastActivityAgeMs = Date.now() - lastActivityAt;
+        try { await reader.cancel(); } catch { /* ignore cancellation failures */ }
+        pushAgentDebugEvent("PROVIDER_STREAM_IDLE_TIMEOUT_SAFE", {
+          providerId: options.providerId,
+          modelStepIndex: options.modelStepIndex,
+          idleTimeoutMs,
+          streamPhase,
+          lastActivityAgeMs,
+        }, "warn");
+        throw new AgentProviderError(
+          "Provider 流式连接已建立，但在规定时间内没有继续返回数据，当前模型请求已停止。",
+          {
+            code: "provider_stream_idle_timeout",
+            category: "timeout",
+            retryable: true,
+            userAction: "retry",
+            safeToReplay: true,
+          },
+        );
+      }
+
+      if (outcome.result.done) {
+        streamCompleted = true;
+        return;
+      }
+      const value = outcome.result.value;
+      if (options.signal?.aborted) {
+        try { await reader.cancel(); } catch { /* ignore cancellation failures */ }
+        return;
+      }
+      options.livenessGuard?.throwIfSemanticIdle();
+      if (value.byteLength > 0) {
+        lastActivityAt = Date.now();
+        streamPhase = "awaiting_next_chunk";
+        options.livenessGuard?.markTransportActivity();
+      }
+      yield value;
+    }
+  } finally {
+    if (!streamCompleted) {
+      try { await reader.cancel(); } catch { /* ignore cancellation failures */ }
+    }
+    try { reader.releaseLock(); } catch { /* ignore already released readers */ }
+  }
 }
 
 /** 浏览器传输：直接使用当前环境 fetch，保留 AI 知识库现有流式体验。 */

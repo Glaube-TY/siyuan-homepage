@@ -905,6 +905,12 @@ export async function runAgentProfile<TResult>(
       sideEffectState: providerError.sideEffectState,
       userAction: providerError.userAction,
     });
+    if (!localEvents.some((event) => event.type === "done")) {
+      emitNativeEvent({
+        type: "done",
+        status: providerError.category === "cancelled" ? "cancelled" : "failed",
+      });
+    }
     saveCurrentTrace({
       status: "exception",
       steps: localEvents.length > 0

@@ -4,7 +4,7 @@ import { nativeToolsToOpenAITools } from "../tools/tool-schema-converter";
 import { OPENAI_COMPATIBLE_CAPABILITIES } from "./provider-capabilities";
 import type { AgentChatRequest, AgentProviderEvent, ProviderAdapter } from "./provider-adapter";
 import { AgentProviderError } from "./provider-error";
-import { BrowserAgentHttpTransport, type AgentHttpTransport } from "./agent-http-transport";
+import { BrowserAgentHttpTransport, ProviderStreamLivenessGuard, readProviderStreamWithIdleTimeout, type AgentHttpTransport } from "./agent-http-transport";
 import { normalizeProviderUsage } from "./provider-usage";
 
 interface OpenAICompatibleAdapterOptions {
@@ -248,7 +248,7 @@ export class OpenAICompatibleAdapter implements ProviderAdapter {
       throw new AgentProviderError("Provider returned an empty response body.", { code: "empty_stream" });
     }
 
-    yield* this.parseSseStream(response.body);
+    yield* this.parseSseStream(response.body, request.abortSignal, request.modelStepIndex);
   }
 
   private buildHeaders(): Record<string, string> {
@@ -327,17 +327,29 @@ export class OpenAICompatibleAdapter implements ProviderAdapter {
     yield { type: "done", finishReason: typeof first.finish_reason === "string" ? first.finish_reason : undefined };
   }
 
-  private async *parseSseStream(body: ReadableStream<Uint8Array>): AsyncGenerator<AgentProviderEvent> {
-    const reader = body.getReader();
+  private async *parseSseStream(
+    body: ReadableStream<Uint8Array>,
+    abortSignal?: AbortSignal,
+    modelStepIndex?: number,
+  ): AsyncGenerator<AgentProviderEvent> {
     const decoder = new TextDecoder();
     const toolCallState = new Map<number, ToolCallState>();
     let buffer = "";
     let finishReason: string | undefined;
+    const liveness = new ProviderStreamLivenessGuard({
+      requestTimeoutMs: this.requestTimeoutMs,
+      signal: abortSignal,
+      providerId: this.id,
+      modelStepIndex,
+    });
 
-    try {
-      while (true) {
-        const { value, done } = await reader.read();
-        if (done) break;
+    streamLoop: for await (const value of readProviderStreamWithIdleTimeout(body, {
+      idleTimeoutMs: this.requestTimeoutMs,
+      signal: abortSignal,
+      providerId: this.id,
+      modelStepIndex,
+      livenessGuard: liveness,
+    })) {
         buffer += decoder.decode(value, { stream: true });
 
         let boundary = buffer.indexOf("\n\n");
@@ -345,21 +357,27 @@ export class OpenAICompatibleAdapter implements ProviderAdapter {
           const frame = buffer.slice(0, boundary);
           buffer = buffer.slice(boundary + 2);
           const events = this.parseSseFrame(frame, toolCallState);
+          let terminalSeen = false;
           for (const event of events) {
+            liveness.markModelProgress(event);
             if (event.type === "done") {
               // OpenAI-compatible streams usually send a finish_reason chunk and
               // then a bare [DONE]. Keep the last concrete reason instead of
               // overwriting it with undefined from the terminal sentinel.
               finishReason = event.finishReason ?? finishReason;
+              terminalSeen = true;
             } else {
               yield event;
             }
           }
+          if (terminalSeen) break streamLoop;
           boundary = buffer.indexOf("\n\n");
         }
-      }
-    } finally {
-      try { await reader.cancel(); } catch { /* ignore cancellation failures */ }
+    }
+
+    if (abortSignal?.aborted) {
+      yield { type: "done", finishReason: "aborted" };
+      return;
     }
 
     for (const call of buildDoneToolCalls(toolCallState)) {
@@ -376,7 +394,8 @@ export class OpenAICompatibleAdapter implements ProviderAdapter {
       .map((line) => line.slice(5).trim());
 
     for (const data of dataLines) {
-      if (!data || data === "[DONE]") {
+      if (!data) continue;
+      if (data === "[DONE]") {
         out.push({ type: "done" });
         continue;
       }

@@ -23,7 +23,7 @@ export interface AgentProviderErrorOptions {
 function categoryForCode(code: string): AgentProviderErrorCategory {
   if (code === "provider_auth_failed") return "authentication";
   if (code === "provider_rate_limited") return "rate_limit";
-  if (code === "provider_timeout") return "timeout";
+  if (code === "provider_timeout" || code === "provider_stream_idle_timeout") return "timeout";
   if (code === "user_aborted" || code === "provider_aborted") return "cancelled";
   if (code === "provider_network_error") return "network";
   if (code === "empty_stream" || code === "provider_http_error") return "protocol";

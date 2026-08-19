@@ -108,6 +108,32 @@ const PROVIDER_EMPTY_RESPONSE_RETRY_INSTRUCTION = [
   "不能只描述计划，也不能返回空响应。",
 ].join("\n");
 
+const TOOL_DISCOVERY_FAILURE_CODES = new Set([
+  "tool_not_available",
+  "action_not_found",
+  "tool_has_no_actions",
+  "tool_not_active",
+]);
+
+const TOOL_DISCOVERY_RECOVERY_INSTRUCTION = [
+  "内部恢复指令：上一轮 Tool Discovery 失败。不要继续猜 Tool Name 或 Action Name。",
+  "下一步只能二选一：调用一次 agent_tool_help.list_tools，并只使用其返回的精确名称；或者在当前任务不需要工具时，基于已有信息如实总结。",
+  "如果 tool_result 已明确 Tool 存在但 Action 错误，优先调用一次 agent_tool_help.list_actions 获取精确 Action Name。",
+  "不得把 Help 查询描述成业务工具执行成功。",
+].join("\n");
+
+function isToolDiscoveryFailureStep(messages: readonly AgentMessage[]): boolean {
+  const results = messages
+    .filter((message): message is Extract<AgentMessage, { role: "tool" }> => message.role === "tool")
+    .map((message) => parseToolResultContentEnvelope(message.content))
+    .filter((result): result is Record<string, unknown> => !!result);
+  return results.length > 0 && results.every((result) => (
+    result.ok === false
+    && typeof result.code === "string"
+    && TOOL_DISCOVERY_FAILURE_CODES.has(result.code)
+  ));
+}
+
 const SAFE_RECOVERY_ARG_KEYS = new Set([
   "action", "operation", "id", "ids", "docId", "docIds", "blockId", "blockIds",
   "notebook", "notebookId", "recordId", "accountId", "widgetId", "type", "expectedUpdatedAt",
@@ -410,6 +436,7 @@ export class NativeToolAgentLoop {
         tools,
         toolChoice,
         abortSignal: this.options.abortSignal,
+        modelStepIndex,
       })) {
         if (event.type === "usage") {
           stepUsage = mergeLatestAgentTokenUsage(stepUsage, event.usage);
@@ -691,6 +718,22 @@ export class NativeToolAgentLoop {
       this.session.appendMany(dispatch.toolMessages);
       this.emitCheckpoint("after_tool", steps, undefined, dispatch.sideEffectState ?? "committed");
 
+      const discoveryFailureRound = this.stormBreaker.recordToolDiscoveryProviderStep(
+        isToolDiscoveryFailureStep(dispatch.toolMessages),
+      );
+      if (discoveryFailureRound === 1) {
+        this.options.onEvent?.({ type: "notice", message: "工具发现失败，正在使用真实工具目录纠正一次。" });
+        nextTransientInstruction = TOOL_DISCOVERY_RECOVERY_INSTRUCTION;
+        continue;
+      }
+      if (discoveryFailureRound >= 2) {
+        return this.softFinalizeAfterToolStop({
+          code: "repeated_tool_discovery_failure",
+          message: "模型在看到工具发现纠错指令后仍只返回无效 Tool/Action 查询，已停止继续猜测。",
+          steps,
+        });
+      }
+
       // Check for fatal errors that should stop the turn immediately
       // while preserving valid tool-call pairing.
       if (dispatch.fatalErrorCode) {
@@ -814,6 +857,7 @@ export class NativeToolAgentLoop {
       messages,
       tools: [],
       abortSignal: this.options.abortSignal,
+      modelStepIndex,
     })) {
       if (event.type === "usage") {
         stepUsage = mergeLatestAgentTokenUsage(stepUsage, event.usage);

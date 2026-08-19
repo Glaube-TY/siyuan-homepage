@@ -9,6 +9,8 @@ export interface AgentChatRequest {
   /** Recovery turns can require a real native tool call instead of accepting action narration. */
   toolChoice?: "auto" | "required";
   abortSignal?: AbortSignal;
+  /** Safe runtime ordinal for stream liveness diagnostics. */
+  modelStepIndex?: number;
 }
 
 export type AgentProviderEvent =

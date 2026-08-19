@@ -119,6 +119,91 @@ function filterActions(
   return tool.actions.filter((action) => allowed.has(action.name));
 }
 
+function availableToolNames(availableTools: ReadonlyMap<string, AvailableToolSnapshot>): string[] {
+  return AGGREGATE_TOOL_CATALOG
+    .filter((tool) => availableTools.has(tool.name))
+    .map((tool) => tool.name);
+}
+
+function availableActionNames(
+  toolName: string,
+  availableTools: ReadonlyMap<string, AvailableToolSnapshot>,
+): string[] {
+  const entry = findAvailableTool(toolName, availableTools);
+  return entry ? filterActions(entry.tool, entry.snapshot.actions).map((action) => action.name) : [];
+}
+
+function suggestToolAndAction(
+  requestedName: string,
+  availableTools: ReadonlyMap<string, AvailableToolSnapshot>,
+): { suggestedToolName: string; suggestedActionName: string } | undefined {
+  for (const toolName of availableToolNames(availableTools)) {
+    const prefix = `${toolName}.`;
+    if (requestedName.startsWith(prefix)) {
+      const actionName = requestedName.slice(prefix.length);
+      if (availableActionNames(toolName, availableTools).includes(actionName)) {
+        return { suggestedToolName: toolName, suggestedActionName: actionName };
+      }
+    }
+  }
+  const matches = availableToolNames(availableTools).flatMap((toolName) => (
+    availableActionNames(toolName, availableTools).includes(requestedName)
+      ? [{ suggestedToolName: toolName, suggestedActionName: requestedName }]
+      : []
+  ));
+  return matches.length === 1 ? matches[0] : undefined;
+}
+
+function toolNotAvailable(
+  requestedToolName: string,
+  availableTools: ReadonlyMap<string, AvailableToolSnapshot>,
+): ToolResult {
+  const suggestion = suggestToolAndAction(requestedToolName, availableTools);
+  const hint = "当前查询的 Tool 不在本轮可用 Registry Snapshot 中。不要继续猜 Tool Name；先调用 agent_tool_help.list_tools，并只使用其返回的精确 Tool Name。";
+  const details = {
+    requestedToolName,
+    availableToolNames: availableToolNames(availableTools),
+    hint,
+    ...(suggestion ? { suggestions: [suggestion], ...suggestion } : {}),
+  };
+  return {
+    ok: false,
+    data: details,
+    error: {
+      code: "tool_not_available",
+      message: "指定工具当前不在本轮可用工具列表中。",
+      recoverable: true,
+      hint,
+      details,
+    },
+  };
+}
+
+function actionNotFound(
+  requestedToolName: string,
+  requestedActionName: string,
+  actions: readonly string[],
+): ToolResult {
+  const hint = `Tool ${requestedToolName} 存在，但请求的 action 不可用。请调用 agent_tool_help.list_actions(toolName=${requestedToolName})，并只使用返回的精确 Action Name。`;
+  const details = {
+    requestedToolName,
+    requestedActionName,
+    availableActionNames: [...actions],
+    hint,
+  };
+  return {
+    ok: false,
+    data: details,
+    error: {
+      code: "action_not_found",
+      message: "未找到指定 action。",
+      recoverable: true,
+      hint,
+      details,
+    },
+  };
+}
+
 function describeTool(
   toolName: string,
   availableTools: ReadonlyMap<string, AvailableToolSnapshot>,
@@ -278,14 +363,14 @@ export function createAgentToolHelpTool(options: AgentToolHelpOptions): ToolCont
         if (tool) {
           return withActivation(tool, options.onToolDescribed?.(toolName));
         }
-        return { ok: false, data: null, error: { code: "tool_not_available", message: "指定工具当前未注册或已禁用。", recoverable: true } };
+        return toolNotAvailable(toolName, availableTools);
       }
 
       if (args.action === "list_actions") {
         const toolName = args.toolName?.trim() ?? "";
         const entry = findAvailableTool(toolName, availableTools);
         if (!entry) {
-          return { ok: false, data: null, error: { code: "tool_not_available", message: "指定工具当前未注册或已禁用。", recoverable: true } };
+          return toolNotAvailable(toolName, availableTools);
         }
         const actions = filterActions(entry.tool, entry.snapshot.actions);
         const activation = options.onToolDescribed?.(toolName);
@@ -304,17 +389,28 @@ export function createAgentToolHelpTool(options: AgentToolHelpOptions): ToolCont
         const actionName = args.actionName?.trim() ?? "";
         const entry = findAvailableTool(toolName, availableTools);
         if (!entry) {
-          return { ok: false, data: null, error: { code: "tool_not_available", message: "指定工具当前未注册或已禁用。", recoverable: true } };
+          return toolNotAvailable(toolName, availableTools);
         }
         const actions = filterActions(entry.tool, entry.snapshot.actions);
         if (actions.length === 0) {
-          return { ok: false, data: null, error: { code: "tool_has_no_actions", message: "指定工具不是 action 聚合工具，不能查询 action。", recoverable: true } };
+          const hint = `Tool ${toolName} 不是 action 聚合工具；请使用 agent_tool_help.describe_tool 查看其 input schema，不要继续猜 action。`;
+          return {
+            ok: false,
+            data: { requestedToolName: toolName, availableActionNames: [], hint },
+            error: {
+              code: "tool_has_no_actions",
+              message: "指定工具不是 action 聚合工具，不能查询 action。",
+              recoverable: true,
+              hint,
+              details: { requestedToolName: toolName, availableActionNames: [], hint },
+            },
+          };
         }
         const action = describeAction(toolName, actionName, availableTools);
         if (action) {
           return withActivation(action, options.onToolDescribed?.(toolName));
         }
-        return { ok: false, data: null, error: { code: "action_not_found", message: "未找到指定 action。", recoverable: true } };
+        return actionNotFound(toolName, actionName, actions.map((item) => item.name));
       }
 
       if (args.action === "list_custom_skills") {

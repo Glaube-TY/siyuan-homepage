@@ -4,7 +4,7 @@ import { GEMINI_CAPABILITIES } from "./provider-capabilities";
 import type { AgentChatRequest, AgentProviderEvent, ProviderAdapter } from "./provider-adapter";
 import { AgentProviderError } from "./provider-error";
 import { normalizeGeminiEndpoint } from "./provider-url-normalizer";
-import { BrowserAgentHttpTransport, type AgentHttpTransport } from "./agent-http-transport";
+import { BrowserAgentHttpTransport, ProviderStreamLivenessGuard, readProviderStreamWithIdleTimeout, type AgentHttpTransport } from "./agent-http-transport";
 import { normalizeProviderUsage } from "./provider-usage";
 
 export interface GeminiAdapterOptions {
@@ -119,7 +119,7 @@ export class GeminiAdapter implements ProviderAdapter {
         return;
       }
 
-      yield* this.parseSse(response.body);
+      yield* this.parseSse(response.body, request.abortSignal, request.modelStepIndex);
     } catch (err) {
       if (err instanceof AgentProviderError) throw err;
       if ((err as any)?.name === "AbortError") {
@@ -204,36 +204,49 @@ export class GeminiAdapter implements ProviderAdapter {
     yield { type: "done" };
   }
 
-  private async *parseSse(body: ReadableStream<Uint8Array> | null): AsyncGenerator<AgentProviderEvent> {
+  private async *parseSse(body: ReadableStream<Uint8Array> | null, abortSignal?: AbortSignal, modelStepIndex?: number): AsyncGenerator<AgentProviderEvent> {
     if (!body) return;
-    const reader = body.getReader();
     const decoder = new TextDecoder();
     let buffer = "";
     let callIndex = 0;
     let finishReason: string | undefined;
+    const liveness = new ProviderStreamLivenessGuard({
+      requestTimeoutMs: this.requestTimeoutMs,
+      signal: abortSignal,
+      providerId: this.id,
+      modelStepIndex,
+    });
 
-    try {
-      while (true) {
-        const { value, done } = await reader.read();
-        if (done) break;
+    streamLoop: for await (const value of readProviderStreamWithIdleTimeout(body, {
+      idleTimeoutMs: this.requestTimeoutMs,
+      signal: abortSignal,
+      providerId: this.id,
+      modelStepIndex,
+      livenessGuard: liveness,
+    })) {
         buffer += decoder.decode(value, { stream: true });
         let boundary = buffer.indexOf("\n\n");
         while (boundary >= 0) {
           const frame = buffer.slice(0, boundary);
           buffer = buffer.slice(boundary + 2);
+          let terminalSeen = false;
           for (const event of this.parseFrame(frame, callIndex)) {
+            liveness.markModelProgress(event);
             if (event.type === "tool_call_done") callIndex++;
             if (event.type === "done") {
               finishReason = event.finishReason ?? finishReason;
+              terminalSeen = true;
             } else {
               yield event;
             }
           }
+          if (terminalSeen) break streamLoop;
           boundary = buffer.indexOf("\n\n");
         }
-      }
-    } finally {
-      try { reader.cancel(); } catch { /* ignore */ }
+    }
+    if (abortSignal?.aborted) {
+      yield { type: "done", finishReason: "aborted" };
+      return;
     }
     yield { type: "done", finishReason };
   }

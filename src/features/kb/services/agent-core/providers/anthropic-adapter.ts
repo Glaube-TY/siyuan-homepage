@@ -4,7 +4,7 @@ import { ANTHROPIC_CAPABILITIES } from "./provider-capabilities";
 import type { AgentChatRequest, AgentProviderEvent, ProviderAdapter } from "./provider-adapter";
 import { AgentProviderError } from "./provider-error";
 import { normalizeAnthropicEndpoint } from "./provider-url-normalizer";
-import { BrowserAgentHttpTransport, type AgentHttpTransport } from "./agent-http-transport";
+import { BrowserAgentHttpTransport, ProviderStreamLivenessGuard, readProviderStreamWithIdleTimeout, type AgentHttpTransport } from "./agent-http-transport";
 import { normalizeProviderUsage } from "./provider-usage";
 
 export interface AnthropicAdapterOptions {
@@ -126,7 +126,7 @@ export class AnthropicAdapter implements ProviderAdapter {
         return;
       }
 
-      yield* this.parseSse(response.body);
+      yield* this.parseSse(response.body, request.abortSignal, request.modelStepIndex);
     } catch (err) {
       if (err instanceof AgentProviderError) throw err;
       if ((err as any)?.name === "AbortError") {
@@ -196,35 +196,49 @@ export class AnthropicAdapter implements ProviderAdapter {
     yield { type: "done" };
   }
 
-  private async *parseSse(body: ReadableStream<Uint8Array> | null): AsyncGenerator<AgentProviderEvent> {
+  private async *parseSse(body: ReadableStream<Uint8Array> | null, abortSignal?: AbortSignal, modelStepIndex?: number): AsyncGenerator<AgentProviderEvent> {
     if (!body) return;
-    const reader = body.getReader();
     const decoder = new TextDecoder();
     const toolState = new Map<number, AnthropicToolUseState>();
     let buffer = "";
     let finishReason: string | undefined;
+    const liveness = new ProviderStreamLivenessGuard({
+      requestTimeoutMs: this.requestTimeoutMs,
+      signal: abortSignal,
+      providerId: this.id,
+      modelStepIndex,
+    });
 
-    try {
-      while (true) {
-        const { value, done } = await reader.read();
-        if (done) break;
+    streamLoop: for await (const value of readProviderStreamWithIdleTimeout(body, {
+      idleTimeoutMs: this.requestTimeoutMs,
+      signal: abortSignal,
+      providerId: this.id,
+      modelStepIndex,
+      livenessGuard: liveness,
+    })) {
         buffer += decoder.decode(value, { stream: true });
         let boundary = buffer.indexOf("\n\n");
         while (boundary >= 0) {
           const frame = buffer.slice(0, boundary);
           buffer = buffer.slice(boundary + 2);
+          let terminalSeen = false;
           for (const event of this.parseFrame(frame, toolState)) {
+            liveness.markModelProgress(event);
             if (event.type === "done") {
               finishReason = event.finishReason ?? finishReason;
+              terminalSeen = true;
             } else {
               yield event;
             }
           }
+          if (terminalSeen) break streamLoop;
           boundary = buffer.indexOf("\n\n");
         }
-      }
-    } finally {
-      try { reader.cancel(); } catch { /* ignore */ }
+    }
+
+    if (abortSignal?.aborted) {
+      yield { type: "done", finishReason: "aborted" };
+      return;
     }
 
     // Emit remaining tool calls at end of stream
@@ -263,12 +277,14 @@ export class AnthropicAdapter implements ProviderAdapter {
             ? parsed.content_block as Record<string, unknown>
             : {};
           if (block.type === "tool_use" && typeof block.name === "string") {
-            toolState.set(index, {
+            const tool = {
               id: typeof block.id === "string" ? block.id : `anthropic_call_${index}`,
               name: block.name,
               input: "",
               index,
-            });
+            };
+            toolState.set(index, tool);
+            out.push({ type: "tool_call_delta", index, id: tool.id, name: tool.name, argumentsDelta: "" });
           }
         } else if (type === "content_block_delta") {
           const index = typeof parsed.index === "number" ? parsed.index : 0;
@@ -282,6 +298,7 @@ export class AnthropicAdapter implements ProviderAdapter {
             const existing = toolState.get(index);
             if (existing) {
               existing.input += delta.partial_json;
+              out.push({ type: "tool_call_delta", index, id: existing.id, name: existing.name, argumentsDelta: delta.partial_json });
             }
           }
         } else if (type === "message_delta") {
@@ -294,7 +311,7 @@ export class AnthropicAdapter implements ProviderAdapter {
             out.push({ type: "done", finishReason: delta.stop_reason });
           }
         } else if (type === "message_stop") {
-          // done signal will be emitted after the loop
+          out.push({ type: "done" });
         }
       } catch {
         // Skip unparseable frames
