@@ -34,6 +34,7 @@ import { toPersistedConversation, parseLegacyConversationRecord } from "../src/f
 import type { AgentMessage } from "../src/features/kb/services/agent-core/messages/agent-message";
 import type { NativeTool } from "../src/features/kb/services/agent-core/tools/native-tool";
 import { NativeToolRegistry, resolveNativeToolReadOnly } from "../src/features/kb/services/agent-core/tools/native-tool-registry";
+import { HOMEPAGE_COMPONENT_ROUTE_DEFINITIONS } from "../src/features/kb/services/agent-workbench/tools/homepage/homepage-agent-business-capabilities";
 
 function makeMessages(turnCount: number): ChatMessage[] {
   const messages: ChatMessage[] = [];
@@ -167,6 +168,405 @@ assert.ok(compactedWithSafety.filter((message) => message.role === "tool").every
     .flatMap((candidate) => candidate.toolCalls ?? []).map((call) => call.id);
   return calls.includes(message.toolCallId);
 }), "tool results must remain paired with assistant calls");
+
+assert.equal(HOMEPAGE_COMPONENT_ROUTE_DEFINITIONS.length, 36, "homepage route catalog size must match the production route set");
+assert.ok(
+  Math.max(...HOMEPAGE_COMPONENT_ROUTE_DEFINITIONS.map((route) => route.operations.length)) >= 20,
+  "homepage route fixture must include a 20-operation capability",
+);
+
+function homepageRouteWidget(
+  route: (typeof HOMEPAGE_COMPONENT_ROUTE_DEFINITIONS)[number],
+  index: number,
+  suffix = "",
+): Record<string, unknown> {
+  return {
+    widgetId: `homepage-widget-${route.prefix}${suffix}`,
+    resolutionStatus: "resolved",
+    type: route.type,
+    label: route.label,
+    index,
+    sectionId: `section-${route.prefix}`,
+    sectionName: route.label,
+    configRevision: 10 + index,
+    editable: true,
+    advancedRequired: false,
+    businessCapability: {
+      toolName: "homepage_components",
+      subtool: route.prefix,
+      operations: [...route.operations],
+      ...(route.kind === "reused" ? { reusedExistingTool: true } : {}),
+    },
+    warnings: [],
+  };
+}
+
+const homepageWidgets: Record<string, unknown>[] = [
+  ...HOMEPAGE_COMPONENT_ROUTE_DEFINITIONS.map((route, index) => homepageRouteWidget(route, index)),
+  ...HOMEPAGE_COMPONENT_ROUTE_DEFINITIONS.slice(0, 6).map((route, index) => homepageRouteWidget(route, 36 + index, `-duplicate-${index + 1}`)),
+  {
+    widgetId: "homepage-widget-missing-config",
+    resolutionStatus: "missing_config",
+    type: null,
+    label: "组件配置缺失",
+    index: 42,
+    sectionId: "section-missing",
+    sectionName: "缺失配置",
+    configRevision: null,
+    editable: false,
+    advancedRequired: false,
+    businessCapability: null,
+    warnings: ["组件配置文件缺失"],
+  },
+];
+assert.equal(homepageWidgets.length, 43);
+
+function homepageToolMessages(
+  toolCallId: string,
+  action: string,
+  result: Record<string, unknown>,
+  args: Record<string, unknown> = {},
+): AgentMessage[] {
+  return normalizeToolCallMessages([
+    {
+      role: "assistant",
+      content: "",
+      toolCalls: [{ id: toolCallId, name: "homepage_components", arguments: JSON.stringify({ action, args }) }],
+    },
+    {
+      role: "tool",
+      toolCallId,
+      name: "homepage_components",
+      content: JSON.stringify({
+        ok: true,
+        toolName: "homepage_components",
+        data: { action, result },
+      }),
+    },
+  ]);
+}
+
+function compactedToolPayload(messagesToRead: AgentMessage[], toolCallId: string, maxChars = 12_000): Record<string, any> {
+  const tool = messagesToRead.find((message) => message.role === "tool" && message.toolCallId === toolCallId);
+  assert.ok(tool && tool.role === "tool", `missing compacted tool result ${toolCallId}`);
+  let payload: Record<string, any> | undefined;
+  assert.doesNotThrow(() => {
+    payload = JSON.parse(tool.content) as Record<string, any>;
+  }, `compacted ${toolCallId} result must remain parseable JSON`);
+  assert.ok(payload && typeof payload === "object", `compacted ${toolCallId} result must be an object`);
+  assert.ok(tool.content.length <= maxChars, `compacted ${toolCallId} result must fit its character cap`);
+  assert.equal(tool.content.includes("...[compact:"), false, `compacted ${toolCallId} result must not contain a text truncation marker`);
+  return payload;
+}
+
+function homepageProjectedWidgets(payload: Record<string, any>): Record<string, any>[] {
+  assert.ok(Array.isArray(payload.widgets), "homepage compacted result must expose a widgets array");
+  if (!Array.isArray(payload.widgetFields)) return payload.widgets as Record<string, any>[];
+  assert.deepEqual(payload.widgetFields, ["widgetId", "type", "index", "sectionId", "configRevision", "subtool", "resolutionStatus"]);
+  return (payload.widgets as unknown[]).map((row) => {
+    assert.ok(Array.isArray(row), "row projection entries must be arrays");
+    return Object.fromEntries(payload.widgetFields.map((field: string, index: number) => [field, row[index]]));
+  });
+}
+
+function assertHomepageResolvedCoverage(
+  payload: Record<string, any>,
+  expected: Array<{ type: string; subtool: string; widgetId?: string }>,
+): Record<string, any>[] {
+  const projectedWidgets = homepageProjectedWidgets(payload);
+  const returnedTypes = new Set(
+    projectedWidgets
+      .filter((widget) => typeof widget.type === "string" && widget.type.length > 0)
+      .map((widget) => widget.type),
+  );
+  assert.equal(returnedTypes.size, expected.length);
+  for (const item of expected) {
+    const representative = projectedWidgets.find((widget) => widget.type === item.type);
+    assert.ok(representative, `homepage result must retain a representative for ${item.type}`);
+    assert.equal(representative.subtool, item.subtool);
+    if (item.widgetId) assert.equal(representative.widgetId, item.widgetId);
+    assert.equal(typeof representative.widgetId, "string");
+    assert.equal(typeof representative.index, "number");
+    assert.equal(typeof representative.sectionId, "string");
+    assert.equal(typeof representative.configRevision, "number");
+  }
+  return projectedWidgets;
+}
+
+const homepageReadCompactionOptions = {
+  resolveCallReadOnly: safetyResolver,
+  maxToolContentChars: 12_000,
+  maxToolResultTokens: 4_000,
+  maxObservationTokens: 12_000,
+};
+const homepageListResult = {
+  status: "ok",
+  surface: "desktop-homepage",
+  layoutRevision: 42,
+  widgets: homepageWidgets,
+  warnings: [],
+  padding: "x".repeat(40_000),
+};
+const homepageListMessages = homepageToolMessages("homepage-list", "instance.list", homepageListResult);
+const homepageListRuntime = compactAgentMessages(homepageListMessages, homepageReadCompactionOptions);
+const homepageListStorage = compactAgentSessionMessagesForStorage(homepageListMessages, homepageReadCompactionOptions);
+for (const [label, compacted] of [["runtime", homepageListRuntime], ["storage", homepageListStorage]] as const) {
+  const payload = compactedToolPayload(compacted, "homepage-list");
+  assert.equal(payload.action, "instance.list", `${label} must retain homepage route action`);
+  assert.equal(payload.status, "ok", `${label} must retain homepage list status`);
+  assert.equal(payload.surface, "desktop-homepage", `${label} must retain homepage surface`);
+  assert.equal(payload.layoutRevision, 42, `${label} must retain layout revision`);
+  assert.equal(payload.widgetCount, homepageWidgets.length, `${label} widgetCount must use widgets.length`);
+  assert.equal(payload.totalWidgetCount, homepageWidgets.length);
+  assert.equal(payload.distinctResolvedTypeCount, HOMEPAGE_COMPONENT_ROUTE_DEFINITIONS.length);
+  assert.equal(payload.resolvedWidgetCount, 42);
+  assert.equal(payload.degradedWidgetCount, 1);
+  const representativeMode = payload.coverageMode === "one_per_type";
+  assert.equal(payload.truncated, representativeMode);
+  assert.equal(payload.returnedWidgetCount, representativeMode ? 37 : 43);
+  assert.equal(payload.returnedDegradedWidgetCount, 1);
+  assert.equal(payload.omittedDuplicateWidgetCount, representativeMode ? 6 : 0);
+  assert.equal(payload.omittedDegradedWidgetCount, 0);
+  const projectedWidgets = assertHomepageResolvedCoverage(
+    payload,
+    HOMEPAGE_COMPONENT_ROUTE_DEFINITIONS.map((route) => ({ type: route.type, subtool: route.prefix })),
+  );
+  assert.equal(projectedWidgets.length, representativeMode ? 37 : 43);
+  const degradedRepresentative = projectedWidgets.find((widget) => widget.type === null);
+  assert.equal(degradedRepresentative?.widgetId, "homepage-widget-missing-config");
+  assert.equal(degradedRepresentative?.index, 42);
+  assert.equal(degradedRepresentative?.subtool, null);
+  assert.equal(degradedRepresentative?.resolutionStatus, "missing_config");
+  assert.equal("businessCapability" in projectedWidgets[0], false);
+  assert.equal("docIds" in payload, false, `${label} must not use generic docIds projection`);
+  assert.equal("blockIds" in payload, false, `${label} must not use generic blockIds projection`);
+  assert.equal("titles" in payload, false, `${label} must not use generic titles projection`);
+}
+
+function worstCaseHomepageField(prefix: string, index: number): string {
+  return `${prefix}-${String(index).padStart(2, "0")}-${"x".repeat(80)}`.slice(0, 64);
+}
+
+const worstCaseResolved = HOMEPAGE_COMPONENT_ROUTE_DEFINITIONS.map((_, index) => ({
+  type: worstCaseHomepageField("type", index),
+  subtool: worstCaseHomepageField("subtool", index),
+}));
+const worstCaseOperations = Array.from({ length: 20 }, (_, index) => `operation-${index}-${"o".repeat(100)}`);
+const worstCaseHomepageWidgets: Record<string, unknown>[] = [
+  ...worstCaseResolved.map((expected, index) => ({
+    widgetId: worstCaseHomepageField("widget", index),
+    resolutionStatus: "resolved",
+    type: expected.type,
+    label: "L".repeat(120),
+    index,
+    sectionId: worstCaseHomepageField("section", index),
+    sectionName: "S".repeat(120),
+    configRevision: 100 + index,
+    businessCapability: {
+      toolName: "homepage_components",
+      subtool: expected.subtool,
+      operations: [...worstCaseOperations],
+    },
+    warnings: ["W".repeat(120), "Q".repeat(120)],
+  })),
+  ...Array.from({ length: 8 }, (_, index) => ({
+    widgetId: worstCaseHomepageField("degraded-widget", index),
+    resolutionStatus: "missing_config",
+    type: null,
+    label: "D".repeat(120),
+    index: 36 + index,
+    sectionId: worstCaseHomepageField("degraded-section", index),
+    sectionName: "M".repeat(120),
+    configRevision: null,
+    businessCapability: null,
+    warnings: ["E".repeat(120), "F".repeat(120)],
+  })),
+];
+assert.equal(worstCaseHomepageWidgets.length, 44);
+assert.equal(worstCaseResolved.every((item) => item.type.length === 64 && item.subtool.length === 64), true);
+assert.equal(worstCaseOperations.length, 20);
+
+const worstCaseHomepageListMessages = homepageToolMessages("homepage-list-worst-case", "instance.list", {
+  status: "ok",
+  surface: "desktop-homepage",
+  layoutRevision: 42,
+  widgets: worstCaseHomepageWidgets,
+  warnings: ["P".repeat(120), "R".repeat(120), "T".repeat(120)],
+  padding: "x".repeat(40_000),
+});
+const worstCaseHomepageListRuntime = compactAgentMessages(worstCaseHomepageListMessages, homepageReadCompactionOptions);
+const worstCaseHomepageListStorage = compactAgentSessionMessagesForStorage(worstCaseHomepageListMessages, homepageReadCompactionOptions);
+const HOMEPAGE_LIST_INTERNAL_CHAR_BUDGET = 11_000;
+for (const [label, compacted] of [["runtime", worstCaseHomepageListRuntime], ["storage", worstCaseHomepageListStorage]] as const) {
+  const payload = compactedToolPayload(compacted, "homepage-list-worst-case", HOMEPAGE_LIST_INTERNAL_CHAR_BUDGET);
+  assert.equal(payload.totalWidgetCount, 44, `${label} worst case must retain total widget count`);
+  assert.equal(payload.distinctResolvedTypeCount, 36);
+  assert.equal(payload.degradedWidgetCount, 8);
+  assert.equal(payload.coverageMode, "one_per_type");
+  assert.equal(payload.truncated, true);
+  const projectedWidgets = assertHomepageResolvedCoverage(payload, worstCaseResolved);
+  const returnedDegradedWidgetCount = projectedWidgets.filter((widget) => widget.type === null).length;
+  assert.equal(payload.returnedWidgetCount, projectedWidgets.length);
+  assert.equal(payload.widgets.length, projectedWidgets.length);
+  assert.equal(payload.returnedDegradedWidgetCount, returnedDegradedWidgetCount);
+  assert.equal(payload.omittedDegradedWidgetCount, 8 - returnedDegradedWidgetCount);
+  assert.equal(payload.omittedDuplicateWidgetCount, 0);
+  assert.ok(returnedDegradedWidgetCount < 8, `${label} worst case must exercise degraded budget`);
+  assert.equal("businessCapability" in projectedWidgets[0], false, `${label} worst case must not repeat capability objects`);
+}
+
+const homepageGetAction = "weather.instance.get";
+const weatherRoute = HOMEPAGE_COMPONENT_ROUTE_DEFINITIONS.find((route) => route.type === "weather")!;
+const homepageGetResult = {
+  status: "ok",
+  surface: "desktop-homepage",
+  layoutRevision: 42,
+  widgetId: "homepage-widget-7",
+  resolutionStatus: "resolved",
+  type: "weather",
+  label: "天气",
+  configRevision: 16,
+  layoutIndex: 6,
+  sectionId: "section-weather",
+  sectionName: "天气区",
+  editableFields: ["cityName"],
+  readOnlyFields: ["type", "revision"],
+  unsupportedFields: ["业务数据", "凭据", "本地绝对路径"],
+  businessCapability: {
+    toolName: "homepage_components",
+    subtool: "weather",
+    operations: [...weatherRoute.operations],
+  },
+  safeConfig: { cityName: "上海", appearanceMode: "compact", details: "z".repeat(6_000) },
+  warnings: [],
+  padding: "x".repeat(40_000),
+};
+const homepageGetMessages = homepageToolMessages("homepage-get", homepageGetAction, homepageGetResult, {
+  widgetId: "homepage-widget-weather",
+  expectedType: "weather",
+});
+const homepageGetRuntime = compactAgentMessages(homepageGetMessages, homepageReadCompactionOptions);
+const homepageGetStorage = compactAgentSessionMessagesForStorage(homepageGetMessages, homepageReadCompactionOptions);
+for (const [label, compacted] of [["runtime", homepageGetRuntime], ["storage", homepageGetStorage]] as const) {
+  const payload = compactedToolPayload(compacted, "homepage-get");
+  assert.equal(payload.action, homepageGetAction, `${label} must retain route-specific action`);
+  assert.equal(payload.routeSubtool, "weather", `${label} must retain route subtool`);
+  assert.equal(payload.layoutRevision, 42, `${label} must retain get layout revision`);
+  assert.equal(payload.widgetId, "homepage-widget-7");
+  assert.equal(payload.type, "weather");
+  assert.equal(payload.layoutIndex, 6);
+  assert.equal(payload.configRevision, 16);
+  assert.equal(payload.sectionId, "section-weather");
+  assert.equal(payload.editableFieldsTotalCount, 1);
+  assert.equal(payload.editableFieldsReturnedCount, 1);
+  assert.equal(payload.editableFieldsOmittedCount, 0);
+  assert.equal(payload.readOnlyFieldsTotalCount, 2);
+  assert.equal(payload.readOnlyFieldsReturnedCount, 2);
+  assert.equal(payload.readOnlyFieldsOmittedCount, 0);
+  assert.equal(payload.unsupportedFieldsTotalCount, 3);
+  assert.equal(payload.unsupportedFieldsReturnedCount, 3);
+  assert.equal(payload.unsupportedFieldsOmittedCount, 0);
+  assert.equal(payload.fieldsTruncated, false);
+  assert.equal(payload.businessCapability.operationCount, weatherRoute.operations.length);
+  assert.equal("operations" in payload.businessCapability, false);
+  assert.equal(payload.safeConfigTruncated, true);
+  assert.equal("safeConfig" in payload, false);
+  assert.equal(typeof payload.safeConfigPreview, "string");
+  assert.ok(payload.safeConfigPreview.length > 0);
+}
+
+const maxGetIdentifier = (prefix: string): string => `${prefix}-${"i".repeat(200)}`;
+const maxGetField = (prefix: string, index: number): string => `${prefix}-${index}-${"f".repeat(220)}`;
+const maxGetFields = (prefix: string): string[] => Array.from({ length: 20 }, (_, index) => maxGetField(prefix, index));
+const maxGetOperations = Array.from({ length: 20 }, (_, index) => maxGetField("operation", index));
+const maxHomepageGetResult = {
+  status: "ok",
+  surface: "desktop-homepage",
+  layoutRevision: 42,
+  widgetId: maxGetIdentifier("widget"),
+  resolutionStatus: "resolved",
+  type: "weather",
+  label: "L".repeat(64),
+  configRevision: 16,
+  layoutIndex: 6,
+  sectionId: maxGetIdentifier("section"),
+  sectionName: "S".repeat(64),
+  editableFields: maxGetFields("editable"),
+  readOnlyFields: maxGetFields("readonly"),
+  unsupportedFields: maxGetFields("unsupported"),
+  businessCapability: {
+    toolName: "homepage_components",
+    subtool: "weather",
+    operations: maxGetOperations,
+    supported: true,
+    reason: "R".repeat(220),
+  },
+  safeConfig: { cityName: "上海", details: "z".repeat(10_000) },
+  warnings: ["W".repeat(220), "Q".repeat(220), "E".repeat(220)],
+  padding: "x".repeat(40_000),
+};
+const maxHomepageGetMessages = homepageToolMessages("homepage-get-max", homepageGetAction, maxHomepageGetResult, {
+  widgetId: "homepage-widget-weather-max",
+  expectedType: "weather",
+});
+const maxHomepageGetPayloads: Record<string, any>[] = [];
+for (const [label, compacted] of [
+  ["runtime", compactAgentMessages(maxHomepageGetMessages, homepageReadCompactionOptions)],
+  ["storage", compactAgentSessionMessagesForStorage(maxHomepageGetMessages, homepageReadCompactionOptions)],
+] as const) {
+  const payload = compactedToolPayload(compacted, "homepage-get-max", HOMEPAGE_LIST_INTERNAL_CHAR_BUDGET);
+  maxHomepageGetPayloads.push(payload);
+  assert.equal(payload.action, homepageGetAction, `${label} max get must retain route action`);
+  assert.equal(payload.routeSubtool, "weather", `${label} max get must retain route subtool`);
+  assert.equal(payload.layoutRevision, 42);
+  assert.equal(payload.widgetId.length, 64);
+  assert.equal(payload.type, "weather");
+  assert.equal(payload.label.length, 64);
+  assert.equal(payload.layoutIndex, 6);
+  assert.equal(payload.configRevision, 16);
+  assert.equal(payload.sectionId.length, 64);
+  assert.equal(payload.sectionName.length, 64);
+  assert.equal(payload.warnings.length, 3);
+  assert.equal(payload.warnings.every((warning: unknown) => typeof warning === "string" && warning.length <= 64), true);
+  assert.equal(payload.businessCapability.operationCount, 20);
+  assert.equal(payload.businessCapability.supported, true);
+  assert.equal("operations" in payload.businessCapability, false);
+  assert.equal(payload.safeConfigTruncated, true);
+  assert.equal("safeConfig" in payload, false);
+  assert.equal(typeof payload.safeConfigPreview, "string");
+  assert.ok(payload.safeConfigPreview.length > 0);
+  let omittedFieldCount = 0;
+  for (const field of ["editableFields", "readOnlyFields", "unsupportedFields"] as const) {
+    const values = payload[field];
+    assert.ok(Array.isArray(values));
+    assert.equal(payload[`${field}TotalCount`], 20);
+    assert.equal(payload[`${field}ReturnedCount`], values.length);
+    assert.equal(payload[`${field}OmittedCount`], 20 - values.length);
+    omittedFieldCount += payload[`${field}OmittedCount`];
+  }
+  assert.equal(payload.fieldsTruncated, omittedFieldCount > 0);
+}
+assert.deepEqual(maxHomepageGetPayloads[0], maxHomepageGetPayloads[1]);
+
+const malformedHomepageList = homepageToolMessages("homepage-list-malformed", "instance.list", {
+  status: "ok",
+  surface: "desktop-homepage",
+  layoutRevision: 42,
+  padding: "x".repeat(40_000),
+});
+const malformedRuntime = compactedToolPayload(
+  compactAgentMessages(malformedHomepageList, homepageReadCompactionOptions),
+  "homepage-list-malformed",
+);
+const malformedStorage = compactedToolPayload(
+  compactAgentSessionMessagesForStorage(malformedHomepageList, homepageReadCompactionOptions),
+  "homepage-list-malformed",
+);
+for (const [label, payload] of [["runtime", malformedRuntime], ["storage", malformedStorage]] as const) {
+  assert.equal(payload.status, "shape_error", `${label} malformed homepage list must be explicit`);
+  assert.equal(payload.widgetCount, null, `${label} malformed homepage list must not claim zero widgets`);
+  assert.match(payload.shapeWarning, /widgets/);
+}
 
 const manualUsage = estimateContextUsage({
   messages,

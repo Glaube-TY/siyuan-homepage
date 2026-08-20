@@ -80,11 +80,11 @@ function unwrapToolPayload(parsed: Record<string, any>): Record<string, any> {
   return asRecord(data.result ?? data.content ?? parsed.result ?? data ?? parsed);
 }
 
-function safeStrings(value: unknown, max = 5): string[] {
+function safeStrings(value: unknown, max = 5, maxChars = 120): string[] {
   const items = Array.isArray(value) ? value : (typeof value === "string" ? [value] : []);
   return [...new Set(items.filter((item): item is string => typeof item === "string" && item.trim().length > 0))]
     .slice(0, max)
-    .map((item) => sanitizeToolResultString(item, 120));
+    .map((item) => sanitizeToolResultString(item, maxChars));
 }
 
 function isWriteCall(
@@ -95,6 +95,271 @@ function isWriteCall(
   // Without the live registry, unknown calls stay on the safe write path so a
   // successful mutation is never discarded as an ordinary observation.
   return resolveCallReadOnly?.(message.name, rawArgs) !== true;
+}
+
+const MAX_HOMEPAGE_LIST_OUTPUT_CHARS = 11_000;
+const MAX_HOMEPAGE_DEGRADED_WIDGET_SUMMARIES = 8;
+const HOMEPAGE_WIDGET_FIELDS = ["widgetId", "type", "index", "sectionId", "configRevision", "subtool", "resolutionStatus"] as const;
+
+function safeOptionalString(value: unknown, maxChars = 120): string | null | undefined {
+  if (value === null) return null;
+  if (typeof value !== "string" || !value.trim()) return undefined;
+  return sanitizeToolResultString(value, maxChars);
+}
+
+function finiteNumberOrNull(value: unknown): number | null | undefined {
+  if (value === null) return null;
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+const MAX_SAFE_CONFIG_PREVIEW_CHARS = 4_000;
+
+function compactSafeConfig(value: unknown, previewChars = MAX_SAFE_CONFIG_PREVIEW_CHARS): Record<string, unknown> {
+  let serialized: string | undefined;
+  try {
+    serialized = JSON.stringify(value);
+  } catch {
+    return { safeConfigPreview: "[配置无法安全序列化]", safeConfigTruncated: true };
+  }
+  const safePreviewChars = Math.max(3, previewChars);
+  if (serialized === undefined || serialized.length > safePreviewChars) {
+    return {
+      safeConfigPreview: sanitizeToolResultString(
+        serialized?.slice(0, safePreviewChars) ?? "[配置不可用]",
+        safePreviewChars,
+      ),
+      safeConfigTruncated: true,
+    };
+  }
+  return { safeConfig: value, safeConfigTruncated: false };
+}
+
+function compactBusinessCapability(value: unknown): Record<string, unknown> | null {
+  const capability = asRecord(value);
+  if (Object.keys(capability).length === 0) return null;
+  const operations = Array.isArray(capability.operations) ? capability.operations : [];
+  return {
+    toolName: safeOptionalString(capability.toolName, 64) ?? null,
+    subtool: safeOptionalString(capability.subtool, 64) ?? null,
+    operationCount: operations.length,
+    ...(typeof capability.supported === "boolean" ? { supported: capability.supported } : {}),
+    ...(typeof capability.reusedExistingTool === "boolean" ? { reusedExistingTool: capability.reusedExistingTool } : {}),
+    ...(typeof capability.reason === "string" ? { reason: safeOptionalString(capability.reason, 120) } : {}),
+  };
+}
+
+function compactHomepageWidgetRow(value: unknown): unknown[] {
+  const widget = asRecord(value);
+  const capability = asRecord(widget.businessCapability);
+  return [
+    safeOptionalString(widget.widgetId, 64) ?? null,
+    safeOptionalString(widget.type, 64) ?? null,
+    finiteNumberOrNull(widget.index) ?? null,
+    safeOptionalString(widget.sectionId, 64) ?? null,
+    finiteNumberOrNull(widget.configRevision) ?? null,
+    safeOptionalString(capability.subtool, 64) ?? null,
+    widget.resolutionStatus === "resolved" ? null : safeOptionalString(widget.resolutionStatus) ?? null,
+  ];
+}
+
+function homepageWidgetResolvedType(value: unknown): string | undefined {
+  const widget = asRecord(value);
+  if (widget.resolutionStatus !== "resolved" || typeof widget.type !== "string" || !widget.type.trim()) {
+    return undefined;
+  }
+  return widget.type.trim();
+}
+
+function homepageListPayload(
+  base: Record<string, unknown>,
+  payload: Record<string, any>,
+  widgets: unknown[],
+  projectedWidgets: unknown[],
+  coverageMode: "all_instances" | "one_per_type",
+  distinctResolvedTypeCount: number,
+  degradedWidgetCount: number,
+  resolvedWidgetCount: number,
+  returnedDegradedWidgetCount: number,
+): Record<string, unknown> {
+  return {
+    ...base,
+    status: safeOptionalString(payload.status) ?? "ok",
+    surface: safeOptionalString(payload.surface),
+    layoutRevision: finiteNumberOrNull(payload.layoutRevision),
+    widgetCount: widgets.length,
+    totalWidgetCount: widgets.length,
+    distinctResolvedTypeCount,
+    resolvedWidgetCount,
+    degradedWidgetCount,
+    returnedWidgetCount: projectedWidgets.length,
+    returnedDegradedWidgetCount,
+    omittedDuplicateWidgetCount: coverageMode === "one_per_type" ? Math.max(0, resolvedWidgetCount - distinctResolvedTypeCount) : 0,
+    omittedDegradedWidgetCount: coverageMode === "one_per_type" ? Math.max(0, degradedWidgetCount - returnedDegradedWidgetCount) : 0,
+    truncated: projectedWidgets.length < widgets.length,
+    coverageMode,
+    widgetFields: [...HOMEPAGE_WIDGET_FIELDS],
+    widgets: projectedWidgets,
+    ...(coverageMode === "all_instances" ? { warnings: safeStrings(payload.warnings, 3) } : {}),
+    note: coverageMode === "one_per_type"
+      ? "Homepage component representatives use widgetFields order."
+      : "Homepage component list result compacted for storage.",
+  };
+}
+
+function compactHomepageInstanceList(
+  base: Record<string, unknown>,
+  payload: Record<string, any>,
+): string {
+  const widgets = Array.isArray(payload.widgets) ? payload.widgets : undefined;
+  if (!widgets) {
+    return JSON.stringify({
+      ...base,
+      status: "shape_error",
+      surface: safeOptionalString(payload.surface),
+      layoutRevision: finiteNumberOrNull(payload.layoutRevision),
+      widgetCount: null,
+      returnedWidgetCount: null,
+      truncated: false,
+      shapeWarning: "homepage_components.instance.list 返回缺少 widgets 数组，无法判定主页实例数量。",
+      note: "Homepage component list shape error; widgetCount is unknown.",
+    });
+  }
+
+  const records = widgets.map(asRecord);
+  const resolvedTypes = new Set(records.map(homepageWidgetResolvedType).filter((type): type is string => !!type));
+  const resolvedWidgetCount = records.filter((widget) => homepageWidgetResolvedType(widget) !== undefined).length;
+  const degradedWidgetCount = widgets.length - resolvedWidgetCount;
+  const allContent = JSON.stringify(homepageListPayload(
+    base,
+    payload,
+    widgets,
+    records.map(compactHomepageWidgetRow),
+    "all_instances",
+    resolvedTypes.size,
+    degradedWidgetCount,
+    resolvedWidgetCount,
+    degradedWidgetCount,
+  ));
+  if (allContent.length <= MAX_HOMEPAGE_LIST_OUTPUT_CHARS) return allContent;
+
+  const seenTypes = new Set<string>();
+  const resolvedRepresentatives: Array<{ order: number; row: unknown[] }> = [];
+  const degradedCandidates: Array<{ order: number; row: unknown[] }> = [];
+  records.forEach((widget, order) => {
+    const layoutOrder = finiteNumberOrNull(widget.index) ?? order;
+    const type = homepageWidgetResolvedType(widget);
+    if (type) {
+      if (seenTypes.has(type)) return;
+      seenTypes.add(type);
+      resolvedRepresentatives.push({ order: layoutOrder, row: compactHomepageWidgetRow(widget) });
+      return;
+    }
+    if (degradedCandidates.length < MAX_HOMEPAGE_DEGRADED_WIDGET_SUMMARIES) {
+      degradedCandidates.push({ order: layoutOrder, row: compactHomepageWidgetRow(widget) });
+    }
+  });
+  const serializeRepresentatives = (projectedWidgets: unknown[], returnedDegradedWidgetCount: number) => JSON.stringify(homepageListPayload(
+    base,
+    payload,
+    widgets,
+    projectedWidgets,
+    "one_per_type",
+    resolvedTypes.size,
+    degradedWidgetCount,
+    resolvedWidgetCount,
+    returnedDegradedWidgetCount,
+  ));
+  let returnedDegradedWidgetCount = 0;
+  let acceptedRepresentatives = resolvedRepresentatives;
+  let representativeContent = serializeRepresentatives(
+    acceptedRepresentatives.map(({ row }) => row),
+    returnedDegradedWidgetCount,
+  );
+  for (const candidate of degradedCandidates) {
+    const nextRepresentatives = [...acceptedRepresentatives, candidate].sort((left, right) => left.order - right.order);
+    const candidateContent = serializeRepresentatives(
+      nextRepresentatives.map(({ row }) => row),
+      returnedDegradedWidgetCount + 1,
+    );
+    if (candidateContent.length > MAX_HOMEPAGE_LIST_OUTPUT_CHARS) continue;
+    acceptedRepresentatives = nextRepresentatives;
+    returnedDegradedWidgetCount += 1;
+    representativeContent = candidateContent;
+  }
+  return representativeContent;
+}
+
+function compactHomepageInstanceGet(
+  base: Record<string, unknown>,
+  payload: Record<string, any>,
+  action: string,
+): string {
+  const routeSubtool = action.endsWith(".instance.get")
+    ? action.slice(0, -".instance.get".length)
+    : undefined;
+  const sourceFieldItems = (value: unknown): string[] => {
+    const items = Array.isArray(value) ? value : (typeof value === "string" ? [value] : []);
+    return items.filter((item): item is string => typeof item === "string" && item.trim().length > 0);
+  };
+  const build = (fieldLimit: number, fieldChars: number, previewChars: number): string => {
+    const fieldSummary = (value: unknown) => {
+      const totalCount = sourceFieldItems(value).length;
+      const items = safeStrings(value, fieldLimit, fieldChars);
+      return {
+        items,
+        totalCount,
+        returnedCount: items.length,
+        omittedCount: Math.max(0, totalCount - items.length),
+      };
+    };
+    const editable = fieldSummary(payload.editableFields);
+    const readOnly = fieldSummary(payload.readOnlyFields);
+    const unsupported = fieldSummary(payload.unsupportedFields);
+    return JSON.stringify({
+      ...base,
+      ...(routeSubtool ? { routeSubtool: safeOptionalString(routeSubtool, 64) } : {}),
+      status: safeOptionalString(payload.status, 64) ?? "ok",
+      surface: safeOptionalString(payload.surface, 64),
+      layoutRevision: finiteNumberOrNull(payload.layoutRevision),
+      widgetId: safeOptionalString(payload.widgetId, 64),
+      resolutionStatus: safeOptionalString(payload.resolutionStatus, 64),
+      type: safeOptionalString(payload.type, 64),
+      label: safeOptionalString(payload.label, 64),
+      configRevision: finiteNumberOrNull(payload.configRevision),
+      layoutIndex: finiteNumberOrNull(payload.layoutIndex),
+      sectionId: safeOptionalString(payload.sectionId, 64),
+      sectionName: safeOptionalString(payload.sectionName, 64),
+      editableFields: editable.items,
+      editableFieldsTotalCount: editable.totalCount,
+      editableFieldsReturnedCount: editable.returnedCount,
+      editableFieldsOmittedCount: editable.omittedCount,
+      readOnlyFields: readOnly.items,
+      readOnlyFieldsTotalCount: readOnly.totalCount,
+      readOnlyFieldsReturnedCount: readOnly.returnedCount,
+      readOnlyFieldsOmittedCount: readOnly.omittedCount,
+      unsupportedFields: unsupported.items,
+      unsupportedFieldsTotalCount: unsupported.totalCount,
+      unsupportedFieldsReturnedCount: unsupported.returnedCount,
+      unsupportedFieldsOmittedCount: unsupported.omittedCount,
+      fieldsTruncated: editable.omittedCount > 0 || readOnly.omittedCount > 0 || unsupported.omittedCount > 0,
+      businessCapability: compactBusinessCapability(payload.businessCapability),
+      ...compactSafeConfig(payload.safeConfig ?? null, previewChars),
+      warnings: safeStrings(payload.warnings, 3, 64),
+      note: "Homepage component instance result compacted for storage.",
+    });
+  };
+
+  let fieldLimit = 20;
+  let fieldChars = 64;
+  let previewChars = MAX_SAFE_CONFIG_PREVIEW_CHARS;
+  let result = build(fieldLimit, fieldChars, previewChars);
+  while (result.length > MAX_HOMEPAGE_LIST_OUTPUT_CHARS && (previewChars > 3 || fieldLimit > 0)) {
+    if (previewChars > 256) previewChars = Math.max(256, Math.floor(previewChars / 2));
+    else if (fieldLimit > 0) fieldLimit -= 1;
+    else previewChars = Math.max(3, Math.floor(previewChars / 2));
+    result = build(fieldLimit, fieldChars, previewChars);
+  }
+  return result;
 }
 
 function actionAwareStorageContent(
@@ -147,6 +412,17 @@ function actionAwareStorageContent(
       verificationStatus: payload.verificationStatus ?? asRecord(payload.verification).status,
       note: "Write result compacted for storage.",
     });
+  }
+
+  if (message.name === "homepage_components") {
+    const action = operation.action;
+    const nestedAction = operation.innerAction;
+    if (action === "instance.list" || nestedAction === "instance.list") {
+      return compactHomepageInstanceList(base, payload);
+    }
+    if (action === "instance.get" || action.endsWith(".instance.get") || nestedAction === "instance.get") {
+      return compactHomepageInstanceGet(base, payload, action);
+    }
   }
 
   const items = Array.isArray(payload.items)
