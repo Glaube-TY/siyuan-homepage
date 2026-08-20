@@ -6,6 +6,10 @@ import {
   readDeviceViewSettings,
   updateDeviceViewSettings,
 } from "@/homepage/deviceView/deviceViewStorage";
+import {
+  dispatchHomepageAgentStorageChanged,
+  type HomepageAgentStorageChangeReason,
+} from "@/homepage/deviceView/deviceViewEvents";
 import type { DeviceViewContext } from "@/homepage/deviceView/deviceViewTypes";
 import { normalizeHomepageAppearanceConfig } from "@/homepage/theme/runtime/appearanceConfig";
 import { homepageThemeRegistry } from "@/homepage/theme/registry/themeRegistry";
@@ -101,12 +105,16 @@ export class HomepageSettingsService {
     }
   }
 
-  private async readView() {
+  protected async readViewSettings(context: DeviceViewContext) {
+    return readDeviceViewSettings(context);
+  }
+
+  protected async readView() {
     const plugin = this.deps.getPlugin();
     const context = getCurrentDeviceViewContext(plugin, "desktop-homepage");
     try {
       await ensureCurrentDeviceViewReady(context);
-      const view = await readDeviceViewSettings(context);
+      const view = await this.readViewSettings(context);
       if (!view) throw new Error("桌面主页 view.json 缺失");
       return { context, view };
     } catch (error) {
@@ -149,7 +157,7 @@ export class HomepageSettingsService {
   }
 
   /** view.json 变更提交：内置 revision CAS 与写后校验，冲突映射为 view_revision_conflict。 */
-  private async commitViewMutation(
+  protected async commitViewMutation(
     context: DeviceViewContext,
     mutation: (config: Record<string, unknown>) => Record<string, unknown>,
     expectedViewRevision: number,
@@ -207,7 +215,6 @@ export class HomepageSettingsService {
         summary: "主页设置未变化，无需写入",
       };
     }
-    const themeOnly = Object.keys(normalized).every((key) => key === "preferredThemeId");
     await this.commitViewMutation(context, (config) => {
       const next = { ...config };
       for (const [key, value] of Object.entries(normalized)) {
@@ -219,7 +226,7 @@ export class HomepageSettingsService {
       }
       return next;
     }, expectedViewRevision);
-    const verified = await readDeviceViewSettings(context);
+    const verified = await this.readViewSettings(context);
     if (!verified) throw new HomepageSettingsServiceError("write_not_committed", "主页设置写后验证失败。", false);
     for (const [key, value] of Object.entries(normalized)) {
       const actual = key === "preferredThemeId"
@@ -229,7 +236,7 @@ export class HomepageSettingsService {
         throw new HomepageSettingsServiceError("write_not_committed", `主页设置字段 ${key} 写后验证失败。`, false);
       }
     }
-    this.dispatchSettingsSaved(themeOnly);
+    this.dispatchAgentStorageChanged("settings-updated", verified.revision);
     return {
       status: "ok",
       surface: "desktop-homepage",
@@ -279,12 +286,12 @@ export class HomepageSettingsService {
       };
     }
     await this.commitViewMutation(context, (config) => ({ ...config, buttonsList: next }), expectedViewRevision);
-    const verified = await readDeviceViewSettings(context);
+    const verified = await this.readViewSettings(context);
     if (!verified) throw new HomepageSettingsServiceError("write_not_committed", "快捷按钮写后验证失败。", false);
     if (JSON.stringify(normalizeButtons(verified.config.buttonsList as HomepageButtonRow[] ?? [])) !== JSON.stringify(next)) {
       throw new HomepageSettingsServiceError("write_not_committed", "快捷按钮写后验证失败。", false);
     }
-    this.dispatchSettingsSaved(false);
+    this.dispatchAgentStorageChanged("buttons-updated", verified.revision);
     return {
       status: "ok",
       surface: "desktop-homepage",
@@ -294,11 +301,17 @@ export class HomepageSettingsService {
     };
   }
 
-  /** 通知已打开的主页热应用本次设置变更；themeOnly 走轻量外观刷新路径。 */
-  private dispatchSettingsSaved(themeOnly: boolean): void {
+  /** 通知已打开的主页外部存储已变更（走 explicit-storage-refresh，不触发普通 UI 的 settings saved）。 */
+  private dispatchAgentStorageChanged(
+    reason: HomepageAgentStorageChangeReason,
+    viewRevision: number,
+  ): void {
     if (typeof window === "undefined") return;
-    window.dispatchEvent(new CustomEvent("homepage-settings-saved", {
-      ...(themeOnly ? { detail: { appearanceOnly: true } } : {}),
-    }));
+    dispatchHomepageAgentStorageChanged({
+      source: "agent",
+      surface: "desktop-homepage",
+      reason,
+      viewRevision,
+    });
   }
 }

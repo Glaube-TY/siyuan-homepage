@@ -34,7 +34,9 @@ export type HomepageAgentStorageChangeReason =
     | "layout-updated"
     | "sections-updated"
     | "active-section-updated"
-    | "unresolved-cleaned";
+    | "unresolved-cleaned"
+    | "settings-updated"
+    | "buttons-updated";
 
 export interface HomepageAgentStorageChangedDetail {
     source: "agent";

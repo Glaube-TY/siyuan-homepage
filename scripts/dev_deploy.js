@@ -127,6 +127,24 @@ function validateExistingTarget(targetDir, pluginName) {
     }
 }
 
+function copyFileWithRetry(sourcePath, targetPath, maxRetries = 6, initialDelayMs = 60) {
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+        try {
+            fs.copyFileSync(sourcePath, targetPath);
+            return;
+        } catch (error) {
+            const isLockError = error?.code === "EBUSY" || error?.code === "EPERM" || error?.code === "EACCES";
+            if (isLockError && attempt < maxRetries) {
+                const delay = initialDelayMs * Math.pow(1.5, attempt);
+                const start = Date.now();
+                while (Date.now() - start < delay) {}
+                continue;
+            }
+            throw error;
+        }
+    }
+}
+
 /**
  * Mirrors generated files into a real directory. Only changed file contents
  * are copied, which prevents unchanged static assets from repeatedly entering
@@ -175,7 +193,7 @@ export function mirrorGeneratedDirectory(sourceDir, targetDir, {
             stats.unchanged += 1;
             continue;
         }
-        fs.copyFileSync(sourcePath, targetPath);
+        copyFileWithRetry(sourcePath, targetPath);
         stats.copied += 1;
     }
 

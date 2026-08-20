@@ -231,14 +231,28 @@ export async function executeSiyuanRiffCard(args: SiyuanRiffCardInput): Promise<
         cardID: requireString(args.cardID, "cardID"),
       });
       break;
-    case "reset":
+    case "reset": {
+      const resetType = requireString(args.resetType, "resetType");
+      const targetId = requireString(args.id, "id");
+      let resolvedDeckID = args.deckID?.trim();
+      if (resetType === "deck") {
+        if (resolvedDeckID && resolvedDeckID !== targetId) {
+          throw new Error(`[invalid_args] resetType="deck" 时 deckID 与 id 必须一致（收到 id: ${targetId}, deckID: ${resolvedDeckID}）。`);
+        }
+        resolvedDeckID = targetId;
+      } else if (resetType === "tree" || resetType === "notebook") {
+        if (!resolvedDeckID) {
+          throw new Error(`[invalid_args] resetType="${resetType}" 需要显式指定 deckID（通常应为 Kernel 内置/目标卡包 ID）。`);
+        }
+      }
       data = await resetRiffCards({
-        type: requireString(args.resetType, "resetType"),
-        id: requireString(args.id, "id"),
-        deckID: args.deckID ?? "",
+        type: resetType,
+        id: targetId,
+        deckID: resolvedDeckID ?? "",
         ...(args.blockIDs?.length ? { blockIDs: args.blockIDs } : {}),
       });
       break;
+    }
     case "set_due_time": {
       if (!args.cardDues || args.cardDues.length === 0) {
         throw new Error("[invalid_args] cardDues 不能为空。");
@@ -297,9 +311,11 @@ export async function executeSiyuanRiffCard(args: SiyuanRiffCardInput): Promise<
 
       const warning = verification
         ? verification.appliedCount < normalizedCardDues.length
-          ? "内核返回 ok 但 due 未全部生效；该 cardID 可能不在当前接口可修改范围内，或当前思源版本对该卡包不支持 batchSetRiffCardsDueTime。"
+          ? verification.appliedCount === 0
+            ? `内核返回 ok 但 due 未生效（0/${normalizedCardDues.length}）。当前 SiYuan Kernel 的 batchSetRiffCardsDueTime 仅在 builtin deck 中按 riffCardID 修改 Due，对自定义 Deck 中的 cardID 会静默跳过；如果目标卡来自 createRiffDeck 创建的自定义 Deck，这是当前 Kernel API 的已知能力边界，不应反复重试相同 set_due_time。请以回读结果为准。`
+            : `内核返回 ok 但 due 仅部分生效（${verification.appliedCount}/${normalizedCardDues.length}）；部分 cardID 可能不在 builtin deck 范围内或不存在，不应反复重试相同 set_due_time。请以回读结果为准。`
           : undefined
-        : "未能完成回读验证；请用 list_cards/get_card_info 手动确认 due 是否变化。";
+        : "未能完成回读验证；请用 list_cards/get_card_info 确认 due 是否变化。";
       data = {
         kernelPayloadShape: "cardDues[].due",
         normalizedCardDues,

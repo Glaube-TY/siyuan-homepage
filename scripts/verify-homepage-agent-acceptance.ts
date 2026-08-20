@@ -8,6 +8,8 @@ import { buildToolPermissionPreview } from "../src/features/kb/services/agent-co
 import { HOMEPAGE_AGENT_WIDGET_CATALOG } from "../src/features/kb/services/agent-workbench/tools/homepage/homepage-agent-widget-catalog";
 import { HOMEPAGE_COMPONENT_INSTANCE_ACTIONS, HOMEPAGE_COMPONENT_ROUTE_DEFINITIONS } from "../src/features/kb/services/agent-workbench/tools/homepage/homepage-agent-business-capabilities";
 import { HomepageAgentService, HomepageAgentServiceError, providerBusinessCapability } from "../src/features/kb/services/agent-workbench/tools/homepage/homepage-agent-service";
+import { HomepageSettingsService } from "../src/features/kb/services/agent-workbench/tools/homepage/homepage-settings-service";
+import { HOMEPAGE_AGENT_STORAGE_CHANGED_EVENT, type HomepageAgentStorageChangeReason, type HomepageAgentStorageChangedDetail } from "../src/homepage/deviceView/deviceViewEvents";
 import { normalizeButtonOps, normalizeSettingsPatch, buildButtonsOpsJsonSchema, validateTitleIconEmoji } from "../src/features/kb/services/agent-workbench/tools/homepage/homepage-settings-whitelist";
 import { AGGREGATE_TOOL_CATALOG } from "../src/features/kb/services/agent-workbench/tools/aggregate/aggregate-tool-metadata";
 import { ToolRegistry } from "../src/features/kb/services/agent-workbench/registries/tool-registry";
@@ -45,7 +47,7 @@ function makeGateTool(actions: Record<string, { readOnly?: boolean }>): { tool: 
 
 const gatePolicy = (tools: Record<string, { remoteAllowed: boolean; writeAction?: "ask" | "deny" }>) => ({
   tools,
-  defaultWriteAction: "ask",
+  defaultWriteAction: "ask" as const,
   readOnlyDefaultAllowed: true,
 });
 
@@ -173,7 +175,7 @@ function actionEnum(registry: ToolRegistry): string[] {
   };
   const deniedPreflight = await dispatch({ action: "quick_note.write" });
   assert.equal(deniedPreflight.ok, false);
-  assert.equal(deniedPreflight.error?.code, "robot_subtool_denied", "被拒 action 必须在确认前由 preflight 拒绝");
+  assert.equal("error" in deniedPreflight ? deniedPreflight.error?.code : undefined, "robot_subtool_denied", "被拒 action 必须在确认前由 preflight 拒绝");
   assert.equal(requestConfirmationCalls, 0, "被拒 action 不得触发 requestConfirmation");
   assert.equal(preflightCount(), 0, "被拒 action 不得进入原始 preflight");
   const providerActions = (gate.parameters.properties?.action as { enum?: string[] })?.enum ?? [];
@@ -508,6 +510,131 @@ function actionEnum(registry: ToolRegistry): string[] {
   assert.equal(opsSchema.items.properties.op.enum.includes("add"), false, "ops schema 不得包含 add");
   const metadataOps = (AGGREGATE_TOOL_CATALOG.find((tool) => tool.name === "homepage_manage")?.actions.find((action) => action.name === "update_buttons")?.argsSchema) as { properties: { ops: { items: { properties: { op: { enum: string[] } } } } } };
   assert.equal(metadataOps.properties.ops.items.properties.op.enum.includes("add"), false, "metadata schema 不得包含 add");
+}
+
+// ── HomepageSettingsService Agent 外部存储刷新事件语义断言（行为级）──
+{
+  const testReasons: HomepageAgentStorageChangeReason[] = [
+    "widget-added", "widget-updated", "widget-moved", "widget-removed",
+    "layout-updated", "sections-updated", "active-section-updated", "unresolved-cleaned",
+    "settings-updated", "buttons-updated",
+  ];
+  assert.equal(testReasons.includes("settings-updated"), true, "Contract 必须包含 settings-updated");
+  assert.equal(testReasons.includes("buttons-updated"), true, "Contract 必须包含 buttons-updated");
+
+  const dispatchedEvents: Array<{ type: string; detail: unknown }> = [];
+  const prevWindow = (globalThis as any).window;
+  const prevCustomEvent = (globalThis as any).CustomEvent;
+
+  (globalThis as any).CustomEvent = class MockCustomEvent {
+    public detail: unknown;
+    constructor(public type: string, init?: { detail?: unknown }) {
+      this.detail = init?.detail;
+    }
+  };
+  (globalThis as any).window = {
+    dispatchEvent: (event: { type: string; detail: unknown }) => {
+      dispatchedEvents.push({ type: event.type, detail: event.detail });
+      return true;
+    },
+  };
+
+  try {
+    class AcceptanceHomepageSettingsService extends HomepageSettingsService {
+      public fakeView = {
+        revision: 1,
+        config: {
+          TitleIconEmoji: "1f3e0",
+          pageTitle: "思源主页",
+          buttonsList: [
+            { id: 1, label: "搜索", checked: true, order: 0, action: "search" },
+            { id: 2, label: "我的链接", checked: true, order: 1 },
+          ],
+          homepageAppearance: { preferredThemeId: "classic" },
+        } as Record<string, unknown>,
+      };
+
+      protected override async readViewSettings(_context: any) {
+        return {
+          revision: this.fakeView.revision,
+          config: JSON.parse(JSON.stringify(this.fakeView.config)),
+        } as any;
+      }
+
+      protected override async readView() {
+        return {
+          context: { scopeId: "acceptance", surface: "desktop-homepage", isMobileShared: false } as any,
+          view: {
+            revision: this.fakeView.revision,
+            config: JSON.parse(JSON.stringify(this.fakeView.config)),
+          } as any,
+        };
+      }
+
+      protected override async commitViewMutation(
+        _context: any,
+        mutation: (config: Record<string, unknown>) => Record<string, unknown>,
+        expectedViewRevision: number,
+      ) {
+        if (this.fakeView.revision !== expectedViewRevision) {
+          throw new Error("并发更新冲突");
+        }
+        this.fakeView.config = mutation(this.fakeView.config);
+        this.fakeView.revision += 1;
+      }
+    }
+
+    const settingsService = new AcceptanceHomepageSettingsService({
+      getPlugin: () => ({ isMobile: false }) as any,
+    });
+
+    // 1. settings 有变化写入：派发 homepage-agent-storage-changed，不派发 homepage-settings-saved
+    dispatchedEvents.length = 0;
+    const settingsUpdateResult = await settingsService.updateSettings({ TitleIconEmoji: "1f600" }, 1);
+    assert.equal(settingsUpdateResult.changed, true);
+    assert.equal(settingsUpdateResult.viewRevision, 2);
+    assert.equal(dispatchedEvents.length, 1, "Agent settings 写入必须派发且仅派发 1 个事件");
+    assert.equal(dispatchedEvents[0]?.type, HOMEPAGE_AGENT_STORAGE_CHANGED_EVENT, "必须使用 homepage-agent-storage-changed 通道");
+    assert.deepEqual(dispatchedEvents[0]?.detail, {
+      source: "agent",
+      surface: "desktop-homepage",
+      reason: "settings-updated",
+      viewRevision: 2,
+    });
+    assert.equal(dispatchedEvents.some((e) => e.type === "homepage-settings-saved"), false, "禁止派发普通 UI homepage-settings-saved 事件");
+
+    // 2. settings 无变化写入 (changed=false)：零写入、零派发
+    dispatchedEvents.length = 0;
+    const settingsUnchangedResult = await settingsService.updateSettings({ TitleIconEmoji: "1f600" }, 2);
+    assert.equal(settingsUnchangedResult.changed, false);
+    assert.equal(settingsUnchangedResult.viewRevision, 2);
+    assert.equal(dispatchedEvents.length, 0, "changed=false 时不得派发外部刷新事件");
+
+    // 3. buttons 有变化写入：派发 homepage-agent-storage-changed，不派发 homepage-settings-saved
+    dispatchedEvents.length = 0;
+    const buttonsUpdateResult = await settingsService.updateButtons([{ op: "toggle", id: 1, checked: false }], 2);
+    assert.equal(buttonsUpdateResult.changed, true);
+    assert.equal(buttonsUpdateResult.viewRevision, 3);
+    assert.equal(dispatchedEvents.length, 1, "Agent buttons 写入必须派发且仅派发 1 个事件");
+    assert.equal(dispatchedEvents[0]?.type, HOMEPAGE_AGENT_STORAGE_CHANGED_EVENT, "必须使用 homepage-agent-storage-changed 通道");
+    assert.deepEqual(dispatchedEvents[0]?.detail, {
+      source: "agent",
+      surface: "desktop-homepage",
+      reason: "buttons-updated",
+      viewRevision: 3,
+    });
+    assert.equal(dispatchedEvents.some((e) => e.type === "homepage-settings-saved"), false, "禁止派发普通 UI homepage-settings-saved 事件");
+
+    // 4. buttons 无变化写入 (changed=false)：零写入、零派发
+    dispatchedEvents.length = 0;
+    const buttonsUnchangedResult = await settingsService.updateButtons([{ op: "toggle", id: 1, checked: false }], 3);
+    assert.equal(buttonsUnchangedResult.changed, false);
+    assert.equal(buttonsUnchangedResult.viewRevision, 3);
+    assert.equal(dispatchedEvents.length, 0, "changed=false 时不得派发外部刷新事件");
+  } finally {
+    (globalThis as any).window = prevWindow;
+    (globalThis as any).CustomEvent = prevCustomEvent;
+  }
 }
 
 console.log("主页 Agent 工具验收断言通过。");

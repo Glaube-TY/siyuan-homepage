@@ -1179,7 +1179,14 @@ function buildSiyuanActionPreview(tool: NativeTool, args: Record<string, unknown
     } else if (riffAction === "skip") {
       impactLines.push(`跳过闪卡 ${args.cardID ? String(args.cardID).slice(0, 20) : "?"}，Deck ${args.deckID ? String(args.deckID).slice(0, 20) : "?"}。`);
     } else if (riffAction === "reset") {
-      impactLines.push(`重置闪卡：${args.resetType ?? "?"} ${args.id ?? "?"}，Deck ${args.deckID ? String(args.deckID).slice(0, 20) : "?"}，共 ${Array.isArray(args.blockIDs) ? (args.blockIDs as unknown[]).length : "0"} 张。`);
+      const resetType = typeof args.resetType === "string" ? args.resetType : "?";
+      const id = typeof args.id === "string" ? args.id : "?";
+      const deckID = resetType === "deck"
+        ? (typeof args.id === "string" && args.id ? args.id : (typeof args.deckID === "string" && args.deckID ? args.deckID : "?"))
+        : (typeof args.deckID === "string" && args.deckID ? args.deckID : "?");
+      const blockCount = Array.isArray(args.blockIDs) ? (args.blockIDs as unknown[]).length : 0;
+      const blockSummary = blockCount > 0 ? `共 ${blockCount} 张卡片` : "重置该目标全部卡片";
+      impactLines.push(`重置闪卡：类型 ${resetType}，目标 ID ${id.slice(0, 20)}，Deck ${deckID.slice(0, 20)}，${blockSummary}。`);
     } else if (riffAction === "set_due_time") {
       const cardDues = Array.isArray(args.cardDues) ? args.cardDues as Record<string, unknown>[] : [];
       const previewItems = cardDues.slice(0, 3).map((cd) => `${typeof cd.id === "string" ? cd.id.slice(0, 12) : "?"}=${cd.due ?? "?"}`).join("、");

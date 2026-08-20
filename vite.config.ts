@@ -1,7 +1,7 @@
 import { resolve } from "path"
 import fs from "node:fs"
 import { builtinModules } from "module"
-import { defineConfig } from "vite"
+import { defineConfig, type UserConfig } from "vite"
 import { viteStaticCopy } from "vite-plugin-static-copy"
 import livereload from "rollup-plugin-livereload"
 import { svelte, vitePreprocess } from "@sveltejs/vite-plugin-svelte"
@@ -37,7 +37,7 @@ export default defineConfig(isKernel ? kernelConfig() : appConfig());
  * 与 app target 先后写入同一个 dev / dist 目录，因此 emptyOutDir=false。
  * 不引入 Svelte / DOM / Electron SDK。
  */
-function kernelConfig() {
+function kernelConfig(): UserConfig {
     return {
         resolve: {
             alias: {
@@ -112,7 +112,7 @@ function rejectKernelRuntimeImports() {
  * App target：保留当前全部行为（src/index.ts / Svelte / yaml i18n / dev 部署 / CJS index.js /
  * inlineDynamicImports / assets / README / plugin.json / preview/icon / runtime/robot）。
  */
-function appConfig() {
+function appConfig(): UserConfig {
     return {
         resolve: {
             alias: {
@@ -265,19 +265,24 @@ function devDeploymentMirror() {
             sequential: true,
             order: 'post' as const,
             handler() {
-                const result = syncDevDeployment();
-                if (!result) {
-                    if (!missingTargetLogged) {
-                        console.log('[dev-deploy] No target configured; run pnpm dev:setup once.');
-                        missingTargetLogged = true;
+                try {
+                    const result = syncDevDeployment();
+                    if (!result) {
+                        if (!missingTargetLogged) {
+                            console.log('[dev-deploy] No target configured; run pnpm dev:setup once.');
+                            missingTargetLogged = true;
+                        }
+                        return;
                     }
-                    return;
+                    missingTargetLogged = false;
+                    console.log(
+                        `[dev-deploy] Synced real directory ${result.targetDir} `
+                        + `(copied ${result.copied}, unchanged ${result.unchanged}, deleted ${result.deleted})`
+                    );
+                } catch (error) {
+                    const message = error instanceof Error ? error.message : String(error);
+                    console.warn(`[dev-deploy] 临时同步到真实插件目录失败: ${message}`);
                 }
-                missingTargetLogged = false;
-                console.log(
-                    `[dev-deploy] Synced real directory ${result.targetDir} `
-                    + `(copied ${result.copied}, unchanged ${result.unchanged}, deleted ${result.deleted})`
-                );
             }
         }
     };
@@ -341,7 +346,7 @@ function cleanupDistFiles(options: { patterns: string[], distDir: string }) {
 
     return {
         name: 'rollup-plugin-cleanup',
-        enforce: 'post',
+        enforce: 'post' as const,
         writeBundle: {
             sequential: true,
             order: 'post' as const,

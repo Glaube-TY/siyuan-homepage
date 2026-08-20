@@ -109,6 +109,23 @@ export const siyuanRiffCardInputSchema = z.object({
     case "reset":
       requireString(value.resetType, "resetType", ctx);
       requireString(value.id, "id", ctx);
+      if (value.resetType === "deck") {
+        if (value.deckID && value.deckID.trim().length > 0 && value.deckID.trim() !== value.id?.trim()) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: `resetType="deck" 时 deckID 与 id 必须一致（收到 id: ${value.id}, deckID: ${value.deckID}）。`,
+            path: ["deckID"],
+          });
+        }
+      } else if (value.resetType === "tree" || value.resetType === "notebook") {
+        if (!value.deckID || value.deckID.trim().length === 0) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: `resetType="${value.resetType}" 需要显式指定 deckID（通常应为 Kernel 内置/目标卡包 ID）；如重置自定义卡包请使用 resetType="deck"。`,
+            path: ["deckID"],
+          });
+        }
+      }
       break;
     case "set_due_time":
       if (!Array.isArray(value.cardDues) || value.cardDues.length === 0) {
