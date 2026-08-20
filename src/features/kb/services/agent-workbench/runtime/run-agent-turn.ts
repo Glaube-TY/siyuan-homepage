@@ -14,6 +14,7 @@ import {
   type AgentProfileRunOutcome,
   type RunAgentProfileParams,
 } from "./run-agent-profile";
+import { streamFinalAnswerFromDraft } from "./final-answer-composer";
 import {
   collectTemporaryWorkbenches,
   toTemporaryWorkbenchReference,
@@ -22,7 +23,7 @@ import { attachTemporaryWorkbenchUsage } from "../tools/homepage/temporary-workb
 
 export type RunAgentTurnParams = Omit<
   RunAgentProfileParams<AgentTurnResult>,
-  "profile" | "validateFinalAnswer" | "finalize"
+  "profile" | "validateFinalAnswer" | "finalize" | "composeFinalAnswer"
 >;
 
 export type AgentTurnOutcome = AgentProfileRunOutcome<AgentTurnResult>;
@@ -32,6 +33,7 @@ export async function runAgentTurn(params: RunAgentTurnParams): Promise<AgentTur
   return runAgentProfile({
     ...params,
     profile: getAgentProfile(KNOWLEDGE_CHAT_AGENT_PROFILE_ID),
+    composeFinalAnswer: (composition) => streamFinalAnswerFromDraft(composition),
     validateFinalAnswer: (answer, observations) => buildMissingCitationRetryInstruction(
       answer,
       collectObservationReferences(observations),

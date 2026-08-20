@@ -149,6 +149,22 @@ export interface RunAgentProfileParams<TResult> {
   onAnswerChunk?: (event: { chunk: string; fullContent: string }) => void;
   onAnswerFinish?: (fullContent: string) => void;
   onReasoningDelta?: (event: { type: "reasoning-start" | "reasoning-delta" | "reasoning-end" | "reasoning-reset"; delta?: string }) => void;
+  /** KB 聊天的最终正文生成器；自动化 Agent 不提供此回调。 */
+  composeFinalAnswer?: (context: {
+    question: string;
+    draftBody: string;
+    observations: readonly ToolResultEntry[];
+    globalMemory?: string;
+    finalComposeMode: "auto" | "stream" | "non_stream";
+    abortSignal?: AbortSignal;
+    chatModelSelection?: ChatModelSelection | null;
+    thinkingMode: ThinkingMode;
+    onChunk?: (event: { chunk: string; fullContent: string }) => void;
+    onReasoningDelta?: (event: {
+      type: "reasoning-start" | "reasoning-delta" | "reasoning-end";
+      delta?: string;
+    }) => void;
+  }) => Promise<string>;
   conversationId?: string;
   conversationKind?: "current" | "legacy";
   panelInstanceId?: string;
@@ -212,6 +228,104 @@ function toWorkbenchEvent(
 
 function shouldStoreWorkbenchEvent(event: AgentStreamEvent): boolean {
   return event.type !== "assistant_text_delta" && event.type !== "assistant_reasoning_delta";
+}
+
+export interface AgentPresentationState {
+  reasoningStarted: boolean;
+  answerFinished: boolean;
+}
+
+/**
+ * 将 Native Agent 的流事件路由到展示边界：Agent 草稿只进入 reasoning，
+ * Composer 未启用时保留自动化 Agent 的原有正文回调。
+ */
+export function routeAgentStreamEvent(
+  event: AgentStreamEvent,
+  state: AgentPresentationState,
+  callbacks: {
+    composeFinalAnswer: boolean;
+    thinkingMode: ThinkingMode;
+    onAnswerChunk?: (event: { chunk: string; fullContent: string }) => void;
+    onAnswerFinish?: (fullContent: string) => void;
+    onReasoningDelta?: (event: {
+      type: "reasoning-start" | "reasoning-delta" | "reasoning-end" | "reasoning-reset";
+      delta?: string;
+    }) => void;
+  },
+): AgentPresentationState {
+  let nextState = state;
+  const startReasoning = (): void => {
+    if (nextState.reasoningStarted) return;
+    nextState = { ...nextState, reasoningStarted: true };
+    callbacks.onReasoningDelta?.({ type: "reasoning-start" });
+  };
+  const endReasoning = (): void => {
+    if (!nextState.reasoningStarted) return;
+    callbacks.onReasoningDelta?.({ type: "reasoning-end" });
+    nextState = { ...nextState, reasoningStarted: false };
+  };
+
+  if (event.type === "assistant_text_delta") {
+    if (callbacks.composeFinalAnswer) {
+      if (callbacks.thinkingMode === "on") {
+        startReasoning();
+        callbacks.onReasoningDelta?.({ type: "reasoning-delta", delta: event.delta });
+      }
+    } else {
+      callbacks.onAnswerChunk?.({ chunk: event.delta, fullContent: event.fullContent });
+    }
+  } else if (event.type === "assistant_reasoning_delta") {
+    if (!callbacks.composeFinalAnswer || callbacks.thinkingMode === "on") {
+      startReasoning();
+      callbacks.onReasoningDelta?.({ type: "reasoning-delta", delta: event.delta });
+    }
+  } else if (event.type === "assistant_reasoning_reset") {
+    // Native Agent uses this between tool rounds. The Workbench presentation
+    // keeps the whole process draft in one fold until Composer finishes.
+    if (!callbacks.composeFinalAnswer) {
+      if (nextState.reasoningStarted) {
+        callbacks.onReasoningDelta?.({ type: "reasoning-reset" });
+        nextState = { ...nextState, reasoningStarted: false };
+      }
+    }
+  } else if (event.type === "assistant_final") {
+    if (!callbacks.composeFinalAnswer) {
+      nextState = { ...nextState, answerFinished: true };
+      endReasoning();
+      callbacks.onAnswerFinish?.(event.answer);
+    }
+  } else if (event.type === "done" && !callbacks.composeFinalAnswer) {
+    endReasoning();
+  }
+
+  return nextState;
+}
+
+export function routeFinalAnswerComposerEvent(
+  event: {
+    type: "reasoning-start" | "reasoning-delta" | "reasoning-end";
+    delta?: string;
+  },
+  state: Pick<AgentPresentationState, "reasoningStarted">,
+  onReasoningDelta?: (event: {
+    type: "reasoning-start" | "reasoning-delta" | "reasoning-end";
+    delta?: string;
+  }) => void,
+): Pick<AgentPresentationState, "reasoningStarted"> {
+  let reasoningStarted = state.reasoningStarted;
+  if (event.type === "reasoning-start" || event.type === "reasoning-delta") {
+    if (!reasoningStarted) {
+      reasoningStarted = true;
+      onReasoningDelta?.({ type: "reasoning-start" });
+    }
+    if (event.type === "reasoning-delta") {
+      onReasoningDelta?.({ type: "reasoning-delta", delta: event.delta });
+    }
+  } else if (reasoningStarted) {
+    onReasoningDelta?.({ type: "reasoning-end" });
+    reasoningStarted = false;
+  }
+  return { reasoningStarted };
 }
 
 function toTraceEvents(events: AgentWorkbenchEvent[]) {
@@ -331,11 +445,21 @@ export async function runAgentProfile<TResult>(
   let eventOrdinal = 0;
   let activeProviderId: string | undefined;
   let activeContextManifest: AgentContextManifest | undefined;
+  let closePresentationReasoning: (() => void) | undefined;
+  let deferredAnswerReadyDone: AgentWorkbenchEvent | undefined;
 
   const emitNativeEvent = (event: AgentStreamEvent): AgentWorkbenchEvent => {
     const workbenchEvent = toWorkbenchEvent(event, identity, ++eventOrdinal);
     localEvents.push(workbenchEvent);
-    params.onWorkbenchEvent?.(workbenchEvent);
+    if (
+      params.composeFinalAnswer
+      && event.type === "done"
+      && event.status === "answer_ready"
+    ) {
+      deferredAnswerReadyDone = workbenchEvent;
+    } else {
+      params.onWorkbenchEvent?.(workbenchEvent);
+    }
     return workbenchEvent;
   };
 
@@ -799,6 +923,11 @@ export async function runAgentProfile<TResult>(
     const session = new AgentSession(conversationId, params.resumeCheckpoint?.messages ?? []);
     let reasoningStarted = false;
     let answerFinished = false;
+    closePresentationReasoning = () => {
+      if (!reasoningStarted) return;
+      params.onReasoningDelta?.({ type: "reasoning-end" });
+      reasoningStarted = false;
+    };
 
     const autoAllowedToolNames = [
       ...(settings.toolSettings?.disabledWriteToolConfirmationNames ?? []),
@@ -884,30 +1013,19 @@ export async function runAgentProfile<TResult>(
         if (shouldStoreWorkbenchEvent(event)) {
           emitNativeEvent(event);
         }
-        if (event.type === "assistant_text_delta") {
-          params.onAnswerChunk?.({ chunk: event.delta, fullContent: event.fullContent });
-        } else if (event.type === "assistant_reasoning_delta") {
-          if (!reasoningStarted) {
-            reasoningStarted = true;
-            params.onReasoningDelta?.({ type: "reasoning-start" });
-          }
-          params.onReasoningDelta?.({ type: "reasoning-delta", delta: event.delta });
-        } else if (event.type === "assistant_reasoning_reset") {
-          if (reasoningStarted) {
-            params.onReasoningDelta?.({ type: "reasoning-reset" });
-            reasoningStarted = false;
-          }
-        } else if (event.type === "assistant_final") {
-          answerFinished = true;
-          if (reasoningStarted) {
-            params.onReasoningDelta?.({ type: "reasoning-end" });
-            reasoningStarted = false;
-          }
-          params.onAnswerFinish?.(event.answer);
-        } else if (event.type === "done" && reasoningStarted) {
-          params.onReasoningDelta?.({ type: "reasoning-end" });
-          reasoningStarted = false;
-        }
+        const nextPresentationState = routeAgentStreamEvent(
+          event,
+          { reasoningStarted, answerFinished },
+          {
+            composeFinalAnswer: typeof params.composeFinalAnswer === "function",
+            thinkingMode: params.thinkingMode ?? "off",
+            onAnswerChunk: params.onAnswerChunk,
+            onAnswerFinish: params.onAnswerFinish,
+            onReasoningDelta: params.onReasoningDelta,
+          },
+        );
+        reasoningStarted = nextPresentationState.reasoningStarted;
+        answerFinished = nextPresentationState.answerFinished;
       },
     });
     const loopResult = params.resumeCheckpoint ? await loop.resume() : await loop.run(params.question);
@@ -946,7 +1064,7 @@ export async function runAgentProfile<TResult>(
     }
     const loopOk = loopResult.status === "answer_ready";
 
-    if (loopOk && !answerFinished) {
+    if (loopOk && !answerFinished && !params.composeFinalAnswer) {
       params.onAnswerFinish?.(loopResult.answer);
     }
 
@@ -973,8 +1091,44 @@ export async function runAgentProfile<TResult>(
       });
     }
 
+    let finalAnswer = loopResult.answer;
+    if (params.composeFinalAnswer) {
+      emitNativeEvent({ type: "notice", message: "正在组织最终回答..." });
+      try {
+        finalAnswer = await params.composeFinalAnswer({
+          question: params.question,
+          draftBody: loopResult.answer,
+          observations: wb.observationLog.all(),
+          globalMemory: globalMemoryText,
+          finalComposeMode: selected.model?.finalComposeMode ?? "auto",
+          abortSignal: params.abortSignal,
+          chatModelSelection: params.chatModelSelection,
+          thinkingMode: params.thinkingMode ?? "off",
+          onChunk: params.onAnswerChunk,
+          onReasoningDelta: (event) => {
+            const nextComposerState = routeFinalAnswerComposerEvent(
+              event,
+              { reasoningStarted },
+              params.onReasoningDelta,
+            );
+            reasoningStarted = nextComposerState.reasoningStarted;
+          },
+        });
+      } catch (error) {
+        closePresentationReasoning?.();
+        throw error;
+      }
+      closePresentationReasoning?.();
+      answerFinished = true;
+      params.onAnswerFinish?.(finalAnswer);
+      if (deferredAnswerReadyDone) {
+        params.onWorkbenchEvent?.(deferredAnswerReadyDone);
+        deferredAnswerReadyDone = undefined;
+      }
+    }
+
     const finalized = await params.finalize({
-      answer: loopResult.answer,
+      answer: finalAnswer,
       events: localEvents,
       observations: wb.observationLog.all(),
       resolvedScope,
@@ -989,6 +1143,12 @@ export async function runAgentProfile<TResult>(
       usage: loopResult.usage,
     };
   } catch (err) {
+    closePresentationReasoning?.();
+    if (deferredAnswerReadyDone) {
+      const deferredIndex = localEvents.indexOf(deferredAnswerReadyDone);
+      if (deferredIndex >= 0) localEvents.splice(deferredIndex, 1);
+      deferredAnswerReadyDone = undefined;
+    }
     const providerError = normalizeProviderError(err);
     const code = providerError.code || "agent_workbench_unexpected_error";
     const message = providerError.message;
@@ -1013,7 +1173,7 @@ export async function runAgentProfile<TResult>(
       sideEffectState: providerError.sideEffectState,
       userAction: providerError.userAction,
     });
-    if (!localEvents.some((event) => event.type === "done")) {
+    if (!localEvents.some((event) => event.type === "done" && event.status !== "answer_ready")) {
       emitNativeEvent({
         type: "done",
         status: providerError.category === "cancelled" ? "cancelled" : "failed",

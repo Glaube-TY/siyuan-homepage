@@ -1092,14 +1092,23 @@ export async function runAgentWorkbenchModeFlow(
           return;
         }
         if (event.type === "reasoning-start") {
-          reasoningContent = "";
-          reasoningPartCount = 0;
+          if (reasoningContent.length === 0) {
+            reasoningPartCount = 0;
+          }
           cancelReasoningFlush();
           if (setMessages) {
             setMessages((messages) =>
               messages.map((m) => {
                 if (m.id !== assistantMessageId || m.role !== "assistant") return m;
-                return { ...m, reasoning: { content: "", status: "streaming", partCount: 0, chars: 0 } };
+                return {
+                  ...m,
+                  reasoning: {
+                    content: reasoningContent,
+                    status: "streaming",
+                    partCount: reasoningPartCount,
+                    chars: reasoningContent.length,
+                  },
+                };
               })
             );
           }
@@ -1181,9 +1190,6 @@ export async function runAgentWorkbenchModeFlow(
           cancelAnswerFlush();
         } else if (event.type === "assistant_final" || event.type === "done") {
           flushAnswerContent();
-          if (userThinkingMode === "on" && event.type === "done") {
-            flushReasoningContent("done");
-          }
         }
         liveWorkbenchEvents = [...liveWorkbenchEvents, event];
         if (setMessages) {
@@ -1194,11 +1200,10 @@ export async function runAgentWorkbenchModeFlow(
               if (event.type === "assistant_text_reset") {
                 return { ...m, content: "", workbenchEvents: liveWorkbenchEvents };
               }
-              // Clear agentStatus when a tool starts executing or when assistant finalizes;
-              // workbenchEvents will show the specific tool details.
-              // Set agentStatus on notice events.
+              // Clear status for a tool step; keep it through Agent completion while
+              // the separate final Composer is still running.
               const nextAgentStatus =
-                event.type === "tool_start" || event.type === "assistant_final"
+                event.type === "tool_start"
                   ? undefined
                   : event.type === "notice"
                     ? event.message
@@ -1298,7 +1303,14 @@ export async function runAgentWorkbenchModeFlow(
           messages.map((m) => {
             if (m.id !== assistantMessageId || m.role !== "assistant") return m;
             if (m.content.trim()) {
-              return { ...m, agentStatus: undefined, isComplete: false };
+              return {
+                ...m,
+                agentStatus: undefined,
+                isComplete: false,
+                reasoning: m.reasoning?.status === "streaming"
+                  ? { ...m.reasoning, status: "done" as const }
+                  : m.reasoning,
+              };
             }
             return {
               ...m,
@@ -1412,7 +1424,14 @@ export async function runAgentWorkbenchModeFlow(
           messages.map((m) => {
             if (m.id !== assistantMessageId || m.role !== "assistant") return m;
             if (m.content.trim()) {
-              return { ...m, agentStatus: undefined, isComplete: false };
+              return {
+                ...m,
+                agentStatus: undefined,
+                isComplete: false,
+                reasoning: m.reasoning?.status === "streaming"
+                  ? { ...m.reasoning, status: "done" as const }
+                  : m.reasoning,
+              };
             }
             return {
               ...m,
