@@ -5,6 +5,7 @@ import {
   estimateValueTokens,
   resolveRuntimeObservationBudget,
 } from "../../../types/context-usage";
+import { nativeToolToProviderBudgetDefinition } from "./tool-schema-converter";
 
 export const CORE_PROVIDER_TOOL_NAMES = ["agent_tool_help"] as const;
 
@@ -61,11 +62,7 @@ function hasExactToolName(question: string, toolName: string): boolean {
 }
 
 function providerToolDefinitionTokens(tool: NativeTool): number {
-  return estimateValueTokens({
-    name: tool.name,
-    description: tool.description,
-    parameters: tool.parameters,
-  });
+  return estimateValueTokens(nativeToolToProviderBudgetDefinition(tool));
 }
 
 function resolveProviderToolsetBudget(
@@ -117,6 +114,8 @@ export function selectProviderVisibleTools(params: {
   runtimeRequiredToolNames?: ReadonlySet<string>;
   activationOrder?: ReadonlyMap<string, number>;
   coreToolNames?: readonly string[];
+  /** Keep only the irreducible core for a prompt that is already over budget. */
+  coreOnly?: boolean;
   contextWindowTokens?: number;
   maxOutputTokens?: number;
   /** Exact provider message tokens, excluding provider tool definitions. */
@@ -178,20 +177,22 @@ export function selectProviderVisibleTools(params: {
     const tool = visible.find((candidate) => candidate.name === coreToolName);
     if (tool) add(tool, true);
   }
-  for (const tool of byPriority(runtimeRequired)) add(tool, true);
-  const pendingTools = byPriority(pending).filter((tool) => !chosenNames.has(tool.name));
-  const explicitTools = byPriority(explicit).filter((tool) => !chosenNames.has(tool.name));
-  const activeTools = byPriority(active).filter((tool) => !chosenNames.has(tool.name));
-  let firstActivationCandidate = true;
-  for (const tool of [...pendingTools, ...explicitTools]) {
-    const added = add(tool, false);
-    if (!added && firstActivationCandidate) activationBudgetExceeded = true;
-    firstActivationCandidate = false;
+  if (!params.coreOnly) {
+    for (const tool of byPriority(runtimeRequired)) add(tool, true);
+    const pendingTools = byPriority(pending).filter((tool) => !chosenNames.has(tool.name));
+    const explicitTools = byPriority(explicit).filter((tool) => !chosenNames.has(tool.name));
+    const activeTools = byPriority(active).filter((tool) => !chosenNames.has(tool.name));
+    let firstActivationCandidate = true;
+    for (const tool of [...pendingTools, ...explicitTools]) {
+      const added = add(tool, false);
+      if (!added && firstActivationCandidate) activationBudgetExceeded = true;
+      firstActivationCandidate = false;
+    }
+    for (const tool of activeTools) add(tool, false);
+    for (const tool of byPriority(params.profileSeedToolNames ?? new Set())) add(tool, false);
   }
-  for (const tool of activeTools) add(tool, false);
-  for (const tool of byPriority(params.profileSeedToolNames ?? new Set())) add(tool, false);
 
-  for (const name of activationCandidates) {
+  for (const name of params.coreOnly ? [] : activationCandidates) {
     if (visibleNames.has(name) && !chosenNames.has(name)) unavailableToolNames.add(name);
   }
 
@@ -299,6 +300,7 @@ export class ProviderToolsetController {
     currentUserTokens?: number;
     runtimeObservationTokens?: number;
     runtimeRequiredToolNames?: ReadonlySet<string>;
+    coreOnly?: boolean;
   }): ProviderToolsetSelection {
     const selection = selectProviderVisibleTools({
       ...params,

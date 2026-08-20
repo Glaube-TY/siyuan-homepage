@@ -274,12 +274,18 @@ export function formatWorkbenchProcessStats(
   let outcome: string;
   if (state.isGenerating || running > 0) {
     outcome = "执行中";
-  } else if (state.doneStatus === "answer_ready") {
-    outcome = "最终成功";
   } else if (state.doneStatus === "failed") {
     outcome = "最终失败";
   } else if (state.doneStatus === "cancelled") {
     outcome = "已取消";
+  } else if (state.doneStatus === "answer_ready" && total === 0) {
+    outcome = "回答已完成（未执行工具）";
+  } else if (state.doneStatus === "answer_ready" && failed === 0 && succeeded === total) {
+    outcome = "最终成功";
+  } else if (total > 0 && failed === total) {
+    outcome = "最终失败";
+  } else if (total > 0 && failed > 0) {
+    outcome = "部分工具失败";
   } else if (!state.isComplete) {
     outcome = "已停止";
   } else {

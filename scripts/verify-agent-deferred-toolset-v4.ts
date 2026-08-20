@@ -15,6 +15,7 @@ import {
 import { createAgentWorkbenchRuntime } from "../src/features/kb/services/agent-workbench/runtime/create-agent-workbench";
 import { createNativeToolRegistryFromWorkbench } from "../src/features/kb/services/agent-core/tools/workbench-tool-adapter";
 import { createAgentToolHelpTool } from "../src/features/kb/services/agent-workbench/tools/aggregate/agent-tool-help.tool";
+import { nativeToolToProviderBudgetDefinition } from "../src/features/kb/services/agent-core/tools/tool-schema-converter";
 import { DEFAULT_EXTERNAL_SKILL_SETTINGS, DEFAULT_MCP_SETTINGS } from "../src/features/kb/constants/default-settings";
 import { buildAgentSystemPrompt } from "../src/features/kb/services/agent-core/prompts/system-prefix";
 import { getAgentProfile, KNOWLEDGE_CHAT_AGENT_PROFILE_ID } from "../src/features/agent-platform/agent-profile";
@@ -36,6 +37,16 @@ function makeTool(name: string, description = name, readOnly = true): NativeTool
     safety: { readOnly },
     async execute() { return result; },
   };
+}
+
+function makeSchemaOverflowTool(name: string): NativeTool {
+  const tool = makeTool(name);
+  tool.parameters = {
+    type: "object",
+    properties: { payload: { type: "string", description: "x".repeat(40_000) } },
+    additionalProperties: false,
+  };
+  return tool;
 }
 
 function emptyState(): KbSessionState {
@@ -78,7 +89,7 @@ async function verifyBudgetedActivation(): Promise<void> {
     assert.equal(selection.tools.some((tool) => tool.name === "agent_tool_help"), true, "core tool 不得被淘汰");
     assert.equal(selection.tools.reduce((sum, tool) => sum + tool.description.length, 0) > 0, true);
     assert.equal(
-      selection.tools.reduce((sum, tool) => sum + estimateValueTokens({ name: tool.name, description: tool.description, parameters: tool.parameters }), 0) <= selection.budgetTokens,
+      selection.tools.reduce((sum, tool) => sum + estimateValueTokens(nativeToolToProviderBudgetDefinition(tool)), 0) <= selection.budgetTokens,
       true,
       "active tool definitions 必须落在当前 Toolset Budget 内",
     );
@@ -312,7 +323,7 @@ async function verifyRuntimePressureClassification(): Promise<void> {
 
   const schemaRegistry = new NativeToolRegistry();
   schemaRegistry.register(makeTool("agent_tool_help"));
-  schemaRegistry.register(makeTool("schema_core", "z".repeat(40_000)));
+  schemaRegistry.register(makeSchemaOverflowTool("schema_core"));
   const schemaController = new ProviderToolsetController({ coreToolNames: ["agent_tool_help", "schema_core"] });
   const schemaResult = await new NativeToolAgentLoop({
     provider: new (class implements ProviderAdapter {
@@ -332,7 +343,7 @@ async function verifyRuntimePressureClassification(): Promise<void> {
 async function verifyActivationBudgetFailureIsControlled(): Promise<void> {
   const registry = new NativeToolRegistry();
   registry.register(makeTool("agent_tool_help"));
-  registry.register(makeTool("siyuan_asset", "a".repeat(40_000)));
+  registry.register(makeSchemaOverflowTool("siyuan_asset"));
   const controller = new ProviderToolsetController();
   controller.requestActivation("siyuan_asset");
   let providerRequestCount = 0;

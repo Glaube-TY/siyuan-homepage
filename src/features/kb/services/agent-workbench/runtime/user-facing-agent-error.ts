@@ -23,6 +23,12 @@ export interface AgentTurnDisplayError {
   completedStepsSummary?: string;
 }
 
+function appendBudgetDiagnostic(base: string, message: string | undefined): string {
+  const marker = "【预算诊断】";
+  const start = message?.indexOf(marker) ?? -1;
+  return start >= 0 ? `${base} ${message!.slice(start, start + 520)}` : base;
+}
+
 /**
  * 根据内部错误码 / 错误消息映射为用户可读错误。
  */
@@ -54,7 +60,7 @@ export function mapAgentErrorToUserFacing(input: {
   if (code === "irreducible_context_overflow") {
     return {
       title: "上下文窗口不足",
-      message: "上下文窗口不足以容纳 Agent 基础运行上下文，本轮未发送给模型。",
+      message: appendBudgetDiagnostic("上下文窗口不足以容纳 Agent 基础运行上下文，本轮未发送给模型。", input.message),
       suggestion: "可以缩短当前问题、减少附加内容，或切换到更大上下文窗口的模型。",
     };
   }
@@ -62,7 +68,7 @@ export function mapAgentErrorToUserFacing(input: {
   if (code === "provider_toolset_budget_exceeded") {
     return {
       title: "工具定义超出上下文预算",
-      message: "当前可用工具定义过大，无法安全放入模型上下文，本轮未执行工具。",
+      message: appendBudgetDiagnostic("当前可用工具定义过大，无法安全放入模型上下文，本轮未执行工具。", input.message),
       suggestion: "可以先用 agent_tool_help 查询并激活需要的具体工具，或切换到更大上下文窗口的模型。",
     };
   }
@@ -70,7 +76,7 @@ export function mapAgentErrorToUserFacing(input: {
   if (code === "context_budget_exceeded" || code === "conversation_context_budget_exceeded") {
     return {
       title: "会话上下文过长",
-      message: "会话历史超过当前模型预算，系统未能安全压缩，本轮未发送给模型。",
+      message: appendBudgetDiagnostic("会话历史超过当前模型预算，系统未能安全压缩，本轮未发送给模型。", input.message),
       suggestion: "可以缩短当前问题，或切换到更大上下文窗口的模型。",
     };
   }

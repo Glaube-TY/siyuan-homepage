@@ -2,19 +2,39 @@ import assert from "node:assert/strict";
 import type { AgentMessage } from "../src/features/kb/services/agent-core/messages/agent-message";
 import { dispatchToolCalls } from "../src/features/kb/services/agent-core/loop/dispatch-tool-calls";
 import { NativeToolAgentLoop } from "../src/features/kb/services/agent-core/loop/native-tool-agent-loop";
+import type { AgentStreamEvent } from "../src/features/kb/services/agent-core/loop/stream-event";
 import type { AgentChatRequest, AgentProviderEvent, ProviderAdapter } from "../src/features/kb/services/agent-core/providers/provider-adapter";
 import { normalizeProviderError, AgentProviderError } from "../src/features/kb/services/agent-core/providers/provider-error";
 import { AllowingConfirmationBridge } from "../src/features/kb/services/agent-core/permissions/confirmation-bridge";
 import type { NativeTool, ToolExecutionResult } from "../src/features/kb/services/agent-core/tools/native-tool";
 import { NativeToolRegistry, ProviderToolsetController, selectProviderVisibleTools } from "../src/features/kb/services/agent-core/tools/native-tool-registry";
+import {
+  nativeToolToProviderBudgetDefinition,
+  nativeToolsToAnthropicTools,
+  nativeToolsToGeminiFunctionDeclarations,
+  nativeToolsToOpenAITools,
+} from "../src/features/kb/services/agent-core/tools/tool-schema-converter";
 import { resolvePreflightCompression } from "../src/features/kb/services/orchestration/agent-workbench-mode-flow";
 import type { KbSessionState } from "../src/features/kb/types/session";
 import { mapAgentErrorToUserFacing } from "../src/features/kb/services/agent-workbench/runtime/user-facing-agent-error";
 import { OPENAI_COMPATIBLE_CAPABILITIES } from "../src/features/kb/services/agent-core/providers/provider-capabilities";
 import { parseToolResultContentEnvelope } from "../src/features/kb/services/agent-core/tools/tool-execution-result";
 import { createAgentToolHelpTool } from "../src/features/kb/services/agent-workbench/tools/aggregate/agent-tool-help.tool";
-import { DEFAULT_EXTERNAL_SKILL_SETTINGS } from "../src/features/kb/constants/default-settings";
-import { buildPromptBudget } from "../src/features/kb/types/context-usage";
+import { DEFAULT_EXTERNAL_SKILL_SETTINGS, DEFAULT_MCP_SETTINGS } from "../src/features/kb/constants/default-settings";
+import { buildPromptBudget, estimateValueTokens, resolveManualCompressionPresentation } from "../src/features/kb/types/context-usage";
+import { runContextCompaction, selectCompactionTurns } from "../src/features/kb/services/context-compression";
+import { buildAgentContextInstructions } from "../src/features/kb/services/agent-workbench/runtime/agent-context-instruction-builder";
+import { buildConversationContext, buildUncoveredVerbatimAgentMessages } from "../src/features/kb/services/agent-workbench/runtime/conversation-context-builder";
+import { getCompleteConversationTurns } from "../src/features/kb/services/agent-workbench/runtime/conversation-turns";
+import { createAgentWorkbenchRuntime } from "../src/features/kb/services/agent-workbench/runtime/create-agent-workbench";
+import { createNativeToolRegistryFromWorkbench } from "../src/features/kb/services/agent-core/tools/workbench-tool-adapter";
+import { buildAgentSystemPrompt } from "../src/features/kb/services/agent-core/prompts/system-prefix";
+import { getAgentProfile, KNOWLEDGE_CHAT_AGENT_PROFILE_ID } from "../src/features/agent-platform/agent-profile";
+import { setNotebrainPlugin } from "../src/features/kb/services/agent-workbench/storage/notebrain-plugin-storage";
+import {
+  formatWorkbenchProcessStats,
+  resolveWorkbenchFinalStatus,
+} from "../src/features/kb/services/agent-workbench/presentation/tool-step-presentation";
 
 function makeTool(name: string, description = "tool"): NativeTool {
   const result: ToolExecutionResult = { ok: true, content: "{}", summary: "ok" };
@@ -36,6 +56,21 @@ function makeTool(name: string, description = "tool"): NativeTool {
   };
 }
 
+function makeSchemaOverflowTool(name = "real_schema_overflow"): NativeTool {
+  const tool = makeTool(name, "small provider-visible description");
+  tool.parameters = {
+    type: "object",
+    properties: {
+      payload: {
+        type: "string",
+        description: "x".repeat(40_000),
+      },
+    },
+    additionalProperties: false,
+  };
+  return tool;
+}
+
 function emptyState(): KbSessionState {
   return { error: "", asking: false, qaError: "", messages: [] };
 }
@@ -43,7 +78,7 @@ function emptyState(): KbSessionState {
 async function verifyNoHistoryDoesNotCompact(): Promise<void> {
   let compactionCalls = 0;
   const state = emptyState();
-  const hugeTool = makeTool("siyuan_asset", "x".repeat(30_000));
+  const hugeTool = makeSchemaOverflowTool("siyuan_asset");
   const result = await resolvePreflightCompression({
     getState: () => state,
     updateState: () => undefined,
@@ -97,11 +132,39 @@ async function verifyNoHistoryDoesNotCompact(): Promise<void> {
 class AnswerProvider implements ProviderAdapter {
   readonly id = "verify:context-preflight";
   readonly capabilities = OPENAI_COMPATIBLE_CAPABILITIES;
+  requestCount = 0;
   seenToolNames: string[] = [];
 
   async *streamChat(request: AgentChatRequest): AsyncGenerator<AgentProviderEvent> {
+    this.requestCount += 1;
     this.seenToolNames = request.tools.map((tool) => tool.name);
     yield { type: "text_delta", delta: "首轮请求已建立" };
+    yield { type: "done", finishReason: "stop" };
+  }
+}
+
+class ToolCallProvider implements ProviderAdapter {
+  readonly id = "verify:context-preflight-tool-call";
+  readonly capabilities = OPENAI_COMPATIBLE_CAPABILITIES;
+  requestCount = 0;
+  readonly requests: AgentChatRequest[] = [];
+
+  async *streamChat(request: AgentChatRequest): AsyncGenerator<AgentProviderEvent> {
+    this.requestCount += 1;
+    this.requests.push(request);
+    if (this.requestCount === 1) {
+      yield {
+        type: "tool_call_done",
+        toolCall: {
+          id: "verify-help-call",
+          name: "agent_tool_help",
+          arguments: JSON.stringify({ action: "list_tools" }),
+        },
+      };
+      yield { type: "done", finishReason: "tool_calls" };
+      return;
+    }
+    yield { type: "text_delta", delta: "已收到真实工具结果" };
     yield { type: "done", finishReason: "stop" };
   }
 }
@@ -362,7 +425,7 @@ async function verifyCompactionFullRebuildPromptState(): Promise<void> {
 }
 
 async function verifyControlledFailureFullProviderPromptUsage(): Promise<void> {
-  const hugeTool = makeTool("huge_tool", "h".repeat(30_000));
+  const hugeTool = makeSchemaOverflowTool("huge_tool");
   let state: KbSessionState = {
     error: "",
     asking: false,
@@ -409,6 +472,588 @@ async function verifyControlledFailureFullProviderPromptUsage(): Promise<void> {
   assert.equal(preflight.failureCode, "provider_toolset_budget_exceeded");
   assert.ok(preflight.budget);
   assert.equal(preflight.budget.inputTokens >= preflight.budget.hardThresholdTokens, true);
+}
+
+function fixtureHashText(value: string): string {
+  let hash = 2_166_136_261;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 16_777_619);
+  }
+  return (hash >>> 0).toString(16).padStart(8, "0");
+}
+
+function fixtureSourceHash(messages: KbSessionState["messages"], throughTurnIndex: number): string {
+  const turns = getCompleteConversationTurns(messages);
+  return fixtureHashText(JSON.stringify(turns
+    .filter((turn) => turn.turnIndex <= throughTurnIndex)
+    .map((turn) => ({
+      turnIndex: turn.turnIndex,
+      user: {
+        id: turn.user.id,
+        createdAt: turn.user.createdAt,
+        content: turn.user.content,
+        attachedDocs: turn.user.attachedDocs,
+        requestContext: turn.user.requestContext,
+      },
+      assistant: {
+        id: turn.assistant.id,
+        createdAt: turn.assistant.createdAt,
+        content: turn.assistant.content,
+        isComplete: turn.assistant.isComplete,
+        agentMemory: turn.assistant.agentMemory,
+        citedReferences: turn.assistant.citedReferences,
+      },
+    }))));
+}
+
+function verifyManualCompressionPresentation(): void {
+  const snapshot = {
+    version: 2 as const,
+    generation: 1,
+    createdAt: 1,
+    trigger: "manual" as const,
+    coveredThroughTurnIndex: 2,
+    coveredThroughMessageId: "a2",
+    sourceHash: "fixture",
+    state: {
+      currentGoal: "",
+      userConstraints: [],
+      importantDecisions: [],
+      completedWork: [],
+      currentState: [],
+      unresolvedIssues: [],
+      nextActions: [],
+      importantReferences: [],
+      verifiedWriteOutcomes: [],
+    },
+  };
+  const compressible = resolveManualCompressionPresentation({
+    asking: false,
+    compactableTurnCount: 1,
+    uncoveredCompletedTurnCount: 2,
+    pressureSource: "conversation",
+  });
+  assert.equal(compressible.canCompress, true);
+  assert.equal(compressible.buttonLabel, "压缩历史对话");
+
+  const covered = resolveManualCompressionPresentation({
+    asking: false,
+    compactableTurnCount: 0,
+    uncoveredCompletedTurnCount: 0,
+    latestCompactionSnapshot: snapshot,
+    pressureSource: "tool_definitions",
+  });
+  assert.equal(covered.canCompress, false);
+  assert.match(covered.disabledReason, /历史已压缩到最新可压缩轮次/);
+  assert.match(covered.disabledReason, /工具定义/);
+
+  const stale = resolveManualCompressionPresentation({
+    asking: false,
+    compactableTurnCount: 1,
+    uncoveredCompletedTurnCount: 3,
+    latestCompactionSnapshot: { ...snapshot, stale: true },
+    pressureSource: "fixed_prompt",
+  });
+  assert.equal(stale.canCompress, true, "过期快照应允许按 transcript 重建");
+
+  const asking = resolveManualCompressionPresentation({
+    asking: true,
+    compactableTurnCount: 1,
+    uncoveredCompletedTurnCount: 2,
+    pressureSource: "conversation",
+  });
+  assert.equal(asking.canCompress, false);
+  assert.match(asking.disabledReason, /回答进行中/);
+}
+
+async function verifyManualCompactionStaysLocal(): Promise<void> {
+  const messages: KbSessionState["messages"] = [];
+  for (let index = 1; index <= 8; index += 1) {
+    messages.push(
+      { id: `u${index}`, role: "user", content: `历史问题 ${index}`, createdAt: index * 2 - 1 },
+      { id: `a${index}`, role: "assistant", content: `历史回答 ${index}`, createdAt: index * 2, isComplete: true },
+    );
+  }
+  messages.push({ id: "u9", role: "user", content: "当前问题", createdAt: 17 });
+  const budget = buildPromptBudget({
+    contextWindowTokens: 128_000,
+    maxOutputTokens: 4_096,
+    providerMessages: messages,
+    providerTools: [],
+    historicalMessages: messages.slice(0, 16),
+    currentRunMessages: [{ role: "user", content: "当前问题" }],
+  });
+  const selection = selectCompactionTurns({
+    messages,
+    currentUserMessageId: "u9",
+    previousSnapshot: undefined,
+    promptBudget: budget,
+    trigger: "manual",
+  });
+  console.log("manual local compaction selection", selection.completeTurns.length, selection.compactableTurns.length);
+  const result = await runContextCompaction({
+    messages,
+    currentUserMessageId: "u9",
+    promptBudget: budget,
+    trigger: "manual",
+    chatModelSelection: null,
+    abortSignal: AbortSignal.abort(),
+    providerCallAllowed: false,
+  });
+  console.log("manual local compaction result", JSON.stringify(result));
+  assert.equal(result.success, true);
+  assert.equal(result.fallbackUsed, true, "手动压缩必须使用本地确定性回退");
+  assert.ok(result.snapshot);
+}
+
+async function verifyCoveredHistoryToolPressure(): Promise<void> {
+  const question = "请检查 homepage_manage 和 homepage_components，并告诉我当前主页的可用组件。";
+  setNotebrainPlugin({ isMobile: false } as never);
+  const messages: KbSessionState["messages"] = [];
+  for (let index = 1; index <= 11; index += 1) {
+    messages.push(
+      { id: `u${index}`, role: "user", content: `历史问题 ${index}`, createdAt: index * 2 - 1 },
+      { id: `a${index}`, role: "assistant", content: `历史回答 ${index}`, createdAt: index * 2, isComplete: true },
+    );
+  }
+  messages.push({ id: "u12", role: "user", content: question, createdAt: 23 });
+  const snapshot = {
+    version: 2 as const,
+    generation: 3,
+    createdAt: 1_000,
+    trigger: "hard" as const,
+    coveredThroughTurnIndex: 11,
+    coveredThroughMessageId: "a11",
+    sourceHash: fixtureSourceHash(messages, 11),
+    state: {
+      currentGoal: "主页工具预算回归",
+      userConstraints: [],
+      importantDecisions: [],
+      completedWork: ["历史已压缩"],
+      currentState: [],
+      unresolvedIssues: [],
+      nextActions: [],
+      importantReferences: [],
+      verifiedWriteOutcomes: [],
+    },
+    estimatedTokens: 4_464,
+  };
+  const state: KbSessionState = {
+    error: "",
+    asking: false,
+    qaError: "",
+    messages,
+    latestCompactionSnapshot: snapshot,
+  };
+  const historicalMessages = buildUncoveredVerbatimAgentMessages({
+    messages,
+    currentUserMessageId: "u12",
+    compactionSnapshot: snapshot,
+  });
+  assert.equal(historicalMessages.length, 0, "快照覆盖的 11 轮不得重新进入 Provider 历史");
+
+  const hardBudget = buildPromptBudget({
+    contextWindowTokens: 128_000,
+    maxOutputTokens: 4_096,
+    providerMessages: [{ role: "system", content: "probe" }, { role: "user", content: question }],
+    providerTools: [],
+  });
+  const selectionProbe = selectCompactionTurns({
+    messages,
+    currentUserMessageId: "u12",
+    previousSnapshot: snapshot,
+    promptBudget: hardBudget,
+    trigger: "hard",
+  });
+  assert.equal(selectionProbe.previousSnapshotUsable, true, `生产快照必须可校验: ${snapshot.sourceHash}`);
+  assert.equal(selectionProbe.compactableTurns.length, 0, "覆盖到第 11 轮后不得重复压缩");
+
+  const providerToolsetController = new ProviderToolsetController();
+  const workbench = createAgentWorkbenchRuntime({
+    profile: getAgentProfile(KNOWLEDGE_CHAT_AGENT_PROFILE_ID),
+    providerToolsetController,
+    kbRetrievalToolDeps: {
+      getScope: () => ({ type: "whole_kb" as const }),
+      getEffectiveScope: () => ({ type: "whole_kb" as const }),
+      loadPluginData: async <T>(_key: string) => null as T | null,
+      savePluginData: async <T>(_key: string, _data: T) => {},
+    },
+    globalToolAccess: { agentToolHelp: true, webFetch: false },
+    builtinCapabilityAccess: {
+      knowledgeBase: true,
+      scheduleTaskDiary: true,
+      databaseAssistant: true,
+      docContentEditing: true,
+      notebookDocTree: true,
+      tagBookmarkOutline: true,
+      assetManagement: true,
+      riffReview: true,
+      homepageManagement: true,
+      homepageComponents: true,
+      temporaryWorkbench: true,
+      homepageQuickNote: true,
+      homepageFocus: true,
+      homepageAccounting: true,
+      homepageFixedAssets: true,
+      homepageAnniversary: true,
+      homepageFavorites: true,
+      homepageReview: true,
+      homepageMusic: true,
+    },
+    externalSkillSettings: DEFAULT_EXTERNAL_SKILL_SETTINGS,
+    mcpSettings: DEFAULT_MCP_SETTINGS,
+  });
+  const nativeRegistry = createNativeToolRegistryFromWorkbench({
+    toolRegistry: workbench.toolRegistry,
+    observationLog: workbench.observationLog,
+    question,
+  });
+  const productionTools = nativeRegistry.listProviderVisible();
+  assert.equal(productionTools.some((tool) => tool.name === "homepage_manage"), true);
+  assert.equal(productionTools.some((tool) => tool.name === "homepage_components"), true);
+  const openAiWireTools = nativeToolsToOpenAITools(productionTools);
+  const geminiWireTools = nativeToolsToGeminiFunctionDeclarations(productionTools);
+  const anthropicWireTools = nativeToolsToAnthropicTools(productionTools);
+  assert.deepEqual(Object.keys(openAiWireTools[0] ?? {}).sort(), ["function", "type"]);
+  assert.deepEqual(Object.keys(openAiWireTools[0]?.function ?? {}).sort(), ["description", "name", "parameters"]);
+  assert.deepEqual(Object.keys(geminiWireTools[0] ?? {}).sort(), ["description", "name", "parameters"]);
+  assert.deepEqual(Object.keys(anthropicWireTools[0] ?? {}).sort(), ["description", "input_schema", "name"]);
+  const wireToolTokens = estimateValueTokens(openAiWireTools);
+  const perWireToolTokens = openAiWireTools.map((tool) => estimateValueTokens(tool));
+  const perWireToolSum = perWireToolTokens.reduce((sum, tokens) => sum + tokens, 0);
+  assert.equal(perWireToolTokens.length, productionTools.length);
+  assert.equal(perWireToolTokens.every((tokens) => tokens > 0), true);
+  assert.equal(Math.abs(wireToolTokens - perWireToolSum) <= productionTools.length * 2, true);
+
+  const metadataProbe = makeTool("metadata_probe");
+  metadataProbe.aggregateActionHelp = Object.fromEntries(Array.from({ length: 160 }, (_, index) => [
+    `action_${index}`,
+    { readOnly: index % 2 === 0, requiresConfirmation: index % 3 === 0 },
+  ]));
+  const metadataOnlyTokens = estimateValueTokens(nativeToolToProviderBudgetDefinition(metadataProbe));
+  const metadataBaseline = makeTool("metadata_probe");
+  const metadataBaselineTokens = estimateValueTokens(nativeToolToProviderBudgetDefinition(metadataBaseline));
+  assert.equal(metadataOnlyTokens, metadataBaselineTokens, "内部 aggregateActionHelp 不得进入 Provider 工具预算");
+  const schemaProbe = makeTool("schema_probe");
+  schemaProbe.parameters = {
+    type: "object",
+    properties: { payload: { type: "string", description: "x".repeat(12_000) } },
+    additionalProperties: false,
+  };
+  assert.equal(
+    estimateValueTokens(nativeToolToProviderBudgetDefinition(schemaProbe)) > metadataBaselineTokens,
+    true,
+    "Provider 实际 parameters 变大必须增加工具预算",
+  );
+  const conversationContext = buildConversationContext({
+    messages,
+    currentUserMessageId: "u12",
+    currentQuestion: question,
+    compactionSnapshot: snapshot,
+    usageRatio: 0.97,
+  });
+  const builtContext = buildAgentContextInstructions({
+    toolRegistry: workbench.toolRegistry,
+    skillRegistry: workbench.skillRegistry,
+    observationLog: workbench.observationLog,
+    question,
+    conversationContext,
+    globalMemory: "",
+    includeKnowledgeGuidance: true,
+    includeSkillInstructions: true,
+    runtimeToolCapabilities: {
+      sandboxEnabled: false,
+      localCommandToolEnabled: false,
+      mcpClientEnabled: false,
+    },
+  });
+
+  const buildScenario = (supportsCoreFallback: boolean) => ({
+    systemPrompt: buildAgentSystemPrompt({ isToolAvailable: (name) => productionTools.some((tool) => tool.name === name) }),
+    contextInstructions: builtContext.contextInstructions,
+    activeToolDefinitions: productionTools,
+    registeredToolCount: productionTools.length,
+    toolsetReduced: false,
+    currentQuestion: question,
+    historicalMessages,
+    conversationContext,
+    manifest: conversationContext.manifest,
+    rebuildProviderPromptState: (
+      nextContext: typeof conversationContext,
+      nextHistoricalMessages: AgentMessage[],
+      options?: { toolsetMode?: "active" | "core" },
+    ) => {
+      const selection = providerToolsetController.resolve({
+        tools: productionTools,
+        question,
+        contextWindowTokens: 128_000,
+        maxOutputTokens: 4_096,
+        coreOnly: supportsCoreFallback && options?.toolsetMode === "core",
+      });
+      const toolDefinitions = supportsCoreFallback && options?.toolsetMode === "core"
+        ? selection.tools
+        : productionTools;
+      const activeNames = new Set(toolDefinitions.map((tool) => tool.name));
+      return {
+        conversationContext: nextContext,
+        contextInstructions: builtContext.contextInstructions,
+        historicalMessages: nextHistoricalMessages,
+        manifest: nextContext.manifest,
+        systemPrompt: buildAgentSystemPrompt({ isToolAvailable: (name) => activeNames.has(name) }),
+        providerToolSelection: selection,
+        toolDefinitions,
+        registeredToolCount: productionTools.length,
+        toolsetReduced: toolDefinitions.length < productionTools.length,
+      };
+    },
+  });
+  const runScenario = async (supportsCoreFallback: boolean) => {
+    let scenarioState = state;
+    const preflight = await resolvePreflightCompression({
+      getState: () => scenarioState,
+      updateState: (updater) => { scenarioState = { ...scenarioState, ...updater(scenarioState) }; },
+      actualPromptContext: buildScenario(supportsCoreFallback),
+      currentUserMessageId: "u12",
+      chatModelSelection: null,
+      abortSignal: undefined,
+      persistConversationNow: undefined,
+      runCompaction: async () => ({ success: false, reason: "no_compactable_turns" as const }),
+      buildConversationContextForState: (nextState) => ({
+        conversationContext: buildConversationContext({
+          messages: nextState.messages,
+          currentUserMessageId: "u12",
+          currentQuestion: question,
+          compactionSnapshot: nextState.latestCompactionSnapshot,
+        }),
+        historicalMessages: buildUncoveredVerbatimAgentMessages({
+          messages: nextState.messages,
+          currentUserMessageId: "u12",
+          compactionSnapshot: nextState.latestCompactionSnapshot,
+        }),
+      }),
+    });
+    return { preflight, scenarioState };
+  };
+
+  const normal = await runScenario(false);
+  assert.equal(normal.preflight.ok, true, "生产 Registry 的真实 wire 工具预算应低于硬阈值");
+  assert.ok(normal.preflight.budget);
+  assert.equal(normal.preflight.pressureSource, normal.preflight.budget.pressureSource);
+  assert.equal(normal.preflight.budget.inputTokens < normal.preflight.budget.hardThresholdTokens, true);
+  assert.equal(normal.preflight.compactableCompletedTurnCount, 0);
+  assert.equal(normal.preflight.budget.breakdown.providerTools, wireToolTokens);
+  assert.equal(
+    normal.preflight.budget.breakdown.providerMessages
+      + normal.preflight.budget.breakdown.providerTools
+      + normal.preflight.budget.breakdown.providerStaticReserve,
+    normal.preflight.budget.inputTokens,
+  );
+  const activeToolNames = normal.preflight.finalPromptState?.toolDefinitions.map((tool) => tool.name) ?? [];
+  assert.equal(activeToolNames.length, productionTools.length);
+  assert.equal(activeToolNames.includes("agent_tool_help"), true);
+  assert.equal(activeToolNames.includes("homepage_manage"), true);
+  assert.equal(activeToolNames.includes("homepage_components"), true);
+
+  const finalState = normal.preflight.finalPromptState!;
+  const normalProvider = new ToolCallProvider();
+  const normalEvents: AgentStreamEvent[] = [];
+  const loopResult = await new NativeToolAgentLoop({
+    provider: normalProvider,
+    toolRegistry: nativeRegistry,
+    providerToolsetController,
+    systemPrompt: finalState.systemPrompt,
+    contextInstructions: finalState.contextInstructions,
+    historicalMessages: finalState.historicalMessages,
+    contextWindowTokens: 128_000,
+    maxOutputTokens: 4_096,
+    onEvent: (event) => normalEvents.push(event),
+    initialPreparedPayload: {
+      messages: [
+        { role: "system", content: finalState.systemPrompt },
+        ...(finalState.contextInstructions ? [{ role: "system" as const, content: finalState.contextInstructions }] : []),
+        ...finalState.historicalMessages,
+        { role: "user", content: question },
+      ],
+      tools: finalState.toolDefinitions,
+      systemPrompt: finalState.systemPrompt,
+      budget: finalState.budget,
+      selection: finalState.providerToolSelection,
+    },
+  }).run(question);
+  assert.equal(loopResult.status, "answer_ready");
+  assert.equal(normalProvider.requestCount, 2, "fake Provider 必须先发起工具调用，再消费 tool_result 完成回答");
+  const firstRequestToolNames = normalProvider.requests[0]?.tools.map((tool) => tool.name) ?? [];
+  assert.equal(firstRequestToolNames.includes("agent_tool_help"), true);
+  assert.equal(firstRequestToolNames.includes("homepage_manage"), true);
+  assert.equal(firstRequestToolNames.includes("homepage_components"), true);
+  assert.equal(
+    estimateValueTokens(nativeToolsToOpenAITools(normalProvider.requests[0]?.tools ?? [])),
+    wireToolTokens,
+    "fake Provider 收到的 wire 工具预算必须与 Preflight 一致",
+  );
+  assert.equal(normalEvents.filter((event) => event.type === "tool_start").length, 1);
+  const normalToolResults = normalEvents.filter((event) => event.type === "tool_result");
+  assert.equal(normalToolResults.length, 1);
+  assert.equal(normalToolResults[0]?.type === "tool_result" && normalToolResults[0].result.ok, true);
+  console.log("covered-history wire budget", JSON.stringify({
+    inputTokens: normal.preflight.budget.inputTokens,
+    effectiveInputBudget: normal.preflight.budget.effectiveInputBudget,
+    hardThresholdTokens: normal.preflight.budget.hardThresholdTokens,
+    pressureSource: normal.preflight.pressureSource,
+    compactableCompletedTurnCount: normal.preflight.compactableCompletedTurnCount,
+    providerRequestCount: normalProvider.requestCount,
+    toolCallCount: normalEvents.filter((event) => event.type === "tool_start").length,
+    toolResultCount: normalToolResults.length,
+    providerWireToolTokens: wireToolTokens,
+    providerWireToolTokenSum: perWireToolSum,
+    breakdown: normal.preflight.budget.breakdown,
+    activeToolNames,
+    perWireToolTokens,
+  }));
+}
+
+async function verifyTrueWireSchemaFallback(): Promise<void> {
+  const question = "请调用 real_schema_overflow";
+  const tools = [makeTool("agent_tool_help"), makeSchemaOverflowTool()];
+  const currentUserMessageId = "u-wire-overflow";
+  const messages: KbSessionState["messages"] = [{
+    id: currentUserMessageId,
+    role: "user",
+    content: question,
+    createdAt: 1,
+  }];
+  let state: KbSessionState = { ...emptyState(), messages };
+  const controller = new ProviderToolsetController();
+  let coreRebuildCount = 0;
+  const buildContext = (nextMessages: KbSessionState["messages"]) => buildConversationContext({
+    messages: nextMessages,
+    currentUserMessageId,
+    currentQuestion: question,
+  });
+  const initialConversationContext = buildContext(messages);
+  const rebuildProviderPromptState = (
+    nextContext: ReturnType<typeof buildConversationContext>,
+    nextHistoricalMessages: AgentMessage[],
+    options?: { toolsetMode?: "active" | "core" },
+  ) => {
+    const coreOnly = options?.toolsetMode === "core";
+    if (coreOnly) coreRebuildCount += 1;
+    const selection = controller.resolve({
+      tools,
+      question,
+      contextWindowTokens: 8_192,
+      maxOutputTokens: 512,
+      coreOnly,
+    });
+    return {
+      conversationContext: nextContext,
+      contextInstructions: "",
+      historicalMessages: nextHistoricalMessages,
+      manifest: nextContext.manifest,
+      systemPrompt: "真实 wire schema fallback",
+      providerToolSelection: selection,
+      toolDefinitions: coreOnly ? selection.tools : tools,
+      registeredToolCount: tools.length,
+      toolsetReduced: coreOnly,
+    };
+  };
+  const initialWireBudget = buildPromptBudget({
+    contextWindowTokens: 8_192,
+    maxOutputTokens: 512,
+    providerMessages: [{ role: "system", content: "真实 wire schema fallback" }, { role: "user", content: question }],
+    providerTools: tools,
+  });
+  assert.equal(initialWireBudget.pressureSource, "tool_definitions");
+  assert.equal(initialWireBudget.inputTokens >= initialWireBudget.hardThresholdTokens, true);
+
+  const preflight = await resolvePreflightCompression({
+    getState: () => state,
+    updateState: (updater) => { state = { ...state, ...updater(state) }; },
+    actualPromptContext: {
+      systemPrompt: "真实 wire schema fallback",
+      contextInstructions: "",
+      activeToolDefinitions: tools,
+      registeredToolCount: tools.length,
+      toolsetReduced: false,
+      currentQuestion: question,
+      historicalMessages: [],
+      conversationContext: initialConversationContext,
+      manifest: initialConversationContext.manifest,
+      contextWindowTokens: 8_192,
+      maxOutputTokens: 512,
+      rebuildProviderPromptState,
+    },
+    currentUserMessageId,
+    chatModelSelection: null,
+    abortSignal: undefined,
+    persistConversationNow: undefined,
+    runCompaction: async () => ({ success: false, reason: "no_compactable_turns" as const }),
+    buildConversationContextForState: (nextState) => ({
+      conversationContext: buildContext(nextState.messages),
+      historicalMessages: [],
+    }),
+  });
+  assert.equal(preflight.ok, true, "真实 parameters 超大时也应只在最后保护阶段回退核心工具");
+  assert.equal(coreRebuildCount > 0, true);
+  assert.deepEqual(preflight.finalPromptState?.toolDefinitions.map((tool) => tool.name), ["agent_tool_help"]);
+  assert.ok(preflight.budget);
+  assert.equal(preflight.budget.inputTokens < preflight.budget.hardThresholdTokens, true);
+  const provider = new AnswerProvider();
+  const finalState = preflight.finalPromptState!;
+  const result = await new NativeToolAgentLoop({
+    provider,
+    toolRegistry: new NativeToolRegistry(),
+    systemPrompt: finalState.systemPrompt,
+    contextInstructions: finalState.contextInstructions,
+    historicalMessages: finalState.historicalMessages,
+    contextWindowTokens: 8_192,
+    maxOutputTokens: 512,
+    initialPreparedPayload: {
+      messages: [
+        { role: "system", content: finalState.systemPrompt },
+        { role: "user", content: question },
+      ],
+      tools: finalState.toolDefinitions,
+      systemPrompt: finalState.systemPrompt,
+      budget: finalState.budget,
+      selection: finalState.providerToolSelection,
+    },
+  }).run(question);
+  assert.equal(result.status, "answer_ready");
+  assert.equal(provider.requestCount, 1);
+  assert.deepEqual(provider.seenToolNames, ["agent_tool_help"]);
+}
+
+function verifyWorkbenchOutcomeSemantics(): void {
+  const zeroToolEvents = [
+    { type: "assistant_final", answer: "provider_toolset_budget_exceeded：本轮未执行工具。" },
+    { type: "done", status: "answer_ready" as const },
+  ];
+  assert.equal(resolveWorkbenchFinalStatus(zeroToolEvents), "answer_ready");
+  assert.equal(
+    formatWorkbenchProcessStats([], { isGenerating: false, isComplete: true, doneStatus: "answer_ready" }),
+    "回答已完成（未执行工具）",
+  );
+  assert.equal(
+    formatWorkbenchProcessStats([{ isToolExecution: true, ok: true }], { isGenerating: false, isComplete: true, doneStatus: "answer_ready" }),
+    "工具 1 次 · 成功 1 · 失败 0 · 最终成功",
+  );
+  assert.match(
+    formatWorkbenchProcessStats([
+      { isToolExecution: true, ok: true },
+      { isToolExecution: true, ok: false },
+    ], { isGenerating: false, isComplete: true, doneStatus: "answer_ready" }),
+    /部分工具失败/,
+  );
+  assert.match(
+    formatWorkbenchProcessStats([{ isToolExecution: true, ok: false }], { isGenerating: false, isComplete: true, doneStatus: "answer_ready" }),
+    /最终失败/,
+  );
+  assert.equal(
+    formatWorkbenchProcessStats([], { isGenerating: false, isComplete: true, doneStatus: "failed" }),
+    "最终失败",
+  );
 }
 
 async function verifyPreflightFirstStepAlignment(): Promise<void> {
@@ -845,6 +1490,11 @@ await verifyDeferredProviderToolset();
 await verifyHiddenDispatchAndErrors();
 await verifyCompactionFullRebuildPromptState();
 await verifyControlledFailureFullProviderPromptUsage();
+verifyManualCompressionPresentation();
+await verifyManualCompactionStaysLocal();
+await verifyCoveredHistoryToolPressure();
+await verifyTrueWireSchemaFallback();
+verifyWorkbenchOutcomeSemantics();
 await verifyPreflightFirstStepAlignment();
 await verifySecondStepDynamicToolsetAfterInitialPreparedPayload();
 await verifyResumeDoesNotUseInitialPreparedPayload();

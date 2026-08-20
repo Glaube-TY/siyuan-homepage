@@ -100,10 +100,12 @@ export interface OnContextPreparedContext {
   rebuildProviderPromptState: (
     conversationContext: ConversationContextSnapshot | undefined,
     historicalMessages: AgentMessage[],
+    options?: { toolsetMode?: "active" | "core" },
   ) => PreparedProviderPromptState;
   rebuildProviderContext: (
     conversationContext: ConversationContextSnapshot | undefined,
     historicalMessages: AgentMessage[],
+    options?: { toolsetMode?: "active" | "core" },
   ) => {
     conversationContext?: ConversationContextSnapshot;
     contextInstructions: string;
@@ -645,10 +647,12 @@ export async function runAgentProfile<TResult>(
     const resolveProviderToolset = (
       nextHistoricalMessages: readonly AgentMessage[] = historicalMessages,
       contextInstructions: string = context.contextInstructions,
+      toolsetMode: "active" | "core" = "active",
     ) => {
       const resolve = (prompt: string) => providerToolsetController.resolve({
         tools: providerTools,
         question: params.question,
+        coreOnly: toolsetMode === "core",
         contextWindowTokens: params.contextWindowTokens ?? selected.model.contextWindowTokens,
         maxOutputTokens: selected.model.maxTokens,
         providerMessageTokens: estimateAgentMessagesTokens([
@@ -668,6 +672,7 @@ export async function runAgentProfile<TResult>(
     const rebuildProviderPromptState = (
       nextConversationContext: ConversationContextSnapshot | undefined,
       nextHistoricalMessages: readonly AgentMessage[],
+      options?: { toolsetMode?: "active" | "core" },
     ): PreparedProviderPromptState => {
       const nextContext = buildContext(nextConversationContext);
       const nextAllowedHistoricalMessages = agentProfileAllowsContext(agentProfile, "conversation")
@@ -676,6 +681,7 @@ export async function runAgentProfile<TResult>(
       const { selection, systemPrompt: nextSystemPrompt } = resolveProviderToolset(
         nextAllowedHistoricalMessages,
         nextContext.contextInstructions,
+        options?.toolsetMode ?? "active",
       );
       return {
         conversationContext: nextConversationContext,
@@ -712,8 +718,8 @@ export async function runAgentProfile<TResult>(
       contextWindowTokens: params.contextWindowTokens ?? selected.model.contextWindowTokens,
       maxOutputTokens: selected.model.maxTokens,
       rebuildProviderPromptState,
-      rebuildProviderContext: (conversationContext, nextHistoricalMessages) => {
-        const rebuilt = rebuildProviderPromptState(conversationContext, nextHistoricalMessages);
+      rebuildProviderContext: (conversationContext, nextHistoricalMessages, options) => {
+        const rebuilt = rebuildProviderPromptState(conversationContext, nextHistoricalMessages, options);
         return {
           conversationContext: rebuilt.conversationContext,
           contextInstructions: rebuilt.contextInstructions,

@@ -317,6 +317,11 @@
         { reason: result.error },
         "info",
       );
+    } else if (result.success && result.beforeInputTokens !== undefined && result.afterInputTokens !== undefined) {
+      showMessage(
+        `历史压缩完成：${result.beforeInputTokens.toLocaleString()} → ${result.afterInputTokens.toLocaleString()} token，覆盖到第 ${result.coveredThroughTurnIndex ?? "最新"} 轮。`,
+        4000,
+      );
     }
     refreshContextUsageSafe("compression_applied");
   }

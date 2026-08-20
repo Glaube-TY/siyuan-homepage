@@ -38,7 +38,12 @@ import { pushAgentDebugEvent } from "../agent-workbench/debug/workbench-debug";
 import { runContextCompaction, selectCompactionTurns } from "../context-compression";
 import { buildPromptBudget, type PromptBudget } from "../../types/context-usage";
 import { getKbSettings } from "../settings/kb-settings-service";
-import { estimateContextUsage } from "../../types/context-usage";
+import {
+  estimateContextUsage,
+  PROMPT_PRESSURE_SOURCE_LABELS,
+  resolvePromptPressureSource,
+  type PromptPressureSource,
+} from "../../types/context-usage";
 import {
   buildConversationContext,
   buildUncoveredVerbatimAgentMessages,
@@ -65,6 +70,7 @@ import {
   type AgentRunCheckpoint,
 } from "../agent-core/session/agent-run-checkpoint";
 import { AgentProviderError } from "../agent-core/providers/provider-error";
+import { CORE_PROVIDER_TOOL_NAMES } from "../agent-core/tools/native-tool-registry";
 
 /**
  * Agent Workbench Mode Flow 参数
@@ -98,7 +104,7 @@ export interface PreflightCompressionResult {
   ok: boolean;
   reason?: string;
   failureCode?: "context_budget_exceeded" | "provider_toolset_budget_exceeded" | "irreducible_context_overflow";
-  pressureSource?: "conversation" | "tool_definitions" | "fixed_prompt" | "runtime_observations";
+  pressureSource?: PromptPressureSource;
   budget?: PromptBudget;
   inputTokens?: number;
   effectiveInputBudget?: number;
@@ -137,10 +143,12 @@ export interface ActualPromptContext {
   rebuildProviderPromptState?: (
     conversationContext: ReturnType<typeof buildConversationContext>,
     historicalMessages: AgentMessage[],
+    options?: { toolsetMode?: "active" | "core" },
   ) => RebuiltProviderPromptState;
   rebuildProviderContext?: (
     conversationContext: ReturnType<typeof buildConversationContext>,
     historicalMessages: AgentMessage[],
+    options?: { toolsetMode?: "active" | "core" },
   ) => {
     conversationContext?: ReturnType<typeof buildConversationContext>;
     contextInstructions: string;
@@ -203,12 +211,13 @@ export async function resolvePreflightCompression(
   const applyRebuiltContext = (rebuiltContext: {
     conversationContext: ReturnType<typeof buildConversationContext>;
     historicalMessages: AgentMessage[];
-  }) => {
+  }, options?: { toolsetMode?: "active" | "core" }) => {
     latestConversationContext = rebuiltContext.conversationContext;
     if (actualPromptContext.rebuildProviderPromptState) {
       const prepared = actualPromptContext.rebuildProviderPromptState(
         rebuiltContext.conversationContext,
         rebuiltContext.historicalMessages,
+        options,
       );
       actualPromptContext.systemPrompt = prepared.systemPrompt;
       actualPromptContext.contextInstructions = prepared.contextInstructions;
@@ -222,6 +231,7 @@ export async function resolvePreflightCompression(
       const prepared = actualPromptContext.rebuildProviderContext(
         rebuiltContext.conversationContext,
         rebuiltContext.historicalMessages,
+        options,
       );
       actualPromptContext.contextInstructions = prepared.contextInstructions;
       actualPromptContext.historicalMessages = prepared.historicalMessages;
@@ -294,22 +304,68 @@ export async function resolvePreflightCompression(
     }
   }
 
-  state = getState();
-  budget = buildBudget();
-
-  // Fixed-point stabilization for usageRatio (max 3 iterations)
-  for (let iter = 0; iter < 3; iter += 1) {
-    const ratioBefore = budget.usageRatio;
-    const stabilizedContext = params.buildConversationContextForState?.(state, ratioBefore);
-    if (!stabilizedContext) break;
-    applyRebuiltContext(stabilizedContext);
-    const newBudget = buildBudget();
-    if (newBudget.inputTokens === budget.inputTokens && Math.abs(newBudget.usageRatio - ratioBefore) < 0.001) {
-      budget = newBudget;
-      break;
+  const stabilizeBudget = (
+    initialBudget: PromptBudget,
+    toolsetMode: "active" | "core" = "active",
+  ): PromptBudget => {
+    let stabilizedBudget = initialBudget;
+    state = getState();
+    // Fixed-point stabilization for usageRatio (max 3 iterations).
+    for (let iter = 0; iter < 3; iter += 1) {
+      const ratioBefore = stabilizedBudget.usageRatio;
+      const stabilizedContext = params.buildConversationContextForState?.(state, ratioBefore);
+      if (!stabilizedContext) break;
+      applyRebuiltContext(stabilizedContext, { toolsetMode });
+      const newBudget = buildBudget();
+      if (newBudget.inputTokens === stabilizedBudget.inputTokens && Math.abs(newBudget.usageRatio - ratioBefore) < 0.001) {
+        stabilizedBudget = newBudget;
+        break;
+      }
+      stabilizedBudget = newBudget;
     }
-    budget = newBudget;
+    return stabilizedBudget;
+  };
+
+  state = getState();
+  budget = stabilizeBudget(buildBudget());
+
+  const getCompactableCompletedTurnCount = (): number => selectCompactionTurns({
+    messages: state.messages,
+    previousSnapshot: state.latestCompactionSnapshot,
+    currentUserMessageId,
+    promptBudget: budget,
+    trigger: "hard",
+  }).compactableTurns.length;
+  let compactableCompletedTurnCount = getCompactableCompletedTurnCount();
+  let pressureSource: PromptPressureSource = resolvePromptPressureSource(budget.breakdown);
+  const coreToolNames = new Set<string>(CORE_PROVIDER_TOOL_NAMES);
+  const hasNonCoreToolDefinitions = Array.isArray(actualPromptContext.activeToolDefinitions)
+    && actualPromptContext.activeToolDefinitions.some((tool) => (
+      tool && typeof tool === "object"
+      && typeof (tool as { name?: unknown }).name === "string"
+      && !coreToolNames.has((tool as { name: string }).name)
+    ));
+  const canRebuildProviderPrompt = !!(
+    params.buildConversationContextForState
+    && (actualPromptContext.rebuildProviderPromptState || actualPromptContext.rebuildProviderContext)
+  );
+  if (
+    budget.inputTokens >= budget.hardThresholdTokens
+    && pressureSource === "tool_definitions"
+    && compactableCompletedTurnCount === 0
+    && hasNonCoreToolDefinitions
+    && canRebuildProviderPrompt
+  ) {
+    const coreContext = params.buildConversationContextForState(state, budget.usageRatio);
+    if (coreContext) {
+      applyRebuiltContext(coreContext, { toolsetMode: "core" });
+      budget = stabilizeBudget(buildBudget(), "core");
+      compactableCompletedTurnCount = getCompactableCompletedTurnCount();
+      pressureSource = resolvePromptPressureSource(budget.breakdown);
+    }
   }
+  budget = { ...budget, pressureSource };
+  const breakdown = budget.breakdown;
 
   pushAgentDebugEvent("CONTEXT_PROMPT_BUDGET_READY", {
     inputTokens: budget.inputTokens,
@@ -317,37 +373,23 @@ export async function resolvePreflightCompression(
     usageRatioPct: Math.round(budget.usageRatio * 100),
     softThresholdTokens: budget.softThresholdTokens,
     hardThresholdTokens: budget.hardThresholdTokens,
+    pressureSource,
+    breakdown,
     snapshotGeneration: state.latestCompactionSnapshot?.generation,
-    compactableCompletedTurnCount: selectCompactionTurns({
-      messages: state.messages,
-      previousSnapshot: state.latestCompactionSnapshot,
-      currentUserMessageId,
-      promptBudget: budget,
-      trigger: "hard",
-    }).compactableTurns.length,
+    compactableCompletedTurnCount,
   }, budget.inputTokens >= budget.hardThresholdTokens ? "warn" : "info");
-  const breakdown = budget.breakdown;
-  const compactableCompletedTurnCount = selectCompactionTurns({
-    messages: state.messages,
-    previousSnapshot: state.latestCompactionSnapshot,
-    currentUserMessageId,
-    promptBudget: budget,
-    trigger: "hard",
-  }).compactableTurns.length;
-  const pressureSource: PreflightCompressionResult["pressureSource"] = breakdown.toolDefinitionTokens > 0
-    && breakdown.toolDefinitionTokens >= Math.max(1_024, breakdown.conversationTokens + breakdown.currentUserTokens)
-    ? "tool_definitions"
-    : breakdown.conversationTokens + breakdown.runtimeObservationTokens > 0 && compactableCompletedTurnCount > 0
-      ? "conversation"
-      : breakdown.runtimeObservationTokens > 0
-        ? "runtime_observations"
-        : "fixed_prompt";
   pushAgentDebugEvent("PROVIDER_PROMPT_BUDGET_FINAL", {
     contextWindow: budget.contextWindowTokens,
     effectiveInput: budget.effectiveInputBudget,
     inputTokens: budget.inputTokens,
+    pressureSource,
+    providerMessagesTokens: breakdown.providerMessages,
+    providerToolsTokens: breakdown.providerTools,
+    providerStaticReserveTokens: breakdown.providerStaticReserve,
+    fixedPromptTokens: breakdown.fixedPromptTokens,
     systemPromptTokens: breakdown.systemPrompt,
     contextInstructionTokens: breakdown.contextInstructions,
+    conversationTokens: breakdown.conversationTokens,
     historicalTokens: breakdown.conversationTokens,
     currentUserTokens: breakdown.currentUserTokens,
     toolDefinitionTokens: breakdown.toolDefinitionTokens,
@@ -365,6 +407,7 @@ export async function resolvePreflightCompression(
       : [],
     snapshotGeneration: state.latestCompactionSnapshot?.generation,
     usageRatioPct: Math.round(budget.usageRatio * 100),
+    exactInputBreakdownTotal: breakdown.providerMessages + breakdown.providerTools + breakdown.providerStaticReserve,
   }, budget.inputTokens >= budget.hardThresholdTokens ? "warn" : "info");
 
   const finalPromptState: FinalPreparedProviderPromptState = {
@@ -394,6 +437,12 @@ export async function resolvePreflightCompression(
       : pressureSource === "conversation" || pressureSource === "runtime_observations"
         ? "context_budget_exceeded"
         : "irreducible_context_overflow";
+    const failureReason = failureCode === "provider_toolset_budget_exceeded"
+      ? "当前 provider 工具定义仍超过动态工具预算，无法安全发送。"
+      : failureCode === "irreducible_context_overflow"
+        ? "上下文窗口不足以容纳 Agent 基础运行上下文。"
+        : "会话历史超过当前模型预算，无法安全压缩。";
+    const budgetDiagnostic = `【预算诊断】主要来源：${PROMPT_PRESSURE_SOURCE_LABELS[pressureSource]}；实际 ${budget.inputTokens.toLocaleString()} / ${budget.effectiveInputBudget.toLocaleString()} token；System ${breakdown.systemPrompt.toLocaleString()}、Context ${breakdown.contextInstructions.toLocaleString()}、历史 ${breakdown.conversationTokens.toLocaleString()}、当前问题 ${breakdown.currentUserTokens.toLocaleString()}、工具 ${breakdown.toolDefinitionTokens.toLocaleString()}、运行时观察 ${breakdown.runtimeObservationTokens.toLocaleString()}。`;
     return {
       ok: false,
       failureCode,
@@ -406,15 +455,12 @@ export async function resolvePreflightCompression(
       compactionAttempted,
       toolsetReduced: actualPromptContext.toolsetReduced === true,
       finalPromptState,
-      reason: failureCode === "provider_toolset_budget_exceeded"
-        ? "当前 provider 工具定义仍超过动态工具预算，无法安全发送。"
-        : failureCode === "irreducible_context_overflow"
-          ? "上下文窗口不足以容纳 Agent 基础运行上下文。"
-          : "会话历史超过当前模型预算，无法安全压缩。",
+      reason: `${failureReason} ${budgetDiagnostic}`,
     };
   }
   return {
     ok: true,
+    pressureSource,
     budget,
     inputTokens: budget.inputTokens,
     effectiveInputBudget: budget.effectiveInputBudget,

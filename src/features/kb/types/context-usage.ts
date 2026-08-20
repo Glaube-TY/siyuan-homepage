@@ -8,9 +8,68 @@
 
 import type { ChatMessage } from "./chat";
 import type { ContextCompactionSnapshot } from "./context-compaction";
+import { projectProviderToolBudgetInput } from "../services/agent-core/tools/tool-schema-converter";
 
 export type ContextUsageLevel = "normal" | "warn" | "critical";
 export type ContextUsageMaxContextSource = "model_config" | "default";
+export type PromptPressureSource = "conversation" | "tool_definitions" | "runtime_observations" | "fixed_prompt";
+export const PROMPT_PRESSURE_SOURCE_LABELS: Record<PromptPressureSource, string> = {
+  conversation: "历史对话",
+  tool_definitions: "工具定义",
+  runtime_observations: "运行时观察",
+  fixed_prompt: "固定提示/当前问题",
+};
+
+export interface ManualCompressionPresentation {
+  canCompress: boolean;
+  buttonLabel: string;
+  disabledReason: string;
+  pressureSourceLabel: string;
+}
+
+export function resolveManualCompressionPresentation(input: {
+  asking: boolean;
+  compactableTurnCount: number;
+  uncoveredCompletedTurnCount: number;
+  latestCompactionSnapshot?: ContextCompactionSnapshot;
+  pressureSource?: PromptPressureSource;
+}): ManualCompressionPresentation {
+  const pressureSourceLabel = input.pressureSource
+    ? PROMPT_PRESSURE_SOURCE_LABELS[input.pressureSource]
+    : "尚未确定";
+  if (input.asking) {
+    return {
+      canCompress: false,
+      buttonLabel: "压缩历史对话",
+      disabledReason: "回答进行中，不能手动改写历史上下文",
+      pressureSourceLabel,
+    };
+  }
+  if (input.compactableTurnCount > 0) {
+    return {
+      canCompress: true,
+      buttonLabel: input.latestCompactionSnapshot ? "更新历史压缩" : "压缩历史对话",
+      disabledReason: "",
+      pressureSourceLabel,
+    };
+  }
+  if (input.latestCompactionSnapshot && !input.latestCompactionSnapshot.stale && input.uncoveredCompletedTurnCount <= 0) {
+    return {
+      canCompress: false,
+      buttonLabel: "历史已压缩到最新轮次",
+      disabledReason: `历史已压缩到最新可压缩轮次；当前主要压力来源：${pressureSourceLabel}`,
+      pressureSourceLabel,
+    };
+  }
+  return {
+    canCompress: false,
+    buttonLabel: "暂无可压缩历史",
+    disabledReason: input.uncoveredCompletedTurnCount <= 0
+      ? "暂无未覆盖的完整历史；手动操作只处理历史对话"
+      : "未覆盖历史只保留最近完整轮次，当前没有可压缩轮次",
+    pressureSourceLabel,
+  };
+}
 
 export const DEFAULT_MAX_CONTEXT_TOKENS = 128_000;
 export const DEFAULT_MAX_OUTPUT_TOKENS = 4_096;
@@ -159,6 +218,7 @@ export interface PromptBudget {
   hardThresholdTokens: number;
   targetInputTokens: number;
   breakdown: PromptBudgetBreakdown;
+  pressureSource: PromptPressureSource;
 }
 
 export interface PromptBudgetInput {
@@ -208,6 +268,7 @@ export interface ContextUsageSnapshot {
   estimateKind: ContextUsageEstimateKind;
   breakdown: ContextUsageBreakdown;
   budget?: PromptBudget;
+  pressureSource?: PromptPressureSource;
   compactionCoverageTurnIndex?: number;
   lastCompactedAt?: number;
   snapshotEstimatedTokens?: number;
@@ -251,16 +312,19 @@ export function buildPromptBudget(input: PromptBudgetInput): PromptBudget {
   ];
   const providerMessages = estimateAgentMessagesTokens(exactMessages);
   const rawProviderTools = input.providerTools ?? input.activeToolDefinitions;
-  const providerTools = Array.isArray(rawProviderTools) && rawProviderTools.length === 0
+  const projectedProviderTools = projectProviderToolBudgetInput(rawProviderTools);
+  const providerTools = Array.isArray(projectedProviderTools) && projectedProviderTools.length === 0
     ? 0
-    : estimateValueTokens(rawProviderTools);
+    : estimateValueTokens(projectedProviderTools);
   const providerStaticReserve = input.providerMessages !== undefined
     ? 0
     : Math.max(0, Math.ceil(input.providerStaticReserveTokens ?? 0));
   const conversationMessages = Array.isArray(historicalMessages) ? historicalMessages : [];
   const currentMessages = Array.isArray(currentRunMessages) ? currentRunMessages : [];
   const conversationTokens = estimateAgentMessagesTokens(conversationMessages);
-  const currentUserTokens = estimateAgentMessagesTokens(currentMessages);
+  const currentUserTokens = estimateAgentMessagesTokens(currentMessages.filter((message) => (
+    message && typeof message === "object" && (message as Record<string, unknown>).role === "user"
+  )));
   const runtimeObservationTokens = [...conversationMessages, ...currentMessages].reduce((total, message) => {
     const record = message && typeof message === "object" ? message as Record<string, unknown> : {};
     return total + (record.role === "tool" ? estimateAgentMessagesTokens([message]) : 0);
@@ -272,9 +336,8 @@ export function buildPromptBudget(input: PromptBudgetInput): PromptBudget {
       + estimateValueTokens(input.globalMemory)
       + estimateValueTokens(input.recoveryInstruction)
       + estimateValueTokens(input.runtimeContext)
-      + providerTools
+      + (!input.contextInstructions ? estimateValueTokens(input.compactionSnapshot) : 0)
       + providerStaticReserve
-      + safetyMarginTokens,
   );
   const breakdown: PromptBudgetBreakdown = {
     systemPrompt: estimateValueTokens(input.systemPrompt),
@@ -298,6 +361,7 @@ export function buildPromptBudget(input: PromptBudgetInput): PromptBudget {
     safetyMargin: safetyMarginTokens,
   };
   const inputTokens = providerMessages + providerTools + providerStaticReserve;
+  const breakdownPressureSource = resolvePromptPressureSource(breakdown);
   return {
     contextWindowTokens,
     maxOutputTokens,
@@ -310,7 +374,29 @@ export function buildPromptBudget(input: PromptBudgetInput): PromptBudget {
     hardThresholdTokens: Math.floor(effectiveInputBudget * PROMPT_HARD_THRESHOLD_RATIO),
     targetInputTokens: Math.floor(effectiveInputBudget * PROMPT_TARGET_RATIO),
     breakdown,
+    pressureSource: breakdownPressureSource,
   };
+}
+
+/**
+ * Classifies the largest actual prompt contribution. Runtime observations are
+ * a subcategory of historical messages, so conversation excludes tool-role
+ * messages before the comparison to avoid counting the same tokens twice.
+ */
+export function resolvePromptPressureSource(
+  breakdown: PromptBudgetBreakdown,
+): PromptPressureSource {
+  const contributions: Record<PromptPressureSource, number> = {
+    conversation: Math.max(0, breakdown.conversationTokens - breakdown.runtimeObservationTokens),
+    tool_definitions: Math.max(0, breakdown.toolDefinitionTokens),
+    runtime_observations: Math.max(0, breakdown.runtimeObservationTokens),
+    fixed_prompt: Math.max(0, breakdown.fixedPromptTokens + breakdown.currentUserTokens),
+  };
+  let source: PromptPressureSource = "fixed_prompt";
+  for (const candidate of ["conversation", "tool_definitions", "runtime_observations"] as const) {
+    if (contributions[candidate] > contributions[source]) source = candidate;
+  }
+  return source;
 }
 
 export interface EstimateContextUsageParams {
@@ -380,6 +466,7 @@ export function estimateContextUsage(params: EstimateContextUsageParams): Contex
       prompt: budget.breakdown,
     },
     budget,
+    pressureSource: budget.pressureSource,
     ...(snapshot ? { compactionCoverageTurnIndex: snapshot.coveredThroughTurnIndex } : {}),
     ...(snapshot?.createdAt ? { lastCompactedAt: snapshot.createdAt } : {}),
     ...(snapshot?.estimatedTokens ? { snapshotEstimatedTokens: snapshot.estimatedTokens } : {}),

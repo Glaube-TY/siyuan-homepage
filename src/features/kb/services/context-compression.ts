@@ -58,6 +58,8 @@ export interface ContextCompactionParams {
   trigger: ContextCompactionTrigger;
   chatModelSelection?: ChatModelSelection | null;
   abortSignal?: AbortSignal;
+  /** Manual UI compression must remain local and deterministic. */
+  providerCallAllowed?: boolean;
 }
 
 export interface ContextCompactionResult {
@@ -443,11 +445,15 @@ async function generateState(params: {
   chatModelSelection?: ChatModelSelection | null;
   abortSignal?: AbortSignal;
   maxInputTokens: number;
+  providerCallAllowed?: boolean;
 }): Promise<{ state?: ContextCompactionSnapshotState; fallbackUsed: boolean }> {
   const prompt = buildCompactionPrompt(params.previous, params.turns);
   // A single safe turn that cannot fit is handled deterministically by the
   // caller. Never send an over-budget compaction request to the provider.
   if (estimateTextTokensConservative(prompt) > params.maxInputTokens) {
+    return { fallbackUsed: true };
+  }
+  if (params.providerCallAllowed === false) {
     return { fallbackUsed: true };
   }
   try {
@@ -511,6 +517,7 @@ export async function runContextCompaction(
       chatModelSelection: params.chatModelSelection,
       abortSignal: params.abortSignal,
       maxInputTokens: plan.inputBudget,
+      providerCallAllowed: params.providerCallAllowed,
     });
     // A valid model result is authoritative. Only the deterministic fallback
     // folds the batch into the previous state because it has no semantic view.

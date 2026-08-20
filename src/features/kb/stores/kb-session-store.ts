@@ -23,6 +23,7 @@ import {
 import type { ResolvedReferenceDocInfo } from "../services/session/reference-doc-resolver";
 import {
   estimateContextUsage,
+  PROMPT_PRESSURE_SOURCE_LABELS,
   resolveIdleProviderReserve,
 } from "../types/context-usage";
 import { buildUncoveredVerbatimAgentMessages } from "../services/agent-workbench/runtime/conversation-context-builder";
@@ -1658,6 +1659,9 @@ export function createKbSessionStore(
     executeCompression: async (): Promise<{
       success: boolean;
       error?: string;
+      beforeInputTokens?: number;
+      afterInputTokens?: number;
+      coveredThroughTurnIndex?: number;
     }> => {
       const state = get({ subscribe });
       if (state.asking) {
@@ -1668,12 +1672,13 @@ export function createKbSessionStore(
         return { success: false, error: LEGACY_CONVERSATION_READ_ONLY };
       }
 
+      const currentUserMessageId = [...state.messages].reverse().find((message) => message.role === "user")?.id;
       const historicalMessages = buildUncoveredVerbatimAgentMessages({
         messages: state.messages,
-        currentUserMessageId: [...state.messages].reverse().find((message) => message.role === "user")?.id,
+        currentUserMessageId,
         compactionSnapshot: state.latestCompactionSnapshot,
       });
-      const budget = estimateContextUsage({
+      const usageBefore = estimateContextUsage({
         messages: state.messages,
         attachedDocCount: 0,
         contextWindowTokens: state.contextUsage?.maxContextTokens,
@@ -1681,19 +1686,58 @@ export function createKbSessionStore(
         historicalMessages,
         providerStaticReserveTokens: resolveIdleProviderReserve(state.contextUsage?.maxContextTokens),
         estimateKind: "conversation_context",
-      }).budget!;
+      });
+      const budget = usageBefore.budget!;
+      const selection = selectCompactionTurns({
+        messages: state.messages,
+        previousSnapshot: state.latestCompactionSnapshot,
+        currentUserMessageId,
+        promptBudget: budget,
+        trigger: "manual",
+      });
+      if (selection.compactableTurns.length === 0) {
+        const coveredThrough = selection.previousSnapshotUsable
+          ? state.latestCompactionSnapshot?.coveredThroughTurnIndex ?? 0
+          : 0;
+        const uncoveredCount = selection.completeTurns.filter((turn) => turn.turnIndex > coveredThrough).length;
+        const reason = selection.previousSnapshotUsable && uncoveredCount === 0
+          ? "历史已压缩到最新可压缩轮次"
+          : uncoveredCount > 0
+            ? "未覆盖历史只保留最近完整轮次"
+            : "暂无可压缩的完整历史轮次";
+        return {
+          success: false,
+          error: `${reason}。当前主要压力来源：${PROMPT_PRESSURE_SOURCE_LABELS[budget.pressureSource]}。`,
+        };
+      }
       const result = await runContextCompaction({
         messages: state.messages,
         previousSnapshot: state.latestCompactionSnapshot,
-        currentUserMessageId: [...state.messages].reverse().find((message) => message.role === "user")?.id,
+        currentUserMessageId,
         promptBudget: budget,
         trigger: "manual",
         chatModelSelection: state.selectedChatModelSelection,
+        providerCallAllowed: false,
       });
 
       if (!result.success) {
         return { success: false, error: result.error };
       }
+
+      const afterHistoricalMessages = buildUncoveredVerbatimAgentMessages({
+        messages: state.messages,
+        currentUserMessageId,
+        compactionSnapshot: result.snapshot,
+      });
+      const usageAfter = estimateContextUsage({
+        messages: state.messages,
+        attachedDocCount: 0,
+        contextWindowTokens: state.contextUsage?.maxContextTokens,
+        compactionSnapshot: result.snapshot,
+        historicalMessages: afterHistoricalMessages,
+        providerStaticReserveTokens: resolveIdleProviderReserve(state.contextUsage?.maxContextTokens),
+        estimateKind: "conversation_context",
+      });
 
       update((s) => {
         return {
@@ -1713,7 +1757,12 @@ export function createKbSessionStore(
 
       schedulePersist();
 
-      return { success: true };
+      return {
+        success: true,
+        beforeInputTokens: usageBefore.estimatedTokens,
+        afterInputTokens: usageAfter.estimatedTokens,
+        coveredThroughTurnIndex: result.snapshot?.coveredThroughTurnIndex,
+      };
     },
 
     /**

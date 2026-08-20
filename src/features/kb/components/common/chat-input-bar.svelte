@@ -7,6 +7,7 @@
   import type { KbChatAppearanceStyle } from "../../types/settings";
   import type { ThinkingMode } from "../../types/session";
   import type { ContextUsageSnapshot } from "../../types/context-usage";
+  import { resolveManualCompressionPresentation } from "../../types/context-usage";
   import type { ContextCompactionSnapshot } from "../../types/context-compaction";
   import type { AttachedKbDoc } from "../../types/chat";
   import { searchDocsForChatAttachment, type ChatDocSearchResult } from "../../services/siyuan/search-docs-for-chat";
@@ -100,17 +101,18 @@
     pushAgentDebugEvent("CONTEXT_FLOATING_POPOVER_POSITION_SAFE", info, "debug");
   }
 
-  $: canCompress = (() => {
-    if (asking) return false;
-    return compactableTurnCount > 0;
-  })();
-
-  $: compressDisabledReason = (() => {
-    if (asking) return "正在问答中";
-    if (uncoveredCompletedTurnCount <= 0) return "没有未覆盖的完整历史";
-    if (compactableTurnCount <= 0) return "当前历史没有可压缩轮次";
-    return "";
-  })();
+  $: pressureSource = contextUsage?.pressureSource ?? contextUsage?.budget?.pressureSource;
+  $: compressionPresentation = resolveManualCompressionPresentation({
+    asking,
+    compactableTurnCount,
+    uncoveredCompletedTurnCount,
+    latestCompactionSnapshot,
+    pressureSource,
+  });
+  $: canCompress = compressionPresentation.canCompress;
+  $: compressDisabledReason = compressionPresentation.disabledReason;
+  $: compressionButtonLabel = compressionPresentation.buttonLabel;
+  $: pressureSourceLabel = compressionPresentation.pressureSourceLabel;
 
   function openContextPopover(trigger: "hover" | "focus" | "click") {
     if (contextPopoverCloseTimer) {
@@ -201,6 +203,7 @@
       action,
       hasCompactionSnapshot: !!latestCompactionSnapshot,
       canCompress,
+      pressureSource,
     }, "info");
     closeContextPopover();
     dispatch("compressionRequest");
@@ -1243,6 +1246,7 @@
         {@const effectiveInputBudget = hasUsage ? contextUsage.budget?.effectiveInputBudget ?? windowTokens : 128000}
         {@const estTokens = hasUsage ? contextUsage.estimatedTokens : 0}
         {@const windowSourceLabel = hasUsage && contextUsage.maxContextSource === "model_config" ? "模型配置" : "默认估算窗口"}
+        {@const promptBreakdown = hasUsage ? contextUsage.breakdown.prompt : undefined}
         {@const displayPct = pct > 100 ? "100+" : String(pct)}
         {@const ariaLabel = `上下文使用约 ${pct}%，状态 ${usageLevel}`}
         <div
@@ -1309,6 +1313,18 @@
                   ? "完整 Provider Prompt"
                   : "会话上下文估算（发送前补齐系统提示和工具）"}
               </span>
+              {#if pressureSource}
+                <span class="popover-grid-label">主要压力来源</span>
+                <span class="popover-grid-value">{pressureSourceLabel}</span>
+              {/if}
+              {#if promptBreakdown}
+                <span class="popover-grid-label">System Prompt</span>
+                <span class="popover-grid-value">{promptBreakdown.systemPrompt.toLocaleString()} token</span>
+                <span class="popover-grid-label">Context Instructions</span>
+                <span class="popover-grid-value">{promptBreakdown.contextInstructions.toLocaleString()} token</span>
+                <span class="popover-grid-label">历史 / 工具 / 观察</span>
+                <span class="popover-grid-value">{promptBreakdown.conversationTokens.toLocaleString()} / {promptBreakdown.toolDefinitionTokens.toLocaleString()} / {promptBreakdown.runtimeObservationTokens.toLocaleString()}</span>
+              {/if}
               {#if latestCompactionSnapshot && !latestCompactionSnapshot.stale}
                 <span class="popover-grid-label">压缩状态</span>
                 <span class="popover-grid-value">覆盖到第 {latestCompactionSnapshot.coveredThroughTurnIndex} 轮</span>
@@ -1321,7 +1337,7 @@
               </span>
               <div class="popover-actions">
                 <button type="button" class="popover-btn primary" class:highlight={usageLevel === "warn" || usageLevel === "critical"} on:click|stopPropagation={handleCompressAction} disabled={!canCompress}>
-                  {canCompress ? "更新压缩" : "暂无可压缩历史"}
+                  {compressionButtonLabel}
                 </button>
               </div>
             {:else}
@@ -1331,7 +1347,7 @@
               {/if}
               <div class="popover-actions">
                 <button type="button" class="popover-btn primary" class:highlight={usageLevel === "warn" || usageLevel === "critical"} on:click|stopPropagation={handleCompressAction} disabled={!canCompress}>
-                  {canCompress ? "压缩上下文" : "暂无可压缩上下文"}
+                  {compressionButtonLabel}
                 </button>
               </div>
             {/if}
