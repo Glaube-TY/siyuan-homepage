@@ -31,6 +31,7 @@ import {
   ensureDesktopHomepageSectionsMigrated,
   DESKTOP_HOMEPAGE_SECTION_MODEL_VERSION,
 } from "../src/homepage/deviceView/desktopHomepageSectionModel";
+import { hasSameJsonSemantic } from "../src/homepage/deviceView/jsonSafe";
 
 async function verifyMigrationMatrix(): Promise<void> {
   console.log("=== Phase A: 4.x -> 5.0 Desktop Section Migration Matrix ===");
@@ -703,16 +704,16 @@ async function verifyAgentLifecycle(): Promise<void> {
       revision: 1,
       layout: {
         order: [
-          { id: "weather-1", style: null, index: 0 },
-          { id: "music-1", style: null, index: 1 },
-          { id: "accounting-1", style: null, index: 2 },
+          { id: "weather-1", style: "weather-style", index: 0 },
+          { id: "music-1", style: "music-style", index: 1 },
+          { id: "accounting-1", style: "accounting-style", index: 2 },
         ],
         profiles: {
           "device-comprehensive": {
             order: [
-              { id: "weather-1", style: null, index: 0 },
-              { id: "music-1", style: null, index: 1 },
-              { id: "accounting-1", style: null, index: 2 },
+              { id: "weather-1", style: "weather-style", index: 0 },
+              { id: "music-1", style: "music-style", index: 1 },
+              { id: "accounting-1", style: "accounting-style", index: 2 },
             ],
             sections: JSON.parse(JSON.stringify(initialSections)),
             activeSectionId: "section-user-1",
@@ -725,6 +726,9 @@ async function verifyAgentLifecycle(): Promise<void> {
         componentSectionsModelVersion: 1,
       },
     };
+
+    let saveCallCount = 0;
+    let skipNextLayoutWrite = false;
 
     let viewState: { revision: 1; config: Record<string, unknown> } = {
       revision: 1,
@@ -787,9 +791,15 @@ async function verifyAgentLifecycle(): Promise<void> {
           };
         },
         saveLayoutData: async (_ctx, nextLayout, options) => {
+          saveCallCount += 1;
           if (options?.expectedRevision !== undefined && options.expectedRevision !== layoutState.revision) {
             throw new Error(`CAS Revision Conflict: expected ${options.expectedRevision}, actual ${layoutState.revision}`);
           }
+          if (skipNextLayoutWrite) {
+            skipNextLayoutWrite = false;
+            return;
+          }
+          if (hasSameJsonSemantic(layoutState.layout, nextLayout)) return;
           layoutState.layout = JSON.parse(JSON.stringify(nextLayout));
           layoutState.revision += 1;
         },
@@ -884,10 +894,20 @@ async function verifyAgentLifecycle(): Promise<void> {
     const secList3 = secRead3.sections as any[];
     assert.deepEqual(secList3.map((s) => s.id), newOrder);
     assert.deepEqual(layoutState.layout.profiles?.["device-comprehensive"]?.order, globalOrderBeforeDisabledReorder);
+    assert.deepEqual(
+      layoutState.layout.order,
+      layoutState.layout.profiles?.["device-comprehensive"]?.order,
+      "Top-level and profile order must stay aligned after reorder",
+    );
+    assert.deepEqual(
+      newOrder.map((id, index) => layoutState.layout.profiles?.["device-comprehensive"]?.sections?.[id]?.index === index),
+      [true, true, true, true],
+      "Section index must express the new insertion order",
+    );
     assert.equal(events[0]?.type, HOMEPAGE_AGENT_STORAGE_CHANGED_EVENT);
     console.log("reorderSections: PASS");
 
-    console.log("=== Phase B.5: setSectionMode & setActiveSection ===");
+    console.log("=== Phase B.5: mixed reorder, no-op, invalid order, and write verification ===");
     events.length = 0;
     const setModeRes = await realAgentService.setSectionMode({
       enabled: true,
@@ -896,30 +916,133 @@ async function verifyAgentLifecycle(): Promise<void> {
     assert.equal(setModeRes.changed, true);
     assert.equal(layoutState.revision, 6);
 
-    const setActiveRes = await realAgentService.setActiveSection({
-      sectionId: sectionBId,
+    const mixedOrder = ["section-user-2", "section-user-1", sectionBId, sectionAId];
+    const mixedReorder = await realAgentService.reorderSections({
+      orderedSectionIds: mixedOrder,
       expectedLayoutRevision: 6,
     });
-    assert.equal(setActiveRes.changed, true);
+    assert.equal(mixedReorder.changed, true);
     assert.equal(layoutState.revision, 7);
+    assert.deepEqual(layoutState.layout.order, [
+      { id: "accounting-1", style: "accounting-style", index: 0 },
+      { id: "weather-1", style: "weather-style", index: 1 },
+      { id: "music-1", style: "music-style", index: 2 },
+    ]);
+    assert.deepEqual(layoutState.layout.order, layoutState.layout.profiles?.["device-comprehensive"]?.order);
+    assert.deepEqual(layoutState.layout.profiles?.["device-comprehensive"]?.sections?.["section-user-2"]?.widgetIds, ["accounting-1"]);
+    assert.deepEqual(layoutState.layout.profiles?.["device-comprehensive"]?.sections?.["section-user-1"]?.widgetIds, ["weather-1", "music-1"]);
+    assert.deepEqual(
+      mixedOrder.map((id, index) => layoutState.layout.profiles?.["device-comprehensive"]?.sections?.[id]?.index === index),
+      [true, true, true, true],
+    );
+
+    const noOpRevision = layoutState.revision;
+    const noOpSaveCalls = saveCallCount;
+    events.length = 0;
+    const noOpRes = await realAgentService.reorderSections({
+      orderedSectionIds: mixedOrder,
+      expectedLayoutRevision: noOpRevision,
+    });
+    assert.equal(noOpRes.status, "ok");
+    assert.equal(noOpRes.changed, false);
+    assert.equal(layoutState.revision, noOpRevision);
+    assert.equal(saveCallCount, noOpSaveCalls, "Same-order reorder must not call storage");
+    assert.equal(events.length, 0, "Same-order reorder must not dispatch refresh");
+
+    const invalidOrders = [
+      { label: "missing", ids: mixedOrder.slice(0, -1) },
+      { label: "extra", ids: [...mixedOrder, "section-extra"] },
+      { label: "duplicate", ids: [...mixedOrder.slice(0, -1), mixedOrder[0]] },
+      { label: "unknown", ids: [...mixedOrder.slice(0, -1), "section-unknown"] },
+    ];
+    const invalidSaveCalls = saveCallCount;
+    for (const invalid of invalidOrders) {
+      let invalidCaught = false;
+      try {
+        await realAgentService.reorderSections({
+          orderedSectionIds: invalid.ids,
+          expectedLayoutRevision: noOpRevision,
+        });
+      } catch (error: any) {
+        invalidCaught = true;
+        assert.equal(error.code, "invalid_section_order", invalid.label);
+      }
+      assert.equal(invalidCaught, true, invalid.label);
+      assert.equal(saveCallCount, invalidSaveCalls, `${invalid.label} order must not call storage`);
+      assert.equal(layoutState.revision, noOpRevision, `${invalid.label} order must not change revision`);
+    }
+
+    const beforeStaleOrder = JSON.parse(JSON.stringify(layoutState.layout));
+    let staleCaught = false;
+    try {
+      await realAgentService.reorderSections({
+        orderedSectionIds: ["section-user-1", "section-user-2", sectionAId, sectionBId],
+        expectedLayoutRevision: 1,
+      });
+    } catch (error: any) {
+      staleCaught = true;
+      assert.equal(error.code, "layout_revision_conflict");
+    }
+    assert.equal(staleCaught, true, "Old revision must be rejected by CAS");
+    assert.equal(saveCallCount, invalidSaveCalls);
+    assert.equal(layoutState.revision, noOpRevision);
+    assert.deepEqual(layoutState.layout, beforeStaleOrder);
+
+    const failedWriteOrder = ["section-user-1", "section-user-2", sectionAId, sectionBId];
+    const beforeFailedWrite = JSON.parse(JSON.stringify(layoutState.layout));
+    events.length = 0;
+    skipNextLayoutWrite = true;
+    let writeNotCommittedCaught: any;
+    try {
+      await realAgentService.reorderSections({
+        orderedSectionIds: failedWriteOrder,
+        expectedLayoutRevision: noOpRevision,
+      });
+    } catch (error) {
+      writeNotCommittedCaught = error;
+    }
+    assert.equal(writeNotCommittedCaught?.code, "write_not_committed");
+    assert.equal(writeNotCommittedCaught?.recoverable, false);
+    assert.equal(layoutState.revision, noOpRevision, "Uncommitted write must not advance revision");
+    assert.deepEqual(layoutState.layout, beforeFailedWrite, "Uncommitted write must leave layout unchanged");
+    assert.equal(events.length, 0, "Uncommitted write must not dispatch refresh");
+
+    const retryRes = await realAgentService.reorderSections({
+      orderedSectionIds: failedWriteOrder,
+      expectedLayoutRevision: noOpRevision,
+    });
+    assert.equal(retryRes.changed, true);
+    assert.equal(layoutState.revision, 8);
+    const retrySections = await realAgentService.listSections("desktop-homepage");
+    assert.deepEqual((retrySections.sections as any[]).map((section) => section.id), failedWriteOrder);
+
+    console.log("reorderSections contracts: PASS");
+
+    console.log("=== Phase B.6: setSectionMode & setActiveSection ===");
+    const setActiveRes = await realAgentService.setActiveSection({
+      sectionId: sectionBId,
+      expectedLayoutRevision: 8,
+    });
+    assert.equal(setActiveRes.changed, true);
+    assert.equal(layoutState.revision, 9);
 
     const restoreActiveRes = await realAgentService.setActiveSection({
       sectionId: "section-user-1",
-      expectedLayoutRevision: 7,
+      expectedLayoutRevision: 9,
     });
     assert.equal(restoreActiveRes.changed, true);
-    assert.equal(layoutState.revision, 8);
+    assert.equal(layoutState.revision, 10);
 
     const restoreModeRes = await realAgentService.setSectionMode({
       enabled: false,
-      expectedLayoutRevision: 8,
+      expectedLayoutRevision: 10,
     });
     assert.equal(restoreModeRes.changed, true);
-    assert.equal(layoutState.revision, 9);
+    assert.equal(layoutState.revision, 11);
     assert.equal(layoutState.layout.profiles?.["device-comprehensive"]?.activeSectionId, undefined);
     console.log("setSectionMode & setActiveSection: PASS");
 
-    console.log("=== Phase B.6: removeSection (Clean up B then A) ===");
+    console.log("=== Phase B.7: removeSection (Clean up B then A) ===");
     events.length = 0;
     let removeNameConflictCaught = false;
     try {
@@ -927,31 +1050,31 @@ async function verifyAgentLifecycle(): Promise<void> {
         sectionId: sectionBId,
         expectedSectionName: "wrong name",
         expectedWidgetCount: 0,
-        expectedLayoutRevision: 9,
+        expectedLayoutRevision: 11,
       });
     } catch (error: any) {
       removeNameConflictCaught = true;
       assert.equal(error.code, "section_name_conflict");
     }
     assert.equal(removeNameConflictCaught, true);
-    assert.equal(layoutState.revision, 9);
+    assert.equal(layoutState.revision, 11);
     const removeB = await realAgentService.removeSection({
       sectionId: sectionBId,
       expectedSectionName: sectionBName,
       expectedWidgetCount: 0,
-      expectedLayoutRevision: 9,
+      expectedLayoutRevision: 11,
     });
     assert.equal(removeB.changed, true);
-    assert.equal(layoutState.revision, 10);
+    assert.equal(layoutState.revision, 12);
 
     const removeA = await realAgentService.removeSection({
       sectionId: sectionAId,
       expectedSectionName: sectionARenamed,
       expectedWidgetCount: 0,
-      expectedLayoutRevision: 10,
+      expectedLayoutRevision: 12,
     });
     assert.equal(removeA.changed, true);
-    assert.equal(layoutState.revision, 11);
+    assert.equal(layoutState.revision, 13);
 
     const finalSecs = await realAgentService.listSections("desktop-homepage");
     const finalSecList = finalSecs.sections as any[];
@@ -959,12 +1082,12 @@ async function verifyAgentLifecycle(): Promise<void> {
     assert.deepEqual(finalSecList.map((s) => s.id), ["section-user-1", "section-user-2"]);
     console.log("removeSection & Final Invariants: PASS");
 
-    console.log("=== Phase B.7: CAS Conflict Safety ===");
+    console.log("=== Phase B.8: CAS Conflict Safety ===");
     let conflictCaught = false;
     try {
       await realAgentService.createSection({
         name: "Stale Create",
-        expectedLayoutRevision: 1, // Current is 11
+        expectedLayoutRevision: 1, // Current is 13
       });
     } catch (e: any) {
       conflictCaught = true;
@@ -984,7 +1107,7 @@ async function verifyAgentLifecycle(): Promise<void> {
     });
     console.log("CAS Conflict Safety: PASS");
 
-    console.log("=== Phase B.8: corrupted marker remains blocked with safe Agent text ===");
+    console.log("=== Phase B.9: corrupted marker remains blocked with safe Agent text ===");
     layoutState.layout.profiles!["device-comprehensive"].componentSectionsModelVersion = 99;
     let blockedReadCaught = false;
     try {
@@ -999,7 +1122,7 @@ async function verifyAgentLifecycle(): Promise<void> {
       assert.match(error.message, /未知分栏模型版本|分栏数据/);
     }
     assert.equal(blockedReadCaught, true);
-    assert.equal(layoutState.revision, 11);
+    assert.equal(layoutState.revision, 13);
     console.log("corrupted marker safe Agent block: PASS");
 
     console.log("Homepage Agent Comprehensive Verification: ALL PASS");

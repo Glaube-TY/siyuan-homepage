@@ -1023,21 +1023,34 @@ export class HomepageAgentService {
       throw new HomepageAgentServiceError("invalid_section_order", "orderedSectionIds 必须无重复地包含全部现有分栏。");
     }
 
+    if (input.orderedSectionIds.every((id, index) => id === currentIds[index])) {
+      const current = await this.listSections("desktop-homepage");
+      return { ...current, changed: false };
+    }
+
+    const currentProfile = state.profile ?? { order: normalizeLayoutItems(state.snapshot.layout.layout.order) };
+    const arranged = rearrangeGlobalOrderBySections(
+      normalizeLayoutItems(currentProfile.order ?? state.snapshot.layout.layout.order),
+      currentProfile.sections ?? {},
+      input.orderedSectionIds,
+      { assignOrphansToFirstSection: currentProfile.componentSectionsModeEnabled === true },
+    );
+    const nextSections = Object.fromEntries(
+      input.orderedSectionIds.map((sectionId, index) => [
+        sectionId,
+        { ...arranged.nextSections[sectionId], index },
+      ]),
+    );
+
     const nextLayout = this.setOrder(
       state.snapshot.layout.layout,
       state.context.scopeId,
-      normalizeLayoutItems(state.profile?.order ?? state.snapshot.layout.layout.order),
+      arranged.nextGlobalOrder,
       (profile) => {
-        const arranged = rearrangeGlobalOrderBySections(
-          normalizeLayoutItems(profile.order ?? state.snapshot.layout.layout.order),
-          profile.sections ?? {},
-          input.orderedSectionIds,
-          { assignOrphansToFirstSection: profile.componentSectionsModeEnabled === true },
-        );
         return {
           ...profile,
           order: arranged.nextGlobalOrder,
-          sections: arranged.nextSections,
+          sections: nextSections,
           componentSectionsModelVersion: 1,
         };
       },
@@ -1046,6 +1059,30 @@ export class HomepageAgentService {
     this.assertNextLayout(state, nextLayout);
     await this.dv.saveLayoutData(state.context, nextLayout, { expectedRevision: input.expectedLayoutRevision });
     const verifiedSections = await this.listSections("desktop-homepage");
+    const verifiedSectionIds = Array.isArray(verifiedSections.sections)
+      ? verifiedSections.sections.map((section) => (
+        section && typeof section === "object" && "id" in section ? section.id : undefined
+      ))
+      : [];
+    const verifiedRevision = revisionOf(verifiedSections, "layoutRevision");
+    if (
+      verifiedSections.status !== "ok"
+      || verifiedRevision !== input.expectedLayoutRevision + 1
+      || verifiedSectionIds.length !== input.orderedSectionIds.length
+      || verifiedSectionIds.some((id, index) => id !== input.orderedSectionIds[index])
+    ) {
+      throw new HomepageAgentServiceError(
+        "write_not_committed",
+        "分栏重排写后验证失败，目标顺序或 layout revision 未提交。",
+        false,
+        {
+          expectedLayoutRevision: input.expectedLayoutRevision + 1,
+          actualLayoutRevision: verifiedRevision,
+          expectedSectionIds: input.orderedSectionIds,
+          actualSectionIds: verifiedSectionIds,
+        },
+      );
+    }
     this.dispatchRefresh(state.surface, { reason: "sections-updated", layoutRevision: revisionOf(verifiedSections, "layoutRevision") });
     return { ...verifiedSections, changed: true };
   }
