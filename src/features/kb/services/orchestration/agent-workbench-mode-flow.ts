@@ -80,6 +80,20 @@ function createMessageId(): string {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 }
 
+export interface FinalPreparedProviderPromptState {
+  conversationContext?: ReturnType<typeof buildConversationContext>;
+  contextInstructions: string;
+  historicalMessages: AgentMessage[];
+  manifest: import("../agent-workbench/runtime/agent-context-ledger").AgentContextManifest;
+  systemPrompt: string;
+  providerToolSelection?: import("../agent-core/tools/native-tool-registry").ProviderToolsetSelection;
+  toolDefinitions: import("../agent-core/tools/native-tool").NativeTool[];
+  registeredToolCount: number;
+  toolsetReduced: boolean;
+  budget: PromptBudget;
+  snapshotGeneration?: number;
+}
+
 export interface PreflightCompressionResult {
   ok: boolean;
   reason?: string;
@@ -91,6 +105,19 @@ export interface PreflightCompressionResult {
   breakdown?: PromptBudget["breakdown"];
   compactableCompletedTurnCount?: number;
   compactionAttempted: boolean;
+  toolsetReduced: boolean;
+  finalPromptState?: FinalPreparedProviderPromptState;
+}
+
+export interface RebuiltProviderPromptState {
+  conversationContext?: ReturnType<typeof buildConversationContext>;
+  contextInstructions: string;
+  historicalMessages: AgentMessage[];
+  manifest: import("../agent-workbench/runtime/agent-context-ledger").AgentContextManifest;
+  systemPrompt: string;
+  providerToolSelection?: import("../agent-core/tools/native-tool-registry").ProviderToolsetSelection;
+  toolDefinitions: import("../agent-core/tools/native-tool").NativeTool[];
+  registeredToolCount: number;
   toolsetReduced: boolean;
 }
 
@@ -104,7 +131,14 @@ export interface ActualPromptContext {
   maxOutputTokens?: number;
   currentQuestion?: string;
   historicalMessages: AgentMessage[];
-  rebuildProviderContext: (
+  manifest?: import("../agent-workbench/runtime/agent-context-ledger").AgentContextManifest;
+  conversationContext?: ReturnType<typeof buildConversationContext>;
+  providerToolSelection?: import("../agent-core/tools/native-tool-registry").ProviderToolsetSelection;
+  rebuildProviderPromptState?: (
+    conversationContext: ReturnType<typeof buildConversationContext>,
+    historicalMessages: AgentMessage[],
+  ) => RebuiltProviderPromptState;
+  rebuildProviderContext?: (
     conversationContext: ReturnType<typeof buildConversationContext>,
     historicalMessages: AgentMessage[],
   ) => {
@@ -112,6 +146,11 @@ export interface ActualPromptContext {
     contextInstructions: string;
     historicalMessages: AgentMessage[];
     manifest: import("../agent-workbench/runtime/agent-context-ledger").AgentContextManifest;
+    systemPrompt?: string;
+    toolDefinitions?: import("../agent-core/tools/native-tool").NativeTool[];
+    registeredToolCount?: number;
+    toolsetReduced?: boolean;
+    providerToolSelection?: import("../agent-core/tools/native-tool-registry").ProviderToolsetSelection;
   };
 }
 
@@ -125,7 +164,7 @@ export async function resolvePreflightCompression(
     abortSignal: AbortSignal | undefined;
     persistConversationNow: (() => Promise<{ success: boolean; error?: string }>) | undefined;
     runCompaction?: typeof runContextCompaction;
-    buildConversationContextForState?: (state: KbSessionState) => {
+    buildConversationContextForState?: (state: KbSessionState, usageRatio?: number) => {
       conversationContext: ReturnType<typeof buildConversationContext>;
       historicalMessages: AgentMessage[];
     };
@@ -141,7 +180,7 @@ export async function resolvePreflightCompression(
     activeToolDefinitions: actualPromptContext.activeToolDefinitions,
     providerMessages: [
       { role: "system", content: actualPromptContext.systemPrompt },
-      { role: "system", content: actualPromptContext.contextInstructions },
+      ...(actualPromptContext.contextInstructions ? [{ role: "system", content: actualPromptContext.contextInstructions }] : []),
       ...actualPromptContext.historicalMessages,
       ...(actualPromptContext.currentQuestion
         ? [{ role: "user", content: actualPromptContext.currentQuestion }]
@@ -157,6 +196,54 @@ export async function resolvePreflightCompression(
   let compactionAttempted = false;
   const compactConversation = params.runCompaction ?? runContextCompaction;
   let state = getState();
+  let latestConversationContext = actualPromptContext.conversationContext;
+  let latestManifest = actualPromptContext.manifest;
+  let latestProviderToolSelection = actualPromptContext.providerToolSelection;
+
+  const applyRebuiltContext = (rebuiltContext: {
+    conversationContext: ReturnType<typeof buildConversationContext>;
+    historicalMessages: AgentMessage[];
+  }) => {
+    latestConversationContext = rebuiltContext.conversationContext;
+    if (actualPromptContext.rebuildProviderPromptState) {
+      const prepared = actualPromptContext.rebuildProviderPromptState(
+        rebuiltContext.conversationContext,
+        rebuiltContext.historicalMessages,
+      );
+      actualPromptContext.systemPrompt = prepared.systemPrompt;
+      actualPromptContext.contextInstructions = prepared.contextInstructions;
+      actualPromptContext.historicalMessages = prepared.historicalMessages;
+      actualPromptContext.activeToolDefinitions = prepared.toolDefinitions;
+      actualPromptContext.registeredToolCount = prepared.registeredToolCount;
+      actualPromptContext.toolsetReduced = prepared.toolsetReduced;
+      latestManifest = prepared.manifest;
+      latestProviderToolSelection = prepared.providerToolSelection;
+    } else if (actualPromptContext.rebuildProviderContext) {
+      const prepared = actualPromptContext.rebuildProviderContext(
+        rebuiltContext.conversationContext,
+        rebuiltContext.historicalMessages,
+      );
+      actualPromptContext.contextInstructions = prepared.contextInstructions;
+      actualPromptContext.historicalMessages = prepared.historicalMessages;
+      latestManifest = prepared.manifest;
+      if (typeof prepared.systemPrompt === "string") {
+        actualPromptContext.systemPrompt = prepared.systemPrompt;
+      }
+      if (Array.isArray(prepared.toolDefinitions)) {
+        actualPromptContext.activeToolDefinitions = prepared.toolDefinitions;
+      }
+      if (typeof prepared.registeredToolCount === "number") {
+        actualPromptContext.registeredToolCount = prepared.registeredToolCount;
+      }
+      if (typeof prepared.toolsetReduced === "boolean") {
+        actualPromptContext.toolsetReduced = prepared.toolsetReduced;
+      }
+      if (prepared.providerToolSelection) {
+        latestProviderToolSelection = prepared.providerToolSelection;
+      }
+    }
+  };
+
   let budget = buildBudget();
   const triggers = budget.inputTokens >= budget.hardThresholdTokens ? ["hard"] : budget.inputTokens >= budget.softThresholdTokens ? ["auto", "hard"] : [];
   for (const trigger of triggers as Array<"auto" | "hard">) {
@@ -187,14 +274,9 @@ export async function resolvePreflightCompression(
         latestCompactionSnapshot: result.snapshot,
       }));
       state = getState();
-      const rebuiltContext = params.buildConversationContextForState?.(state);
+      const rebuiltContext = params.buildConversationContextForState?.(state, budget.usageRatio);
       if (rebuiltContext) {
-        const prepared = actualPromptContext.rebuildProviderContext(
-          rebuiltContext.conversationContext,
-          rebuiltContext.historicalMessages,
-        );
-        actualPromptContext.contextInstructions = prepared.contextInstructions;
-        actualPromptContext.historicalMessages = prepared.historicalMessages;
+        applyRebuiltContext(rebuiltContext);
       }
       budget = buildBudget();
       try {
@@ -214,6 +296,21 @@ export async function resolvePreflightCompression(
 
   state = getState();
   budget = buildBudget();
+
+  // Fixed-point stabilization for usageRatio (max 3 iterations)
+  for (let iter = 0; iter < 3; iter += 1) {
+    const ratioBefore = budget.usageRatio;
+    const stabilizedContext = params.buildConversationContextForState?.(state, ratioBefore);
+    if (!stabilizedContext) break;
+    applyRebuiltContext(stabilizedContext);
+    const newBudget = buildBudget();
+    if (newBudget.inputTokens === budget.inputTokens && Math.abs(newBudget.usageRatio - ratioBefore) < 0.001) {
+      budget = newBudget;
+      break;
+    }
+    budget = newBudget;
+  }
+
   pushAgentDebugEvent("CONTEXT_PROMPT_BUDGET_READY", {
     inputTokens: budget.inputTokens,
     effectiveInputBudget: budget.effectiveInputBudget,
@@ -269,6 +366,28 @@ export async function resolvePreflightCompression(
     snapshotGeneration: state.latestCompactionSnapshot?.generation,
     usageRatioPct: Math.round(budget.usageRatio * 100),
   }, budget.inputTokens >= budget.hardThresholdTokens ? "warn" : "info");
+
+  const finalPromptState: FinalPreparedProviderPromptState = {
+    conversationContext: latestConversationContext,
+    contextInstructions: actualPromptContext.contextInstructions,
+    historicalMessages: actualPromptContext.historicalMessages,
+    manifest: latestManifest ?? {
+      version: 1,
+      includedChars: 0,
+      estimatedTokens: 0,
+      entries: [],
+    },
+    systemPrompt: actualPromptContext.systemPrompt,
+    providerToolSelection: latestProviderToolSelection,
+    toolDefinitions: (Array.isArray(actualPromptContext.activeToolDefinitions)
+      ? actualPromptContext.activeToolDefinitions
+      : []) as import("../agent-core/tools/native-tool").NativeTool[],
+    registeredToolCount: actualPromptContext.registeredToolCount ?? 0,
+    toolsetReduced: actualPromptContext.toolsetReduced === true,
+    budget,
+    snapshotGeneration: state.latestCompactionSnapshot?.generation,
+  };
+
   if (budget.inputTokens >= budget.hardThresholdTokens) {
     const failureCode = pressureSource === "tool_definitions"
       ? "provider_toolset_budget_exceeded"
@@ -286,6 +405,7 @@ export async function resolvePreflightCompression(
       compactableCompletedTurnCount,
       compactionAttempted,
       toolsetReduced: actualPromptContext.toolsetReduced === true,
+      finalPromptState,
       reason: failureCode === "provider_toolset_budget_exceeded"
         ? "当前 provider 工具定义仍超过动态工具预算，无法安全发送。"
         : failureCode === "irreducible_context_overflow"
@@ -302,6 +422,7 @@ export async function resolvePreflightCompression(
     compactableCompletedTurnCount,
     compactionAttempted,
     toolsetReduced: actualPromptContext.toolsetReduced === true,
+    finalPromptState,
   };
 }
 
@@ -774,32 +895,45 @@ export async function runAgentWorkbenchModeFlow(
       kbSettings,
       contextWindowTokens,
       onContextPrepared: async (actualPrompt) => {
+        const initialConversationContext = buildConversationContext({
+          messages: getState().messages,
+          currentUserMessageId: actualUserMessageId,
+          currentQuestion: trimmed,
+          compactionSnapshot: getState().latestCompactionSnapshot,
+          usageRatio: getState().contextUsage?.usageRatio ?? 0,
+          webSearchSettings,
+          webAccessModeOverride: effectiveWebAccessMode,
+        });
+        const actualPromptContextState: ActualPromptContext = {
+          systemPrompt: actualPrompt.systemPrompt,
+          contextInstructions: actualPrompt.contextInstructions,
+          activeToolDefinitions: actualPrompt.toolDefinitions,
+          registeredToolCount: actualPrompt.registeredToolCount,
+          toolsetReduced: actualPrompt.toolsetReduced,
+          contextWindowTokens: actualPrompt.contextWindowTokens ?? contextWindowTokens,
+          maxOutputTokens: actualPrompt.maxOutputTokens,
+          currentQuestion: trimmed,
+          historicalMessages: actualPrompt.historicalMessages,
+          manifest: initialConversationContext.manifest,
+          conversationContext: initialConversationContext,
+          rebuildProviderPromptState: actualPrompt.rebuildProviderPromptState,
+          rebuildProviderContext: actualPrompt.rebuildProviderContext,
+        };
         const preflightResult = await resolvePreflightCompression({
           getState,
           updateState,
-          actualPromptContext: {
-            systemPrompt: actualPrompt.systemPrompt,
-            contextInstructions: actualPrompt.contextInstructions,
-            activeToolDefinitions: actualPrompt.toolDefinitions,
-            registeredToolCount: actualPrompt.registeredToolCount,
-            toolsetReduced: actualPrompt.toolsetReduced,
-            contextWindowTokens: actualPrompt.contextWindowTokens ?? contextWindowTokens,
-            maxOutputTokens: actualPrompt.maxOutputTokens,
-            currentQuestion: trimmed,
-            historicalMessages: actualPrompt.historicalMessages,
-            rebuildProviderContext: actualPrompt.rebuildProviderContext,
-          },
+          actualPromptContext: actualPromptContextState,
           currentUserMessageId: actualUserMessageId,
           chatModelSelection: params.chatModelSelection,
           abortSignal: params.abortSignal,
           persistConversationNow: params.persistConversationNow,
-          buildConversationContextForState: (state) => {
+          buildConversationContextForState: (state, usageRatio) => {
             const nextContext = buildConversationContext({
               messages: state.messages,
               currentUserMessageId: actualUserMessageId,
               currentQuestion: trimmed,
               compactionSnapshot: state.latestCompactionSnapshot,
-              usageRatio: state.contextUsage?.usageRatio ?? 0,
+              usageRatio: usageRatio ?? state.contextUsage?.usageRatio ?? 0,
               webSearchSettings,
               webAccessModeOverride: effectiveWebAccessMode,
             });
@@ -814,6 +948,27 @@ export async function runAgentWorkbenchModeFlow(
           },
         });
         if (!preflightResult.ok) {
+          const failedState = getState();
+          const failedUsage = estimateContextUsage({
+            messages: failedState.messages,
+            attachedDocCount: 0,
+            systemPrompt: actualPromptContextState.systemPrompt,
+            contextInstructions: actualPromptContextState.contextInstructions,
+            currentQuestion: trimmed,
+            activeToolDefinitions: actualPromptContextState.activeToolDefinitions,
+            contextWindowTokens: actualPromptContextState.contextWindowTokens ?? contextWindowTokens,
+            providerMessages: [
+              { role: "system", content: actualPromptContextState.systemPrompt },
+              ...(actualPromptContextState.contextInstructions ? [{ role: "system", content: actualPromptContextState.contextInstructions }] : []),
+              ...actualPromptContextState.historicalMessages,
+              { role: "user", content: trimmed },
+            ],
+            historicalMessages: actualPromptContextState.historicalMessages,
+            currentRunMessages: [{ role: "user", content: trimmed }],
+            providerTools: actualPromptContextState.activeToolDefinitions,
+            estimateKind: "full_provider_prompt",
+          });
+          updateState((state) => ({ ...state, contextUsage: failedUsage }));
           throw new AgentProviderError(preflightResult.reason ?? "上下文预算不足。", {
             code: preflightResult.failureCode ?? "context_budget_exceeded",
             retryable: false,
@@ -821,50 +976,59 @@ export async function runAgentWorkbenchModeFlow(
             userAction: "switch_model",
           });
         }
+        const finalState = preflightResult.finalPromptState!;
         const preparedState = getState();
-        const preparedConversationContext = buildConversationContext({
-          messages: preparedState.messages,
-          currentUserMessageId: actualUserMessageId,
-          currentQuestion: trimmed,
-          compactionSnapshot: preparedState.latestCompactionSnapshot,
-          usageRatio: preparedState.contextUsage?.usageRatio ?? 0,
-          webSearchSettings,
-          webAccessModeOverride: effectiveWebAccessMode,
-        });
-        const preparedHistoricalMessages = buildUncoveredVerbatimAgentMessages({
-          messages: preparedState.messages,
-          currentUserMessageId: actualUserMessageId,
-          compactionSnapshot: preparedState.latestCompactionSnapshot,
-        });
-        const preparedProviderContext = actualPrompt.rebuildProviderContext(
-          preparedConversationContext,
-          preparedHistoricalMessages,
-        );
         const preparedUsage = estimateContextUsage({
           messages: preparedState.messages,
           attachedDocCount: 0,
-          systemPrompt: actualPrompt.systemPrompt,
-          contextInstructions: preparedProviderContext.contextInstructions,
+          systemPrompt: finalState.systemPrompt,
+          contextInstructions: finalState.contextInstructions,
           currentQuestion: trimmed,
-          activeToolDefinitions: actualPrompt.toolDefinitions,
+          activeToolDefinitions: finalState.toolDefinitions,
           contextWindowTokens: actualPrompt.contextWindowTokens ?? contextWindowTokens,
           providerMessages: [
-            { role: "system", content: actualPrompt.systemPrompt },
-            { role: "system", content: preparedProviderContext.contextInstructions },
-            ...preparedProviderContext.historicalMessages,
+            { role: "system", content: finalState.systemPrompt },
+            ...(finalState.contextInstructions ? [{ role: "system", content: finalState.contextInstructions }] : []),
+            ...finalState.historicalMessages,
             { role: "user", content: trimmed },
           ],
-          historicalMessages: preparedProviderContext.historicalMessages,
+          historicalMessages: finalState.historicalMessages,
           currentRunMessages: [{ role: "user", content: trimmed }],
-          providerTools: actualPrompt.toolDefinitions,
+          providerTools: finalState.toolDefinitions,
+          estimateKind: "full_provider_prompt",
         });
         updateState((state) => ({ ...state, contextUsage: preparedUsage }));
         return {
-          conversationContext: preparedConversationContext,
-          contextInstructions: preparedProviderContext.contextInstructions,
-          historicalMessages: preparedProviderContext.historicalMessages,
-          manifest: preparedProviderContext.manifest,
-          toolDefinitions: actualPrompt.toolDefinitions,
+          conversationContext: finalState.conversationContext,
+          contextInstructions: finalState.contextInstructions,
+          historicalMessages: finalState.historicalMessages,
+          manifest: finalState.manifest,
+          systemPrompt: finalState.systemPrompt,
+          toolDefinitions: finalState.toolDefinitions,
+          registeredToolCount: finalState.registeredToolCount,
+          toolsetReduced: finalState.toolsetReduced,
+          providerToolSelection: finalState.providerToolSelection,
+          preflightPromptSummary: {
+            snapshotGeneration: finalState.snapshotGeneration,
+            inputTokens: finalState.budget.inputTokens,
+            activeToolNames: Array.isArray(finalState.toolDefinitions) ? finalState.toolDefinitions.map((tool) => tool.name) : [],
+            systemPromptTokenCount: finalState.budget.breakdown.systemPrompt,
+            contextInstructionTokenCount: finalState.budget.breakdown.contextInstructions,
+            historicalTokenCount: finalState.budget.breakdown.conversationTokens,
+            toolDefinitionTokenCount: finalState.budget.breakdown.toolDefinitionTokens,
+          },
+          initialPreparedPayload: {
+            messages: [
+              { role: "system" as const, content: finalState.systemPrompt },
+              ...(finalState.contextInstructions ? [{ role: "system" as const, content: finalState.contextInstructions }] : []),
+              ...finalState.historicalMessages,
+              { role: "user" as const, content: trimmed },
+            ],
+            tools: finalState.toolDefinitions,
+            systemPrompt: finalState.systemPrompt,
+            budget: finalState.budget,
+            selection: finalState.providerToolSelection,
+          },
         };
       },
       resumeCheckpoint: params.resumeCheckpoint,

@@ -37,6 +37,8 @@ import {
   type PromptBudget,
 } from "../../../types/context-usage";
 
+import { pushAgentDebugEvent } from "../../agent-workbench/debug/workbench-debug";
+
 export interface NativeToolAgentLoopResult {
   status: "answer_ready" | "failed" | "cancelled";
   answer: string;
@@ -47,6 +49,24 @@ export interface NativeToolAgentLoopResult {
   identity: AgentRunIdentity;
   usage?: AgentTokenUsage;
   providerRequestCount: number;
+}
+
+export interface PreflightPromptStateSummary {
+  snapshotGeneration?: number;
+  inputTokens: number;
+  activeToolNames: string[];
+  systemPromptTokenCount: number;
+  contextInstructionTokenCount: number;
+  historicalTokenCount: number;
+  toolDefinitionTokenCount: number;
+}
+
+export interface InitialPreparedProviderPayload {
+  messages: AgentMessage[];
+  tools: NativeTool[];
+  systemPrompt: string;
+  budget: PromptBudget;
+  selection?: ProviderToolsetSelection;
 }
 
 export interface NativeToolAgentLoopOptions {
@@ -65,6 +85,10 @@ export interface NativeToolAgentLoopOptions {
   historicalMessages?: AgentMessage[];
   contextWindowTokens?: number;
   maxOutputTokens?: number;
+  /** Preflight 阶段核准的首轮 Provider Payload。首轮请求直接消费，防止二次解析漂移。 */
+  initialPreparedPayload?: InitialPreparedProviderPayload;
+  /** Preflight 阶段核准的首轮 Provider Prompt 状态摘要，用于首轮 invariant 对照。 */
+  preflightPromptSummary?: PreflightPromptStateSummary;
   /** Maximum tool calls per turn; 0 disables this count-based limit. */
   maxToolCalls?: number;
   /** Confirmation bridge — defaults to RegisteredConfirmationBridge (singleton). */
@@ -301,12 +325,14 @@ export class NativeToolAgentLoop {
   private currentResumeAttempt = 0;
   private totalUsage: AgentTokenUsage | undefined;
   private providerRequestCount = 0;
+  private remainingInitialPreparedPayload?: InitialPreparedProviderPayload;
 
   constructor(private readonly options: NativeToolAgentLoopOptions) {
     const id = options.conversationId ?? `conv_${Date.now()}`;
     this.session = options.session ?? new AgentSession(id);
     this.bridge = options.bridge ?? new RegisteredConfirmationBridge();
     this.identity = options.identity ?? createAgentRunIdentity({ sessionId: id });
+    this.remainingInitialPreparedPayload = options.initialPreparedPayload;
     this.stormBreaker.hydrateSuccessfulWriteGuards(options.successfulWriteGuards);
   }
 
@@ -389,7 +415,38 @@ export class NativeToolAgentLoop {
 
       const transientInstruction = nextTransientInstruction;
       nextTransientInstruction = undefined;
-      const prepared = this.prepareProviderPayload(question, transientInstruction);
+      const isFreshFirstStep = appendUser
+        && this.currentResumeAttempt === 0
+        && this.providerRequestCount === 0
+        && !transientInstruction
+        && !!this.remainingInitialPreparedPayload;
+
+      const prepared = isFreshFirstStep
+        ? (() => {
+            const initial = this.remainingInitialPreparedPayload!;
+            this.remainingInitialPreparedPayload = undefined;
+            return {
+              ok: true as const,
+              messages: initial.messages,
+              tools: initial.tools,
+              systemPrompt: initial.systemPrompt,
+              budget: initial.budget,
+              selection: initial.selection ?? {
+                tools: initial.tools,
+                activeProviderToolNames: new Set(initial.tools.map((t) => t.name)),
+                registeredToolCount: this.options.toolRegistry.listProviderVisible().length,
+                budgetTokens: Number.POSITIVE_INFINITY,
+                toolsetReduced: false,
+                activationBudgetExceeded: false,
+                unavailableToolNames: [],
+              },
+            };
+          })()
+        : (() => {
+            this.remainingInitialPreparedPayload = undefined;
+            return this.prepareProviderPayload(question, transientInstruction);
+          })();
+
       if (prepared.ok === false) {
         const message = prepared.message;
         this.options.onEvent?.({ type: "error", code: prepared.failureCode, message });
@@ -429,6 +486,55 @@ export class NativeToolAgentLoop {
       let lastOutputInspectionAt = 0;
       let finishReason: string | undefined;
       let stepUsage: AgentTokenUsage | undefined;
+      if (this.providerRequestCount === 0 && this.options.preflightPromptSummary) {
+        const preflight = this.options.preflightPromptSummary;
+        const firstStepSummary: PreflightPromptStateSummary = {
+          snapshotGeneration: preflight.snapshotGeneration,
+          inputTokens: prepared.budget.inputTokens,
+          activeToolNames: tools.map((tool) => tool.name),
+          systemPromptTokenCount: prepared.budget.breakdown.systemPrompt,
+          contextInstructionTokenCount: prepared.budget.breakdown.contextInstructions,
+          historicalTokenCount: prepared.budget.breakdown.conversationTokens,
+          toolDefinitionTokenCount: prepared.budget.breakdown.toolDefinitionTokens,
+        };
+        const activeToolNamesMatch = preflight.activeToolNames.length === firstStepSummary.activeToolNames.length
+          && preflight.activeToolNames.every((name, index) => name === firstStepSummary.activeToolNames[index]);
+        const promptStateMatched = preflight.inputTokens === firstStepSummary.inputTokens
+          && activeToolNamesMatch
+          && preflight.systemPromptTokenCount === firstStepSummary.systemPromptTokenCount
+          && preflight.contextInstructionTokenCount === firstStepSummary.contextInstructionTokenCount
+          && preflight.historicalTokenCount === firstStepSummary.historicalTokenCount
+          && preflight.toolDefinitionTokenCount === firstStepSummary.toolDefinitionTokenCount;
+
+        pushAgentDebugEvent("AGENT_PROMPT_STATE_COMPARISON", {
+          preflight,
+          firstStep: firstStepSummary,
+          promptStateMatched,
+        }, promptStateMatched ? "info" : "warn");
+
+        if (!promptStateMatched) {
+          pushAgentDebugEvent("AGENT_PROMPT_STATE_MISMATCH", {
+            preflightTokens: preflight.inputTokens,
+            firstStepTokens: firstStepSummary.inputTokens,
+            preflightTools: preflight.activeToolNames,
+            firstStepTools: firstStepSummary.activeToolNames,
+          }, "warn");
+          this.options.onEvent?.({
+            type: "error",
+            code: "agent_prompt_state_mismatch",
+            message: "首轮 Provider Prompt 状态与 Preflight 校验不一致，已阻止发起请求。",
+          });
+          return {
+            status: "failed",
+            answer: "",
+            steps,
+            messages: this.session.snapshot(),
+            errorCode: "agent_prompt_state_mismatch",
+            errorMessage: "首轮 Provider Prompt 状态与 Preflight 校验不一致，已阻止发起请求。",
+          };
+        }
+      }
+
       for await (const event of this.streamProviderChat({
         messages,
         tools,

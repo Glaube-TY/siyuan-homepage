@@ -19,5 +19,6 @@ tmp
 .siyuan-api-token.*
 .siyuan-dev-target.json
 .agents
+/.agent-handoff/
 .release_answers.txt
 .mimosa

@@ -1,6 +1,10 @@
 import { createAgentWorkbenchRuntime } from "./create-agent-workbench";
 import { buildAgentContextInstructions } from "./agent-context-instruction-builder";
-import { NativeToolAgentLoop } from "../../agent-core/loop/native-tool-agent-loop";
+import {
+  NativeToolAgentLoop,
+  type PreflightPromptStateSummary,
+  type InitialPreparedProviderPayload,
+} from "../../agent-core/loop/native-tool-agent-loop";
 import { RegisteredConfirmationBridge } from "../../agent-core/permissions/confirmation-bridge";
 import { SiyuanToolRuntimeState } from "../tools/siyuan/siyuan-tool-runtime";
 import { getKbSettings } from "../../settings/kb-settings-service";
@@ -50,12 +54,13 @@ import {
   ProviderToolsetController,
   sanitizeProviderToolsetState,
   type NativeToolRegistry,
+  type ProviderToolsetSelection,
 } from "../../agent-core/tools/native-tool-registry";
 import type { AgentMessage, AgentToolCall } from "../../agent-core/messages/agent-message";
 import { compactAgentSessionMessagesForStorage } from "../../agent-core/messages/message-compactor";
 import { sanitizeMessageForStorage } from "../../agent-core/session/session-store";
 import type { ToolResultEntry } from "./tool-result-log";
-import { estimateAgentMessagesTokens } from "../../../types/context-usage";
+import { estimateAgentMessagesTokens, estimateValueTokens } from "../../../types/context-usage";
 import {
   agentProfileAllowsContext,
   agentProfileAllowsMemory,
@@ -69,6 +74,62 @@ import {
   type AgentRunIdentity,
   type AgentTokenUsage,
 } from "../../../../agent-platform/agent-run-protocol";
+
+export interface PreparedProviderPromptState {
+  conversationContext?: ConversationContextSnapshot;
+  contextInstructions: string;
+  historicalMessages: AgentMessage[];
+  manifest: AgentContextManifest;
+  systemPrompt: string;
+  providerToolSelection: ProviderToolsetSelection;
+  toolDefinitions: NativeTool[];
+  registeredToolCount: number;
+  toolsetReduced: boolean;
+}
+
+export interface OnContextPreparedContext {
+  systemPrompt: string;
+  contextInstructions: string;
+  globalMemory?: string;
+  toolDefinitions: NativeTool[];
+  registeredToolCount: number;
+  toolsetReduced: boolean;
+  historicalMessages: AgentMessage[];
+  contextWindowTokens?: number;
+  maxOutputTokens?: number;
+  rebuildProviderPromptState: (
+    conversationContext: ConversationContextSnapshot | undefined,
+    historicalMessages: AgentMessage[],
+  ) => PreparedProviderPromptState;
+  rebuildProviderContext: (
+    conversationContext: ConversationContextSnapshot | undefined,
+    historicalMessages: AgentMessage[],
+  ) => {
+    conversationContext?: ConversationContextSnapshot;
+    contextInstructions: string;
+    historicalMessages: AgentMessage[];
+    manifest: AgentContextManifest;
+    systemPrompt?: string;
+    toolDefinitions?: NativeTool[];
+    registeredToolCount?: number;
+    toolsetReduced?: boolean;
+    providerToolSelection?: ProviderToolsetSelection;
+  };
+}
+
+export interface OnContextPreparedResult {
+  conversationContext?: ConversationContextSnapshot;
+  contextInstructions: string;
+  historicalMessages: AgentMessage[];
+  manifest: AgentContextManifest;
+  systemPrompt?: string;
+  toolDefinitions?: NativeTool[];
+  registeredToolCount?: number;
+  toolsetReduced?: boolean;
+  providerToolSelection?: ProviderToolsetSelection;
+  preflightPromptSummary?: PreflightPromptStateSummary;
+  initialPreparedPayload?: InitialPreparedProviderPayload;
+}
 
 export interface RunAgentProfileParams<TResult> {
   profile: AgentProfile;
@@ -98,38 +159,7 @@ export interface RunAgentProfileParams<TResult> {
   /** 本轮模型的上下文窗口；用于实际 provider prompt 预算。 */
   contextWindowTokens?: number;
   /** 在真实工具注册表和系统提示组装后执行统一上下文预检。 */
-  onContextPrepared?: (context: {
-    systemPrompt: string;
-    contextInstructions: string;
-    globalMemory?: string;
-    toolDefinitions: NativeTool[];
-    registeredToolCount: number;
-    toolsetReduced: boolean;
-    historicalMessages: AgentMessage[];
-    contextWindowTokens?: number;
-    maxOutputTokens?: number;
-    rebuildProviderContext: (
-      conversationContext: ConversationContextSnapshot | undefined,
-      historicalMessages: AgentMessage[],
-    ) => {
-      conversationContext?: ConversationContextSnapshot;
-      contextInstructions: string;
-      historicalMessages: AgentMessage[];
-      manifest: AgentContextManifest;
-    };
-  }) => Promise<{
-    conversationContext?: ConversationContextSnapshot;
-    contextInstructions: string;
-    historicalMessages: AgentMessage[];
-    manifest: AgentContextManifest;
-    toolDefinitions: NativeTool[];
-  } | undefined> | {
-    conversationContext?: ConversationContextSnapshot;
-    contextInstructions: string;
-    historicalMessages: AgentMessage[];
-    manifest: AgentContextManifest;
-    toolDefinitions: NativeTool[];
-  } | undefined;
+  onContextPrepared?: (context: OnContextPreparedContext) => Promise<OnContextPreparedResult | undefined> | OnContextPreparedResult | undefined;
   kbSettings?: Awaited<ReturnType<typeof getKbSettings>>;
   validateFinalAnswer?: (answer: string, observations: readonly ToolResultEntry[]) => string | undefined;
   finalize: (context: AgentProfileFinalizeContext) => Promise<{
@@ -612,7 +642,10 @@ export async function runAgentProfile<TResult>(
       isActionAvailable: (toolName, action) =>
         wb.toolRegistry.getTool(toolName)?.aggregateActionHelp?.[action] !== undefined,
     });
-    const resolveProviderToolset = (nextHistoricalMessages: readonly AgentMessage[] = historicalMessages) => {
+    const resolveProviderToolset = (
+      nextHistoricalMessages: readonly AgentMessage[] = historicalMessages,
+      contextInstructions: string = context.contextInstructions,
+    ) => {
       const resolve = (prompt: string) => providerToolsetController.resolve({
         tools: providerTools,
         question: params.question,
@@ -620,7 +653,7 @@ export async function runAgentProfile<TResult>(
         maxOutputTokens: selected.model.maxTokens,
         providerMessageTokens: estimateAgentMessagesTokens([
           { role: "system", content: prompt },
-          ...(context.contextInstructions ? [{ role: "system", content: context.contextInstructions }] : []),
+          ...(contextInstructions ? [{ role: "system", content: contextInstructions }] : []),
           ...nextHistoricalMessages,
           { role: "user", content: params.question },
         ]),
@@ -632,45 +665,99 @@ export async function runAgentProfile<TResult>(
       systemPrompt = buildCurrentSystemPrompt(selection.activeProviderToolNames);
       return { selection, systemPrompt };
     };
-    let { selection: providerToolSelection, systemPrompt } = resolveProviderToolset();
+    const rebuildProviderPromptState = (
+      nextConversationContext: ConversationContextSnapshot | undefined,
+      nextHistoricalMessages: readonly AgentMessage[],
+    ): PreparedProviderPromptState => {
+      const nextContext = buildContext(nextConversationContext);
+      const nextAllowedHistoricalMessages = agentProfileAllowsContext(agentProfile, "conversation")
+        ? [...nextHistoricalMessages]
+        : [];
+      const { selection, systemPrompt: nextSystemPrompt } = resolveProviderToolset(
+        nextAllowedHistoricalMessages,
+        nextContext.contextInstructions,
+      );
+      return {
+        conversationContext: nextConversationContext,
+        contextInstructions: nextContext.contextInstructions,
+        historicalMessages: nextAllowedHistoricalMessages,
+        manifest: nextContext.manifest,
+        systemPrompt: nextSystemPrompt,
+        providerToolSelection: selection,
+        toolDefinitions: selection.tools,
+        registeredToolCount: selection.registeredToolCount,
+        toolsetReduced: selection.toolsetReduced,
+      };
+    };
+    const initialPromptState = rebuildProviderPromptState(
+      profileConversationContext,
+      historicalMessages,
+    );
     pushAgentDebugEvent("PROVIDER_TOOLSET_SELECTED", {
       contextWindowTokens: params.contextWindowTokens ?? selected.model.contextWindowTokens,
-      registeredToolCount: providerToolSelection.registeredToolCount,
-      activeToolCount: providerToolSelection.tools.length,
-      activeToolNames: providerToolSelection.tools.map((tool) => tool.name),
-      toolsetBudgetTokens: providerToolSelection.budgetTokens,
-      toolsetReduced: providerToolSelection.toolsetReduced,
+      registeredToolCount: initialPromptState.registeredToolCount,
+      activeToolCount: initialPromptState.toolDefinitions.length,
+      activeToolNames: initialPromptState.toolDefinitions.map((tool) => tool.name),
+      toolsetBudgetTokens: initialPromptState.providerToolSelection.budgetTokens,
+      toolsetReduced: initialPromptState.toolsetReduced,
     }, "info");
     const preparedContext = await params.onContextPrepared?.({
-      systemPrompt,
-      contextInstructions: context.contextInstructions,
+      systemPrompt: initialPromptState.systemPrompt,
+      contextInstructions: initialPromptState.contextInstructions,
       globalMemory: globalMemoryText,
-      toolDefinitions: providerToolSelection.tools,
-      registeredToolCount: providerToolSelection.registeredToolCount,
-      toolsetReduced: providerToolSelection.toolsetReduced,
-      historicalMessages,
+      toolDefinitions: initialPromptState.toolDefinitions,
+      registeredToolCount: initialPromptState.registeredToolCount,
+      toolsetReduced: initialPromptState.toolsetReduced,
+      historicalMessages: initialPromptState.historicalMessages,
       contextWindowTokens: params.contextWindowTokens ?? selected.model.contextWindowTokens,
       maxOutputTokens: selected.model.maxTokens,
+      rebuildProviderPromptState,
       rebuildProviderContext: (conversationContext, nextHistoricalMessages) => {
-        const rebuilt = buildContext(conversationContext);
+        const rebuilt = rebuildProviderPromptState(conversationContext, nextHistoricalMessages);
         return {
-          conversationContext,
+          conversationContext: rebuilt.conversationContext,
           contextInstructions: rebuilt.contextInstructions,
-          historicalMessages: [...nextHistoricalMessages],
+          historicalMessages: rebuilt.historicalMessages,
           manifest: rebuilt.manifest,
+          systemPrompt: rebuilt.systemPrompt,
+          toolDefinitions: rebuilt.toolDefinitions,
+          registeredToolCount: rebuilt.registeredToolCount,
+          toolsetReduced: rebuilt.toolsetReduced,
+          providerToolSelection: rebuilt.providerToolSelection,
         };
       },
     });
+    let finalPromptState = initialPromptState;
     if (preparedContext) {
+      finalPromptState = {
+        conversationContext: preparedContext.conversationContext ?? initialPromptState.conversationContext,
+        contextInstructions: preparedContext.contextInstructions,
+        historicalMessages: [...preparedContext.historicalMessages],
+        manifest: preparedContext.manifest,
+        systemPrompt: preparedContext.systemPrompt ?? initialPromptState.systemPrompt,
+        providerToolSelection: preparedContext.providerToolSelection ?? (
+          preparedContext.toolDefinitions
+            ? {
+                ...initialPromptState.providerToolSelection,
+                tools: preparedContext.toolDefinitions,
+                activeProviderToolNames: new Set(preparedContext.toolDefinitions.map((t) => t.name)),
+                registeredToolCount: preparedContext.registeredToolCount ?? initialPromptState.registeredToolCount,
+                toolsetReduced: preparedContext.toolsetReduced ?? initialPromptState.toolsetReduced,
+              }
+            : initialPromptState.providerToolSelection
+        ),
+        toolDefinitions: preparedContext.toolDefinitions ?? initialPromptState.toolDefinitions,
+        registeredToolCount: preparedContext.registeredToolCount ?? initialPromptState.registeredToolCount,
+        toolsetReduced: preparedContext.toolsetReduced ?? initialPromptState.toolsetReduced,
+      };
       context = {
         ...context,
-        contextInstructions: preparedContext.contextInstructions,
-        manifest: preparedContext.manifest,
+        contextInstructions: finalPromptState.contextInstructions,
+        manifest: finalPromptState.manifest,
       };
-      historicalMessages = [...preparedContext.historicalMessages];
-      ({ selection: providerToolSelection, systemPrompt } = resolveProviderToolset(historicalMessages));
+      historicalMessages = finalPromptState.historicalMessages;
     }
-    activeContextManifest = context.manifest;
+    activeContextManifest = finalPromptState.manifest;
 
     if (params.resumeCheckpoint && params.resumeCheckpoint.identity.sessionId !== conversationId) {
       return buildFailureOutcome({
@@ -742,17 +829,32 @@ export async function runAgentProfile<TResult>(
       latestCheckpoint = safeCheckpoint;
       params.onCheckpoint?.(safeCheckpoint);
     };
+    const preflightPromptSummary: PreflightPromptStateSummary = preparedContext?.preflightPromptSummary ?? {
+      inputTokens: estimateAgentMessagesTokens([
+        { role: "system", content: finalPromptState.systemPrompt },
+        ...(finalPromptState.contextInstructions ? [{ role: "system", content: finalPromptState.contextInstructions }] : []),
+        ...finalPromptState.historicalMessages,
+        { role: "user", content: params.question },
+      ]) + estimateValueTokens(finalPromptState.toolDefinitions),
+      activeToolNames: finalPromptState.toolDefinitions.map((tool) => tool.name),
+      systemPromptTokenCount: estimateValueTokens(finalPromptState.systemPrompt),
+      contextInstructionTokenCount: estimateValueTokens(finalPromptState.contextInstructions),
+      historicalTokenCount: estimateAgentMessagesTokens(finalPromptState.historicalMessages),
+      toolDefinitionTokenCount: estimateValueTokens(finalPromptState.toolDefinitions),
+    };
     const loop = new NativeToolAgentLoop({
       provider,
       toolRegistry: nativeToolRegistry,
       providerToolsetController,
       session,
-      systemPrompt,
+      systemPrompt: finalPromptState.systemPrompt,
       buildSystemPrompt: (activeToolNames) => buildCurrentSystemPrompt(activeToolNames),
-      contextInstructions: context.contextInstructions,
-      historicalMessages,
+      contextInstructions: finalPromptState.contextInstructions,
+      historicalMessages: finalPromptState.historicalMessages,
       contextWindowTokens: params.contextWindowTokens ?? selected.model.contextWindowTokens,
       maxOutputTokens: selected.model.maxTokens,
+      initialPreparedPayload: preparedContext?.initialPreparedPayload,
+      preflightPromptSummary,
       conversationId,
       identity,
       bridge: new RegisteredConfirmationBridge(

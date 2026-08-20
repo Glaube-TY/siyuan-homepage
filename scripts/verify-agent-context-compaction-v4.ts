@@ -219,11 +219,14 @@ assert.equal(markCompactionSnapshotStale(second.snapshot)?.stale, true);
 
 const conversation = buildConversationContext({ messages: continued, currentUserMessageId: "user-9", currentQuestion: "当前问题必须保留原文", compactionSnapshot: second.snapshot, usageRatio: 0.5 });
 assert.equal("userQuestion" in conversation.currentTurn, false);
+assert.equal("userMessage" in conversation.currentTurn, false);
 assert.equal(conversation.compactionStatus.coveredThroughTurnIndex, second.snapshot?.coveredThroughTurnIndex);
 assert.ok(conversation.manifest.entries.some((entry) => entry.source === "compaction-snapshot"));
 assert.equal(conversation.recentTurns.length, uncoveredAfterSnapshot.length / 2);
+assert.ok(uncoveredAfterSnapshot.length < uncoveredWithoutSnapshot.length, "持久化压缩后未覆盖的历史消息必须减少");
 const rendered = renderContextInstructions({ conversationContext: conversation });
 assert.equal(rendered.includes("第 9 轮问题"), false, "历史正文不能再被 JSON 塞进 system context");
+assert.ok(rendered.length > 0, "压缩后 contextInstructions 必须重新生成");
 
 const agentMessages: AgentMessage[] = normalizeToolCallMessages([
   { role: "user", content: "读取" },
