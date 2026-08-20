@@ -1,13 +1,16 @@
 import {
+    assertDesktopHomepageCoordinatedSnapshot,
     normalizeLayoutItems,
     readCoordinatedSnapshotForContext,
     runInSurfaceTransaction,
     saveLayoutDataForContext,
+    type CoordinatedSnapshot,
     type WidgetLayoutData,
 } from "@/components/utils/widgetBlock/utils/layout-shared";
 import { getCurrentDeviceViewContext } from "@/homepage/deviceView/deviceViewContext";
 import { cloneJsonSafe, hasSameJsonSemantic } from "@/homepage/deviceView/jsonSafe";
 import { readWidgetInstanceDocument } from "@/homepage/deviceView/widgetInstanceRepository";
+import type { DeviceViewContext, DeviceWidgetDocument } from "@/homepage/deviceView/deviceViewTypes";
 
 /**
  * 重置当前设备 desktop-homepage 的组件布局（纯重置，不创建任何备份）。
@@ -30,18 +33,39 @@ import { readWidgetInstanceDocument } from "@/homepage/deviceView/widgetInstance
  * 删除共享组件业务数据、删除任务/记账/日记/AI 会话、修改移动主页、
  * 修改桌面侧边栏、修改其他设备的主页、新增任何恢复功能。
  */
-export async function resetCurrentDesktopHomepageLayout(plugin: any): Promise<void> {
-    const context = getCurrentDeviceViewContext(plugin, "desktop-homepage");
+export interface ResetCurrentDesktopHomepageLayoutOperations {
+    context?: DeviceViewContext;
+    readSnapshot?: (context: DeviceViewContext) => Promise<CoordinatedSnapshot>;
+    saveLayoutData?: (
+        context: DeviceViewContext,
+        layout: WidgetLayoutData,
+        options?: { expectedRevision?: number },
+    ) => Promise<void>;
+    readWidgetDocument?: (context: DeviceViewContext, widgetId: string) => Promise<DeviceWidgetDocument | null>;
+}
+
+export async function resetCurrentDesktopHomepageLayout(
+    plugin: any,
+    operations: ResetCurrentDesktopHomepageLayoutOperations = {},
+): Promise<void> {
+    const context = operations.context ?? getCurrentDeviceViewContext(plugin, "desktop-homepage");
+    if (!plugin || !context.plugin || !context.scopeId || context.surface !== "desktop-homepage" || context.plugin !== plugin) {
+        throw new Error("桌面主页重置只支持 desktop-homepage context，且要求固定 plugin 与 context 一致");
+    }
+    const readSnapshot = operations.readSnapshot ?? readCoordinatedSnapshotForContext;
+    const saveLayout = operations.saveLayoutData ?? saveLayoutDataForContext;
+    const readWidgetDocument = operations.readWidgetDocument ?? readWidgetInstanceDocument;
     const queueKey = `${context.scopeId}:${context.surface}`;
     await runInSurfaceTransaction(queueKey, async () => {
-        const snapshot = await readCoordinatedSnapshotForContext(context);
+        const snapshot = await readSnapshot(context);
         if (!snapshot.view) throw new Error("桌面主页协调快照缺少 view.json");
+        assertDesktopHomepageCoordinatedSnapshot(snapshot, context);
 
         // 收集当前被引用的组件实例 ID（全局 order + 各分栏 widgetIds），用于写后校验配置未被删除。
         const referencedWidgetIds = collectReferencedWidgetIds(snapshot.layout.layout, context.scopeId);
         const beforeDocuments = new Map<string, { revision: number; config: Record<string, unknown> }>();
         for (const widgetId of referencedWidgetIds) {
-            const document = await readWidgetInstanceDocument(context, widgetId);
+            const document = await readWidgetDocument(context, widgetId);
             if (!document) throw new Error(`重置前组件 ${widgetId} 配置缺失`);
             if (
                 document.deviceId !== context.scopeId
@@ -64,13 +88,14 @@ export async function resetCurrentDesktopHomepageLayout(plugin: any): Promise<vo
             for (const section of Object.values(profile.sections)) section.widgetIds = [];
         }
         nextLayout.order = [];
-        await saveLayoutDataForContext(context, nextLayout, { expectedRevision: snapshot.layout.revision });
+        await saveLayout(context, nextLayout, { expectedRevision: snapshot.layout.revision });
 
         // 写后验证：layout 组件顺序已清空、view 配置未被修改。
-        const verified = await readCoordinatedSnapshotForContext(context);
+        const verified = await readSnapshot(context);
         if (!verified.view || !hasSameJsonSemantic(verified.view, snapshot.view)) {
             throw new Error("重置后 view 发生变化，请人工检查");
         }
+        assertDesktopHomepageCoordinatedSnapshot(verified, context);
         const verifiedProfile = verified.layout.layout.profiles?.[context.scopeId];
         if (
             !verifiedProfile
@@ -82,7 +107,7 @@ export async function resetCurrentDesktopHomepageLayout(plugin: any): Promise<vo
 
         // 写后验证：组件配置文件未被删除、内容未变（其中保存的业务数据随之保留）。
         for (const widgetId of referencedWidgetIds) {
-            const document = await readWidgetInstanceDocument(context, widgetId);
+            const document = await readWidgetDocument(context, widgetId);
             const before = beforeDocuments.get(widgetId);
             if (
                 !document

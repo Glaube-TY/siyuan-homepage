@@ -3,16 +3,15 @@ import { getFileOrNullChecked } from "@/api";
 import { createRuntimeUuid } from "@/libs/runtime-id";
 import { collectLayoutReferencedIdsForCleanup } from "./templateLayoutReferences";
 import type { SectionLayoutTemplatePayload } from "./templateTypes";
-import type { CoordinatedSnapshot, LayoutSnapshot } from "@/components/utils/widgetBlock/utils/layout-shared";
+import type { LayoutSnapshot } from "@/components/utils/widgetBlock/utils/layout-shared";
 import {
     getActiveSectionIdFromLayout,
+    loadLayoutSnapshotForContext,
     normalizeLayoutItems,
-    readCoordinatedSnapshotForContext,
     resolveEffectiveWidgetLayoutSettings,
     runInSurfaceTransaction,
     saveLayoutDataForContext,
     validateFullProfileSectionsReadOnly,
-    validateLayoutViewSectionConsistency,
 } from "@/components/utils/widgetBlock/utils/layout-shared";
 import { assertSectionLayoutInvariants, reindexLayoutItems } from "@/components/utils/widgetBlock/utils/layout-section-ops";
 import { getCurrentDeviceViewContext } from "@/homepage/deviceView/deviceViewContext";
@@ -76,6 +75,29 @@ export interface ApplyUserLayoutTemplateResult {
     uncertainWidgetIds?: string[];
     /** 无法确认组件或 layout 最终状态，需要人工检查。 */
     manualCheckRequired?: boolean;
+}
+
+export interface ApplyUserLayoutTemplateOperations {
+    context?: DeviceViewContext;
+    loadTemplates?: (plugin: any) => Promise<UserLayoutTemplate[]>;
+    loadLayoutSnapshot?: (context: DeviceViewContext) => Promise<LayoutSnapshot>;
+    createWidgetId?: () => string;
+    createWidgetDocument?: (
+        context: DeviceViewContext,
+        widgetId: string,
+        config: Record<string, unknown>,
+    ) => Promise<DeviceWidgetDocument>;
+    readWidgetDocument?: (context: DeviceViewContext, widgetId: string) => Promise<DeviceWidgetDocument | null>;
+    saveLayoutData?: (
+        context: DeviceViewContext,
+        layout: any,
+        options?: { expectedRevision?: number },
+    ) => Promise<void>;
+    deleteWidgetDocument?: (
+        context: DeviceViewContext,
+        widgetId: string,
+        expectedRevision: number,
+    ) => Promise<void>;
 }
 
 export interface UserLayoutTemplatePreviewItem {
@@ -251,38 +273,24 @@ function classifyLayoutCommitState(originalLayout: unknown, nextLayout: unknown,
     return "uncertainManualCheck";
 }
 
-type CoordinatedPostSaveState =
+type LayoutPostSaveState =
     | { state: "notCommitted" }
     | { state: "committed" }
     | { state: "committedWithWarning"; warning: string; manualCheckRequired?: boolean }
     | { state: "uncertainManualCheck"; reason: string };
 
-function classifyCoordinatedPostSaveState(
+function classifyLayoutPostSaveState(
     context: DeviceViewContext,
     originalLayout: unknown,
     nextLayout: unknown,
-    target: LayoutTarget,
-    observed: CoordinatedSnapshot,
-): CoordinatedPostSaveState {
-    try { assertExpectedLayoutSnapshot(observed.layout, context); } catch (error) {
-        return { state: "uncertainManualCheck", reason: error instanceof Error ? error.message : "协调快照 context 无法确认" };
+    observed: LayoutSnapshot,
+): LayoutPostSaveState {
+    try { assertExpectedLayoutSnapshot(observed, context); } catch (error) {
+        return { state: "uncertainManualCheck", reason: error instanceof Error ? error.message : "布局快照 context 无法确认" };
     }
-    if (!observed.view || observed.view.deviceId !== context.scopeId || observed.view.surface !== "desktop-homepage") {
-        return { state: "uncertainManualCheck", reason: "协调 view 与固定设备 context 不一致" };
-    }
-    const layoutState = classifyLayoutCommitState(originalLayout, nextLayout, observed.layout.layout);
+    const layoutState = classifyLayoutCommitState(originalLayout, nextLayout, observed.layout);
     if (layoutState === "notCommitted") return { state: "notCommitted" };
     if (layoutState === "uncertainManualCheck") return { state: "uncertainManualCheck", reason: "layout 提交后处于第三种状态" };
-
-    const viewUnchanged = observed.view.revision === target.viewRevision
-        && hasSameSemanticValue(observed.view.config, target.viewConfig);
-    const consistency = validateLayoutViewSectionConsistency(observed.layout.layout, context.scopeId, observed.view.config);
-    if (!viewUnchanged || consistency.ok === false) {
-        const detail = !viewUnchanged
-            ? "view revision 或配置已变化"
-            : `layout/view 不一致：${consistency.ok === false ? consistency.reason : "未知原因"}`;
-        return { state: "committedWithWarning", warning: `布局已提交，但${detail}，请刷新页面并人工确认`, manualCheckRequired: true };
-    }
     return { state: "committed" };
 }
 
@@ -505,9 +513,6 @@ export interface LayoutTarget {
     activeSectionId?: string;
     /** 仅当 targetType==="section" 时有效，活动分栏当前成员。 */
     sectionWidgetIds?: string[];
-    /** 只读 view 信息，用于写盘前一致性复核；模板不会保存。 */
-    viewRevision: number;
-    viewConfig: Record<string, unknown>;
 }
 
 function assertDesktopHomepageContext(context: DeviceViewContext): void {
@@ -534,18 +539,12 @@ function assertExpectedLayoutSnapshot(snapshot: LayoutSnapshot, context: DeviceV
  */
 function resolveLayoutTargetFromSnapshot(
     snapshot: LayoutSnapshot,
-    viewSettings: { revision: number; config: Record<string, unknown> },
 ): LayoutTarget {
     const layout = snapshot.layout;
     const deviceId = snapshot.deviceId;
     const profile = layout.profiles?.[deviceId];
     if (!profile) throw new Error("当前设备主主页 profile 缺失，无法解析布局目标");
     if (!Array.isArray(profile.order)) throw new Error("当前设备主主页 order 缺失，无法解析布局目标");
-    const viewConfig = viewSettings.config;
-    const consistency = validateLayoutViewSectionConsistency(layout, deviceId, viewConfig);
-    if (consistency.ok === false) {
-        throw new Error(`当前 layout/view 分栏状态不一致：${consistency.reason}`);
-    }
 
     const sectionsEnabled = profile?.componentSectionsModeEnabled === true;
 
@@ -564,8 +563,6 @@ function resolveLayoutTargetFromSnapshot(
             gap: settings.widgetGap,
             layoutRevision: snapshot.revision,
             targetType: "homepage",
-            viewRevision: viewSettings.revision,
-            viewConfig: structuredClone(viewConfig),
         };
     }
 
@@ -603,27 +600,22 @@ function resolveLayoutTargetFromSnapshot(
         targetType: "section",
         activeSectionId,
         sectionWidgetIds,
-        viewRevision: viewSettings.revision,
-        viewConfig: structuredClone(viewConfig),
     };
 }
 
-function resolveLayoutTargetFromCoordinatedSnapshot(
+function resolveLayoutTargetFromLayoutSnapshot(
     context: DeviceViewContext,
-    snapshot: CoordinatedSnapshot,
+    snapshot: LayoutSnapshot,
 ): LayoutTarget {
-    assertExpectedLayoutSnapshot(snapshot.layout, context);
-    if (!snapshot.view || snapshot.view.deviceId !== context.scopeId || snapshot.view.surface !== "desktop-homepage") {
-        throw new Error("协调 view 与固定设备 context 不一致");
-    }
-    return resolveLayoutTargetFromSnapshot(snapshot.layout, snapshot.view);
+    assertExpectedLayoutSnapshot(snapshot, context);
+    return resolveLayoutTargetFromSnapshot(snapshot);
 }
 
 export async function resolveCurrentLayoutTarget(plugin: any, fixedContext?: DeviceViewContext): Promise<LayoutTarget> {
     const context = fixedContext ?? getCurrentDeviceViewContext(plugin, "desktop-homepage");
     assertDesktopHomepageContext(context);
-    const snapshot = await readCoordinatedSnapshotForContext(context);
-    return resolveLayoutTargetFromCoordinatedSnapshot(context, snapshot);
+    const snapshot = await loadLayoutSnapshotForContext(context);
+    return resolveLayoutTargetFromLayoutSnapshot(context, snapshot);
 }
 
 // ---------------------------------------------------------------------------
@@ -669,8 +661,6 @@ function targetFingerprint(target: LayoutTarget): string {
         columns: target.columns,
         gap: target.gap,
         layoutRevision: target.layoutRevision,
-        viewRevision: target.viewRevision,
-        viewConfig: toJsonSafeClone(target.viewConfig),
     });
 }
 
@@ -856,10 +846,13 @@ export async function getUserLayoutTemplateAvailability(
 export async function applyUserLayoutTemplateToCurrentDevice(
     plugin: any,
     templateId: string,
+    operations: ApplyUserLayoutTemplateOperations = {},
 ): Promise<ApplyUserLayoutTemplateResult> {
-    const context = getCurrentDeviceViewContext(plugin, "desktop-homepage");
+    const context = operations.context ?? getCurrentDeviceViewContext(plugin, "desktop-homepage");
     assertDesktopHomepageContext(context);
-    const templates = await loadUserLayoutTemplates(plugin);
+    const templates = operations.loadTemplates
+        ? await operations.loadTemplates(plugin)
+        : await loadUserLayoutTemplates(plugin);
     const template = templates.find((t) => t.id === templateId);
 
     if (!template) {
@@ -870,7 +863,7 @@ export async function applyUserLayoutTemplateToCurrentDevice(
         };
     }
 
-    return appendTemplateToTarget(plugin, template, context);
+    return appendTemplateToTarget(plugin, template, context, operations);
 }
 
 function validateTemplatePayload(payload: SectionLayoutTemplatePayload): void {
@@ -967,13 +960,21 @@ async function appendTemplateToTarget(
     plugin: any,
     template: UserLayoutTemplate,
     context: DeviceViewContext,
+    operations: ApplyUserLayoutTemplateOperations = {},
 ): Promise<ApplyUserLayoutTemplateResult> {
     assertDesktopHomepageContext(context);
+    const loadLayoutSnapshot = operations.loadLayoutSnapshot ?? loadLayoutSnapshotForContext;
+    const saveLayout = operations.saveLayoutData ?? saveLayoutDataForContext;
+    const createWidgetId = operations.createWidgetId ?? createWidgetInstanceId;
+    const createWidgetDocument = operations.createWidgetDocument ?? createWidgetInstanceConfig;
+    const readWidgetDocument = operations.readWidgetDocument ?? readWidgetInstanceDocument;
     const queueKey = `${context.scopeId}:desktop-homepage`;
 
     return runInSurfaceTransaction(queueKey, async (): Promise<ApplyUserLayoutTemplateResult> => {
         let target: LayoutTarget;
-        try { target = await resolveCurrentLayoutTarget(plugin, context); } catch (error) {
+        try {
+            target = resolveLayoutTargetFromLayoutSnapshot(context, await loadLayoutSnapshot(context));
+        } catch (error) {
             return { success: false, reason: error instanceof Error ? error.message : "无法解析当前布局目标", skippedWidgetIds: [] };
         }
         if (template.columns !== target.columns) {
@@ -990,8 +991,8 @@ async function appendTemplateToTarget(
         }
 
         try {
-            const preCreationSnapshot = await readCoordinatedSnapshotForContext(context);
-            const preCreationTarget = resolveLayoutTargetFromCoordinatedSnapshot(context, preCreationSnapshot);
+            const preCreationSnapshot = await loadLayoutSnapshot(context);
+            const preCreationTarget = resolveLayoutTargetFromLayoutSnapshot(context, preCreationSnapshot);
             if (targetFingerprint(preCreationTarget) !== targetFingerprint(target)) {
                 return { success: false, reason: "创建组件前布局目标已发生变化，请重试", skippedWidgetIds };
             }
@@ -1005,12 +1006,12 @@ async function appendTemplateToTarget(
         const creation = await createTemplateWidgetInstancesCore(payload, {
             expectedDeviceId: context.scopeId,
             expectedSurface: "desktop-homepage",
-            createId: createWidgetInstanceId,
-            create: (widgetId, config) => createWidgetInstanceConfig(context, widgetId, config),
-            read: (widgetId) => readWidgetInstanceDocument(context, widgetId),
+            createId: createWidgetId,
+            create: (widgetId, config) => createWidgetDocument(context, widgetId, config),
+            read: (widgetId) => readWidgetDocument(context, widgetId),
         });
         if (creation.ok === false) {
-            const cleanup = await cleanupCreatedWidgetIds(plugin, context, creation.confirmed, { committed: false });
+            const cleanup = await cleanupCreatedWidgetIds(plugin, context, creation.confirmed, { committed: false }, operations);
             const uncertainWidgetIds = [...new Set([...creation.uncertainWidgetIds, ...cleanup.uncertainWidgetIds])];
             return {
                 success: false,
@@ -1021,13 +1022,13 @@ async function appendTemplateToTarget(
         }
 
         let latestTarget: LayoutTarget;
-        let originalSnapshot: CoordinatedSnapshot;
+        let originalSnapshot: LayoutSnapshot;
         try {
-            originalSnapshot = await readCoordinatedSnapshotForContext(context);
-            latestTarget = resolveLayoutTargetFromCoordinatedSnapshot(context, originalSnapshot);
+            originalSnapshot = await loadLayoutSnapshot(context);
+            latestTarget = resolveLayoutTargetFromLayoutSnapshot(context, originalSnapshot);
             if (targetFingerprint(latestTarget) !== targetFingerprint(target)) throw new Error("创建组件期间布局目标已发生变化");
         } catch (error) {
-            const cleanup = await cleanupCreatedWidgetIds(plugin, context, creation.confirmed, { committed: false });
+            const cleanup = await cleanupCreatedWidgetIds(plugin, context, creation.confirmed, { committed: false }, operations);
             return {
                 success: false,
                 reason: error instanceof Error ? error.message : "提交前重读布局失败",
@@ -1036,7 +1037,7 @@ async function appendTemplateToTarget(
             };
         }
 
-        const originalLayout = originalSnapshot.layout.layout;
+        const originalLayout = originalSnapshot.layout;
         let nextLayout: any;
         try {
             nextLayout = makeAppendLayoutMutator(
@@ -1049,7 +1050,7 @@ async function appendTemplateToTarget(
             );
             validateNextLayoutBeforeSave(originalLayout, nextLayout, latestTarget, creation.mapping, payload);
         } catch (error) {
-            const cleanup = await cleanupCreatedWidgetIds(plugin, context, creation.confirmed, { committed: false });
+            const cleanup = await cleanupCreatedWidgetIds(plugin, context, creation.confirmed, { committed: false }, operations);
             return {
                 success: false,
                 reason: error instanceof Error ? error.message : "写盘前布局校验失败",
@@ -1060,14 +1061,14 @@ async function appendTemplateToTarget(
 
         let saveError: unknown = null;
         try {
-            await saveLayoutDataForContext(context, nextLayout, { expectedRevision: latestTarget.layoutRevision });
+            await saveLayout(context, nextLayout, { expectedRevision: latestTarget.layoutRevision });
         } catch (error) {
             saveError = error;
         }
 
-        let observed: CoordinatedSnapshot;
+        let observed: LayoutSnapshot;
         try {
-            observed = await readCoordinatedSnapshotForContext(context);
+            observed = await loadLayoutSnapshot(context);
         } catch {
             return {
                 success: false,
@@ -1077,7 +1078,7 @@ async function appendTemplateToTarget(
                 manualCheckRequired: true,
             };
         }
-        const postSaveState = classifyCoordinatedPostSaveState(context, originalLayout, nextLayout, latestTarget, observed);
+        const postSaveState = classifyLayoutPostSaveState(context, originalLayout, nextLayout, observed);
 
         if (postSaveState.state === "committed") {
             return {
@@ -1105,7 +1106,7 @@ async function appendTemplateToTarget(
                 manualCheckRequired: true,
             };
         }
-        const cleanup = await cleanupCreatedWidgetIds(plugin, context, creation.confirmed, { committed: false });
+        const cleanup = await cleanupCreatedWidgetIds(plugin, context, creation.confirmed, { committed: false }, operations);
         return {
             success: false,
             reason: saveError instanceof Error ? saveError.message : "layout 确认未提交",
@@ -1280,8 +1281,6 @@ function validateNextLayoutBeforeSave(
             throw new Error("写盘前分栏模式意外修改了主页间距");
         }
     }
-    const consistency = validateLayoutViewSectionConsistency(nextLayout, target.deviceId, target.viewConfig);
-    if (consistency.ok === false) throw new Error(`写盘前 layout/view 校验失败：${consistency.reason}`);
 
     const nextOrder = normalizeLayoutItems(nextProfile.order);
     const nextIds = nextOrder.map((item) => item.id);
@@ -1332,14 +1331,14 @@ interface CreatedWidgetRecord {
 }
 
 interface CleanupCreatedWidgetIdsOptions {
-    /** true 表示 layout/view 两份文档均已成功提交；false 表示已回滚或从未保留本次变更。 */
+    /** true 表示布局与组件文档均已成功提交；false 表示已回滚或从未保留本次变更。 */
     committed?: boolean;
     /** true 表示无法确认补偿结果，禁止自动删除组件。 */
     manualCheckRequired?: boolean;
 }
 
 interface CleanupCreatedWidgetIdsIO {
-    loadCoordinatedSnapshot(context: DeviceViewContext): Promise<CoordinatedSnapshot>;
+    loadLayoutSnapshot(context: DeviceViewContext): Promise<LayoutSnapshot>;
     readWidgetDocument(context: DeviceViewContext, widgetId: string): Promise<DeviceWidgetDocument | null>;
     deleteWidget(context: DeviceViewContext, widgetId: string, expectedRevision: number): Promise<void>;
 }
@@ -1371,9 +1370,9 @@ async function cleanupCreatedWidgetIdsCore(
 
     let latestLayout: any;
     try {
-        const snapshot = await io.loadCoordinatedSnapshot(context);
-        assertExpectedLayoutSnapshot(snapshot.layout, context);
-        latestLayout = snapshot.layout.layout;
+        const snapshot = await io.loadLayoutSnapshot(context);
+        assertExpectedLayoutSnapshot(snapshot, context);
+        latestLayout = snapshot.layout;
     } catch {
         // 最新布局读取失败时无法确认引用关系，禁止删除任何本次组件。
         // 所有非 uncertain 的本次组件均标记为 uncertain。
@@ -1439,11 +1438,12 @@ async function cleanupCreatedWidgetIds(
     context: DeviceViewContext,
     createdWidgetIds: CreatedWidgetRecord[],
     options: CleanupCreatedWidgetIdsOptions = {},
+    operations: ApplyUserLayoutTemplateOperations = {},
 ): Promise<{ uncertainWidgetIds: string[] }> {
     return cleanupCreatedWidgetIdsCore(context, createdWidgetIds, options, {
-        loadCoordinatedSnapshot: (fixedContext) => readCoordinatedSnapshotForContext(fixedContext),
-        readWidgetDocument: (fixedContext, widgetId) => readWidgetInstanceDocument(fixedContext, widgetId),
-        deleteWidget: (fixedContext, widgetId, expectedRevision) => deleteWidgetInstance(fixedContext, widgetId, expectedRevision),
+        loadLayoutSnapshot: operations.loadLayoutSnapshot ?? ((fixedContext) => loadLayoutSnapshotForContext(fixedContext)),
+        readWidgetDocument: operations.readWidgetDocument ?? ((fixedContext, widgetId) => readWidgetInstanceDocument(fixedContext, widgetId)),
+        deleteWidget: operations.deleteWidgetDocument ?? ((fixedContext, widgetId, expectedRevision) => deleteWidgetInstance(fixedContext, widgetId, expectedRevision)),
     });
 }
 

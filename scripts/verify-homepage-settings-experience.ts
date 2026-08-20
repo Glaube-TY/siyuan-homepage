@@ -50,6 +50,26 @@ const kbSettingsPanelSource = readFileSync(
     "src/features/kb/components/panels/kb-settings-panel.svelte",
     "utf8",
 );
+const homepageSettingSource = readFileSync(
+    "src/homepage/homepageSetting/homepageSetting.svelte",
+    "utf8",
+);
+assert.doesNotMatch(homepageSettingSource, /syncDesktopDraftFromPersistedConfig/);
+assert.equal(
+    homepageSettingSource.match(/\bapplyDesktopDraftFromPersistedConfig\(/g)?.length,
+    3,
+    "桌面草稿 mapper 必须由声明、初次加载和 partial 回读共同复用",
+);
+assert.match(
+    homepageSettingSource,
+    /const layoutSettings = await loadWidgetLayoutSettings\(plugin\);[\s\S]{0,600}applyDesktopDraftFromPersistedConfig\(savedConfig, layoutSettings\)/,
+    "初次加载必须在读取 layout 后调用共享桌面草稿 mapper",
+);
+assert.match(
+    homepageSettingSource,
+    /const layoutSettings = await loadWidgetLayoutSettings\(plugin\);[\s\S]{0,1000}applyDesktopDraftFromPersistedConfig\(reloaded, layoutSettings\)/,
+    "partial 回读必须在读取 layout 后调用共享桌面草稿 mapper",
+);
 assert.ok(kbSettingsPanelSource.includes("modelOnly && settingsLoaded"), "主页模型设置必须启用自动保存");
 assert.match(
     kbSettingsPanelSource,

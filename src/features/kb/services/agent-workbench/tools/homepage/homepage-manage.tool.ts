@@ -52,7 +52,7 @@ const updateWidgetStyleInputSchema = z.object({
 const moveWidgetInputSchema = z.object({ surface: surfaceSchema, widgetId: z.string().trim().min(1), expectedType: z.string().trim().min(1), expectedIndex: z.number().int().nonnegative(), expectedSectionId: z.string().trim().min(1).nullable(), targetIndex: z.number().int().nonnegative(), targetSectionId: z.string().trim().min(1).optional(), expectedLayoutRevision: z.number().int().positive() }).strict();
 const removeWidgetInputSchema = z.object({ surface: surfaceSchema, widgetId: z.string().trim().min(1), expectedType: z.string().trim().min(1), expectedWidgetRevision: z.number().int().positive(), expectedLayoutRevision: z.number().int().positive(), expectedIndex: z.number().int().nonnegative(), expectedSectionId: z.string().trim().min(1).nullable(), expectedLabel: z.string().trim().min(1) }).strict();
 const updateLayoutInputSchema = z.object({ surface: surfaceSchema, widgetLayoutNumber: z.number().int().min(1).max(12), widgetGap: z.number().min(0).max(200), expectedWidgetLayoutNumber: z.number().int().min(1).max(12), expectedWidgetGap: z.number().min(0).max(200), sectionId: z.string().trim().min(1).optional(), expectedLayoutRevision: z.number().int().positive() }).strict();
-const sectionBase = { surface: z.literal("desktop-homepage").optional(), expectedLayoutRevision: z.number().int().positive(), expectedViewRevision: z.number().int().positive() };
+const sectionBase = { surface: z.literal("desktop-homepage").optional(), expectedLayoutRevision: z.number().int().positive() };
 const createSectionInputSchema = z.object({ ...sectionBase, name: z.string().trim().min(1).max(60), sectionId: z.string().trim().min(1).optional(), position: z.number().int().nonnegative().optional() }).strict();
 const renameSectionInputSchema = z.object({ ...sectionBase, sectionId: z.string().trim().min(1), name: z.string().trim().min(1).max(60), expectedSectionName: z.string() }).strict();
 const reorderSectionsInputSchema = z.object({ ...sectionBase, orderedSectionIds: z.array(z.string().trim().min(1)).min(1) }).strict();
@@ -83,7 +83,7 @@ function failure(error: unknown): ToolResult<HomepageAgentReadResult> {
   return {
     ok: false,
     data: null,
-    error: { code: "homepage_tool_failed", message: error instanceof Error ? error.message : "主页操作失败。", recoverable: true },
+    error: { code: "homepage_tool_failed", message: "主页操作失败，请刷新页面后重试。", recoverable: true },
   };
 }
 

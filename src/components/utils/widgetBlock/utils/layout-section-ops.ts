@@ -16,7 +16,31 @@
  * - 视图异常不影响共享业务数据。
  */
 
-import type { LayoutItem, WidgetLayoutProfileData, WidgetLayoutProfileSectionData } from "./layout-shared";
+export interface LayoutItem {
+    id: string;
+    style: string | null;
+    index: number;
+}
+
+export interface WidgetLayoutProfileSectionData {
+    widgetIds: string[];
+    name?: string;
+    index?: number;
+    widgetLayoutNumber?: number;
+    widgetGap?: number;
+    createdAt?: number;
+    updatedAt?: number;
+}
+
+export interface WidgetLayoutProfileData {
+    order: LayoutItem[];
+    widgetLayoutNumber?: number;
+    widgetGap?: number;
+    activeSectionId?: string;
+    sections?: Record<string, WidgetLayoutProfileSectionData>;
+    componentSectionsModeEnabled?: boolean;
+    componentSectionsModelVersion?: number;
+}
 
 /**
  * 重新编号 layout items。
@@ -76,8 +100,6 @@ export function assertSectionLayoutInvariants(
         }
     }
 
-    if (!options.requireAllAssigned) return;
-
     const assignedIds = new Set<string>();
     for (const sectionId of sectionIds) {
         const section = sections[sectionId];
@@ -89,6 +111,9 @@ export function assertSectionLayoutInvariants(
             assignedIds.add(id);
         }
     }
+
+    if (!options.requireAllAssigned) return;
+
     for (const item of globalOrder) {
         if (!assignedIds.has(item.id)) {
             throw new Error(`分栏布局不变量校验失败：全局组件 ${item.id} 未归属任何分栏`);
@@ -240,6 +265,35 @@ export function rearrangeGlobalOrderBySections(
         sectionFilteredIds[sectionId] = ids;
     }
 
+    // 关闭分栏模式时：保持 global order 原序，仅清理分栏内的成员关系（去非全局、去重复）。
+    if (!options.assignOrphansToFirstSection) {
+        const nextSections: Record<string, WidgetLayoutProfileSectionData> = {};
+        for (const sectionId of sectionIds) {
+            const originalSection = sections[sectionId];
+            const nextSection: WidgetLayoutProfileSectionData = {
+                widgetIds: sectionFilteredIds[sectionId] || [],
+            };
+            if (originalSection?.name !== undefined) nextSection.name = originalSection.name;
+            if (originalSection?.index !== undefined) nextSection.index = originalSection.index;
+            if (originalSection?.widgetLayoutNumber !== undefined) nextSection.widgetLayoutNumber = originalSection.widgetLayoutNumber;
+            if (originalSection?.widgetGap !== undefined) nextSection.widgetGap = originalSection.widgetGap;
+            if (originalSection?.createdAt !== undefined) nextSection.createdAt = originalSection.createdAt;
+            if (originalSection?.updatedAt !== undefined) nextSection.updatedAt = originalSection.updatedAt;
+            nextSections[sectionId] = nextSection;
+        }
+
+        const finalResult = {
+            nextGlobalOrder: reindexLayoutItems(globalOrder),
+            nextSections,
+        };
+
+        assertSectionLayoutInvariants(finalResult.nextGlobalOrder, finalResult.nextSections, sectionIds, {
+            requireAllAssigned: false,
+        });
+
+        return finalResult;
+    }
+
     // 一次性重建 nextSections 和全局 order：
     // 每个分栏内部顺序 = 已有成员过滤顺序 + 孤儿（仅第一个分栏末尾）。
     const nextSections: Record<string, WidgetLayoutProfileSectionData> = {};
@@ -260,8 +314,12 @@ export function rearrangeGlobalOrderBySections(
         }
 
         const nextSection: WidgetLayoutProfileSectionData = { widgetIds: sectionItemIds };
+        if (originalSection?.name !== undefined) nextSection.name = originalSection.name;
+        if (originalSection?.index !== undefined) nextSection.index = originalSection.index;
         if (originalSection?.widgetLayoutNumber !== undefined) nextSection.widgetLayoutNumber = originalSection.widgetLayoutNumber;
         if (originalSection?.widgetGap !== undefined) nextSection.widgetGap = originalSection.widgetGap;
+        if (originalSection?.createdAt !== undefined) nextSection.createdAt = originalSection.createdAt;
+        if (originalSection?.updatedAt !== undefined) nextSection.updatedAt = originalSection.updatedAt;
         nextSections[sectionId] = nextSection;
         for (const id of sectionItemIds) {
             if (resultSeenIds.has(id)) continue;
@@ -356,6 +414,7 @@ export function mergeRemovedSectionRangesIntoAdjacentSections(
     sections: Record<string, WidgetLayoutProfileSectionData>,
     orderedSectionIds: string[],
     removedSectionIds: string[],
+    options: { assignOrphansToFirstSection?: boolean } = { assignOrphansToFirstSection: true },
 ): {
     nextGlobalOrder: LayoutItem[];
     nextSections: Record<string, WidgetLayoutProfileSectionData>;
@@ -445,14 +504,13 @@ export function mergeRemovedSectionRangesIntoAdjacentSections(
 
     // 复用全局重排 helper：
     // - 清理 section-only、重复归属；
-    // - 将无归属组件追加到第一个剩余分栏；
-    // - 一次性重建全局 order，保证片段连续；
-    // - 只要有剩余分栏，就 requireAllAssigned=true。
+    // - 根据 assignOrphansToFirstSection 决定是否将无归属组件追加到第一个剩余分栏；
+    // - 一次性重建全局 order。
     const { nextGlobalOrder, nextSections: finalSections } = rearrangeGlobalOrderBySections(
         globalOrder,
         nextSections,
         remainingOrderedIds,
-        { assignOrphansToFirstSection: true },
+        options,
     );
 
     return {

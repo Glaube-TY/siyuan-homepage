@@ -35,13 +35,12 @@
     import { getCurrentDeviceInfo } from "../utils/deviceProfile"
     import {
         loadWidgetLayoutSettings,
-        saveHomepageSettingsInTransaction,
-        SyncLayoutAndViewError,
-        UnrecoverableSectionHalfCommitError,
+        saveHomepageSettingsCoordinated,
     } from "../../components/utils/widgetBlock/utils/layout-shared"
     import { svelteDialog, confirmDialogBoolean, safeConfirmContent } from "../../libs/dialog"
     import MobileHomepagePreviewDialog from "../mobileHomepage/MobileHomepagePreviewDialog.svelte"
     import { resetCurrentDesktopHomepageLayout } from "../deviceView/resetCurrentDesktopHomepageLayout"
+    import { getSafeDeviceViewErrorMessage } from "../deviceView/deviceViewErrors"
     import AboutSection from "./sections/AboutSection.svelte"
     import VipSection from "./sections/VipSection.svelte"
     import HomepageGlobalSection from "./sections/HomepageGlobalSection.svelte"
@@ -364,11 +363,20 @@
 
     function handleAddComponentSection(): void {
         const now = Date.now();
+        const existingNames = new Set(
+            componentSections.map((s) => s.name.trim().toLowerCase()),
+        );
+        let defaultName = "新分区";
+        let counter = 2;
+        while (existingNames.has(defaultName.toLowerCase())) {
+            defaultName = `新分区 ${counter}`;
+            counter++;
+        }
         componentSections = normalizeComponentSections([
             ...componentSections,
             {
                 id: createComponentSectionId(),
-                name: "新分区",
+                name: defaultName,
                 createdAt: now,
                 updatedAt: now,
             },
@@ -786,12 +794,12 @@
                         lastLoadedMobileSignature = captureMobileSettingsSignature();
                         autoSaveStatus = "saved";
                         saveSucceeded = true;
-                    } else {
+                    } else if (autoSaveStatus !== "synced") {
                         autoSaveStatus = "error";
                     }
                 } catch (error) {
                     autoSaveStatus = "error";
-                    const message = error instanceof Error ? error.message : String(error);
+                    const message = getSafeDeviceViewErrorMessage(error);
                     showMessage(`设置保存失败：${message}`, 5000, "error");
                 } finally {
                     autoSavePending = false;
@@ -858,170 +866,134 @@
         void refreshStatusAiModelSummary();
     }
 
+    function applyDesktopDraftFromPersistedConfig(
+        savedConfig: HomepageSettingConfig,
+        layoutSettings: { widgetLayoutNumber: number; widgetGap: number },
+    ): void {
+        homepageAppearance = normalizeHomepageAppearanceConfig(
+            savedConfig.homepageAppearance,
+        );
+        tempAutoOpenHomepage = savedConfig.autoOpenHomepage ?? true;
+        sidebarEnabled = savedConfig.sidebarEnabled ?? false;
+
+        bannerEnabled = savedConfig.bannerEnabled ?? true;
+        bannerGlobalType = savedConfig.bannerGlobalType || "custom";
+        bingApiType = savedConfig.bingApiType || "POD_UHD";
+        bannerType = savedConfig.bannerType ?? "local";
+        bannerLocalData = savedConfig.bannerLocalData || "";
+        bannerRemoteUrl = savedConfig.bannerRemoteUrl || "";
+        bannerHeight = savedConfig.bannerHeight || "300";
+        tempBannerEnabled = bannerEnabled;
+        tempBannerType = bannerType;
+        tempBannerHeight = bannerHeight;
+
+        showIcon = savedConfig.showIcon ?? true;
+        titleIconType = savedConfig.titleIconType || "emoji";
+        tempTitleIconEmoji = savedConfig.TitleIconEmoji || "🏠";
+        tempTitleIconImage = savedConfig.TitleIconImage || null;
+        tempTitleIconStyle = savedConfig.tempTitleIconStyle || "square";
+        tempCustomTitle = savedConfig.customTitle || "思源笔记首页";
+        tempHomepageTopLayout = normalizeHomepageTopLayout(
+            {
+                ...savedConfig.homepageTopLayout,
+                align: savedConfig.homepageTopLayout?.align ?? savedConfig.homepageTitleAlign,
+            },
+            (savedConfig as HomepageSettingConfig & { bannerTitleIntegrated?: boolean })
+                .bannerTitleIntegrated === true,
+        );
+        tempQuickButtonStyle = normalizeQuickButtonStyle(savedConfig.quickButtonStyle);
+        tempBannerTitleColor = normalizeBannerIntegratedColor(savedConfig.bannerTitleColor);
+        tempBannerStatusColor = normalizeBannerIntegratedColor(savedConfig.bannerStatusColor);
+        tempBannerButtonColor = normalizeBannerIntegratedColor(savedConfig.bannerButtonColor);
+        tempBannerGlassEnabled = savedConfig.bannerGlassEnabled === true;
+        tempBannerGlassColorMode = normalizeBannerGlassColorMode(savedConfig.bannerGlassColorMode);
+        tempBannerGlassColor = normalizeBannerGlassColor(savedConfig.bannerGlassColor);
+        tempBannerGlassOpacity = normalizeBannerGlassOpacity(savedConfig.bannerGlassOpacity);
+        tempBannerGlassBlur = normalizeBannerGlassBlur(savedConfig.bannerGlassBlur);
+        tempStatsInfoText = normalizeStatsInfoText(savedConfig.statsInfoText);
+        tempStatusTextMode = normalizeHomepageStatusTextMode(savedConfig.statusTextMode);
+        tempStatusAiPrompt = normalizeStatusAiPrompt(savedConfig.statusAiPrompt);
+        tempStatusAiMaxChars = normalizeStatusAiMaxChars(savedConfig.statusAiMaxChars);
+        tempStatusAiProviderId = normalizeStatusAiModelId(savedConfig.statusAiProviderId);
+        tempStatusAiModelId = normalizeStatusAiModelId(savedConfig.statusAiModelId);
+        tempStatusAiThinkingEnabled = normalizeStatusAiThinkingEnabled(savedConfig.statusAiThinkingEnabled);
+        tempStatusAiStatKeys = normalizeStatusAiStatKeys(savedConfig.statusAiStatKeys);
+
+        buttonsList = savedConfig.buttonsList
+            ? normalizeButtons(savedConfig.buttonsList)
+            : createDefaultButtons();
+        nextId = Math.max(...buttonsList.map((item) => item.id), 0) + 1;
+        selectedButton = savedConfig.selectedButton
+            ? buttonsList.find((item) => item.id === savedConfig.selectedButton?.id) ?? null
+            : null;
+
+        widgetLayoutNumber = layoutSettings.widgetLayoutNumber;
+        widgetGap = layoutSettings.widgetGap;
+        componentSectionsEnabled = savedConfig.componentSectionsEnabled === true;
+        componentSections = normalizeComponentSections(savedConfig.componentSections);
+        componentSectionsNavAlign = normalizeComponentSectionsNavAlign(savedConfig.componentSectionsNavAlign);
+
+        quickNotesEnabled = savedConfig.quickNotesEnabled ?? false;
+        quickNotesPosition = savedConfig.quickNotesPosition || "";
+        quickNotesTimestampEnabled = savedConfig.quickNotesTimestampEnabled ?? true;
+        quickNotesAddPosition = savedConfig.quickNotesAddPosition || "bottom";
+        taskEditorEnabled = savedConfig.taskEditorEnabled ?? true;
+        defaultDocPreviewMode = savedConfig.defaultDocPreviewMode === "wysiwyg" ? "wysiwyg" : "preview";
+        aiKbDockEnabled = savedConfig.aiKbDockEnabled ?? true;
+        aiKbTabEnabled = savedConfig.aiKbTabEnabled ?? true;
+        selectionAiToolbar = normalizeSelectionAiToolbarSettings(savedConfig.selectionAiToolbar);
+
+        tasksPlusSelectedNotebookIds = normalizeNotebookOptions(savedConfig.tasksPlusSelectedNotebookIds);
+        reviewDocsSelectedNotebookIds = normalizeNotebookOptions(savedConfig.reviewDocsSelectedNotebookIds);
+        favoritesMigrationStatus = normalizeComponentMigrationStatus(savedConfig.favoritesMigrationStatus);
+        reviewDocsMigrationStatus = normalizeComponentMigrationStatus(savedConfig.reviewDocsMigrationStatus);
+        taskIndexMigrationStatus = normalizeComponentMigrationStatus(savedConfig.taskIndexMigrationStatus);
+        heatmapIndexStatus = normalizeComponentMigrationStatus(savedConfig.heatmapIndexStatus);
+        statIndexStatus = normalizeComponentMigrationStatus(savedConfig.statIndexStatus);
+        enhancedDiaryIndexStatus = normalizeComponentMigrationStatus(savedConfig.enhancedDiaryIndexStatus);
+
+        footerEnabled = savedConfig.footerEnabled ?? true;
+        footerContent = savedConfig.footerContent || "";
+        mouseIcon = savedConfig.mouseIcon || "default";
+        MouseTrailEnabled = savedConfig.MouseTrailEnabled ?? false;
+        mouseGlobalEnabled = savedConfig.mouseGlobalEnabled ?? false;
+        ClickEffectEnabled = savedConfig.ClickEffectEnabled ?? false;
+        ClickEffectContent = savedConfig.ClickEffectContent || "";
+        backgroundImageEnabled = savedConfig.backgroundImageEnabled === true;
+        backgroundImageGlobalEnabled = savedConfig.backgroundImageGlobalEnabled === true;
+        backgroundImageType = normalizeBackgroundImageType(savedConfig.backgroundImageType);
+        backgroundImageLocalData = savedConfig.backgroundImageLocalData || null;
+        backgroundImageRemoteUrl = savedConfig.backgroundImageRemoteUrl || "";
+        backgroundImageOpacity = normalizeBackgroundImageOpacity(savedConfig.backgroundImageOpacity);
+        backgroundImageBlur = normalizeBackgroundImageBlur(savedConfig.backgroundImageBlur);
+        FallEffectsEnabled = savedConfig.FallEffectsEnabled ?? false;
+        GlobalFallingEffectsEnabled = savedConfig.GlobalFallingEffectsEnabled ?? false;
+        FallingIcon = savedConfig.FallingIcon || "snow";
+        FallingDensity = savedConfig.FallingDensity || "medium";
+        FallingSpeed = savedConfig.FallingSpeed || "medium";
+        currentDeviceInfo = getCurrentDeviceInfo();
+    }
+
     // 设置页面加载时读取配置信息
     onMount(async () => {
         window.addEventListener(HOMEPAGE_THEME_TRANSITION_EVENT, handleHomepageThemeTransition);
         const savedConfig = await loadHomepageSettingConfig(plugin);
         if (savedConfig) {
-            homepageAppearance = normalizeHomepageAppearanceConfig(savedConfig.homepageAppearance);
-            // 全局配置（桌面）
-            tempAutoOpenHomepage = savedConfig.autoOpenHomepage ?? true;
-            sidebarEnabled = savedConfig.sidebarEnabled ?? false;
-
-            // 移动端配置：统一从 mobile-homepage 读取，mobile-shared 优先于 desktop
+            let mobileConfig: Record<string, unknown> = {};
             try {
-                const mobileConfig = (await loadHomepageSettingConfig(plugin, "mobile-homepage")) || {};
-
-                // --- 悬浮按钮设置：mobile-shared 优先，每个字段独立判断 ---
-                mobileQuickActionsEnabled =
-                    typeof (mobileConfig as any).mobileQuickActionsEnabled === "boolean"
-                        ? (mobileConfig as any).mobileQuickActionsEnabled
-                        : savedConfig.mobileQuickActionsEnabled ?? true;
-
-                mobileQuickActionsButtonSize = normalizeMobileQuickActionButtonSize(
-                    (mobileConfig as any).mobileQuickActionsButtonSize !== undefined
-                        ? (mobileConfig as any).mobileQuickActionsButtonSize
-                        : savedConfig.mobileQuickActionsButtonSize,
-                );
-
-                mobileQuickActionItems = normalizeMobileQuickActionItems(
-                    Array.isArray((mobileConfig as any).mobileQuickActionItems)
-                        ? (mobileConfig as any).mobileQuickActionItems
-                        : savedConfig.mobileQuickActionItems,
-                );
-
-                const resolved = resolveMobileAutoOpenConfig(mobileConfig);
-                mobileAutoOpenEnabled = resolved.enabled;
-                mobileAutoOpenTarget = resolved.target;
+                mobileConfig = (await loadHomepageSettingConfig(plugin, "mobile-homepage") || {}) as unknown as Record<string, unknown>;
             } catch {
                 // mobile 配置读取失败：共享设置仍可从当前桌面配置恢复。
-                mobileQuickActionsEnabled = savedConfig.mobileQuickActionsEnabled ?? true;
-                mobileQuickActionsButtonSize = normalizeMobileQuickActionButtonSize(
-                    savedConfig.mobileQuickActionsButtonSize,
-                );
-                mobileQuickActionItems = normalizeMobileQuickActionItems(savedConfig.mobileQuickActionItems);
-
-                const resolved = resolveMobileAutoOpenConfig(savedConfig);
-                mobileAutoOpenEnabled = resolved.enabled;
-                mobileAutoOpenTarget = resolved.target;
             }
-            // 横幅配置
-            bannerEnabled = savedConfig.bannerEnabled ?? true;
-            bannerGlobalType = savedConfig.bannerGlobalType || "custom";
-            bingApiType = savedConfig.bingApiType || "POD_UHD";
-            bannerType = savedConfig.bannerType ?? "local";
-            bannerLocalData = savedConfig.bannerLocalData || "";
-            bannerRemoteUrl = savedConfig.bannerRemoteUrl || "";
-
-            bannerHeight = savedConfig.bannerHeight || "300";
-
-            // 标题配置
-            showIcon = savedConfig.showIcon ?? true;
-            titleIconType = savedConfig.titleIconType || "emoji";
-            tempTitleIconEmoji = savedConfig.TitleIconEmoji || "🏠";
-            tempTitleIconImage = savedConfig.TitleIconImage || null;
-            tempTitleIconStyle = savedConfig.tempTitleIconStyle || "square";
-            tempCustomTitle = savedConfig.customTitle || "思源笔记首页";
-            tempHomepageTopLayout = normalizeHomepageTopLayout({
-                ...savedConfig.homepageTopLayout,
-                align: savedConfig.homepageTopLayout?.align ?? savedConfig.homepageTitleAlign,
-            }, (savedConfig as HomepageSettingConfig & { bannerTitleIntegrated?: boolean }).bannerTitleIntegrated === true);
-            tempQuickButtonStyle = normalizeQuickButtonStyle(savedConfig.quickButtonStyle);
-            tempBannerTitleColor = normalizeBannerIntegratedColor(savedConfig.bannerTitleColor);
-            tempBannerStatusColor = normalizeBannerIntegratedColor(savedConfig.bannerStatusColor);
-            tempBannerButtonColor = normalizeBannerIntegratedColor(savedConfig.bannerButtonColor);
-            tempBannerGlassEnabled = savedConfig.bannerGlassEnabled === true;
-            tempBannerGlassColorMode = normalizeBannerGlassColorMode(savedConfig.bannerGlassColorMode);
-            tempBannerGlassColor = normalizeBannerGlassColor(savedConfig.bannerGlassColor);
-            tempBannerGlassOpacity = normalizeBannerGlassOpacity(savedConfig.bannerGlassOpacity);
-            tempBannerGlassBlur = normalizeBannerGlassBlur(savedConfig.bannerGlassBlur);
-            tempStatsInfoText = normalizeStatsInfoText(savedConfig.statsInfoText);
-            tempStatusTextMode = normalizeHomepageStatusTextMode(savedConfig.statusTextMode);
-            tempStatusAiPrompt = normalizeStatusAiPrompt(savedConfig.statusAiPrompt);
-            tempStatusAiMaxChars = normalizeStatusAiMaxChars(savedConfig.statusAiMaxChars);
-            tempStatusAiProviderId = normalizeStatusAiModelId(savedConfig.statusAiProviderId);
-            tempStatusAiModelId = normalizeStatusAiModelId(savedConfig.statusAiModelId);
-            tempStatusAiThinkingEnabled = normalizeStatusAiThinkingEnabled(savedConfig.statusAiThinkingEnabled);
-            tempStatusAiStatKeys = normalizeStatusAiStatKeys(savedConfig.statusAiStatKeys);
-
-            // 恢复按钮配置
-            if (savedConfig.buttonsList) {
-                buttonsList = normalizeButtons(savedConfig.buttonsList);
-                nextId = Math.max(...buttonsList.map((item) => item.id), 0) + 1;
-            }
-
-            if (savedConfig.selectedButton) {
-                const found = buttonsList.find((item) => item.id === savedConfig.selectedButton.id);
-                selectedButton = found ?? null;
-            }
-
-            // 组件设置从当前设备桌面主页布局读取。
             const layoutSettings = await loadWidgetLayoutSettings(plugin);
-            widgetLayoutNumber = layoutSettings.widgetLayoutNumber;
-            widgetGap = layoutSettings.widgetGap;
-            componentSectionsEnabled = savedConfig.componentSectionsEnabled === true;
-            componentSections = normalizeComponentSections(savedConfig.componentSections);
-            componentSectionsNavAlign = normalizeComponentSectionsNavAlign(savedConfig.componentSectionsNavAlign);
-
-            quickNotesEnabled = savedConfig.quickNotesEnabled ?? false;
-            quickNotesPosition = savedConfig.quickNotesPosition || "";
-            quickNotesTimestampEnabled =
-                savedConfig.quickNotesTimestampEnabled ?? true;
-            quickNotesAddPosition =
-                savedConfig.quickNotesAddPosition || "bottom";
-
-            taskEditorEnabled = savedConfig.taskEditorEnabled ?? true;
-
-            // 文档预览模式：归一化并回退到默认值
-            const validPreviewMode = (mode: string | undefined): "preview" | "wysiwyg" => {
-                if (mode === "preview" || mode === "wysiwyg") return mode;
-                return "preview";
-            };
-            defaultDocPreviewMode = validPreviewMode(savedConfig.defaultDocPreviewMode);
-
-            // AI 知识库入口开关
-            aiKbDockEnabled = savedConfig.aiKbDockEnabled ?? true;
-            aiKbTabEnabled = savedConfig.aiKbTabEnabled ?? true;
-            selectionAiToolbar = normalizeSelectionAiToolbarSettings(savedConfig.selectionAiToolbar);
-
-            // 范围配置与迁移状态
-            tasksPlusSelectedNotebookIds = normalizeNotebookOptions(savedConfig.tasksPlusSelectedNotebookIds);
-            reviewDocsSelectedNotebookIds = normalizeNotebookOptions(savedConfig.reviewDocsSelectedNotebookIds);
-            favoritesMigrationStatus = normalizeComponentMigrationStatus(savedConfig.favoritesMigrationStatus);
-            reviewDocsMigrationStatus = normalizeComponentMigrationStatus(savedConfig.reviewDocsMigrationStatus);
-            taskIndexMigrationStatus = normalizeComponentMigrationStatus(savedConfig.taskIndexMigrationStatus);
-            heatmapIndexStatus = normalizeComponentMigrationStatus(savedConfig.heatmapIndexStatus);
-            statIndexStatus = normalizeComponentMigrationStatus(savedConfig.statIndexStatus);
-            enhancedDiaryIndexStatus = normalizeComponentMigrationStatus(savedConfig.enhancedDiaryIndexStatus);
-
-            footerEnabled = savedConfig.footerEnabled ?? true;
-            footerContent = savedConfig.footerContent || "";
-            mouseIcon = savedConfig.mouseIcon || "default";
-            MouseTrailEnabled = savedConfig.MouseTrailEnabled ?? false;
-            mouseGlobalEnabled = savedConfig.mouseGlobalEnabled ?? false;
-            ClickEffectEnabled = savedConfig.ClickEffectEnabled ?? false;
-            ClickEffectContent = savedConfig.ClickEffectContent || "";
-            backgroundImageEnabled = savedConfig.backgroundImageEnabled === true;
-            backgroundImageGlobalEnabled = savedConfig.backgroundImageGlobalEnabled === true;
-            backgroundImageType = normalizeBackgroundImageType(savedConfig.backgroundImageType);
-            backgroundImageLocalData = savedConfig.backgroundImageLocalData || null;
-            backgroundImageRemoteUrl = savedConfig.backgroundImageRemoteUrl || "";
-            backgroundImageOpacity = normalizeBackgroundImageOpacity(savedConfig.backgroundImageOpacity);
-            backgroundImageBlur = normalizeBackgroundImageBlur(savedConfig.backgroundImageBlur);
-            FallEffectsEnabled = savedConfig.FallEffectsEnabled ?? false;
-            GlobalFallingEffectsEnabled =
-                savedConfig.GlobalFallingEffectsEnabled ?? false;
-            FallingIcon = savedConfig.FallingIcon || "snow";
-            FallingDensity = savedConfig.FallingDensity || "medium";
-            FallingSpeed = savedConfig.FallingSpeed || "medium";
-
-            currentDeviceInfo = getCurrentDeviceInfo();
+            applyMobileSettingsConfig({
+                ...(savedConfig as unknown as Record<string, unknown>),
+                ...mobileConfig,
+            });
+            applyDesktopDraftFromPersistedConfig(savedConfig, layoutSettings);
         }
 
         // 同步到临时变量
-        tempBannerEnabled = bannerEnabled;
-        tempBannerType = bannerType;
-        tempBannerHeight = bannerHeight;
         advancedEnabled = getHomepageEntitlementSnapshot().advanced;
 
         await refreshStatusAiModelSummary();
@@ -1459,36 +1431,78 @@
                 }));
                 return true;
             } catch (error) {
-                const message = error instanceof Error ? error.message : String(error);
+                const message = getSafeDeviceViewErrorMessage(error);
                 showMessage(`主题偏好保存失败：${message}`, 5000, "error");
                 return false;
             }
         }
 
+        // 写前校验分栏名称唯一性
+        const seenNames = new Set<string>();
+        for (const section of normalizedComponentSections) {
+            const trimmed = (section.name || "").trim();
+            if (!trimmed) {
+                showMessage("分栏名称不能为空", 4000, "error");
+                return false;
+            }
+            if (trimmed.length > 60) {
+                showMessage("分栏名称长度不能超过 60 个字符", 4000, "error");
+                return false;
+            }
+            const lower = trimmed.toLowerCase();
+            if (seenNames.has(lower)) {
+                showMessage(`分栏名称重复：${trimmed}`, 4000, "error");
+                return false;
+            }
+            seenNames.add(lower);
+        }
+
         let result;
         try {
-            result = await saveHomepageSettingsInTransaction(plugin, {
+            result = await saveHomepageSettingsCoordinated(plugin, {
                 config,
                 sectionsEnabled: effectiveComponentSectionsEnabled,
-                sectionIds: normalizedComponentSections.map((section) => section.id),
+                sections: normalizedComponentSections,
                 deletedSectionIds: deletedComponentSectionIds,
                 widgetLayoutNumber,
                 widgetGap,
             });
         } catch (error) {
-            if (error instanceof UnrecoverableSectionHalfCommitError) {
-                showMessage(`当前分栏状态无法根据本次设置安全恢复：${error.reason}。已停止写入，请导出数据检查。`, 7000, "error");
-            } else if (error instanceof SyncLayoutAndViewError && error.manualCheckRequired) {
-                showMessage(`设置保存状态无法确认，请人工检查：${error.message}`, 6000, "error");
-            } else {
-                const message = error instanceof Error ? error.message : String(error);
-                showMessage(`设置保存失败：${message}`, 5000, "error");
-            }
+            const message = getSafeDeviceViewErrorMessage(error);
+            showMessage(`设置保存失败：${message}`, 5000, "error");
             return false;
+        }
+
+        // 如果部分保存失败，重新加载配置以同步状态
+        if (result.partial) {
+            try {
+                const reloaded = await loadHomepageSettingConfig(plugin, "desktop-homepage");
+                if (!reloaded) throw new Error("重新读取桌面主页设置返回空结果");
+                const layoutSettings = await loadWidgetLayoutSettings(plugin);
+                const mobileConfig = (await loadHomepageSettingConfig(plugin, "mobile-homepage") || {}) as unknown as Record<string, unknown>;
+                applyMobileSettingsConfig({
+                    ...(reloaded as unknown as Record<string, unknown>),
+                    ...mobileConfig,
+                });
+                applyDesktopDraftFromPersistedConfig(reloaded, layoutSettings);
+                lastLoadedMobileSignature = captureMobileSettingsSignature();
+                lastPersistedDraftSignature = captureHomepageSettingsSignature();
+                deletedComponentSectionIds = [];
+                appearanceOnlyBaseSignature = null;
+                autoSavePending = false;
+                autoSaveStatus = "synced";
+                showMessage(`${result.warning || "主页设置已部分提交"}，界面已同步真实状态。`, 6000, "info");
+                return false;
+            } catch (error) {
+                const message = getSafeDeviceViewErrorMessage(error);
+                showMessage(`主页设置已部分提交，但真实状态暂无法确认：${message}`, 6000, "error");
+                return false;
+            }
         }
 
         deletedComponentSectionIds = [];
         appearanceOnlyBaseSignature = null;
+
         try {
             setSelectionAiToolbarSettingsSnapshot(config.selectionAiToolbar);
 
@@ -1512,9 +1526,6 @@
         } catch {
             showMessage("设置已保存，但界面刷新失败", 5000, "error");
             return true;
-        }
-        if (result.warning) {
-            showMessage("设置已保存，但界面刷新失败", 5000, "error");
         }
         return true;
     }

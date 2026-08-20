@@ -76,6 +76,7 @@
                         type="text"
                         class="control-full component-section-name"
                         value={section.name}
+                        maxlength="60"
                         oninput={(e) => actions.onRenameComponentSection(section.id, (e.currentTarget as HTMLInputElement).value)}
                     />
                     <div class="component-section-actions">

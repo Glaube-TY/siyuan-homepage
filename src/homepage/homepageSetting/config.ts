@@ -8,7 +8,9 @@ import type {
 } from '@/components/utils/widgetBlock/widget/common/componentMigrationTypes';
 import { getCurrentDeviceViewContext } from '@/homepage/deviceView/deviceViewContext';
 import { ensureCurrentDeviceViewReady } from '@/homepage/deviceView/deviceViewReadiness';
-import { readDeviceViewSettings, updateDeviceViewSettings } from '@/homepage/deviceView/deviceViewStorage';
+import { readDeviceViewLayout, readDeviceViewSettings, updateDeviceViewSettings } from '@/homepage/deviceView/deviceViewStorage';
+import { DeviceViewTemporarilyIncompleteError } from '@/homepage/deviceView/deviceViewErrors';
+import { deriveDesktopHomepageConfig } from '@/homepage/deviceView/desktopHomepageSectionModel';
 import type { DeviceViewSurface } from '@/homepage/deviceView/deviceViewTypes';
 import type { HomepageAppearanceConfig } from '@/homepage/theme/runtime/appearanceConfig';
 import { cloneJsonSafeOmittingUndefinedObjectProperties } from '@/homepage/deviceView/jsonSafe';
@@ -284,10 +286,22 @@ export async function loadHomepageSettingConfig(
     await ensureCurrentDeviceViewReady(context);
     const settings = await readDeviceViewSettings(context);
     if (!settings) return null;
-    return await mergeHomepageSharedSettings(
+    let merged = await mergeHomepageSharedSettings(
         plugin,
         settings.config,
-    ) as unknown as HomepageSettingConfig;
+    );
+    if (surface === "desktop-homepage") {
+        const layout = await readDeviceViewLayout(context);
+        if (!layout) {
+            throw new DeviceViewTemporarilyIncompleteError({
+                deviceId: context.scopeId,
+                surface: context.surface,
+                missingType: "layout",
+            });
+        }
+        merged = deriveDesktopHomepageConfig(layout, merged, context.scopeId);
+    }
+    return merged as unknown as HomepageSettingConfig;
 }
 
 export async function saveHomepageSettingConfig(
@@ -305,9 +319,14 @@ export async function saveHomepageSettingConfig(
     );
     // 公共能力只写入跨设备共享文件，设备视图仅保存本设备字段。
     await saveHomepageSharedSettings(plugin, safeConfig);
+    const targetConfig = omitHomepageSharedSettings(safeConfig);
+    if (surface === "desktop-homepage") {
+        delete targetConfig.componentSectionsEnabled;
+        delete targetConfig.componentSections;
+    }
     await updateDeviceViewSettings(
         context,
-        () => omitHomepageSharedSettings(safeConfig),
+        () => targetConfig,
         { expectedRevision: current.revision },
     );
 }

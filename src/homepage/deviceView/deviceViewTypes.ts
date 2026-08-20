@@ -44,6 +44,8 @@ export interface DeviceLayoutSection {
     index?: number;
     widgetLayoutNumber?: number;
     widgetGap?: number;
+    createdAt?: number;
+    updatedAt?: number;
 }
 
 export interface DeviceViewLayout extends DeviceViewMetadata {
@@ -54,6 +56,8 @@ export interface DeviceViewLayout extends DeviceViewMetadata {
     activeSectionId?: string;
     sections?: Record<string, DeviceLayoutSection>;
     componentSectionsModeEnabled?: boolean;
+    /** 桌面主页 5.0 单一事实源分栏模型版本标记（仅 desktop-homepage 使用，当前常量值为 1）。 */
+    componentSectionsModelVersion?: number;
 }
 
 export interface DeviceViewSettings extends DeviceViewMetadata {

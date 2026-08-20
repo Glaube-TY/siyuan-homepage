@@ -23,7 +23,6 @@
         normalizeLayoutItems,
         readCoordinatedSnapshotForContext,
         resolveEffectiveWidgetLayoutSettings,
-        validateLayoutViewSectionConsistency,
         type RestoreLayoutResult,
     } from "../components/utils/widgetBlock/utils/layout-shared";
     import { handleLoad } from "./topBanner/drag";
@@ -73,6 +72,8 @@
     import { getCurrentDeviceViewContext } from "./deviceView/deviceViewContext";
     import { readWidgetInstanceDocument } from "./deviceView/widgetInstanceRepository";
     import { readDeviceViewManifest, readDeviceViewSettings } from "./deviceView/deviceViewStorage";
+    import { DeviceViewAccessBlockedError } from "./deviceView/deviceViewErrors";
+    import { deriveDesktopHomepageConfig, deriveDesktopHomepageSectionsFromLayout } from "./deviceView/desktopHomepageSectionModel";
     import { hasSameJsonSemantic } from "./deviceView/jsonSafe";
     import {
         HOMEPAGE_AGENT_STORAGE_CHANGED_EVENT,
@@ -724,20 +725,15 @@
                         if (pendingExternalStorageRefresh && !homepageComponentDestroyed) {
                             requestExternalStorageRefresh();
                         }
-                        return;
-                    }
-                    if (result.code === "revision_conflict") {
+                    } else if (result.code === "revision_conflict") {
                         // 用户与 Agent/其他窗口同时编辑：不覆盖，提示并刷新最新 storage。
                         showMessage("主页已被其他操作修改，当前拖动未保存，正在重新加载最新布局。", 5000, "info");
                         updateHomepageVersion += 1;
                         externalStorageRefreshGeneration += 1;
                         pendingExternalStorageRefresh = true;
                         requestExternalStorageRefresh();
-                        return;
-                    }
-                    if (result.code === "rejected") {
+                    } else if (result.code === "rejected") {
                         showMessage(`主页布局保存被拒绝：${result.reason}`, 5000, "error");
-                        return;
                     }
                     // unavailable：保持现状，不打扰用户。
                 });
@@ -3117,7 +3113,14 @@
         } catch (error) {
             console.error("[Homepage] 初始主页恢复失败", error);
             startupTrace.finish("failed");
-            if (!homepageComponentDestroyed) homepageInitialLoadState = "error";
+            if (!homepageComponentDestroyed) {
+                homepageInitialLoadState = "error";
+                if (error instanceof DeviceViewAccessBlockedError) {
+                    homepageInitialLoadDetail = error.safeMessage;
+                } else {
+                    homepageInitialLoadDetail = "主页初始化失败，请刷新页面重试。如问题持续，请检查设备视图数据目录。";
+                }
+            }
         }
     });
 
@@ -3227,19 +3230,11 @@
         const previousStatusAiConfigSignature = getStatusAiConfigSignature();
         const context = getCurrentDeviceViewContext(plugin, "desktop-homepage");
         const coordinated = await readCoordinatedSnapshotForContext(context);
-        if (!coordinated.view) throw new Error("当前桌面主页 view.json 缺失，无法刷新主页");
-        const consistency = validateLayoutViewSectionConsistency(
-            coordinated.layout.layout,
-            context.scopeId,
-            coordinated.view.config,
+        const config = normalizeHomepageConfigData(
+            deriveDesktopHomepageConfig(coordinated.layout.layout, coordinated.view.config, context.scopeId),
         );
-        if (!consistency.ok) {
-            throw new Error(`当前主页 layout/view 不一致：${(consistency as { ok: false; reason: string }).reason}`);
-        }
-
-        const config = normalizeHomepageConfigData(coordinated.view.config);
         const nextAdvanced = getAdvancedEnabled();
-        const nextComponentSections = normalizeComponentSections(config.componentSections);
+        const nextComponentSections = deriveDesktopHomepageSectionsFromLayout(coordinated.layout.layout, context.scopeId);
         const nextEffectiveSectionsEnabled = isComponentSectionsEffective(
             {
                 componentSectionsEnabled: config.componentSectionsEnabled,
@@ -3460,7 +3455,7 @@
             // - 仅 explicit-storage-refresh（Agent 外部写入已事务提交并写后验证）；
             // - 真实 targetWidgetIds / targetRenderableWidgetIds 均为空；
             // - manifest unresolved 当前也不要求渲染任何组件；
-            // - 上方已通过 layout/view 一致性校验，且 coordinated recheck 与第一次读取完全一致。
+            // - 上方已通过布局一致性校验，且 coordinated recheck 与第一次读取完全一致。
             // initial-load / config-refresh 一律为 false，普通分栏切换保持现有 empty section 逻辑。
             const confirmedEmptyLayout = shouldConfirmEmptyLayout({
                 mode,

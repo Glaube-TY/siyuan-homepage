@@ -1,7 +1,8 @@
 import { getImage } from "@/components/tools/getImage";
 import { getCurrentDeviceViewContext } from "./deviceView/deviceViewContext";
 import { ensureCurrentDeviceViewReady } from "./deviceView/deviceViewReadiness";
-import { readDeviceViewSettings, updateDeviceViewSettings } from "./deviceView/deviceViewStorage";
+import { deriveDesktopHomepageConfig } from "./deviceView/desktopHomepageSectionModel";
+import { readDeviceViewLayout, readDeviceViewSettings, updateDeviceViewSettings } from "./deviceView/deviceViewStorage";
 import {
     DeviceViewAccessBlockedError,
     DeviceViewTemporarilyIncompleteError,
@@ -169,20 +170,33 @@ export async function loadHomepageConfigDataStrict(
             missingType: "view",
         });
     }
+    let mergedConfig: Record<string, unknown>;
     try {
-        return {
-            data: await mergeHomepageSharedSettings(
-                plugin,
-                settings.config,
-            ),
-            fileExists: true,
-        };
+        mergedConfig = await mergeHomepageSharedSettings(
+            plugin,
+            settings.config,
+        );
     } catch (error) {
         // 共享能力配置异常不能阻断整个设备主页；保留当前 surface 的只读回退，
         // 但不得据此覆盖或重建损坏的共享文件。
         console.warn("[Homepage] 共享主页设置暂时不可读，本轮回退到当前设备视图配置:", error);
-        return { data: settings.config, fileExists: true };
+        mergedConfig = settings.config;
     }
+    if (surface === "desktop-homepage") {
+        const layout = await readDeviceViewLayout(context);
+        if (!layout) {
+            throw new DeviceViewTemporarilyIncompleteError({
+                deviceId: context.scopeId,
+                surface: context.surface,
+                missingType: "layout",
+            });
+        }
+        mergedConfig = deriveDesktopHomepageConfig(layout, mergedConfig, context.scopeId);
+    }
+    return {
+        data: mergedConfig,
+        fileExists: true,
+    };
 }
 
 export interface BannerImageResult {

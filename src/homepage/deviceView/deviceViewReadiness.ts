@@ -14,6 +14,7 @@ import {
     deviceViewSurfaceHasSettings,
     type DeviceViewContext,
 } from "./deviceViewTypes";
+import { ensureDesktopHomepageSectionsMigrated } from "./desktopHomepageSectionModel";
 
 const readinessTasks = new Map<string, Promise<void>>();
 const readyKeys = new Set<string>();
@@ -33,16 +34,25 @@ function incomplete(context: DeviceViewContext, missingType: "layout" | "view" |
 async function verifyOrCreateCurrentView(context: DeviceViewContext): Promise<void> {
     const manifest = await readDeviceViewManifest(context);
     if (manifest) {
-        if (!await readDeviceViewLayout(context)) throw incomplete(context, "layout");
+        const layout = context.surface === "desktop-homepage"
+            ? await readDeviceViewLayout(context, { allowUnmigrated: true })
+            : await readDeviceViewLayout(context);
+        if (!layout) throw incomplete(context, "layout");
         if (deviceViewSurfaceHasSettings(context.surface) && !await readDeviceViewSettings(context)) {
             throw incomplete(context, "view");
+        }
+        if (context.surface === "desktop-homepage") {
+            await ensureDesktopHomepageSectionsMigrated(context);
+            if (!await readDeviceViewLayout(context)) throw incomplete(context, "layout");
         }
         return;
     }
 
     // manifest 缺失但当前格式文件已经出现，通常表示同步尚未完成。
     // 这里绝不以空数据覆盖；完整文件到齐后由下一次读取继续。
-    const layout = await readDeviceViewLayout(context);
+    const layout = context.surface === "desktop-homepage"
+        ? await readDeviceViewLayout(context, { allowUnmigrated: true })
+        : await readDeviceViewLayout(context);
     const settings = deviceViewSurfaceHasSettings(context.surface)
         ? await readDeviceViewSettings(context)
         : null;

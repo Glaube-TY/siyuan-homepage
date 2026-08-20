@@ -16,16 +16,28 @@ import {
   normalizeLayoutItems,
   readCoordinatedSnapshotForContext,
   saveLayoutDataForContext,
-  syncLayoutAndViewInTransaction,
-  validateLayoutViewSectionConsistency,
   type DeleteWidgetResult,
+  type WidgetLayoutData,
+  type WidgetLayoutProfileData,
 } from "@/components/utils/widgetBlock/utils/layout-shared";
+import {
+  mergeRemovedSectionRangesIntoAdjacentSections,
+  rearrangeGlobalOrderBySections,
+} from "@/components/utils/widgetBlock/utils/layout-section-ops";
 import {
   dispatchHomepageAgentStorageChanged,
   type HomepageAgentStorageChangeReason,
 } from "@/homepage/deviceView/deviceViewEvents";
 import type { DeviceViewContext, DeviceWidgetDocument } from "@/homepage/deviceView/deviceViewTypes";
-import { normalizeComponentSections } from "@/homepage/homepageSetting/config";
+import {
+  assertDesktopHomepageLayoutInvariants,
+  deriveDesktopHomepageSectionsFromLayout,
+} from "@/homepage/deviceView/desktopHomepageSectionModel";
+import {
+    createDeviceViewBlockedError,
+    DeviceViewAccessBlockedError,
+    getSafeDeviceViewErrorMessage,
+} from "@/homepage/deviceView/deviceViewErrors";
 import type { HomepageAgentReadResult, HomepageAgentSurface, HomepageWidgetResolutionStatus } from "./homepage-manage-types";
 import { getHomepageAgentWidgetDescriptor, HOMEPAGE_AGENT_WIDGET_CATALOG } from "./homepage-agent-widget-catalog";
 import type { HomepageBusinessCapability } from "./homepage-agent-business-capabilities";
@@ -38,8 +50,6 @@ import {
 } from "./homepage-agent-surface-resolution";
 import { sanitizeWidgetConfigForAgent } from "./homepage-agent-widget-sanitizer";
 import { applyHomepageWidgetPatch, createHomepageWidgetConfig, readHomepageWidgetData, validateAndNormalizeHomepageWidgetPatch } from "./homepage-agent-widget-adapters";
-import type { WidgetLayoutData, WidgetLayoutProfileData } from "@/components/utils/widgetBlock/utils/layout-shared";
-import { mergeRemovedSectionRangesIntoAdjacentSections, rearrangeGlobalOrderBySections } from "@/components/utils/widgetBlock/utils/layout-section-ops";
 import {
   applyWidgetStylePatch,
   readWidgetStyle,
@@ -67,6 +77,7 @@ export interface HomepageAgentDeviceViewOps {
   readSnapshot(context: DeviceViewContext): Promise<Awaited<ReturnType<typeof readCoordinatedSnapshotForContext>>>;
   readWidgetDocument(context: DeviceViewContext, widgetId: string): Promise<DeviceWidgetDocument | null>;
   loadLayoutSettings(plugin: Plugin, options: { sectionsEnabled?: boolean; sectionId?: string | null }, context: DeviceViewContext): Promise<{ widgetLayoutNumber: number; widgetGap: number }>;
+  saveLayoutData(context: DeviceViewContext, layout: WidgetLayoutData, options?: { expectedRevision?: number }): Promise<void>;
   deleteWidgetFromSurface(context: DeviceViewContext, widgetId: string, options: { expectedLayoutRevision?: number; expectedWidgetRevision?: number }): Promise<DeleteWidgetResult>;
 }
 
@@ -164,6 +175,7 @@ export class HomepageAgentService {
       readSnapshot: overrides.readSnapshot ?? readCoordinatedSnapshotForContext,
       readWidgetDocument: overrides.readWidgetDocument ?? readWidgetInstanceDocument,
       loadLayoutSettings: overrides.loadLayoutSettings ?? loadWidgetLayoutSettings,
+      saveLayoutData: overrides.saveLayoutData ?? saveLayoutDataForContext,
       deleteWidgetFromSurface: overrides.deleteWidgetFromSurface ?? deleteWidgetFromSurface,
     };
   }
@@ -189,9 +201,15 @@ export class HomepageAgentService {
       const snapshot = await this.dv.readSnapshot(context);
       return { plugin, context, surface: resolvedSurface, snapshot, profile: getProfile(snapshot) };
     } catch (error) {
+      if (error instanceof DeviceViewAccessBlockedError) {
+        throw new HomepageAgentServiceError(
+          "homepage_not_ready",
+          error.safeMessage,
+        );
+      }
       throw new HomepageAgentServiceError(
         "homepage_not_ready",
-        error instanceof Error ? error.message : "主页数据暂不可用。",
+        getSafeDeviceViewErrorMessage(error),
       );
     }
   }
@@ -213,7 +231,9 @@ export class HomepageAgentService {
   async overview(surface?: HomepageAgentSurface): Promise<HomepageAgentReadResult> {
     const state = await this.read(surface);
     const order = normalizeLayoutItems(state.profile?.order ?? state.snapshot.layout.layout.order);
-    const sections = normalizeComponentSections(state.snapshot.view?.config.componentSections);
+    const sections = state.surface === "desktop-homepage"
+      ? deriveDesktopHomepageSectionsFromLayout(state.snapshot.layout.layout, state.context.scopeId)
+      : [];
     const sectionModeEnabled = state.profile?.componentSectionsModeEnabled === true;
     const warnings: string[] = [];
     const rows = await Promise.all(order.map(async (item) => {
@@ -223,10 +243,6 @@ export class HomepageAgentService {
     }));
     const counts = computeOverviewCounts(rows);
     if (counts.missingConfigWidgetCount > 0) warnings.push(missingConfigWarningText(counts.missingConfigWidgetCount));
-    const consistency = state.surface === "desktop-homepage" && state.snapshot.view
-      ? validateLayoutViewSectionConsistency(state.snapshot.layout.layout, state.context.scopeId, state.snapshot.view.config)
-      : { ok: true as const };
-    if (consistency.ok === false) warnings.push(consistency.reason);
     const layoutSettings = state.surface === "desktop-homepage"
       ? await this.dv.loadLayoutSettings(state.plugin, {
           sectionsEnabled: sectionModeEnabled,
@@ -235,7 +251,7 @@ export class HomepageAgentService {
       : null;
     const hasUnresolvedOrMissing = counts.missingConfigWidgetCount > 0;
     return {
-      status: consistency.ok && !hasUnresolvedOrMissing ? "ok" : "degraded",
+      status: !hasUnresolvedOrMissing ? "ok" : "degraded",
       surface: state.surface,
       surfaceLabel: state.surface === "desktop-homepage" ? "桌面主页" : "移动主页",
       scopeKind: state.context.isMobileShared ? "mobile-shared" : "current-device",
@@ -253,8 +269,8 @@ export class HomepageAgentService {
       widgetLayoutNumber: layoutSettings?.widgetLayoutNumber,
       widgetGap: layoutSettings?.widgetGap,
       widgetTypeCounts: counts.widgetTypeCounts,
-      safelyWritable: consistency.ok && !hasUnresolvedOrMissing,
-      structuralWritesSafe: consistency.ok,
+      safelyWritable: !hasUnresolvedOrMissing,
+      structuralWritesSafe: true,
       widgetConfigWritesSafe: !hasUnresolvedOrMissing,
       advancedEnabled: isHomepageEntitlementGranted(),
       warnings,
@@ -264,7 +280,7 @@ export class HomepageAgentService {
   async listWidgets(surface?: HomepageAgentSurface): Promise<HomepageAgentReadResult> {
     const state = await this.read(surface);
     const order = normalizeLayoutItems(state.profile?.order ?? state.snapshot.layout.layout.order);
-    const sections = normalizeComponentSections(state.snapshot.view?.config.componentSections);
+    const sections = state.surface === "desktop-homepage" ? deriveDesktopHomepageSectionsFromLayout(state.snapshot.layout.layout, state.context.scopeId) : [];
     const sectionNames = new Map(sections.map((item) => [item.id, item.name]));
     const items = await Promise.all(order.map(async (item, index) => {
       const resolution = await this.widgetResolutionOf(state, item.id);
@@ -335,7 +351,7 @@ export class HomepageAgentService {
     const layoutItem = order[layoutIndex];
     const sectionId = state.surface === "desktop-homepage" ? sectionForWidget(state.profile?.sections, widgetId) : null;
     const sectionName = sectionId
-      ? normalizeComponentSections(state.snapshot.view?.config.componentSections).find((item) => item.id === sectionId)?.name ?? sectionId
+      ? deriveDesktopHomepageSectionsFromLayout(state.snapshot.layout.layout, state.context.scopeId).find((item) => item.id === sectionId)?.name ?? sectionId
       : null;
     return {
       status: "ok",
@@ -470,18 +486,13 @@ export class HomepageAgentService {
     if (state.surface !== "desktop-homepage") {
       throw new HomepageAgentServiceError("unsupported_surface_action", "移动主页不支持分栏操作。", true, { surface: state.surface });
     }
-    if (!state.snapshot.view) throw new HomepageAgentServiceError("view_missing", "桌面主页 view 配置缺失。", false);
-    const consistency = validateLayoutViewSectionConsistency(state.snapshot.layout.layout, state.context.scopeId, state.snapshot.view.config);
-    const sections = normalizeComponentSections(state.snapshot.view.config.componentSections);
+    const sections = deriveDesktopHomepageSectionsFromLayout(state.snapshot.layout.layout, state.context.scopeId);
     return {
-      status: consistency.ok ? "ok" : "degraded",
+      status: "ok",
       surface: state.surface,
       sectionModeEnabled: state.profile?.componentSectionsModeEnabled === true,
       activeSectionId: state.profile?.activeSectionId ?? null,
       layoutRevision: state.snapshot.layout.revision,
-      viewRevision: state.snapshot.view.revision,
-      consistent: consistency.ok,
-      inconsistencyReason: consistency.ok === false ? consistency.reason : undefined,
       sections: sections.map((section) => ({
         ...section,
         widgetIds: [...(state.profile?.sections?.[section.id]?.widgetIds ?? [])],
@@ -501,14 +512,41 @@ export class HomepageAgentService {
 
   private assertWritableConsistency(state: Awaited<ReturnType<HomepageAgentService["read"]>>): void {
     if (state.surface !== "desktop-homepage") return;
-    if (!state.snapshot.view) throw new HomepageAgentServiceError("view_missing", "桌面主页 view 配置缺失，已拒绝写入。", false);
-    const consistency = validateLayoutViewSectionConsistency(
-      state.snapshot.layout.layout,
-      state.context.scopeId,
-      state.snapshot.view.config,
-    );
-    if (consistency.ok === false) {
-      throw new HomepageAgentServiceError("layout_inconsistent", `主页布局与分栏配置不一致，已拒绝写入：${consistency.reason}`, false);
+    try {
+      assertDesktopHomepageLayoutInvariants(state.snapshot.layout.layout, state.context);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const blocked = createDeviceViewBlockedError(
+        state.context,
+        "desktop_section_layout_corrupted",
+        message,
+      );
+      throw new HomepageAgentServiceError(
+        "desktop_section_layout_corrupted",
+        blocked.safeMessage,
+        false,
+      );
+    }
+  }
+
+  private assertNextLayout(
+    state: Awaited<ReturnType<HomepageAgentService["read"]>>,
+    layout: WidgetLayoutData,
+  ): void {
+    if (state.surface !== "desktop-homepage") return;
+    try {
+      assertDesktopHomepageLayoutInvariants(layout, state.context);
+    } catch (error) {
+      const blocked = createDeviceViewBlockedError(
+        state.context,
+        "desktop_section_layout_corrupted",
+        error instanceof Error ? error.message : String(error),
+      );
+      throw new HomepageAgentServiceError(
+        "desktop_section_layout_corrupted",
+        blocked.safeMessage,
+        false,
+      );
     }
   }
 
@@ -565,13 +603,14 @@ export class HomepageAgentService {
         if (!targetSectionId || !state.profile.sections?.[targetSectionId]) throw new HomepageAgentServiceError("section_not_found", "目标分栏不存在或当前活动分栏无效。");
         const sections = Object.fromEntries(Object.entries(state.profile.sections).map(([id, section]) => [id, { ...section, widgetIds: section.widgetIds.filter((value) => value !== widgetId) }]));
         sections[targetSectionId] = { ...sections[targetSectionId], widgetIds: [...sections[targetSectionId].widgetIds, widgetId] };
-        const sectionIds = normalizeComponentSections(state.snapshot.view?.config.componentSections).map((item) => item.id);
+        const sectionIds = deriveDesktopHomepageSectionsFromLayout(state.snapshot.layout.layout, state.context.scopeId).map((item) => item.id);
         const arranged = rearrangeGlobalOrderBySections(nextOrder, sections, sectionIds, { assignOrphansToFirstSection: true });
         committedOrder = arranged.nextGlobalOrder;
         committedSections = arranged.nextSections;
       }
       const nextLayout = this.setOrder(state.snapshot.layout.layout, state.context.scopeId, committedOrder, (profile) => committedSections ? { ...profile, sections: committedSections } : profile);
-      await saveLayoutDataForContext(state.context, nextLayout, { expectedRevision: input.expectedLayoutRevision });
+      this.assertNextLayout(state, nextLayout);
+      await this.dv.saveLayoutData(state.context, nextLayout, { expectedRevision: input.expectedLayoutRevision });
       layoutCommitted = true;
     } catch (error) {
       const latest = await readWidgetInstanceDocument(state.context, widgetId).catch(() => null);
@@ -613,8 +652,8 @@ export class HomepageAgentService {
       const patchKeys = Object.keys(input.patch).sort();
       const expectedKeys = Object.keys(expectedValues).sort();
       if (JSON.stringify(patchKeys) !== JSON.stringify(expectedKeys)) throw new Error("expectedValues 必须与 patch 包含相同字段");
-    } catch (error) {
-      throw new HomepageAgentServiceError("invalid_widget_patch", error instanceof Error ? error.message : "expectedValues 无效。");
+    } catch {
+      throw new HomepageAgentServiceError("invalid_widget_patch", "expectedValues 无效，请重新读取组件后重试。");
     }
     const currentData = readHomepageWidgetData(current.config);
     if (Object.entries(expectedValues).some(([key, value]) => JSON.stringify(currentData[key] ?? null) !== JSON.stringify(value ?? null))) {
@@ -624,7 +663,7 @@ export class HomepageAgentService {
       await updateWidgetInstanceConfigExpected(state.context, input.widgetId, input.expectedWidgetRevision, (config) => applyHomepageWidgetPatch(config, type, input.patch, { advancedEnabled }));
     } catch (error) {
       if (error instanceof HomepageAgentServiceError) throw error;
-      throw new HomepageAgentServiceError("invalid_widget_patch", error instanceof Error ? error.message : "组件 patch 无效。");
+      throw new HomepageAgentServiceError("invalid_widget_patch", "组件 patch 无效，请重新读取组件后重试。");
     }
     const verified = await this.getWidget(state.surface, input.widgetId, type);
     if (Number(verified.configRevision) <= input.expectedWidgetRevision) throw new HomepageAgentServiceError("write_not_committed", "组件 revision 未增长，写后验证失败。", false);
@@ -709,8 +748,8 @@ export class HomepageAgentService {
     let nextStyle: string | null;
     try {
       nextStyle = applyWidgetStylePatch(currentItem.style, stylePatch);
-    } catch (error) {
-      throw new HomepageAgentServiceError("invalid_widget_patch", error instanceof Error ? error.message : "组件样式无效。");
+    } catch {
+      throw new HomepageAgentServiceError("invalid_widget_patch", "组件样式无效，请重新读取组件后重试。");
     }
     let nextOrder = currentOrder.map((item) => item.id === input.widgetId ? { ...item, style: nextStyle } : item);
     let nextSections: WidgetLayoutProfileData["sections"] | undefined;
@@ -721,7 +760,7 @@ export class HomepageAgentService {
         { ...section, widgetIds: section.widgetIds.filter((widgetId) => widgetId !== input.widgetId) },
       ]));
       sections[targetSectionId] = { ...sections[targetSectionId], widgetIds: [...sections[targetSectionId].widgetIds, input.widgetId] };
-      const sectionIds = normalizeComponentSections(state.snapshot.view?.config.componentSections).map((section) => section.id);
+      const sectionIds = deriveDesktopHomepageSectionsFromLayout(state.snapshot.layout.layout, state.context.scopeId).map((section) => section.id);
       const arranged = rearrangeGlobalOrderBySections(nextOrder, sections, sectionIds, { assignOrphansToFirstSection: true });
       nextOrder = arranged.nextGlobalOrder;
       nextSections = arranged.nextSections;
@@ -742,7 +781,8 @@ export class HomepageAgentService {
       const nextLayout = this.setOrder(state.snapshot.layout.layout, state.context.scopeId, nextOrder, (profile) => (
         nextSections ? { ...profile, sections: nextSections } : profile
       ));
-      await saveLayoutDataForContext(state.context, nextLayout, { expectedRevision: input.expectedLayoutRevision });
+      this.assertNextLayout(state, nextLayout);
+      await this.dv.saveLayoutData(state.context, nextLayout, { expectedRevision: input.expectedLayoutRevision });
     } catch (error) {
       if (updatedConfig) {
         const rolledBack = await updateWidgetInstanceConfigExpected(
@@ -812,13 +852,14 @@ export class HomepageAgentService {
       if (!expectedSectionId || !state.profile.sections?.[expectedSectionId]) throw new HomepageAgentServiceError("section_not_found", "目标分栏不存在。");
       const sections = Object.fromEntries(Object.entries(state.profile.sections).map(([id, section]) => [id, { ...section, widgetIds: section.widgetIds.filter((value) => value !== input.widgetId) }]));
       sections[expectedSectionId] = { ...sections[expectedSectionId], widgetIds: [...sections[expectedSectionId].widgetIds, input.widgetId] };
-      const sectionIds = normalizeComponentSections(state.snapshot.view?.config.componentSections).map((section) => section.id);
+      const sectionIds = deriveDesktopHomepageSectionsFromLayout(state.snapshot.layout.layout, state.context.scopeId).map((section) => section.id);
       const arranged = rearrangeGlobalOrderBySections(without, sections, sectionIds, { assignOrphansToFirstSection: true });
       committedOrder = arranged.nextGlobalOrder;
       committedSections = arranged.nextSections;
     }
     const nextLayout = this.setOrder(state.snapshot.layout.layout, state.context.scopeId, committedOrder, (profile) => committedSections ? { ...profile, sections: committedSections } : profile);
-    await saveLayoutDataForContext(state.context, nextLayout, { expectedRevision: input.expectedLayoutRevision });
+    this.assertNextLayout(state, nextLayout);
+    await this.dv.saveLayoutData(state.context, nextLayout, { expectedRevision: input.expectedLayoutRevision });
     const verified = await this.listWidgets(state.surface);
     const widgets = (verified.widgets as Array<{ widgetId: string; index: number; sectionId: string | null }> | undefined) ?? [];
     if (widgets.some((row, index) => row.index !== index) || new Set(widgets.map((row) => row.widgetId)).size !== widgets.length) throw new HomepageAgentServiceError("write_not_committed", "组件顺序写后验证失败。", false);
@@ -881,7 +922,8 @@ export class HomepageAgentService {
       }
       return { ...current, widgetLayoutNumber: input.widgetLayoutNumber, widgetGap: input.widgetGap };
     });
-    await saveLayoutDataForContext(state.context, nextLayout, { expectedRevision: input.expectedLayoutRevision });
+    this.assertNextLayout(state, nextLayout);
+    await this.dv.saveLayoutData(state.context, nextLayout, { expectedRevision: input.expectedLayoutRevision });
     const verifiedSettings = await this.dv.loadLayoutSettings(state.plugin, {
       sectionsEnabled: state.profile?.componentSectionsModeEnabled === true,
       sectionId: input.sectionId ?? state.profile?.activeSectionId ?? null,
@@ -892,106 +934,214 @@ export class HomepageAgentService {
     return { ...verified, changed: true };
   }
 
-  private async sectionWriteState(expectedLayoutRevision: number, expectedViewRevision: number) {
+  private async sectionWriteState(expectedLayoutRevision: number) {
     const state = await this.read("desktop-homepage");
     this.assertWritableConsistency(state);
     this.assertLayoutRevision(state.snapshot.layout.revision, expectedLayoutRevision);
-    if (!state.snapshot.view) throw new HomepageAgentServiceError("view_missing", "桌面主页 view 配置缺失。", false);
-    if (state.snapshot.view.revision !== expectedViewRevision) throw new HomepageAgentServiceError("view_revision_conflict", `主页设置已变化：预期 revision ${expectedViewRevision}，当前为 ${state.snapshot.view.revision}。`);
-    const consistency = validateLayoutViewSectionConsistency(state.snapshot.layout.layout, state.context.scopeId, state.snapshot.view.config);
-    if (consistency.ok === false) throw new HomepageAgentServiceError("section_inconsistent", consistency.reason, false);
     return state;
   }
 
-  async createSection(input: { name: string; sectionId?: string; position?: number; expectedLayoutRevision: number; expectedViewRevision: number }): Promise<HomepageAgentReadResult> {
-    const state = await this.sectionWriteState(input.expectedLayoutRevision, input.expectedViewRevision);
+  async createSection(input: { name: string; sectionId?: string; position?: number; expectedLayoutRevision: number }): Promise<HomepageAgentReadResult> {
+    const state = await this.sectionWriteState(input.expectedLayoutRevision);
     const name = input.name.trim();
     if (!name || name.length > 60) throw new HomepageAgentServiceError("invalid_widget_patch", "分栏名称必须为 1 到 60 个字符。");
-    const currentSections = normalizeComponentSections(state.snapshot.view!.config.componentSections);
+    const currentSections = deriveDesktopHomepageSectionsFromLayout(state.snapshot.layout.layout, state.context.scopeId);
     const sectionId = (input.sectionId?.trim() || `section-${createRuntimeUuid().slice(0, 8)}`).toLowerCase();
     if (!/^[a-z0-9_-]+$/.test(sectionId) || currentSections.some((item) => item.id === sectionId)) throw new HomepageAgentServiceError("invalid_section_order", "分栏 ID 无效或已存在。");
+    if (currentSections.some((item) => item.name.trim().toLowerCase() === name.toLowerCase())) {
+      throw new HomepageAgentServiceError("section_name_conflict", "分栏名称已存在，请使用其他名称。");
+    }
     const position = Math.max(0, Math.min(Math.trunc(input.position ?? currentSections.length), currentSections.length));
     const now = Date.now();
-    const nextViewSections = [...currentSections]; nextViewSections.splice(position, 0, { id: sectionId, name, createdAt: now, updatedAt: now });
-    await syncLayoutAndViewInTransaction(state.context, (layout) => this.setOrder(layout, state.context.scopeId, normalizeLayoutItems(state.profile?.order ?? layout.order), (profile) => {
-      const sections = { ...(profile.sections ?? {}) };
-      const ordered: Record<string, typeof sections[string]> = {};
-      for (const item of nextViewSections) ordered[item.id] = item.id === sectionId ? { widgetIds: [] } : sections[item.id];
-      return { ...profile, sections: ordered };
-    }), (config) => ({ ...config, componentSections: nextViewSections }), state.snapshot);
+    const nextSections = [...currentSections];
+    nextSections.splice(position, 0, { id: sectionId, name, createdAt: now, updatedAt: now });
+
+    const nextLayout = this.setOrder(
+      state.snapshot.layout.layout,
+      state.context.scopeId,
+      normalizeLayoutItems(state.profile?.order ?? state.snapshot.layout.layout.order),
+      (profile) => {
+        const sections = { ...(profile.sections ?? {}) };
+        const ordered: Record<string, typeof sections[string]> = {};
+        for (const item of nextSections) {
+          ordered[item.id] = item.id === sectionId
+            ? { widgetIds: [], name, createdAt: now, updatedAt: now }
+            : sections[item.id];
+        }
+        return { ...profile, sections: ordered, componentSectionsModelVersion: 1 };
+      },
+    );
+    nextLayout.componentSectionsModelVersion = 1;
+    this.assertNextLayout(state, nextLayout);
+    await this.dv.saveLayoutData(state.context, nextLayout, { expectedRevision: input.expectedLayoutRevision });
     const verifiedSections = await this.listSections("desktop-homepage");
-    this.dispatchRefresh(state.surface, { reason: "sections-updated", affectedSectionIds: [sectionId], layoutRevision: revisionOf(verifiedSections, "layoutRevision"), viewRevision: revisionOf(verifiedSections, "viewRevision") });
+    this.dispatchRefresh(state.surface, { reason: "sections-updated", affectedSectionIds: [sectionId], layoutRevision: revisionOf(verifiedSections, "layoutRevision") });
     return { ...verifiedSections, changed: true, createdSectionId: sectionId };
   }
 
-  async renameSection(input: { sectionId: string; name: string; expectedSectionName: string; expectedLayoutRevision: number; expectedViewRevision: number }): Promise<HomepageAgentReadResult> {
-    const state = await this.sectionWriteState(input.expectedLayoutRevision, input.expectedViewRevision);
-    const sections = normalizeComponentSections(state.snapshot.view!.config.componentSections);
+  async renameSection(input: { sectionId: string; name: string; expectedSectionName: string; expectedLayoutRevision: number }): Promise<HomepageAgentReadResult> {
+    const state = await this.sectionWriteState(input.expectedLayoutRevision);
+    const sections = deriveDesktopHomepageSectionsFromLayout(state.snapshot.layout.layout, state.context.scopeId);
     const target = sections.find((item) => item.id === input.sectionId);
     if (!target) throw new HomepageAgentServiceError("section_not_found", "目标分栏不存在。");
-    if (target.name !== input.expectedSectionName) throw new HomepageAgentServiceError("view_revision_conflict", "分栏名称与预期不一致。");
-    const name = input.name.trim(); if (!name || name.length > 60) throw new HomepageAgentServiceError("invalid_widget_patch", "分栏名称必须为 1 到 60 个字符。");
-    const next = sections.map((item) => item.id === input.sectionId ? { ...item, name, updatedAt: Date.now() } : item);
-    await syncLayoutAndViewInTransaction(state.context, (layout) => layout, (config) => ({ ...config, componentSections: next }), state.snapshot);
+    if (target.name !== input.expectedSectionName) throw new HomepageAgentServiceError("section_name_conflict", "分栏名称已变化，请重新读取分栏后再操作。");
+    const name = input.name.trim();
+    if (!name || name.length > 60) throw new HomepageAgentServiceError("invalid_widget_patch", "分栏名称必须为 1 到 60 个字符。");
+    if (sections.some((item) => item.id !== input.sectionId && item.name.trim().toLowerCase() === name.toLowerCase())) {
+      throw new HomepageAgentServiceError("section_name_conflict", "分栏名称已存在，请使用其他名称。");
+    }
+
+    const nextLayout = this.setOrder(
+      state.snapshot.layout.layout,
+      state.context.scopeId,
+      normalizeLayoutItems(state.profile?.order ?? state.snapshot.layout.layout.order),
+      (profile) => {
+        const sectionsMap = { ...(profile.sections ?? {}) };
+        if (sectionsMap[input.sectionId]) {
+          sectionsMap[input.sectionId] = {
+            ...sectionsMap[input.sectionId],
+            name,
+            updatedAt: Date.now(),
+          };
+        }
+        return { ...profile, sections: sectionsMap, componentSectionsModelVersion: 1 };
+      },
+    );
+    nextLayout.componentSectionsModelVersion = 1;
+    this.assertNextLayout(state, nextLayout);
+    await this.dv.saveLayoutData(state.context, nextLayout, { expectedRevision: input.expectedLayoutRevision });
     const verifiedSections = await this.listSections("desktop-homepage");
-    this.dispatchRefresh(state.surface, { reason: "sections-updated", affectedSectionIds: [input.sectionId], layoutRevision: revisionOf(verifiedSections, "layoutRevision"), viewRevision: revisionOf(verifiedSections, "viewRevision") });
+    this.dispatchRefresh(state.surface, { reason: "sections-updated", affectedSectionIds: [input.sectionId], layoutRevision: revisionOf(verifiedSections, "layoutRevision") });
     return { ...verifiedSections, changed: true };
   }
 
-  async reorderSections(input: { orderedSectionIds: string[]; expectedLayoutRevision: number; expectedViewRevision: number }): Promise<HomepageAgentReadResult> {
-    const state = await this.sectionWriteState(input.expectedLayoutRevision, input.expectedViewRevision);
-    const sections = normalizeComponentSections(state.snapshot.view!.config.componentSections);
+  async reorderSections(input: { orderedSectionIds: string[]; expectedLayoutRevision: number }): Promise<HomepageAgentReadResult> {
+    const state = await this.sectionWriteState(input.expectedLayoutRevision);
+    const sections = deriveDesktopHomepageSectionsFromLayout(state.snapshot.layout.layout, state.context.scopeId);
     const currentIds = sections.map((item) => item.id);
-    if (new Set(input.orderedSectionIds).size !== currentIds.length || input.orderedSectionIds.length !== currentIds.length || input.orderedSectionIds.some((id) => !currentIds.includes(id))) throw new HomepageAgentServiceError("invalid_section_order", "orderedSectionIds 必须无重复地包含全部现有分栏。");
-    const nextView = input.orderedSectionIds.map((id) => sections.find((item) => item.id === id)!);
-    await syncLayoutAndViewInTransaction(state.context, (layout) => {
-      const profile = layout.profiles?.[state.context.scopeId]; if (!profile) return layout;
-      const arranged = rearrangeGlobalOrderBySections(normalizeLayoutItems(profile.order ?? layout.order), profile.sections ?? {}, input.orderedSectionIds, { assignOrphansToFirstSection: true });
-      return this.setOrder(layout, state.context.scopeId, arranged.nextGlobalOrder, (current) => ({ ...current, sections: arranged.nextSections }));
-    }, (config) => ({ ...config, componentSections: nextView }), state.snapshot);
+    if (new Set(input.orderedSectionIds).size !== currentIds.length || input.orderedSectionIds.length !== currentIds.length || input.orderedSectionIds.some((id) => !currentIds.includes(id))) {
+      throw new HomepageAgentServiceError("invalid_section_order", "orderedSectionIds 必须无重复地包含全部现有分栏。");
+    }
+
+    const nextLayout = this.setOrder(
+      state.snapshot.layout.layout,
+      state.context.scopeId,
+      normalizeLayoutItems(state.profile?.order ?? state.snapshot.layout.layout.order),
+      (profile) => {
+        const arranged = rearrangeGlobalOrderBySections(
+          normalizeLayoutItems(profile.order ?? state.snapshot.layout.layout.order),
+          profile.sections ?? {},
+          input.orderedSectionIds,
+          { assignOrphansToFirstSection: profile.componentSectionsModeEnabled === true },
+        );
+        return {
+          ...profile,
+          order: arranged.nextGlobalOrder,
+          sections: arranged.nextSections,
+          componentSectionsModelVersion: 1,
+        };
+      },
+    );
+    nextLayout.componentSectionsModelVersion = 1;
+    this.assertNextLayout(state, nextLayout);
+    await this.dv.saveLayoutData(state.context, nextLayout, { expectedRevision: input.expectedLayoutRevision });
     const verifiedSections = await this.listSections("desktop-homepage");
-    this.dispatchRefresh(state.surface, { reason: "sections-updated", layoutRevision: revisionOf(verifiedSections, "layoutRevision"), viewRevision: revisionOf(verifiedSections, "viewRevision") });
+    this.dispatchRefresh(state.surface, { reason: "sections-updated", layoutRevision: revisionOf(verifiedSections, "layoutRevision") });
     return { ...verifiedSections, changed: true };
   }
 
-  async removeSection(input: { sectionId: string; expectedSectionName: string; expectedWidgetCount: number; expectedReceivingSectionId?: string | null; expectedLayoutRevision: number; expectedViewRevision: number }): Promise<HomepageAgentReadResult> {
-    const state = await this.sectionWriteState(input.expectedLayoutRevision, input.expectedViewRevision);
-    const viewSections = normalizeComponentSections(state.snapshot.view!.config.componentSections);
-    const target = viewSections.find((item) => item.id === input.sectionId);
+  async removeSection(input: { sectionId: string; expectedSectionName: string; expectedWidgetCount: number; expectedReceivingSectionId?: string | null; expectedLayoutRevision: number }): Promise<HomepageAgentReadResult> {
+    const state = await this.sectionWriteState(input.expectedLayoutRevision);
+    const sections = deriveDesktopHomepageSectionsFromLayout(state.snapshot.layout.layout, state.context.scopeId);
+    const target = sections.find((item) => item.id === input.sectionId);
     if (!target) throw new HomepageAgentServiceError("section_not_found", "目标分栏不存在。");
-    if (target.name !== input.expectedSectionName) throw new HomepageAgentServiceError("view_revision_conflict", "分栏名称与预期不一致。");
+    if (target.name !== input.expectedSectionName) throw new HomepageAgentServiceError("section_name_conflict", "分栏名称已变化，请重新读取分栏后再操作。");
     const targetWidgetCount = state.profile?.sections?.[input.sectionId]?.widgetIds.length ?? 0;
     if (targetWidgetCount !== input.expectedWidgetCount) throw new HomepageAgentServiceError("layout_revision_conflict", "分栏内组件数量已变化，请重新读取。");
-    const remaining = viewSections.filter((item) => item.id !== input.sectionId);
-    const previewMerged = mergeRemovedSectionRangesIntoAdjacentSections(normalizeLayoutItems(state.profile?.order ?? state.snapshot.layout.layout.order), state.profile?.sections ?? {}, viewSections.map((item) => item.id), [input.sectionId]);
+    const remaining = sections.filter((item) => item.id !== input.sectionId);
+    const previewMerged = mergeRemovedSectionRangesIntoAdjacentSections(
+      normalizeLayoutItems(state.profile?.order ?? state.snapshot.layout.layout.order),
+      state.profile?.sections ?? {},
+      sections.map((item) => item.id),
+      [input.sectionId],
+      { assignOrphansToFirstSection: state.profile?.componentSectionsModeEnabled === true },
+    );
     const receivingSectionId = previewMerged.receivingSectionByRemoved.get(input.sectionId) ?? null;
-    if (input.expectedReceivingSectionId !== undefined && input.expectedReceivingSectionId !== receivingSectionId) throw new HomepageAgentServiceError("layout_revision_conflict", "分栏接收目标已变化，请重新读取。");
-    await syncLayoutAndViewInTransaction(state.context, (layout) => {
-      const profile = layout.profiles?.[state.context.scopeId]; if (!profile) return layout;
-      const merged = mergeRemovedSectionRangesIntoAdjacentSections(normalizeLayoutItems(profile.order ?? layout.order), profile.sections ?? {}, viewSections.map((item) => item.id), [input.sectionId]);
-      const activeSectionId = profile.activeSectionId === input.sectionId ? merged.receivingSectionByRemoved.get(input.sectionId) : profile.activeSectionId;
-      return this.setOrder(layout, state.context.scopeId, merged.nextGlobalOrder, (current) => ({ ...current, sections: merged.nextSections, activeSectionId, componentSectionsModeEnabled: remaining.length > 0 && current.componentSectionsModeEnabled === true }));
-    }, (config) => ({ ...config, componentSections: remaining, componentSectionsEnabled: remaining.length > 0 && config.componentSectionsEnabled === true }), state.snapshot);
+    if (input.expectedReceivingSectionId !== undefined && input.expectedReceivingSectionId !== receivingSectionId) {
+      throw new HomepageAgentServiceError("layout_revision_conflict", "分栏接收目标已变化，请重新读取。");
+    }
+
+    const nextLayout = this.setOrder(
+      state.snapshot.layout.layout,
+      state.context.scopeId,
+      normalizeLayoutItems(state.profile?.order ?? state.snapshot.layout.layout.order),
+      (profile) => {
+        const merged = mergeRemovedSectionRangesIntoAdjacentSections(
+          normalizeLayoutItems(profile.order ?? state.snapshot.layout.layout.order),
+          profile.sections ?? {},
+          sections.map((item) => item.id),
+          [input.sectionId],
+          { assignOrphansToFirstSection: profile.componentSectionsModeEnabled === true },
+        );
+        const modeEnabled = remaining.length > 0 && profile.componentSectionsModeEnabled === true;
+        const activeSectionId = profile.activeSectionId === input.sectionId
+          ? merged.receivingSectionByRemoved.get(input.sectionId)
+          : profile.activeSectionId;
+        const { activeSectionId: _previousActiveSectionId, ...withoutActiveSection } = profile;
+        return {
+          ...withoutActiveSection,
+          order: merged.nextGlobalOrder,
+          sections: merged.nextSections,
+          ...(modeEnabled && activeSectionId ? { activeSectionId } : {}),
+          componentSectionsModeEnabled: modeEnabled,
+          componentSectionsModelVersion: 1,
+        };
+      },
+    );
+    nextLayout.componentSectionsModelVersion = 1;
+    this.assertNextLayout(state, nextLayout);
+    await this.dv.saveLayoutData(state.context, nextLayout, { expectedRevision: input.expectedLayoutRevision });
     const verifiedSections = await this.listSections("desktop-homepage");
-    this.dispatchRefresh(state.surface, { reason: "sections-updated", affectedSectionIds: [input.sectionId], layoutRevision: revisionOf(verifiedSections, "layoutRevision"), viewRevision: revisionOf(verifiedSections, "viewRevision") });
+    this.dispatchRefresh(state.surface, { reason: "sections-updated", affectedSectionIds: [input.sectionId], layoutRevision: revisionOf(verifiedSections, "layoutRevision") });
     return { ...verifiedSections, changed: true, removedWidgetCount: targetWidgetCount, receivingSectionId };
   }
 
-  async setSectionMode(input: { enabled: boolean; expectedLayoutRevision: number; expectedViewRevision: number }): Promise<HomepageAgentReadResult> {
-    const state = await this.sectionWriteState(input.expectedLayoutRevision, input.expectedViewRevision);
-    const sections = normalizeComponentSections(state.snapshot.view!.config.componentSections);
+  async setSectionMode(input: { enabled: boolean; expectedLayoutRevision: number }): Promise<HomepageAgentReadResult> {
+    const state = await this.sectionWriteState(input.expectedLayoutRevision);
+    const sections = deriveDesktopHomepageSectionsFromLayout(state.snapshot.layout.layout, state.context.scopeId);
     if (input.enabled && sections.length === 0) throw new HomepageAgentServiceError("section_not_found", "至少需要一个合法分栏才能开启分栏模式。");
-    await syncLayoutAndViewInTransaction(state.context, (layout) => {
-      const order = normalizeLayoutItems(state.profile?.order ?? layout.order);
-      return this.setOrder(layout, state.context.scopeId, order, (profile) => {
-        if (!input.enabled) return { ...profile, componentSectionsModeEnabled: false };
+
+    const nextLayout = this.setOrder(
+      state.snapshot.layout.layout,
+      state.context.scopeId,
+      normalizeLayoutItems(state.profile?.order ?? state.snapshot.layout.layout.order),
+      (profile) => {
+        if (!input.enabled) {
+          const { activeSectionId: _activeSectionId, ...withoutActiveSection } = profile;
+          return { ...withoutActiveSection, componentSectionsModeEnabled: false, componentSectionsModelVersion: 1 };
+        }
         const sectionIds = sections.map((item) => item.id);
-        const arranged = rearrangeGlobalOrderBySections(order, profile.sections ?? {}, sectionIds, { assignOrphansToFirstSection: true });
-        return { ...profile, order: arranged.nextGlobalOrder, sections: arranged.nextSections, activeSectionId: profile.activeSectionId && sectionIds.includes(profile.activeSectionId) ? profile.activeSectionId : sectionIds[0], componentSectionsModeEnabled: true };
-      });
-    }, (config) => ({ ...config, componentSectionsEnabled: input.enabled }), state.snapshot);
+        const arranged = rearrangeGlobalOrderBySections(
+          normalizeLayoutItems(profile.order ?? state.snapshot.layout.layout.order),
+          profile.sections ?? {},
+          sectionIds,
+          { assignOrphansToFirstSection: true },
+        );
+        return {
+          ...profile,
+          order: arranged.nextGlobalOrder,
+          sections: arranged.nextSections,
+          activeSectionId: profile.activeSectionId && sectionIds.includes(profile.activeSectionId) ? profile.activeSectionId : sectionIds[0],
+          componentSectionsModeEnabled: true,
+          componentSectionsModelVersion: 1,
+        };
+      },
+    );
+    nextLayout.componentSectionsModelVersion = 1;
+    this.assertNextLayout(state, nextLayout);
+    await this.dv.saveLayoutData(state.context, nextLayout, { expectedRevision: input.expectedLayoutRevision });
     const verifiedSections = await this.listSections("desktop-homepage");
-    this.dispatchRefresh(state.surface, { reason: "sections-updated", layoutRevision: revisionOf(verifiedSections, "layoutRevision"), viewRevision: revisionOf(verifiedSections, "viewRevision") });
+    this.dispatchRefresh(state.surface, { reason: "sections-updated", layoutRevision: revisionOf(verifiedSections, "layoutRevision") });
     return { ...verifiedSections, changed: true };
   }
 
@@ -1001,23 +1151,15 @@ export class HomepageAgentService {
     this.assertLayoutRevision(state.snapshot.layout.revision, input.expectedLayoutRevision);
     if (state.profile?.componentSectionsModeEnabled !== true) throw new HomepageAgentServiceError("section_mode_disabled", "当前未开启分栏模式。");
     if (!state.profile.sections?.[input.sectionId]) throw new HomepageAgentServiceError("section_not_found", "目标分栏不存在。");
-    const next = this.setOrder(state.snapshot.layout.layout, state.context.scopeId, normalizeLayoutItems(state.profile.order), (profile) => ({ ...profile, activeSectionId: input.sectionId }));
-    await saveLayoutDataForContext(state.context, next, { expectedRevision: input.expectedLayoutRevision });
+    const next = this.setOrder(state.snapshot.layout.layout, state.context.scopeId, normalizeLayoutItems(state.profile.order), (profile) => ({ ...profile, activeSectionId: input.sectionId, componentSectionsModelVersion: 1 }));
+    next.componentSectionsModelVersion = 1;
+    this.assertNextLayout(state, next);
+    await this.dv.saveLayoutData(state.context, next, { expectedRevision: input.expectedLayoutRevision });
     const verifiedSections = await this.listSections("desktop-homepage");
-    this.dispatchRefresh(state.surface, { reason: "active-section-updated", affectedSectionIds: [input.sectionId], layoutRevision: revisionOf(verifiedSections, "layoutRevision"), viewRevision: revisionOf(verifiedSections, "viewRevision") });
+    this.dispatchRefresh(state.surface, { reason: "active-section-updated", affectedSectionIds: [input.sectionId], layoutRevision: revisionOf(verifiedSections, "layoutRevision") });
     return { ...verifiedSections, changed: true };
   }
 
-  /**
-   * Agent 写 action 成功提交后，派发专用的“外部主页存储已变化”事件。
-   *
-   * 该事件只表示真实 device-view/layout/widget storage 已被外部修改，
-   * 不表示“整个主页设置已保存”。Homepage 实例据此通过 external storage refresh
-   * scheduler 执行 explicit-storage-refresh；plugin/index.ts 不会为此执行完整 settings 流程。
-   *
-   * 语义：数据事务成功 + 写后读取验证成功 即为成功；UI refresh 是后续 side effect，
-   * 不阻塞工具返回。Homepage 未打开或隐藏时，本事件只是标记 storage 已变化。
-   */
   private dispatchRefresh(
     surface: HomepageAgentSurface,
     detail: { reason: HomepageAgentStorageChangeReason; affectedWidgetIds?: string[]; affectedSectionIds?: string[]; layoutRevision?: number; viewRevision?: number },

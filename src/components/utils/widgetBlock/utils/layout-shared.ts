@@ -17,12 +17,7 @@ import {
     updateDeviceViewSettings,
 } from "@/homepage/deviceView/deviceViewStorage";
 import { deleteWidgetInstance, loadWidgetInstanceConfig, readWidgetInstanceDocument } from "@/homepage/deviceView/widgetInstanceRepository";
-import {
-    isComponentSectionsEffective,
-    normalizeComponentSections,
-    type ComponentSection,
-    type ComponentSectionsNavAlign,
-} from "@/homepage/homepageSetting/config";
+import type { ComponentSection } from "@/homepage/homepageSetting/config";
 import type {
     DeviceViewContext,
     DeviceViewLayout,
@@ -45,7 +40,12 @@ import {
     hasNoSectionMembers,
     mergeRemovedSectionRangesIntoAdjacentSections,
     rearrangeGlobalOrderBySections,
+    type LayoutItem,
+    type WidgetLayoutProfileSectionData,
+    type WidgetLayoutProfileData,
 } from "./layout-section-ops";
+
+export type { LayoutItem, WidgetLayoutProfileSectionData, WidgetLayoutProfileData };
 import {
     captureHomepageWidgetDomSnapshot,
     clearPreservedWidgetElementAfterAppend,
@@ -58,6 +58,30 @@ import {
     type HomepageWidgetDomScope,
 } from "@/homepage/homepage-widget-dom";
 
+const surfaceTransactionQueues = new Map<string, Promise<any>>();
+
+export async function runInSurfaceTransaction<T>(queueKey: string, task: () => Promise<T>): Promise<T> {
+    const previous = surfaceTransactionQueues.get(queueKey) ?? Promise.resolve();
+    let releaseCurrent: () => void = () => {};
+    const currentGate = new Promise<void>((resolve) => {
+        releaseCurrent = resolve;
+    });
+    const queuedTask = previous.catch(() => {}).then(async () => {
+        try {
+            return await task();
+        } finally {
+            releaseCurrent();
+        }
+    });
+    surfaceTransactionQueues.set(queueKey, currentGate);
+    try {
+        return await queuedTask;
+    } finally {
+        if (surfaceTransactionQueues.get(queueKey) === currentGate) {
+            surfaceTransactionQueues.delete(queueKey);
+        }
+    }
+}
 
 export interface SaveLayoutOptions {
     containerSelector: string;
@@ -135,42 +159,13 @@ export interface RestoreLayoutResult {
     reason?: string;
 }
 
-export interface LayoutItem {
-    id: string;
-    style: string | null;
-    index: number;
-}
-
-/** 兼容层描述分栏成员关系。新模型中分栏只保存 widgetIds，顺序来自全局 layout.order。 */
-export interface WidgetLayoutSectionData {
-    widgetIds: string[];
-}
-
-/** 兼容层描述当前设备分栏。 */
-export interface WidgetLayoutProfileSectionData {
-    widgetIds: string[];
-    name?: string;
-    index?: number;
-    widgetLayoutNumber?: number;
-    widgetGap?: number;
-}
-
-/** 兼容层描述当前设备布局。order 始终为全局顺序。 */
-export interface WidgetLayoutProfileData {
-    order: LayoutItem[];
-    widgetLayoutNumber?: number;
-    widgetGap?: number;
-    activeSectionId?: string;
-    sections?: Record<string, WidgetLayoutProfileSectionData>;
-    componentSectionsModeEnabled?: boolean;
-}
-
 /** 兼容层布局数据。order 为全局顺序；profiles 保留当前设备视图。 */
 export interface WidgetLayoutData {
     order?: LayoutItem[];
     profiles?: Record<string, WidgetLayoutProfileData>;
     widgetLayoutNumber?: number;
     widgetGap?: number;
+    componentSectionsModelVersion?: number;
 }
 
 function waitForLayoutRetry(delayMs: number): Promise<void> {
@@ -215,6 +210,8 @@ function deviceLayoutToCompatibilityLayout(_context: DeviceViewContext, layout: 
             ...(section.index !== undefined ? { index: section.index } : {}),
             ...(section.widgetLayoutNumber !== undefined ? { widgetLayoutNumber: section.widgetLayoutNumber } : {}),
             ...(section.widgetGap !== undefined ? { widgetGap: section.widgetGap } : {}),
+            ...(section.createdAt !== undefined ? { createdAt: section.createdAt } : {}),
+            ...(section.updatedAt !== undefined ? { updatedAt: section.updatedAt } : {}),
         }]),
     );
     return {
@@ -229,10 +226,16 @@ function deviceLayoutToCompatibilityLayout(_context: DeviceViewContext, layout: 
                 ...(layout.componentSectionsModeEnabled !== undefined
                     ? { componentSectionsModeEnabled: layout.componentSectionsModeEnabled }
                     : {}),
+                ...(layout.componentSectionsModelVersion !== undefined
+                    ? { componentSectionsModelVersion: layout.componentSectionsModelVersion }
+                    : {}),
             },
         },
         ...(layout.widgetLayoutNumber !== undefined ? { widgetLayoutNumber: layout.widgetLayoutNumber } : {}),
         ...(layout.widgetGap !== undefined ? { widgetGap: layout.widgetGap } : {}),
+        ...(layout.componentSectionsModelVersion !== undefined
+            ? { componentSectionsModelVersion: layout.componentSectionsModelVersion }
+            : {}),
     };
 }
 
@@ -248,17 +251,22 @@ function compatibilityLayoutToDeviceLayout(context: DeviceViewContext, layout: W
             ...(section?.index !== undefined ? { index: section.index } : {}),
             ...(section?.widgetLayoutNumber !== undefined ? { widgetLayoutNumber: section.widgetLayoutNumber } : {}),
             ...(section?.widgetGap !== undefined ? { widgetGap: section.widgetGap } : {}),
+            ...(section?.createdAt !== undefined ? { createdAt: section.createdAt } : {}),
+            ...(section?.updatedAt !== undefined ? { updatedAt: section.updatedAt } : {}),
         }]),
     );
+    const componentSectionsModelVersion = profile?.componentSectionsModelVersion
+        ?? layout.componentSectionsModelVersion;
     return {
         order: normalizeLayoutItems(profile?.order || layout.order),
         ...(widgetLayoutNumber !== undefined ? { widgetLayoutNumber } : {}),
-        ...(widgetGap !== undefined ? { widgetGap } : {}),
+        ...(widgetGap !== undefined ? { widgetGap: widgetGap } : {}),
         ...(profile?.activeSectionId !== undefined ? { activeSectionId: profile.activeSectionId } : {}),
         ...(hasSections ? { sections } : {}),
         ...(profile?.componentSectionsModeEnabled !== undefined
             ? { componentSectionsModeEnabled: profile.componentSectionsModeEnabled }
             : {}),
+        ...(componentSectionsModelVersion !== undefined ? { componentSectionsModelVersion } : {}),
     };
 }
 
@@ -531,6 +539,18 @@ export interface MoveWidgetToSectionOptions {
     toSectionId: string;
     style?: string | null;
     deviceViewContext?: DeviceViewContext;
+    operations?: MoveWidgetOperations;
+}
+
+export interface MoveWidgetOperations {
+    isDesktopDeviceProfileEnabled?: () => boolean;
+    isSectionsEnabled?: (plugin: Plugin, context: DeviceViewContext) => Promise<boolean>;
+    loadLayoutSnapshot?: (context: DeviceViewContext) => Promise<LayoutSnapshot>;
+    updateLayout?: (
+        context: DeviceViewContext,
+        mutate: (layout: WidgetLayoutData, deviceId: string, context: DeviceViewContext) => WidgetLayoutData,
+        options?: { expectedRevision?: number; assumeReady?: boolean },
+    ) => Promise<number>;
 }
 
 export interface MoveWidgetResult {
@@ -590,8 +610,12 @@ function normalizeSectionId(sectionId: string | null | undefined): string | null
 
 async function isRuntimeComponentSectionsEnabled(plugin: Plugin, fixedContext?: DeviceViewContext): Promise<boolean> {
     const context = fixedContext ?? await getReadyContext(plugin, "desktop-homepage");
-    const config = (await readDeviceViewSettings(context))?.config || null;
-    return isComponentSectionsEffective(config, isHomepageEntitlementGranted());
+    const layout = (await loadLayoutSnapshotForContext(context)).layout;
+    const profile = layout.profiles?.[context.scopeId];
+    const sections = Object.keys(profile?.sections ?? {});
+    return isHomepageEntitlementGranted()
+        && profile?.componentSectionsModeEnabled === true
+        && sections.length > 0;
 }
 
 function getDeviceProfile(
@@ -662,6 +686,21 @@ export interface CoordinatedSnapshot {
     view: DeviceViewSettings | null;
 }
 
+export function assertDesktopHomepageCoordinatedSnapshot(
+    snapshot: CoordinatedSnapshot,
+    context: DeviceViewContext,
+): void {
+    if (
+        snapshot.layout.deviceId !== context.scopeId
+        || snapshot.layout.surface !== "desktop-homepage"
+        || !snapshot.view
+        || snapshot.view.deviceId !== context.scopeId
+        || snapshot.view.surface !== "desktop-homepage"
+    ) {
+        throw new Error("协调快照与固定 desktop-homepage context 不一致");
+    }
+}
+
 export async function readCoordinatedSnapshotForContext(context: DeviceViewContext): Promise<CoordinatedSnapshot> {
     await ensureCurrentDeviceViewReady(context);
     const expectsView = deviceViewSurfaceHasSettings(context.surface);
@@ -712,13 +751,6 @@ export async function readCoordinatedSnapshotForContext(context: DeviceViewConte
     throw new Error(`连续 ${retryDelays.length} 次读取协调快照均不稳定：${lastInstability}`);
 }
 
-export interface ComponentSectionsViewSnapshot {
-    componentSectionsEnabled: boolean;
-    componentSections: ComponentSection[];
-    componentSectionsNavAlign: ComponentSectionsNavAlign;
-    settingsRevision: number;
-}
-
 /**
  * 严格读取当前 deviceId + surface 的 layout 和 view.json 快照。
  * 任一读取失败或 view.json 缺失均直接抛错，不当作空数据。
@@ -729,779 +761,6 @@ export async function readCoordinatedSnapshot(
 ): Promise<CoordinatedSnapshot> {
     const context = getCurrentDeviceViewContext(plugin, surface);
     return readCoordinatedSnapshotForContext(context);
-}
-
-function componentSectionsFromViewConfig(config: Record<string, unknown>): ComponentSection[] {
-    return normalizeComponentSections(config.componentSections);
-}
-
-/**
- * 校验 layout.profile 的分栏状态与 view.config 中三个分栏字段保持一致。
- *
- * 规则：
- * - layout.componentSectionsModeEnabled 必须与 view.componentSectionsEnabled（原始开关）一致；
- * - 禁止 componentSectionsEnabled=true 但有效分栏为空；
- * - 只要 layout 或 view 保存了分栏定义，无论开关是否开启，都校验 ID 集合和顺序一致；
- * - 分栏开启时校验 activeSectionId 和完整分栏不变量（requireAllAssigned=true）；
- * - 分栏关闭时不要求组件全量归属，但禁止 section-only ID。
- */
-export function validateLayoutViewSectionConsistency(
-    layout: WidgetLayoutData,
-    deviceId: string | null,
-    viewConfig: Record<string, unknown>,
-): { ok: true } | { ok: false; reason: string } {
-    const profile = getDeviceProfile(layout, deviceId);
-    const sectionsEnabled = viewConfig.componentSectionsEnabled === true;
-    const rawSections = viewConfig.componentSections;
-    if (rawSections !== undefined) {
-        if (!Array.isArray(rawSections)) return { ok: false, reason: "view.componentSections 不是数组" };
-        const rawIds = new Set<string>();
-        for (let index = 0; index < rawSections.length; index++) {
-            const section = rawSections[index];
-            if (!section || typeof section !== "object" || Array.isArray(section)) {
-                return { ok: false, reason: `view.componentSections[${index}] 不是普通对象` };
-            }
-            const id = typeof (section as Record<string, unknown>).id === "string"
-                ? ((section as Record<string, unknown>).id as string).trim()
-                : "";
-            if (!id) return { ok: false, reason: `view.componentSections[${index}].id 无效` };
-            if (rawIds.has(id)) return { ok: false, reason: `view.componentSections 包含重复分栏 ${id}` };
-            rawIds.add(id);
-        }
-    }
-    const configuredSections = componentSectionsFromViewConfig(viewConfig);
-
-    // layout 分栏模式必须与 view 原始开关一致，不能只比较“有效开启”。
-    if ((profile?.componentSectionsModeEnabled === true) !== sectionsEnabled) {
-        return {
-            ok: false,
-            reason: `layout 分栏模式（${profile?.componentSectionsModeEnabled === true}）与 view 原始开关（${sectionsEnabled}）不一致`,
-        };
-    }
-
-    // 禁止开关开启但有效分栏为空。
-    if (sectionsEnabled && configuredSections.length === 0) {
-        return { ok: false, reason: "componentSectionsEnabled=true 但有效分栏为空" };
-    }
-
-    const layoutSectionIds = Object.keys(profile?.sections || {});
-    const viewSectionIds = configuredSections.map((section) => section.id);
-
-    // 只要任一方保存了分栏定义，就校验 ID 集合和顺序一致。
-    if (layoutSectionIds.length > 0 || viewSectionIds.length > 0) {
-        if (
-            layoutSectionIds.length !== viewSectionIds.length
-            || !layoutSectionIds.every((id, index) => id === viewSectionIds[index])
-        ) {
-            return {
-                ok: false,
-                reason: "layout.sections 的分栏 ID 集合/顺序与 view.componentSections 不一致",
-            };
-        }
-    }
-
-    if (sectionsEnabled) {
-        const activeSectionId = normalizeSectionId(profile?.activeSectionId);
-        if (!activeSectionId || !layoutSectionIds.includes(activeSectionId)) {
-            return { ok: false, reason: "layout.activeSectionId 无效" };
-        }
-
-        try {
-            assertSectionLayoutInvariants(
-                normalizeLayoutItems(profile?.order || layout.order),
-                profile?.sections || {},
-                layoutSectionIds,
-                { requireAllAssigned: true },
-            );
-        } catch (error) {
-            return {
-                ok: false,
-                reason: `分栏布局不变量校验失败：${error instanceof Error ? error.message : String(error)}`,
-            };
-        }
-    } else {
-        // 分栏关闭时禁止 section-only ID：任何 sections 中的 ID 都必须在全局 order 中。
-        try {
-            assertSectionLayoutInvariants(
-                normalizeLayoutItems(profile?.order || layout.order),
-                profile?.sections || {},
-                layoutSectionIds,
-                { requireAllAssigned: false },
-            );
-        } catch (error) {
-            return {
-                ok: false,
-                reason: `分栏关闭状态校验失败：${error instanceof Error ? error.message : String(error)}`,
-            };
-        }
-    }
-
-    return { ok: true };
-}
-
-export type RecoverableSectionHalfCommitAnalysis = {
-    status: "consistent" | "resume-requested-save" | "remove-confirmed-empty-extras" | "unrecoverable";
-    reason: string;
-    removableSectionIds: string[];
-};
-
-function readStrictViewSectionIds(viewConfig: Record<string, unknown>): { ok: true; ids: string[] } | { ok: false; reason: string } {
-    if (
-        viewConfig.componentSectionsEnabled !== undefined
-        && typeof viewConfig.componentSectionsEnabled !== "boolean"
-    ) {
-        return { ok: false, reason: "view.componentSectionsEnabled 类型无效" };
-    }
-    const rawSections = viewConfig.componentSections;
-    if (rawSections === undefined) return { ok: false, reason: "view.componentSections 字段缺失" };
-    if (!Array.isArray(rawSections)) return { ok: false, reason: "view.componentSections 不是数组" };
-
-    const ids: string[] = [];
-    const seen = new Set<string>();
-    for (let index = 0; index < rawSections.length; index++) {
-        const section = rawSections[index];
-        if (!isPlainObject(section)) {
-            return { ok: false, reason: `view.componentSections[${index}] 不是普通对象` };
-        }
-        const id = typeof section.id === "string" ? section.id : "";
-        if (!id || normalizeSectionId(id) !== id) {
-            return { ok: false, reason: `view.componentSections[${index}].id 无效` };
-        }
-        if (seen.has(id)) return { ok: false, reason: `view.componentSections 包含重复分栏 ${id}` };
-        if (typeof section.name !== "string" || !section.name.trim()) {
-            return { ok: false, reason: `view.componentSections[${index}].name 无效` };
-        }
-        if (typeof section.createdAt !== "number" || !Number.isFinite(section.createdAt)) {
-            return { ok: false, reason: `view.componentSections[${index}].createdAt 无效` };
-        }
-        if (typeof section.updatedAt !== "number" || !Number.isFinite(section.updatedAt)) {
-            return { ok: false, reason: `view.componentSections[${index}].updatedAt 无效` };
-        }
-        seen.add(id);
-        ids.push(id);
-    }
-    return { ok: true, ids };
-}
-
-/**
- * 结合用户本次设置意图，分析 layout-only 空分栏半提交恢复策略。
- *
- * 只有用户本次点击确认所提交的分栏列表能够明确证明保留或删除意图时，
- * 才允许进入恢复分支。
- *
- * @param layout 当前磁盘布局数据
- * @param deviceId 当前设备 ID
- * @param currentViewConfig 磁盘上的当前 view 配置
- * @param requestedSectionIds 用户本次请求的分栏 ID 列表（顺序敏感）
- * @param requestedViewConfig 用户本次请求的完整 view 配置（含 componentSections）
- */
-export function analyzeSectionHalfCommitForSave(
-    layout: WidgetLayoutData,
-    deviceId: string,
-    currentViewConfig: Record<string, unknown>,
-    requestedSectionIds: string[],
-    requestedViewConfig: Record<string, unknown>,
-): RecoverableSectionHalfCommitAnalysis {
-    // === 1) JSON-safe 校验 ===
-    try {
-        cloneJsonSafe(layout, "分栏半提交分析布局");
-        cloneJsonSafe(currentViewConfig, "分栏半提交分析 current view");
-        cloneJsonSafe(requestedViewConfig, "分栏半提交分析 requested view");
-    } catch (error) {
-        return {
-            status: "unrecoverable",
-            reason: `数据不是 JSON-safe：${error instanceof Error ? error.message : String(error)}`,
-            removableSectionIds: [],
-        };
-    }
-
-    // === 2) current view componentSections 必须合法 ===
-    const currentStrictView = readStrictViewSectionIds(currentViewConfig);
-    if (!currentStrictView.ok) {
-        return {
-            status: "unrecoverable",
-            reason: `current view 分栏状态无效：${(currentStrictView as { ok: false; reason: string }).reason}`,
-            removableSectionIds: [],
-        };
-    }
-
-    // === 3) requestedViewConfig.componentSections 必须合法 ===
-    const requestedStrictView = readStrictViewSectionIds(requestedViewConfig);
-    if (!requestedStrictView.ok) {
-        return {
-            status: "unrecoverable",
-            reason: `本次请求分栏配置无效：${(requestedStrictView as { ok: false; reason: string }).reason}`,
-            removableSectionIds: [],
-        };
-    }
-
-    // === 4) requestedSectionIds 与 requestedViewConfig.componentSections ID及顺序完全一致 ===
-    const requestedConfigIds = requestedStrictView.ids;
-    if (requestedSectionIds.length !== requestedConfigIds.length
-        || !requestedSectionIds.every((id, idx) => id === requestedConfigIds[idx])) {
-        return {
-            status: "unrecoverable",
-            reason: "本次请求 sectionIds 与 requestedViewConfig.componentSections ID/顺序不一致",
-            removableSectionIds: [],
-        };
-    }
-
-    // === 5) layout 满足完整 Schema 2 不变量 ===
-    const profile = getDeviceProfile(layout, deviceId);
-    const layoutSections = profile?.sections || {};
-    const layoutSectionIds = Object.keys(layoutSections);
-    const sectionsEnabled = currentViewConfig.componentSectionsEnabled === true;
-
-    try {
-        assertSectionLayoutInvariants(
-            normalizeLayoutItems(profile?.order || layout.order),
-            layoutSections,
-            layoutSectionIds,
-            { requireAllAssigned: sectionsEnabled },
-        );
-    } catch (error) {
-        return {
-            status: "unrecoverable",
-            reason: `layout 不变量校验失败：${error instanceof Error ? error.message : String(error)}`,
-            removableSectionIds: [],
-        };
-    }
-
-    // === 6) 分栏开关一致性 ===
-    if ((profile?.componentSectionsModeEnabled === true) !== sectionsEnabled) {
-        return { status: "unrecoverable", reason: "layout/view 分栏开关不一致", removableSectionIds: [] };
-    }
-
-    // === 7) 校验 layout 分栏结构有效性 ===
-    const globalOrder = normalizeLayoutItems(profile?.order || layout.order);
-    const globalIdSet = new Set(globalOrder.map((item) => item.id));
-    for (const sectionId of layoutSectionIds) {
-        const section = layoutSections[sectionId];
-        if (!section || !Array.isArray(section.widgetIds)) {
-            return { status: "unrecoverable", reason: `layout 分栏 ${sectionId} 结构无效`, removableSectionIds: [] };
-        }
-        for (const widgetId of section.widgetIds) {
-            if (typeof widgetId !== "string" || !widgetId || !globalIdSet.has(widgetId)) {
-                return { status: "unrecoverable", reason: `layout 分栏 ${sectionId} 包含无效组件引用`, removableSectionIds: [] };
-            }
-        }
-    }
-
-    // === 8) 检查是否已经一致 ===
-    const consistency = validateLayoutViewSectionConsistency(layout, deviceId, currentViewConfig);
-    if (consistency.ok) {
-        return { status: "consistent", reason: "layout/view 分栏状态一致", removableSectionIds: [] };
-    }
-
-    // === 9) current view IDs 必须是 layout IDs 的子序列 ===
-    const currentViewIds = currentStrictView.ids;
-    const layoutIdSet = new Set(layoutSectionIds);
-    if (currentViewIds.some((id) => !layoutIdSet.has(id))) {
-        return { status: "unrecoverable", reason: "view 包含 layout 中不存在的分栏", removableSectionIds: [] };
-    }
-    const currentViewIdSet = new Set(currentViewIds);
-    const retainedLayoutIds = layoutSectionIds.filter((id) => currentViewIdSet.has(id));
-    if (
-        retainedLayoutIds.length !== currentViewIds.length
-        || !retainedLayoutIds.every((id, index) => id === currentViewIds[index])
-    ) {
-        return { status: "unrecoverable", reason: "layout/view 分栏顺序不能仅通过删除空壳恢复", removableSectionIds: [] };
-    }
-
-    // === 10) layout-only 空分栏安全性校验 ===
-    const layoutOnlySectionIds = layoutSectionIds.filter((id) => !currentViewIdSet.has(id));
-    if (layoutOnlySectionIds.length === 0) {
-        return { status: "unrecoverable", reason: "未找到可证明安全的 layout-only 空分栏", removableSectionIds: [] };
-    }
-    const activeSectionId = normalizeSectionId(profile?.activeSectionId);
-    for (const sectionId of layoutOnlySectionIds) {
-        const section = layoutSections[sectionId];
-        if (!section || !Array.isArray(section.widgetIds) || section.widgetIds.length !== 0) {
-            return { status: "unrecoverable", reason: `layout-only 分栏 ${sectionId} 不是空分栏`, removableSectionIds: [] };
-        }
-        if (new Set(section.widgetIds).size !== section.widgetIds.length) {
-            return { status: "unrecoverable", reason: `layout-only 分栏 ${sectionId} 包含重复组件`, removableSectionIds: [] };
-        }
-        if (activeSectionId === sectionId) {
-            return { status: "unrecoverable", reason: `layout-only 分栏 ${sectionId} 是活动分栏`, removableSectionIds: [] };
-        }
-    }
-
-    // === 11) 删除空壳后必须满足一致性 ===
-    const repairedLayout = cloneJsonSafe(layout, "空分栏外壳修复预检布局");
-    const repairedProfile = repairedLayout.profiles?.[deviceId];
-    if (!repairedProfile?.sections) {
-        return { status: "unrecoverable", reason: "当前设备分栏结构缺失", removableSectionIds: [] };
-    }
-    for (const sectionId of layoutOnlySectionIds) delete repairedProfile.sections[sectionId];
-
-    const repairedConsistency = validateLayoutViewSectionConsistency(repairedLayout, deviceId, currentViewConfig);
-    if (!repairedConsistency.ok) {
-        return {
-            status: "unrecoverable",
-            reason: `删除空壳后仍不一致：${(repairedConsistency as { ok: false; reason: string }).reason}`,
-            removableSectionIds: [],
-        };
-    }
-
-    // === 12) 分支判定（结合用户意图）===
-
-    // 分支一：resume-requested-save
-    // requestedSectionIds 与完整 layoutSectionIds 完全一致
-    // 且 requestedConfig.componentSections 的 ID和顺序也与 layout 完全一致
-    if (
-        requestedSectionIds.length === layoutSectionIds.length
-        && requestedSectionIds.every((id, idx) => id === layoutSectionIds[idx])
-        && requestedConfigIds.length === layoutSectionIds.length
-        && requestedConfigIds.every((id, idx) => id === layoutSectionIds[idx])
-    ) {
-        return {
-            status: "resume-requested-save",
-            reason: `用户本次配置明确包含所有 layout-only 空分栏（${layoutOnlySectionIds.join(", ")}），继续保存`,
-            removableSectionIds: [],
-        };
-    }
-
-    // 分支二：remove-confirmed-empty-extras
-    // requestedSectionIds 与 current view IDs 完全一致
-    // 且 requestedConfig.componentSections 也与 current view ID和顺序完全一致
-    // 用户本次确认提交的可见分栏列表不包含 layout-only 空分栏
-    if (
-        requestedSectionIds.length === currentViewIds.length
-        && requestedSectionIds.every((id, idx) => id === currentViewIds[idx])
-        && requestedConfigIds.length === currentViewIds.length
-        && requestedConfigIds.every((id, idx) => id === currentViewIds[idx])
-    ) {
-        return {
-            status: "remove-confirmed-empty-extras",
-            reason: `用户本次确认不包含 layout-only 空分栏（${layoutOnlySectionIds.join(", ")}），可安全删除`,
-            removableSectionIds: [...layoutOnlySectionIds],
-        };
-    }
-
-    // 不可恢复：请求列表既不等于layout完整列表，也不等于current view列表
-    return {
-        status: "unrecoverable",
-        reason: `layout=[${layoutSectionIds.join(",")}] view=[${currentViewIds.join(",")}] `
-            + `requested=[${requestedSectionIds.join(",")}] `
-            + `layout-only=[${layoutOnlySectionIds.join(",")}]`,
-        removableSectionIds: [],
-    };
-}
-
-const surfaceWriteQueues = new Map<string, Promise<unknown>>();
-
-/**
- * 在同一 surface（deviceId + surface）上串行执行写事务。
- *
- * 约束：
- * - 同一 key 的事务按 FIFO 顺序串行；
- * - 嵌套调用同一 key 会死锁，调用方必须使用 syncLayoutAndViewInTransaction 在已持有事务时复用。
- * - 任务异常也会释放队列，不会阻塞后续操作。
- */
-export function runInSurfaceTransaction<T>(key: string, task: () => Promise<T>): Promise<T> {
-    const previous = surfaceWriteQueues.get(key) ?? Promise.resolve();
-    let release!: () => void;
-    const gate = new Promise<void>((resolve) => { release = resolve; });
-    const queued = previous.catch(() => undefined).then(() => gate);
-    surfaceWriteQueues.set(key, queued);
-    return previous.catch(() => undefined).then(async () => {
-        try {
-            return await task();
-        } finally {
-            release();
-            if (surfaceWriteQueues.get(key) === queued) {
-                surfaceWriteQueues.delete(key);
-            }
-        }
-    });
-}
-
-function inSurfaceTransaction<T>(key: string, task: () => Promise<T>): Promise<T> {
-    return runInSurfaceTransaction(key, task);
-}
-
-export interface SyncLayoutAndViewResult {
-    layout: LayoutSnapshot;
-    view: DeviceViewSettings;
-    /** true 表示 layout 和 view 两份文档均已成功提交到存储；false 表示已回滚或从未保留本次变更。 */
-    committed: boolean;
-    /** true 表示无法确认补偿结果（layout 状态不确定），调用方不得自动清理组件或回滚，必须提示人工检查。 */
-    manualCheckRequired?: boolean;
-    /** 提交成功后，重新读取/刷新验证阶段出现的非致命警告（不触发回滚）。 */
-    warning?: string;
-}
-
-/**
- * syncLayoutAndView 抛出的结构化错误。
- *
- * 调用方应通过 instanceof 判断并读取 committed / manualCheckRequired 字段，
- * 禁止依赖正则匹配错误文本判断 revision 冲突或补偿结果。
- */
-export class SyncLayoutAndViewError extends Error {
-    public readonly committed: boolean;
-    public readonly manualCheckRequired: boolean;
-
-    constructor(
-        message: string,
-        options: { committed?: boolean; manualCheckRequired?: boolean } = {},
-    ) {
-        super(message);
-        this.name = "SyncLayoutAndViewError";
-        this.committed = options.committed ?? false;
-        this.manualCheckRequired = options.manualCheckRequired ?? false;
-    }
-}
-
-/**
- * 在已持有 surface 事务的前提下协调提交 layout 和 view 的变更。
- *
- * 调用方必须已通过 runInSurfaceTransaction 持有同一 queueKey 的事务，否则会破坏串行约束。
- * 内部行为与 syncLayoutAndView 一致，但不再次获取队列锁，避免嵌套死锁。
- *
- * 约束：
- * - 基于同一快照计算 nextLayout / nextViewConfig；
- * - 调用方传入 expectedSnapshot 时，事务开始前必须验证当前 layout/view revision 与之一致；
- * - 写入 layout 和 view 均使用原始 revision；
- * - view 写入失败时，仅在确认 layout 仍停留在本次写入的 revision 时才补偿恢复；
- * - 两份文档提交成功后，提交后校验/刷新失败只作为 warning 返回，不触发组件回滚；
- * - 补偿结果无法确认时抛出 SyncLayoutAndViewError(manualCheckRequired=true)；
- * - view 失败但 layout 已安全补偿时抛出 SyncLayoutAndViewError(committed=false, manualCheckRequired=false)。
- */
-/**
- * 将对象递归转换为键名稳定的可比较形式。
- */
-/**
- * 比较两份布局的语义内容是否一致（忽略 revision、updatedAt 等元数据）。
- */
-function isSameLayoutContent(left: WidgetLayoutData, right: WidgetLayoutData): boolean {
-    return hasSameJsonSemantic(left, right);
-}
-
-/**
- * 比较两个 view config 的语义内容是否一致。
- */
-function isSameViewConfig(left: Record<string, unknown>, right: Record<string, unknown>): boolean {
-    return hasSameJsonSemantic(left, right);
-}
-
-/**
- * 纯函数：根据已读取的当前 layout 判断处于原状态、目标状态还是未知状态。
- * currentLayout 为 null/undefined 时返回 "unknown"。
- */
-function classifyLayoutContentState(
-    originalLayout: WidgetLayoutData,
-    targetLayout: WidgetLayoutData,
-    currentLayout: WidgetLayoutData | null | undefined,
-): "original" | "target" | "unknown" {
-    if (!currentLayout) return "unknown";
-    if (isSameLayoutContent(currentLayout, targetLayout)) return "target";
-    if (isSameLayoutContent(currentLayout, originalLayout)) return "original";
-    return "unknown";
-}
-
-/**
- * 纯函数：根据已读取的当前 view config 判断处于原状态、目标状态还是未知状态。
- * currentConfig 为 null/undefined 时返回 "unknown"。
- */
-function classifyViewConfigState(
-    originalConfig: Record<string, unknown>,
-    targetConfig: Record<string, unknown>,
-    currentConfig: Record<string, unknown> | null | undefined,
-): "original" | "target" | "unknown" {
-    if (!currentConfig) return "unknown";
-    if (isSameViewConfig(currentConfig, targetConfig)) return "target";
-    if (isSameViewConfig(currentConfig, originalConfig)) return "original";
-    return "unknown";
-}
-
-interface SyncLayoutAndViewRepository {
-    deviceId: string;
-    loadLayoutSnapshot(): Promise<LayoutSnapshot>;
-    readViewSettings(): Promise<DeviceViewSettings | null>;
-    saveLayout(layout: WidgetLayoutData, expectedRevision: number): Promise<void>;
-    updateView(mutate: (config: Record<string, unknown>) => Record<string, unknown>, expectedRevision: number): Promise<DeviceViewSettings>;
-    readCoordinatedSnapshot(): Promise<CoordinatedSnapshot>;
-}
-
-function createSyncLayoutAndViewRepository(context: DeviceViewContext): SyncLayoutAndViewRepository {
-    return {
-        deviceId: context.scopeId,
-        loadLayoutSnapshot: () => loadLayoutSnapshotForContext(context),
-        readViewSettings: () => readDeviceViewSettings(context),
-        saveLayout: (layout, expectedRevision) => saveLayoutDataForContext(context, layout, { expectedRevision }),
-        updateView: (mutate, expectedRevision) => updateDeviceViewSettings(context, mutate, { expectedRevision }),
-        readCoordinatedSnapshot: () => readCoordinatedSnapshotForContext(context),
-    };
-}
-
-async function syncLayoutAndViewTransactionCore(
-    deviceId: string,
-    layoutMutator: (layout: WidgetLayoutData) => WidgetLayoutData,
-    viewMutator: (config: Record<string, unknown>) => Record<string, unknown>,
-    repository: SyncLayoutAndViewRepository,
-    expectedSnapshot?: CoordinatedSnapshot,
-): Promise<SyncLayoutAndViewResult> {
-    let start: CoordinatedSnapshot;
-    if (expectedSnapshot) {
-        if (!expectedSnapshot.view) {
-            throw new SyncLayoutAndViewError("当前 surface 不包含 view.json，不能执行 layout/view 联合事务", { committed: false });
-        }
-        const currentLayout = await repository.loadLayoutSnapshot();
-        const currentView = await repository.readViewSettings();
-        if (currentLayout.revision !== expectedSnapshot.layout.revision) {
-            throw new SyncLayoutAndViewError("当前 layout revision 与调用方原始快照不一致，拒绝覆盖", { committed: false });
-        }
-        if (!hasSameJsonSemantic(currentLayout.layout, expectedSnapshot.layout.layout)) {
-            throw new SyncLayoutAndViewError("当前 layout 内容与调用方原始快照不一致，拒绝覆盖", { committed: false });
-        }
-        if (!currentView || currentView.revision !== expectedSnapshot.view.revision) {
-            throw new SyncLayoutAndViewError("当前 view revision 与调用方原始快照不一致，拒绝覆盖", { committed: false });
-        }
-        if (!hasSameJsonSemantic(currentView.config, expectedSnapshot.view.config)) {
-            throw new SyncLayoutAndViewError("当前 view 内容与调用方原始快照不一致，拒绝覆盖", { committed: false });
-        }
-        start = expectedSnapshot;
-    } else {
-        start = await repository.readCoordinatedSnapshot();
-    }
-    if (!start.view) {
-        throw new SyncLayoutAndViewError("当前 surface 不包含 view.json，不能执行 layout/view 联合事务", { committed: false });
-    }
-
-    const originalLayout = structuredClone(start.layout.layout);
-    const originalConfig = structuredClone(start.view.config);
-    const originalLayoutRevision = start.layout.revision;
-    const originalViewRevision = start.view.revision;
-
-    const nextLayout = cloneJsonSafe(
-        layoutMutator(structuredClone(originalLayout)),
-        "layout/view 事务目标布局",
-    );
-    const nextConfig = cloneJsonSafe(
-        viewMutator(structuredClone(originalConfig)),
-        "layout/view 事务目标配置",
-    );
-
-    const preCheck = validateLayoutViewSectionConsistency(nextLayout, deviceId, nextConfig);
-    if (!preCheck.ok) {
-        throw new SyncLayoutAndViewError(`layout/view 提交前校验失败：${(preCheck as { ok: false; reason: string }).reason}`, { committed: false });
-    }
-
-    let layoutWriteError: unknown | undefined;
-    try {
-        await repository.saveLayout(nextLayout, originalLayoutRevision);
-    } catch (error) {
-        layoutWriteError = error;
-    }
-
-    // layout 写入阶段异常：严格重读并判定当前状态。
-    if (layoutWriteError) {
-        const currentLayoutSnapshot = await repository.loadLayoutSnapshot().catch(() => undefined);
-        const layoutState = classifyLayoutContentState(originalLayout, nextLayout, currentLayoutSnapshot?.layout);
-        const originalErrorMessage = layoutWriteError instanceof Error ? layoutWriteError.message : String(layoutWriteError);
-        if (layoutState === "target") {
-            // layout 实际上已经是目标状态，继续尝试 view 写入，不要在这里回滚。
-        } else if (layoutState === "original") {
-            // layout 未保留目标状态，可视为未提交；但 view 尚未写入，直接返回未提交。
-            throw new SyncLayoutAndViewError(
-                `layout 写入失败且当前仍为原始状态；原始错误：${originalErrorMessage}`,
-                { committed: false, manualCheckRequired: false },
-            );
-        } else {
-            // 无法确认 layout 状态：禁止调用方清理组件或自动回滚。
-            throw new SyncLayoutAndViewError(
-                `layout 写入失败且无法确认当前状态（${originalErrorMessage}），请手动检查主页分栏状态`,
-                { committed: false, manualCheckRequired: true },
-            );
-        }
-    }
-
-    let afterLayout: LayoutSnapshot;
-    try {
-        afterLayout = await repository.loadLayoutSnapshot();
-    } catch {
-        const originalErrorMessage = layoutWriteError !== undefined
-            ? (layoutWriteError instanceof Error ? layoutWriteError.message : String(layoutWriteError))
-            : "";
-        throw new SyncLayoutAndViewError(
-            originalErrorMessage
-                ? `layout 写入成功但写后重读失败；原始错误：${originalErrorMessage}，请手动检查主页分栏状态`
-                : "layout 写入成功但写后重读失败，请手动检查主页分栏状态",
-            { committed: false, manualCheckRequired: true },
-        );
-    }
-    const committedLayoutRevision = afterLayout.revision;
-
-    // P0: layout 写入成功后，校验 afterLayout 的语义状态再决定是否继续写 view。
-    const afterLayoutState = classifyLayoutContentState(originalLayout, nextLayout, afterLayout.layout);
-    if (afterLayoutState === "original") {
-        // layout 仍是原始状态：未提交，不写 view。
-        throw new SyncLayoutAndViewError(
-            "layout 写入后重读仍为原始状态，view 未写入",
-            { committed: false, manualCheckRequired: false },
-        );
-    }
-    if (afterLayoutState !== "target") {
-        // 第三种状态或读取失败：禁止写 view，要求人工检查。
-        throw new SyncLayoutAndViewError(
-            "layout 写入后重读状态无法确认为目标，禁止写入 view，请手动检查主页分栏状态",
-            { committed: false, manualCheckRequired: true },
-        );
-    }
-
-    // P1: 保存 updateView 成功返回的 DeviceViewSettings，用于 fallback。
-    let writtenView: DeviceViewSettings | null = null;
-    let viewWriteError: unknown | undefined;
-    try {
-        writtenView = await repository.updateView(() => nextConfig, originalViewRevision);
-    } catch (error) {
-        viewWriteError = error;
-    }
-
-    if (viewWriteError) {
-        const currentView = await repository.readViewSettings().catch(() => null);
-        const viewState = classifyViewConfigState(originalConfig, nextConfig, currentView?.config);
-        const originalViewMessage = viewWriteError instanceof Error ? viewWriteError.message : String(viewWriteError);
-
-        if (viewState === "target") {
-            // view 已经写入目标状态：视为 committedWithWarning，不补偿 layout。
-            // P1: 优先使用 currentView（真实重读结果），其次使用 writtenView（updateView 成功返回值），禁止手工构造。
-            const fallbackView: DeviceViewSettings = currentView ?? writtenView ?? {
-                schema: start.view.schema,
-                version: start.view.version,
-                revision: originalViewRevision + 1,
-                updatedAt: start.view.updatedAt,
-                deviceId: start.view.deviceId,
-                surface: start.view.surface,
-                config: nextConfig,
-            };
-            return {
-                layout: afterLayout,
-                view: fallbackView,
-                committed: true,
-                warning: `view 写入抛错，但重读确认目标已写入；原始错误：${originalViewMessage}`,
-            };
-        }
-
-        if (viewState === "unknown") {
-            // 无法确认 view 是否已提交：不能补偿 layout，必须人工检查。
-            throw new SyncLayoutAndViewError(
-                `view 写入失败且无法确认当前状态（${originalViewMessage}），请手动检查主页分栏状态`,
-                { committed: false, manualCheckRequired: true },
-            );
-        }
-
-        // view 仍为原始状态：尝试将 layout 恢复为提交前状态。
-        let compensationReason = "";
-        try {
-            const currentLayoutSnapshot = await repository.loadLayoutSnapshot().catch(() => undefined);
-            const currentLayoutState = classifyLayoutContentState(originalLayout, nextLayout, currentLayoutSnapshot?.layout);
-            if (currentLayoutState !== "target") {
-                compensationReason = "layout 在 view 写入失败后已被并发修改或无法确认";
-            } else {
-                await repository.saveLayout(originalLayout, committedLayoutRevision);
-                const compensatedSnapshot = await repository.loadLayoutSnapshot().catch(() => undefined);
-                const compensatedState = classifyLayoutContentState(originalLayout, nextLayout, compensatedSnapshot?.layout);
-                if (compensatedState !== "original") {
-                    compensationReason = "layout 补偿写入后验证未回到原始状态";
-                }
-            }
-        } catch (compensationError) {
-            compensationReason = compensationError instanceof Error
-                ? compensationError.message
-                : String(compensationError);
-        }
-
-        if (compensationReason) {
-            throw new SyncLayoutAndViewError(
-                `view 写入失败且无法安全恢复原始布局（${compensationReason}）；原始 view 错误：${originalViewMessage}。主页分栏状态可能处于不一致，请手动检查。`,
-                { committed: false, manualCheckRequired: true },
-            );
-        }
-
-        // view 失败但 layout 已安全补偿为提交前状态：调用方可以安全清理本次新组件。
-        throw new SyncLayoutAndViewError(
-            `view 写入失败，但 layout 已恢复为提交前状态；原始 view 错误：${originalViewMessage}`,
-            { committed: false, manualCheckRequired: false },
-        );
-    }
-
-    // layout 与 view 均成功写入；后续校验失败只作为 warning 返回。
-    let warning: string | undefined;
-    let final: CoordinatedSnapshot;
-    try {
-        final = await repository.readCoordinatedSnapshot();
-    } catch (refreshError) {
-        // P1: 使用 writtenView（updateView 真实返回值）作为 fallback，禁止手工构造 revision/updatedAt。
-        final = {
-            layout: afterLayout,
-            view: writtenView ?? {
-                schema: start.view.schema,
-                version: start.view.version,
-                revision: originalViewRevision + 1,
-                updatedAt: start.view.updatedAt,
-                deviceId: start.view.deviceId,
-                surface: start.view.surface,
-                config: nextConfig,
-            },
-        };
-        warning = refreshError instanceof Error
-            ? `提交后重新读取失败：${refreshError.message}`
-            : "提交后重新读取失败";
-    }
-
-    const postCheck = validateLayoutViewSectionConsistency(
-        final.layout.layout,
-        deviceId,
-        final.view.config,
-    );
-    if (!postCheck.ok) {
-        warning = warning
-            ? `${warning}；layout/view 提交后校验失败：${(postCheck as { ok: false; reason: string }).reason}`
-            : `layout/view 提交后校验失败：${(postCheck as { ok: false; reason: string }).reason}`;
-    }
-
-    return { ...final, committed: true, warning };
-}
-
-export async function syncLayoutAndViewInTransaction(
-    context: DeviceViewContext,
-    layoutMutator: (layout: WidgetLayoutData) => WidgetLayoutData,
-    viewMutator: (config: Record<string, unknown>) => Record<string, unknown>,
-    expectedSnapshot?: CoordinatedSnapshot,
-): Promise<SyncLayoutAndViewResult> {
-    const repository = createSyncLayoutAndViewRepository(context);
-    return syncLayoutAndViewTransactionCore(repository.deviceId, layoutMutator, viewMutator, repository, expectedSnapshot);
-}
-
-/**
- * 在当前 deviceId + surface 上协调提交 layout 和 view 的变更。
- *
- * 约束：
- * - 同一 surface 的模板应用/恢复操作串行执行；
- * - 基于同一快照计算 nextLayout / nextViewConfig；
- * - 调用方传入 expectedSnapshot 时，事务开始前必须验证当前 layout/view revision 与之一致；
- * - 写入 layout 和 view 均使用原始 revision；
- * - view 写入失败时，仅在确认 layout 仍停留在本次写入的 revision 时才补偿恢复；
- * - 两份文档提交成功后，提交后校验/刷新失败只作为 warning 返回，不触发组件回滚；
- * - 补偿结果无法确认时通过 SyncLayoutAndViewError(manualCheckRequired=true) 通知调用方。
- */
-export async function syncLayoutAndView(
-    plugin: Plugin,
-    surface: DeviceViewSurface = "desktop-homepage",
-    layoutMutator: (layout: WidgetLayoutData) => WidgetLayoutData,
-    viewMutator: (config: Record<string, unknown>) => Record<string, unknown>,
-    expectedSnapshot?: CoordinatedSnapshot,
-): Promise<SyncLayoutAndViewResult> {
-    const context = getCurrentDeviceViewContext(plugin, surface);
-    const queueKey = `${context.scopeId}:${surface}`;
-    return inSurfaceTransaction(queueKey, () => syncLayoutAndViewInTransaction(
-        context,
-        layoutMutator,
-        viewMutator,
-        expectedSnapshot,
-    ));
 }
 
 function haveSameWidgetIds(left: unknown, right: unknown): boolean {
@@ -3368,117 +2627,6 @@ function normalizeSectionIdList(sectionIds: string[] | undefined): string[] {
     return result;
 }
 
-function applyComponentSectionsToLayout(
-    layout: WidgetLayoutData,
-    deviceId: string,
-    configuredSectionIds: string[],
-    effectiveEnabled: boolean,
-): WidgetLayoutData {
-    const profile = ensureDeviceProfile(layout, deviceId);
-    const currentGlobalOrder = normalizeLayoutItems(profile.order || layout.order);
-
-    if (effectiveEnabled) {
-        // 构造初始分栏：保留已有成员、style 来源；新分栏为空，继承 profile 的列数和间距。
-        const initialSections: Record<string, WidgetLayoutProfileSectionData> = {};
-        for (const sectionId of configuredSectionIds) {
-            const existing = profile.sections?.[sectionId];
-            const sectionWidgetLayoutNumber = existing?.widgetLayoutNumber;
-            const sectionWidgetGap = existing?.widgetGap;
-            initialSections[sectionId] = {
-                widgetIds: [...(existing?.widgetIds || [])],
-                ...(sectionWidgetLayoutNumber !== undefined ? { widgetLayoutNumber: sectionWidgetLayoutNumber } : {}),
-                ...(sectionWidgetGap !== undefined ? { widgetGap: sectionWidgetGap } : {}),
-            };
-        }
-
-        // 首次开启分栏检测：
-        // - 之前无任何有效分栏成员；
-        // - 已有全局 order；
-        // - 新配置至少有一个分栏。
-        // 满足时将全部全局组件按原顺序归入第一个分栏。
-        // 不根据 overview ID 执行特殊处理。
-        const isFirstTimeOpening = hasNoSectionMembers(profile)
-            && currentGlobalOrder.length > 0
-            && configuredSectionIds.length > 0;
-
-        if (isFirstTimeOpening) {
-            const firstSectionId = configuredSectionIds[0];
-            const firstSection = initialSections[firstSectionId];
-            initialSections[firstSectionId] = {
-                ...firstSection,
-                widgetIds: currentGlobalOrder.map((item) => item.id),
-            };
-        }
-
-        // 按配置分栏顺序重排全局 order：
-        // - 每个分栏作为一个连续片段；
-        // - 保留分栏内部 widgetIds 顺序和组件 style；
-        // - 无归属组件追加到第一个分栏（非首次开启时也可能存在历史孤儿）。
-        const { nextGlobalOrder, nextSections } = rearrangeGlobalOrderBySections(
-            currentGlobalOrder,
-            initialSections,
-            configuredSectionIds,
-            { assignOrphansToFirstSection: true },
-        );
-
-        const currentActiveId = normalizeSectionId(profile.activeSectionId);
-        const nextActiveSectionId = currentActiveId && configuredSectionIds.includes(currentActiveId)
-            ? currentActiveId
-            : configuredSectionIds[0];
-
-        layout.profiles![deviceId] = {
-            ...profile,
-            order: nextGlobalOrder,
-            sections: nextSections,
-            activeSectionId: nextActiveSectionId,
-            componentSectionsModeEnabled: true,
-        };
-    } else {
-        // 关闭分栏模式：只关闭显示模式，不破坏全局 order。
-        const nextProfile: WidgetLayoutProfileData = {
-            ...profile,
-            componentSectionsModeEnabled: false,
-        };
-        delete (nextProfile as { activeSectionId?: string }).activeSectionId;
-        layout.profiles![deviceId] = nextProfile;
-    }
-
-    return layout;
-}
-
-export async function ensureComponentSectionsForCurrentDevice(
-    plugin: Plugin,
-    options: { sectionsEnabled?: boolean; sectionIds?: string[]; readOnly?: boolean } = {},
-    layoutFileName: DeviceViewSurface = "desktop-homepage",
-): Promise<boolean> {
-    if (!isDesktopDeviceProfileEnabled()) return false;
-
-    const context = await getReadyContext(plugin, layoutFileName);
-    const deviceId = context.scopeId;
-
-    const sectionsEnabled = options.sectionsEnabled === true;
-    const configuredSectionIds = normalizeSectionIdList(options.sectionIds);
-    const effectiveEnabled = sectionsEnabled && configuredSectionIds.length > 0;
-
-    if (options.readOnly) {
-        const rawLayout = (await loadLayoutSnapshotForContext(context)).layout;
-        const inventory = await scanStoredWidgetInventory(plugin, rawLayout, layoutFileName, context);
-        if (!inventory.complete) return false;
-        if (!rawLayout && inventory.layoutFilePresent) return false;
-        if (!rawLayout && inventory.items.length === 0) return false;
-
-        const layout = rawLayout || { order: [], profiles: {} } as WidgetLayoutData;
-        const beforeProfile = JSON.stringify(layout.profiles?.[deviceId] || {});
-        const nextLayout = applyComponentSectionsToLayout(structuredClone(layout), deviceId, configuredSectionIds, effectiveEnabled);
-        return JSON.stringify(nextLayout.profiles?.[deviceId] || {}) !== beforeProfile;
-    }
-
-    await updateCurrentDeviceLayout(context, (layout) => {
-        return applyComponentSectionsToLayout(layout, deviceId, configuredSectionIds, effectiveEnabled);
-    });
-    return true;
-}
-
 export async function setActiveComponentSectionForCurrentDevice(
     plugin: Plugin,
     sectionId: string,
@@ -3526,6 +2674,7 @@ function applyRemovedComponentSectionsToLayout(
     layout: WidgetLayoutData,
     deviceId: string,
     normalizedIds: string[],
+    options: { assignOrphansToFirstSection?: boolean } = { assignOrphansToFirstSection: true },
 ): WidgetLayoutData {
     if (normalizedIds.length === 0) return layout;
     const profile = ensureDeviceProfile(layout, deviceId);
@@ -3539,6 +2688,7 @@ function applyRemovedComponentSectionsToLayout(
         currentSections,
         orderedSectionIds,
         normalizedIds,
+        options,
     );
 
     let nextActiveSectionId = profile.activeSectionId;
@@ -3571,33 +2721,22 @@ function applyRemovedComponentSectionsToLayout(
     };
 }
 
-export async function removeComponentSectionLayouts(
-    plugin: Plugin,
-    sectionIds: string[],
-    layoutFileName: DeviceViewSurface = "desktop-homepage",
-): Promise<void> {
-    const normalizedIds = [...new Set(sectionIds.map(normalizeSectionId).filter((id): id is string => Boolean(id)))];
-    if (normalizedIds.length === 0) return;
-
-    await updateCurrentDeviceLayout(await getReadyContext(plugin, layoutFileName), (layout, deviceId) => {
-        return applyRemovedComponentSectionsToLayout(layout, deviceId, normalizedIds);
-    });
-}
-
 export async function moveWidgetToComponentSectionForCurrentDevice(
     plugin: Plugin,
     widgetId: string,
     options: MoveWidgetToSectionOptions,
     layoutFileName: DeviceViewSurface = "desktop-homepage",
 ): Promise<MoveWidgetResult> {
-    if (!isDesktopDeviceProfileEnabled()) {
+    const isDesktopProfileEnabled = options.operations?.isDesktopDeviceProfileEnabled ?? isDesktopDeviceProfileEnabled;
+    if (!isDesktopProfileEnabled()) {
         return { success: false, error: "桌面设备配置未启用" };
     }
     const context = options.deviceViewContext ?? await getReadyContext(plugin, layoutFileName);
     if (context.surface !== layoutFileName) {
         return { success: false, error: "组件迁移 context 与 surface 不一致" };
     }
-    if (!(await isRuntimeComponentSectionsEnabled(plugin, context))) {
+    const isSectionsEnabled = options.operations?.isSectionsEnabled ?? isRuntimeComponentSectionsEnabled;
+    if (!(await isSectionsEnabled(plugin, context))) {
         return { success: false, error: "组件分区导航未开启" };
     }
     const deviceId = context.scopeId;
@@ -3611,9 +2750,10 @@ export async function moveWidgetToComponentSectionForCurrentDevice(
     return runInSurfaceTransaction(`${context.scopeId}:${context.surface}`, async (): Promise<MoveWidgetResult> => {
         let latestLayout: WidgetLayoutData;
         try {
-            latestLayout = (await loadLayoutSnapshotForContext(context, {
+            const loadLayoutSnapshot = options.operations?.loadLayoutSnapshot ?? ((fixedContext: DeviceViewContext) => loadLayoutSnapshotForContext(fixedContext, {
                 assumeReady: Boolean(options.deviceViewContext),
-            })).layout;
+            }));
+            latestLayout = (await loadLayoutSnapshot(context)).layout;
         } catch (error) {
             return { success: false, error: `读取布局失败：${error instanceof Error ? error.message : String(error)}` };
         }
@@ -3624,7 +2764,8 @@ export async function moveWidgetToComponentSectionForCurrentDevice(
 
         let modified = false;
         let layoutRevision = 0;
-        await updateCurrentDeviceLayout(context, (layout) => {
+        const updateLayout = options.operations?.updateLayout ?? updateCurrentDeviceLayout;
+        await updateLayout(context, (layout) => {
             const profile = getDeviceProfile(layout, deviceId);
             if (!profile?.sections?.[toSectionId]) return layout;
 
@@ -3670,9 +2811,10 @@ export async function moveWidgetToComponentSectionForCurrentDevice(
 
         let finalLayout: WidgetLayoutData;
         try {
-            const snap = await loadLayoutSnapshotForContext(context, {
+            const loadLayoutSnapshot = options.operations?.loadLayoutSnapshot ?? ((fixedContext: DeviceViewContext) => loadLayoutSnapshotForContext(fixedContext, {
                 assumeReady: Boolean(options.deviceViewContext),
-            });
+            }));
+            const snap = await loadLayoutSnapshot(context);
             finalLayout = snap.layout;
             layoutRevision = snap.revision;
         } catch (error) {
@@ -3958,236 +3100,227 @@ function applyWidgetLayoutSettingsToLayout(
     };
 }
 
-export interface SaveHomepageSettingsTransactionInput {
+import {
+    assertDesktopHomepageLayoutInvariants,
+} from "@/homepage/deviceView/desktopHomepageSectionModel";
+
+export interface SaveHomepageSettingsCoordinatedInput {
     config: Record<string, unknown>;
     sectionsEnabled: boolean;
-    sectionIds: string[];
+    sections: ComponentSection[];
     deletedSectionIds: string[];
     widgetLayoutNumber: number;
     widgetGap: number;
 }
 
-export class UnrecoverableSectionHalfCommitError extends Error {
-    constructor(public readonly reason: string) {
-        super(reason);
-        this.name = "UnrecoverableSectionHalfCommitError";
-    }
+export interface SaveHomepageSettingsCoordinatedResult {
+    success: boolean;
+    partial?: boolean;
+    layoutRevision: number;
+    warning?: string;
 }
 
-function removeEmptySectionShells(
-    layout: WidgetLayoutData,
-    deviceId: string,
-    removableSectionIds: string[],
-): WidgetLayoutData {
-    const repairedLayout = cloneJsonSafe(layout, "空分栏外壳删除");
-    const profile = repairedLayout.profiles?.[deviceId];
-    if (!profile?.sections) throw new Error("当前设备分栏结构缺失，拒绝删除空壳");
-    const activeSectionId = normalizeSectionId(profile.activeSectionId);
-    for (const sectionId of removableSectionIds) {
-        const section = profile.sections[sectionId];
-        if (!section || section.widgetIds.length !== 0 || activeSectionId === sectionId) {
-            throw new Error(`分栏 ${sectionId} 已不再满足安全空壳条件，拒绝删除`);
-        }
-        delete profile.sections[sectionId];
-    }
-    return cloneJsonSafe(repairedLayout, "空分栏外壳删除目标布局");
+export interface SaveHomepageSettingsCoordinatedOperations {
+    context?: DeviceViewContext;
+    readSnapshot?: (context: DeviceViewContext) => Promise<CoordinatedSnapshot>;
+    loadLayoutSnapshot?: (context: DeviceViewContext) => Promise<LayoutSnapshot>;
+    saveLayoutData?: (
+        context: DeviceViewContext,
+        layout: WidgetLayoutData,
+        options?: { expectedRevision?: number },
+    ) => Promise<void>;
+    saveSharedSettings?: (plugin: Plugin, config: Record<string, unknown>) => Promise<void>;
+    updateViewSettings?: (
+        context: DeviceViewContext,
+        config: Record<string, unknown>,
+        options?: { expectedRevision?: number },
+    ) => Promise<DeviceViewSettings>;
 }
 
-/**
- * 在固定 desktop-homepage context 的同一事务中提交主页 layout 与 view 设置。
- */
-export async function saveHomepageSettingsInTransaction(
+export async function saveHomepageSettingsCoordinated(
     plugin: Plugin,
-    input: SaveHomepageSettingsTransactionInput,
-): Promise<SyncLayoutAndViewResult> {
-    const context = await getReadyContext(plugin, "desktop-homepage");
+    input: SaveHomepageSettingsCoordinatedInput,
+    operations: SaveHomepageSettingsCoordinatedOperations = {},
+): Promise<SaveHomepageSettingsCoordinatedResult> {
+    const context = operations.context ?? await getReadyContext(plugin, "desktop-homepage");
+    if (!plugin || !context.plugin || !context.scopeId || context.surface !== "desktop-homepage" || context.plugin !== plugin) {
+        throw new Error("协调主页设置只支持 desktop-homepage context，且要求固定 plugin 与 context 一致");
+    }
+    const readSnapshot = operations.readSnapshot ?? readCoordinatedSnapshotForContext;
+    const loadLayoutSnapshot = operations.loadLayoutSnapshot ?? loadLayoutSnapshotForContext;
+    const saveLayout = operations.saveLayoutData ?? saveLayoutDataForContext;
+    const saveShared = operations.saveSharedSettings ?? saveHomepageSharedSettings;
+    const updateView = operations.updateViewSettings ?? ((fixedContext, config, options) => updateDeviceViewSettings(
+        fixedContext,
+        () => config,
+        options,
+    ));
     const queueKey = `${context.scopeId}:${context.surface}`;
     return runInSurfaceTransaction(queueKey, async () => {
-        const start = await readCoordinatedSnapshotForContext(context);
-        if (!start.view) {
-            throw new SyncLayoutAndViewError("当前桌面主页 view.json 缺失，拒绝保存设置", { committed: false });
-        }
-        const startConsistency = validateLayoutViewSectionConsistency(
-            start.layout.layout,
-            context.scopeId,
-            start.view.config,
-        );
-        if (!startConsistency.ok) {
-            const recovery = analyzeSectionHalfCommitForSave(
-                start.layout.layout,
-                context.scopeId,
-                start.view.config,
-                normalizeSectionIdList(input.sectionIds),
-                input.config,
-            );
-            if (recovery.status === "resume-requested-save") {
-                // 用户明确想保留 layout-only 空分栏：以 start.layout 为基础，
-                // 跳过 applyRemovedComponentSectionsToLayout 对空分栏的删除，
-                // 但仍应用用户本次的完整设置。
-                const configuredSectionIds = normalizeSectionIdList(input.sectionIds);
-                const deletedSectionIds = normalizeSectionIdList(input.deletedSectionIds);
-                const effectiveEnabled = input.sectionsEnabled && configuredSectionIds.length > 0;
-                const nextConfig = cloneJsonSafeOmittingUndefinedObjectProperties(
-                    input.config,
-                    "主页设置完整配置(resume-requested-save)",
-                );
-                if (nextConfig.componentSectionsEnabled !== effectiveEnabled) {
-                    throw new SyncLayoutAndViewError("主页设置中的分栏开关与目标布局不一致", { committed: false });
-                }
-
-                // 以 start layout 为基准（保留所有 layout-only 空分栏）
-                let nextLayout = cloneJsonSafe(start.layout.layout, "主页设置原始布局(resume-requested-save)");
-
-                // 仍应用删除请求（用户可能删除非 layout-only 分栏）
-                nextLayout = applyRemovedComponentSectionsToLayout(
-                    nextLayout,
-                    context.scopeId,
-                    deletedSectionIds,
-                );
-                // applyComponentSectionsToLayout 保留现有分栏并应用用户配置
-                nextLayout = applyComponentSectionsToLayout(
-                    nextLayout,
-                    context.scopeId,
-                    configuredSectionIds,
-                    effectiveEnabled,
-                );
-                nextLayout = applyWidgetLayoutSettingsToLayout(
-                    nextLayout,
-                    context.scopeId,
-                    { widgetLayoutNumber: input.widgetLayoutNumber, widgetGap: input.widgetGap },
-                    effectiveEnabled,
-                );
-                nextLayout = cloneJsonSafe(nextLayout, "主页设置目标布局(resume-requested-save)");
-
-                const preCheck = validateLayoutViewSectionConsistency(nextLayout, context.scopeId, nextConfig);
-                if (!preCheck.ok) {
-                    throw new SyncLayoutAndViewError(
-                        `主页设置提交前分栏校验失败(resume-requested-save)：${(preCheck as { ok: false; reason: string }).reason}`,
-                        { committed: false },
-                    );
-                }
-
-                // layout + view 一次提交，不单独写 layout
-                const result = await syncLayoutAndViewInTransaction(
-                    context,
-                    () => nextLayout,
-                    () => omitHomepageSharedSettings(nextConfig),
-                    start,
-                );
-                await saveHomepageSharedSettings(plugin, nextConfig);
-                return result;
+        // 写前校验：分栏名称非空、<= 60 字符且不重名
+        const seenNames = new Set<string>();
+        for (const section of input.sections) {
+            const trimmed = (section.name || "").trim();
+            if (!trimmed) {
+                throw new Error("分栏名称不能为空");
             }
-            if (recovery.status === "remove-confirmed-empty-extras") {
-                // 用户确认不包含空分栏：在 nextLayout 中只删除确认的空壳，
-                // 然后继续走正常保存流程+一次提交。
-                const configuredSectionIds = normalizeSectionIdList(input.sectionIds);
-                const deletedSectionIds = normalizeSectionIdList(input.deletedSectionIds);
-                const effectiveEnabled = input.sectionsEnabled && configuredSectionIds.length > 0;
-                const nextConfig = cloneJsonSafeOmittingUndefinedObjectProperties(
-                    input.config,
-                    "主页设置完整配置(remove-confirmed-empty-extras)",
-                );
-                if (nextConfig.componentSectionsEnabled !== effectiveEnabled) {
-                    throw new SyncLayoutAndViewError("主页设置中的分栏开关与目标布局不一致", { committed: false });
-                }
-
-                let nextLayout = removeEmptySectionShells(
-                    cloneJsonSafe(start.layout.layout, "主页设置原始布局(remove-confirmed-empty-extras)"),
-                    context.scopeId,
-                    recovery.removableSectionIds,
-                );
-                nextLayout = applyRemovedComponentSectionsToLayout(
-                    nextLayout,
-                    context.scopeId,
-                    deletedSectionIds,
-                );
-                nextLayout = applyComponentSectionsToLayout(
-                    nextLayout,
-                    context.scopeId,
-                    configuredSectionIds,
-                    effectiveEnabled,
-                );
-                nextLayout = applyWidgetLayoutSettingsToLayout(
-                    nextLayout,
-                    context.scopeId,
-                    { widgetLayoutNumber: input.widgetLayoutNumber, widgetGap: input.widgetGap },
-                    effectiveEnabled,
-                );
-                nextLayout = cloneJsonSafe(nextLayout, "主页设置目标布局(remove-confirmed-empty-extras)");
-
-                const preCheck = validateLayoutViewSectionConsistency(nextLayout, context.scopeId, nextConfig);
-                if (!preCheck.ok) {
-                    throw new SyncLayoutAndViewError(
-                        `主页设置提交前分栏校验失败(remove-confirmed-empty-extras)：${(preCheck as { ok: false; reason: string }).reason}`,
-                        { committed: false },
-                    );
-                }
-
-                const result = await syncLayoutAndViewInTransaction(
-                    context,
-                    () => nextLayout,
-                    () => omitHomepageSharedSettings(nextConfig),
-                    start,
-                );
-                await saveHomepageSharedSettings(plugin, nextConfig);
-                return result;
+            if (trimmed.length > 60) {
+                throw new Error("分栏名称长度不能超过 60 个字符");
             }
-            throw new UnrecoverableSectionHalfCommitError(recovery.reason);
+            const lower = trimmed.toLowerCase();
+            if (seenNames.has(lower)) {
+                throw new Error(`分栏名称重复：${trimmed}`);
+            }
+            seenNames.add(lower);
         }
 
-        const configuredSectionIds = normalizeSectionIdList(input.sectionIds);
+        const coordinated = await readSnapshot(context);
+        if (!coordinated.view) {
+            throw new Error("桌面主页协调快照缺少 view.json");
+        }
+        assertDesktopHomepageCoordinatedSnapshot(coordinated, context);
+        const currentLayout = coordinated.layout.layout;
+        const startLayoutRevision = coordinated.layout.revision;
+        const startViewRevision = coordinated.view.revision;
+
+        const profile = getDeviceProfile(currentLayout, context.scopeId);
+        if (!profile) throw new Error("当前设备 profile 缺失，无法保存设置");
+
+        const configuredSections = input.sections;
+        const configuredSectionIds = configuredSections.map((s) => s.id);
         const deletedSectionIds = normalizeSectionIdList(input.deletedSectionIds);
         const effectiveEnabled = input.sectionsEnabled && configuredSectionIds.length > 0;
-        const nextConfig = cloneJsonSafeOmittingUndefinedObjectProperties(
-            input.config,
-            "主页设置完整配置",
-        );
-        if (nextConfig.componentSectionsEnabled !== effectiveEnabled) {
-            throw new SyncLayoutAndViewError("主页设置中的分栏开关与目标布局不一致", { committed: false });
+
+        let nextLayout = cloneJsonSafe(currentLayout, "主页设置原始布局");
+
+        if (deletedSectionIds.length > 0) {
+            nextLayout = applyRemovedComponentSectionsToLayout(
+                nextLayout,
+                context.scopeId,
+                deletedSectionIds,
+                { assignOrphansToFirstSection: effectiveEnabled },
+            );
         }
 
-        let nextLayout = applyRemovedComponentSectionsToLayout(
-            cloneJsonSafe(start.layout.layout, "主页设置原始布局"),
-            context.scopeId,
-            deletedSectionIds,
-        );
-        nextLayout = applyComponentSectionsToLayout(
-            nextLayout,
-            context.scopeId,
+        const nextProfile = getDeviceProfile(nextLayout, context.scopeId)!;
+        const existingSections = nextProfile.sections ?? {};
+        const targetSections: Record<string, WidgetLayoutProfileSectionData> = {};
+
+        for (const section of configuredSections) {
+            const existing = existingSections[section.id];
+            targetSections[section.id] = {
+                widgetIds: existing ? [...existing.widgetIds] : [],
+                name: section.name.trim(),
+                createdAt: section.createdAt,
+                updatedAt: section.updatedAt,
+                ...(existing?.widgetLayoutNumber !== undefined ? { widgetLayoutNumber: existing.widgetLayoutNumber } : {}),
+                ...(existing?.widgetGap !== undefined ? { widgetGap: existing.widgetGap } : {}),
+            };
+        }
+
+        const globalOrderItems = normalizeLayoutItems(nextProfile.order || nextLayout.order);
+        if (effectiveEnabled && configuredSectionIds.length > 0 && hasNoSectionMembers(nextProfile)) {
+            const firstId = configuredSectionIds[0];
+            if (targetSections[firstId]) {
+                targetSections[firstId].widgetIds = globalOrderItems.map((item) => item.id);
+            }
+        }
+
+        const { nextGlobalOrder, nextSections } = rearrangeGlobalOrderBySections(
+            globalOrderItems,
+            targetSections,
             configuredSectionIds,
-            effectiveEnabled,
+            { assignOrphansToFirstSection: effectiveEnabled },
         );
+
+        nextProfile.order = nextGlobalOrder;
+        nextProfile.sections = nextSections;
+        nextProfile.componentSectionsModeEnabled = effectiveEnabled;
+        nextProfile.componentSectionsModelVersion = 1;
+        nextLayout.order = nextGlobalOrder;
+        nextLayout.componentSectionsModelVersion = 1;
+
+        if (effectiveEnabled) {
+            if (nextProfile.activeSectionId && configuredSectionIds.includes(nextProfile.activeSectionId)) {
+                // keep active
+            } else if (configuredSectionIds.length > 0) {
+                nextProfile.activeSectionId = configuredSectionIds[0];
+            }
+        } else {
+            delete nextProfile.activeSectionId;
+        }
+
         nextLayout = applyWidgetLayoutSettingsToLayout(
             nextLayout,
             context.scopeId,
             { widgetLayoutNumber: input.widgetLayoutNumber, widgetGap: input.widgetGap },
             effectiveEnabled,
         );
-        nextLayout = cloneJsonSafe(nextLayout, "主页设置目标布局");
 
-        const preCheck = validateLayoutViewSectionConsistency(nextLayout, context.scopeId, nextConfig);
-        if (!preCheck.ok) {
-            throw new SyncLayoutAndViewError(
-                `主页设置提交前分栏校验失败：${(preCheck as { ok: false; reason: string }).reason}`,
-                { committed: false },
-            );
+        assertDesktopHomepageLayoutInvariants(nextLayout as unknown as DeviceViewLayout, context);
+
+        await saveLayout(context, nextLayout, { expectedRevision: startLayoutRevision });
+        const verifiedLayoutSnapshot = await loadLayoutSnapshot(context);
+        if (
+            verifiedLayoutSnapshot.deviceId !== context.scopeId
+            || verifiedLayoutSnapshot.surface !== context.surface
+        ) {
+            throw new Error("写后 layout snapshot 与固定 desktop-homepage context 不一致");
         }
 
-        const result = await syncLayoutAndViewInTransaction(
-            context,
-            () => nextLayout,
-            () => omitHomepageSharedSettings(nextConfig),
-            start,
+        let partial = false;
+        let warning: string | undefined;
+
+        const nextConfig = cloneJsonSafeOmittingUndefinedObjectProperties(
+            input.config,
+            "主页设置完整配置",
         );
-        await saveHomepageSharedSettings(plugin, nextConfig);
-        return result;
+
+        try {
+            await saveShared(plugin, nextConfig);
+        } catch {
+            console.warn("[Homepage] 桌面主页布局已成功保存，但共享设置保存失败。");
+            partial = true;
+            warning = "桌面主页布局已保存，但共享设置写入失败，请刷新确认";
+        }
+
+        try {
+            const cleanViewConfig = omitHomepageSharedSettings(nextConfig);
+            delete cleanViewConfig.componentSectionsEnabled;
+            delete cleanViewConfig.componentSections;
+
+            await updateView(
+                context,
+                cleanViewConfig,
+                { expectedRevision: startViewRevision },
+            );
+        } catch {
+            console.warn("[Homepage] 桌面主页布局已成功保存，但视图配置保存失败。");
+            partial = true;
+            warning = warning ? `${warning}；视图设置保存失败` : "桌面主页布局已保存，但部分视图配置更新失败，请刷新页面确认";
+        }
+
+        let finalLayoutRevision = verifiedLayoutSnapshot.revision;
+        try {
+            const finalSnapshot = await readSnapshot(context);
+            assertDesktopHomepageCoordinatedSnapshot(finalSnapshot, context);
+            finalLayoutRevision = finalSnapshot.layout.revision;
+        } catch {
+            partial = true;
+            warning = warning
+                ? `${warning}；写后状态暂无法确认，请刷新页面`
+                : "主页设置已提交，但写后状态暂无法确认，请刷新页面";
+        }
+
+        return {
+            success: true,
+            partial,
+            layoutRevision: finalLayoutRevision,
+            ...(warning ? { warning } : {}),
+        };
     });
 }
 
-/**
- * 保存列数和间距到当前设备桌面主页布局。
- * 桌面端保存到设备 profile，移动端保存到全局
- */
 export async function saveWidgetLayoutSettings(
     plugin: Plugin,
     settings: { widgetLayoutNumber: number; widgetGap: number },

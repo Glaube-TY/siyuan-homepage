@@ -26,6 +26,7 @@ import {
 } from "./deviceViewTypes";
 import { createDeviceViewBlockedError } from "./deviceViewErrors";
 import { dispatchDeviceViewChanged } from "./deviceViewEvents";
+import { assertDesktopHomepageLayoutInvariants } from "./desktopHomepageSectionModel";
 import { cloneJsonSafe, hasSameJsonSemantic, isJsonSafe, isPlainJsonObject } from "./jsonSafe";
 
 const writeQueues = new Map<string, Promise<void>>();
@@ -140,15 +141,18 @@ function validateSectionWidgetIds(value: unknown, sectionId: string, path: strin
     });
 }
 
-function validateDeviceLayoutSection(value: unknown, sectionId: string, path: string): DeviceLayoutSection {
+function validateDeviceLayoutSection(value: unknown, sectionId: string, context: DeviceViewContext, path: string): DeviceLayoutSection {
     if (!isPlainJsonObject(value)) throw new Error(`设备布局 ${path} sections.${sectionId} 不是普通对象`);
-    assertOnlyKeys(value, ["widgetIds", "name", "index", "widgetLayoutNumber", "widgetGap"], `设备布局 ${path} sections.${sectionId}`);
+    assertOnlyKeys(value, ["widgetIds", "name", "index", "widgetLayoutNumber", "widgetGap", "createdAt", "updatedAt"], `设备布局 ${path} sections.${sectionId}`);
     const widgetIds = validateSectionWidgetIds(value.widgetIds, sectionId, path);
     const name = value.name;
     const index = value.index;
     const widgetLayoutNumber = value.widgetLayoutNumber;
     const widgetGap = value.widgetGap;
-    if (name !== undefined && (typeof name !== "string" || !name.trim() || name.trim().length > 30)) {
+    const createdAt = value.createdAt;
+    const updatedAt = value.updatedAt;
+    const maxNameLength = context.surface === "desktop-homepage" ? 60 : 30;
+    if (name !== undefined && (typeof name !== "string" || !name.trim() || name.trim().length > maxNameLength)) {
         throw new Error(`设备布局 ${path} sections.${sectionId}.name 无效`);
     }
     if (index !== undefined && (typeof index !== "number" || !Number.isInteger(index) || index < 0)) {
@@ -160,19 +164,33 @@ function validateDeviceLayoutSection(value: unknown, sectionId: string, path: st
     if (widgetGap !== undefined && (typeof widgetGap !== "number" || !Number.isFinite(widgetGap) || widgetGap < 0)) {
         throw new Error(`设备布局 ${path} sections.${sectionId}.widgetGap 无效`);
     }
+    if (createdAt !== undefined && (typeof createdAt !== "number" || !Number.isFinite(createdAt) || createdAt < 0)) {
+        throw new Error(`设备布局 ${path} sections.${sectionId}.createdAt 无效`);
+    }
+    if (updatedAt !== undefined && (typeof updatedAt !== "number" || !Number.isFinite(updatedAt) || updatedAt < 0)) {
+        throw new Error(`设备布局 ${path} sections.${sectionId}.updatedAt 无效`);
+    }
     const section: DeviceLayoutSection = { widgetIds };
     if (typeof name === "string") section.name = name.trim();
     if (typeof index === "number") section.index = index;
     if (typeof widgetLayoutNumber === "number") section.widgetLayoutNumber = widgetLayoutNumber;
     if (typeof widgetGap === "number") section.widgetGap = widgetGap;
+    if (typeof createdAt === "number") section.createdAt = createdAt;
+    if (typeof updatedAt === "number") section.updatedAt = updatedAt;
     return section;
 }
 
-function validateLayout(value: unknown, context: DeviceViewContext, path: string): DeviceViewLayout {
+function validateLayout(
+    value: unknown,
+    context: DeviceViewContext,
+    path: string,
+    options?: { allowUnmigrated?: boolean },
+): DeviceViewLayout {
     validateMetadata(value, context, path);
     assertOnlyKeys(value, [
         "schema", "version", "revision", "updatedAt", "deviceId", "surface", "order",
         "widgetLayoutNumber", "widgetGap", "activeSectionId", "sections", "componentSectionsModeEnabled",
+        "componentSectionsModelVersion",
     ], `设备布局 ${path}`);
     if (!Array.isArray(value.order)) throw new Error(`设备布局 ${path} 缺少 order 字段`);
     const order = validateLayoutItems(value.order, path);
@@ -203,28 +221,68 @@ function validateLayout(value: unknown, context: DeviceViewContext, path: string
         if (typeof value.componentSectionsModeEnabled !== "boolean") throw new Error(`设备布局 ${path} componentSectionsModeEnabled 类型无效`);
         layout.componentSectionsModeEnabled = value.componentSectionsModeEnabled;
     }
+
+    if (context.surface !== "desktop-homepage") {
+        if (value.componentSectionsModelVersion !== undefined) {
+            throw new Error(`非 desktop-homepage 布局不允许包含 componentSectionsModelVersion: ${path}`);
+        }
+    } else {
+        if (value.componentSectionsModelVersion !== undefined) {
+            if (typeof value.componentSectionsModelVersion !== "number" || !Number.isInteger(value.componentSectionsModelVersion) || value.componentSectionsModelVersion !== 1) {
+                throw createDeviceViewBlockedError(
+                    context,
+                    "desktop_section_layout_corrupted",
+                    `未知桌面主页分栏模型版本 ${value.componentSectionsModelVersion}`,
+                );
+            }
+            layout.componentSectionsModelVersion = value.componentSectionsModelVersion;
+        } else if (!options?.allowUnmigrated) {
+            throw createDeviceViewBlockedError(
+                context,
+                "desktop_section_migration_blocked",
+                "桌面主页布局缺少 5.0 分栏模型标记 (componentSectionsModelVersion: 1)",
+            );
+        }
+    }
+
     if (value.sections !== undefined) {
         if (!isPlainJsonObject(value.sections)) throw new Error(`设备布局 ${path} sections 类型无效`);
         const sections: Record<string, DeviceLayoutSection> = {};
         const assignedWidgets = new Set<string>();
         const orderIds = new Set(order.map((item) => item.id));
+        const isStrictInvariants = layout.componentSectionsModelVersion === 1 || (context.surface === "desktop-homepage" && !options?.allowUnmigrated);
         for (const [sectionId, rawSection] of Object.entries(value.sections as Record<string, unknown>)) {
             assertDeviceViewSegment(sectionId, `设备布局 ${path} sectionId`);
-            const section = validateDeviceLayoutSection(rawSection, sectionId, path);
+            const section = validateDeviceLayoutSection(rawSection, sectionId, context, path);
             for (const widgetId of section.widgetIds) {
-                if (!orderIds.has(widgetId)) throw new Error(`设备布局 ${path} 分栏 ${sectionId} 引用了 order 外组件 ${widgetId}`);
-                if (assignedWidgets.has(widgetId)) throw new Error(`设备布局 ${path} 组件 ${widgetId} 重复属于多个分栏`);
+                if (isStrictInvariants) {
+                    if (!orderIds.has(widgetId)) throw new Error(`设备布局 ${path} 分栏 ${sectionId} 引用了 order 外组件 ${widgetId}`);
+                    if (assignedWidgets.has(widgetId)) throw new Error(`设备布局 ${path} 组件 ${widgetId} 重复属于多个分栏`);
+                }
                 assignedWidgets.add(widgetId);
             }
             sections[sectionId] = section;
         }
-        if (layout.activeSectionId !== undefined && !sections[layout.activeSectionId]) {
+        if (isStrictInvariants && layout.activeSectionId !== undefined && !sections[layout.activeSectionId]) {
             throw new Error(`设备布局 ${path} activeSectionId 不属于现有分栏`);
         }
         layout.sections = sections;
     }
     if (!isJsonSafe(layout)) throw new Error(`设备布局 ${path} 不是 JSON-safe 数据`);
+
+    if (context.surface === "desktop-homepage" && !options?.allowUnmigrated) {
+        assertDesktopHomepageLayoutInvariants(layout, context);
+    }
+
     return layout;
+}
+
+/** 供正常 layout 写入入口复用的严格文档校验。 */
+export function validateDeviceViewLayoutForWrite(
+    value: unknown,
+    context: DeviceViewContext,
+): DeviceViewLayout {
+    return validateLayout(value, context, getSurfaceLayoutPath(context));
 }
 
 function validateSettings(value: unknown, context: DeviceViewContext, path: string): DeviceViewSettings {
@@ -347,17 +405,24 @@ async function inWriteQueue<T>(key: string, task: () => Promise<T>): Promise<T> 
 }
 
 export function createEmptyLayout(context: DeviceViewContext): DeviceViewLayout {
-    return { ...metadata(context, 1), order: [] };
+    return {
+        ...metadata(context, 1),
+        order: [],
+        ...(context.surface === "desktop-homepage" ? { componentSectionsModelVersion: 1 } : {}),
+    };
 }
 
 export function createEmptySettings(context: DeviceViewContext): DeviceViewSettings {
     return { ...metadata(context, 1), config: {} };
 }
 
-export async function readDeviceViewLayout(context: DeviceViewContext): Promise<DeviceViewLayout | null> {
+export async function readDeviceViewLayout(
+    context: DeviceViewContext,
+    options?: { allowUnmigrated?: boolean },
+): Promise<DeviceViewLayout | null> {
     assertStorageContext(context);
     const path = getSurfaceLayoutPath(context);
-    return readDocument(path, (value) => validateLayout(value, context, path));
+    return readDocument(path, (value) => validateLayout(value, context, path, options));
 }
 
 export async function readDeviceViewSettings(context: DeviceViewContext): Promise<DeviceViewSettings | null> {
@@ -397,6 +462,8 @@ function normalizeLayoutForWrite(layout: DeviceViewLayout): DeviceViewLayout {
                     ...(section.index !== undefined ? { index: section.index } : {}),
                     ...(section.widgetLayoutNumber !== undefined ? { widgetLayoutNumber: section.widgetLayoutNumber } : {}),
                     ...(section.widgetGap !== undefined ? { widgetGap: section.widgetGap } : {}),
+                    ...(section.createdAt !== undefined ? { createdAt: section.createdAt } : {}),
+                    ...(section.updatedAt !== undefined ? { updatedAt: section.updatedAt } : {}),
                 } satisfies DeviceLayoutSection,
             ]),
         )
@@ -413,6 +480,7 @@ function normalizeLayoutForWrite(layout: DeviceViewLayout): DeviceViewLayout {
         ...(layout.widgetGap !== undefined ? { widgetGap: layout.widgetGap } : {}),
         ...(layout.activeSectionId !== undefined ? { activeSectionId: layout.activeSectionId } : {}),
         ...(layout.componentSectionsModeEnabled !== undefined ? { componentSectionsModeEnabled: layout.componentSectionsModeEnabled } : {}),
+        ...(layout.componentSectionsModelVersion !== undefined ? { componentSectionsModelVersion: layout.componentSectionsModelVersion } : {}),
         ...(sections ? { sections } : {}),
     };
     return cloneJsonSafe(result, "设备布局写入数据");
@@ -426,7 +494,7 @@ export async function updateDeviceViewLayout(
     assertStorageContext(context);
     const path = getSurfaceLayoutPath(context);
     return inWriteQueue(path, async () => {
-        const latest = await readDeviceViewLayout(context);
+        const latest = await readDeviceViewLayout(context, { allowUnmigrated: true });
         if (!latest) throw new Error(`设备布局 ${path} 缺失，拒绝以运行期状态重新创建`);
         if (options.expectedRevision !== undefined && latest.revision !== options.expectedRevision) {
             throw new Error(`设备布局 ${path} 已被并发更新，拒绝覆盖最新 revision`);
@@ -440,7 +508,7 @@ export async function updateDeviceViewLayout(
         }
 
         const document: DeviceViewLayout = { ...normalizeLayoutForWrite(mutated), ...metadata(context, latest.revision + 1) };
-        const normalized = validateLayout(document, context, path);
+        const normalized = validateDeviceViewLayoutForWrite(document, context);
         await writeJson(path, normalized);
         const verified = await readDeviceViewLayout(context);
         if (!verified || verified.revision !== normalized.revision || !hasSameDocumentContent(verified, normalized)) {
@@ -478,6 +546,11 @@ export async function updateDeviceViewSettings(
         }
         const config = mutate(cloneJsonSafe(latest.config, "设备视图配置 mutator 输入"));
         if (!isPlainJsonObject(config) || !isJsonSafe(config)) throw new Error("设备视图配置更新结果无效");
+        if (context.surface === "desktop-homepage") {
+            if ("componentSectionsEnabled" in config || "componentSections" in config) {
+                throw new Error("拒绝向 desktop-homepage view.json 写入已废弃的分栏结构字段（componentSectionsEnabled/componentSections）");
+            }
+        }
         const safeConfig = cloneJsonSafe(config, "设备视图配置更新结果");
         const unchangedCandidate: DeviceViewSettings = { ...latest, config: safeConfig };
         if (hasSameDocumentContent(latest, unchangedCandidate)) return latest;
@@ -582,6 +655,11 @@ export async function writeInitialDeviceViewFiles(
     const normalizedSettings = input.settings
         ? validateSettings(input.settings, context, getSurfaceViewPath(context))
         : undefined;
+    if (context.surface === "desktop-homepage" && normalizedSettings) {
+        if ("componentSectionsEnabled" in normalizedSettings.config || "componentSections" in normalizedSettings.config) {
+            throw new Error("拒绝向 desktop-homepage 初始 view.json 写入已废弃的分栏结构字段");
+        }
+    }
     const normalizedWidgets = input.widgets.map((widget) =>
         validateWidget(widget, context, widget.instanceId, getWidgetPath(context, widget.instanceId))
     );
