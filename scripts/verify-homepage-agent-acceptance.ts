@@ -32,6 +32,9 @@ import {
 } from "../src/components/utils/widgetBlock/widget/reviewDocs/reviewDocs";
 import type { ReviewItem } from "../src/components/utils/widgetBlock/widget/reviewDocs/reviewDocsTypes";
 import { createHomepageFixedAssetsActionTools } from "../src/features/kb/services/agent-workbench/tools/homepage-components/homepage-fixed-assets.tool";
+import { createHomepageAccountingActionTools } from "../src/features/kb/services/agent-workbench/tools/homepage-components/homepage-accounting.tool";
+import { createAgentToolHelpTool } from "../src/features/kb/services/agent-workbench/tools/aggregate/agent-tool-help.tool";
+import { getRecordsFile } from "../src/components/utils/widgetBlock/widget/accounting/accountingStoragePaths";
 
 function makeGateTool(actions: Record<string, { readOnly?: boolean }>): { tool: NativeTool; count: () => number; preflightCount: () => number } {
   let underlyingExecutes = 0;
@@ -1099,6 +1102,204 @@ function actionEnum(registry: ToolRegistry): string[] {
   assert.equal(parsedAdd.category, "");
   assert.equal(parsedAdd.extraCost, 0);
   assert.equal(parsedAdd.costMode, "elapsed");
+}
+
+// ── 记账账户引用完整性与归档回读验收（真实生产 Tool execute）──
+{
+  const accountingTools = createHomepageAccountingActionTools();
+  const runAccounting = async (action: string, args: Record<string, unknown>) => {
+    const entry = accountingTools.find((t) => t.action === action)!;
+    return entry.tool.execute({ question: "", callCounts: {} } as never, args as never);
+  };
+
+  // 内存插件：记账数据全部经 notebrain plugin.loadData/saveData
+  let saveCalls = 0;
+  const accountingStore = new Map<string, unknown>();
+  setNotebrainPlugin({
+    isMobile: false,
+    loadData: async (path: string) => (accountingStore.has(path) ? JSON.parse(JSON.stringify(accountingStore.get(path))) : null),
+    saveData: async (path: string, data: unknown) => { saveCalls += 1; accountingStore.set(path, JSON.parse(JSON.stringify(data))); },
+  } as never);
+
+  // 通过生产 add_account 建立活动/重名账户
+  const cashAdd = await runAccounting("add_account", { name: "现金", type: "cash" }) as any;
+  assert.equal(cashAdd.ok, true);
+  const bankAdd = await runAccounting("add_account", { name: "银行卡", type: "debitCard" }) as any;
+  assert.equal(bankAdd.ok, true);
+  await runAccounting("add_account", { name: "重名账户", type: "other" });
+  await runAccounting("add_account", { name: "重名账户", type: "other" });
+  const willArchive = await runAccounting("add_account", { name: "归档账户", type: "other" }) as any;
+  assert.equal(willArchive.ok, true);
+  const cashId = cashAdd.data.accountId as string;
+  const bankId = bankAdd.data.accountId as string;
+
+  // 预热：首次读取设置会写入默认设置文件，先触发以避免污染零写入计数
+  const warmup = await runAccounting("overview", {});
+  assert.equal(warmup.ok, true);
+
+  // 1. add_record 使用不存在的 accountId：失败且零写入
+  saveCalls = 0;
+  const badAdd = await runAccounting("add_record", { title: "坏账测试", direction: "expense", amount: 5, date: "2026-08-22", account: "acc-not-exist" });
+  assert.equal(badAdd.ok, false, "不存在的账户引用必须失败");
+  assert.ok(String(badAdd.error?.message).includes("不存在或已归档"));
+  assert.equal(saveCalls, 0, "引用校验失败必须零写入");
+
+  // 2. 使用唯一账户名称新增支出/收入：保存为真实 accountId
+  const expAdd = await runAccounting("add_record", { title: "早餐", direction: "expense", amount: 12.5, date: "2026-08-22", account: "现金" }) as any;
+  assert.equal(expAdd.ok, true);
+  assert.equal(expAdd.data.account, cashId, "支出账户名称必须规范化为真实 accountId");
+  const incAdd = await runAccounting("add_record", { title: "工资", direction: "income", amount: 100, date: "2026-08-22", account: "银行卡" }) as any;
+  assert.equal(incAdd.ok, true);
+  assert.equal(incAdd.data.account, bankId, "收入账户名称必须规范化为真实 accountId");
+
+  // 3. 转账：两端均解析为真实 ID；非法引用、歧义名称、同账户不同表示均拒绝且零写入
+  const transfer = await runAccounting("add_record", { title: "转账测试", direction: "transfer", amount: 30, date: "2026-08-22", account: "现金", counterAccount: "银行卡" }) as any;
+  assert.equal(transfer.ok, true);
+  assert.equal(transfer.data.account, cashId);
+  assert.equal(transfer.data.counterAccount, bankId);
+  saveCalls = 0;
+  const badTransferFrom = await runAccounting("add_record", { title: "t1", direction: "transfer", amount: 1, date: "2026-08-22", account: "acc-not-exist", counterAccount: bankId });
+  assert.equal(badTransferFrom.ok, false);
+  const ambiguousTransfer = await runAccounting("add_record", { title: "t2", direction: "transfer", amount: 1, date: "2026-08-22", account: "重名账户", counterAccount: bankId });
+  assert.equal(ambiguousTransfer.ok, false);
+  assert.ok(String(ambiguousTransfer.error?.message).includes("不唯一"), "歧义账户名称必须明确拒绝");
+  const sameAccountTransfer = await runAccounting("add_record", { title: "t3", direction: "transfer", amount: 1, date: "2026-08-22", account: cashId, counterAccount: "现金" });
+  assert.equal(sameAccountTransfer.ok, false, "同一真实账户的不同表示必须按规范化 ID 判同并拒绝");
+  assert.ok(String(sameAccountTransfer.error?.message).includes("不同的来源账户和目标账户"));
+  assert.equal(saveCalls, 0, "全部非法转账必须零写入");
+
+  // 4. update_record：显式修改走引用校验，其他字段不动旧账户表示
+  const expenseRecordId = expAdd.data.recordId as string;
+  const badUpdate = await runAccounting("update_record", { recordId: expenseRecordId, expectedUpdatedAt: expAdd.data.updatedAt, patch: { account: "acc-not-exist" } });
+  assert.equal(badUpdate.ok, false, "显式写入不存在账户必须失败");
+  assert.equal(saveCalls, 0, "update 引用校验失败必须零写入");
+  const afterBadUpdate = await runAccounting("query_records", { startDate: "2026-08-01", endDate: "2026-08-31" }) as any;
+  const unchanged = afterBadUpdate.data.records.find((r: any) => r.recordId === expenseRecordId);
+  assert.equal(unchanged.account, cashId, "失败的 update 不得改动原记录");
+  assert.equal(unchanged.updatedAt, expAdd.data.updatedAt);
+
+  const renameUpdate = await runAccounting("update_record", { recordId: expenseRecordId, expectedUpdatedAt: expAdd.data.updatedAt, patch: { account: "银行卡" } }) as any;
+  assert.equal(renameUpdate.ok, true);
+  assert.equal(renameUpdate.data.account, bankId, "合法账户名称必须保存为真实 accountId");
+
+  const titleOnly = await runAccounting("update_record", { recordId: expenseRecordId, expectedUpdatedAt: renameUpdate.data.updatedAt, patch: { title: "早餐改" } }) as any;
+  assert.equal(titleOnly.ok, true);
+  assert.equal(titleOnly.data.title, "早餐改");
+  assert.equal(titleOnly.data.account, bankId, "只改标题时不得顺手改写账户表示");
+
+  // 5. 归档流水回读：缺省排除归档，includeArchived 可见，返回项带 archived
+  const archTarget = await runAccounting("add_record", { title: "待归档", direction: "expense", amount: 66, date: "2026-08-22", account: cashId }) as any;
+  assert.equal(archTarget.ok, true);
+  const archivedRec = await runAccounting("archive_record", { recordId: archTarget.data.recordId, expectedUpdatedAt: archTarget.data.updatedAt });
+  assert.equal(archivedRec.ok, true);
+
+  const defaultQuery = await runAccounting("query_records", { startDate: "2026-08-01", endDate: "2026-08-31" }) as any;
+  assert.equal(defaultQuery.ok, true);
+  assert.equal(defaultQuery.data.records.some((r: any) => r.recordId === archTarget.data.recordId), false, "缺省查询不得返回归档流水");
+  assert.equal(defaultQuery.data.records.every((r: any) => r.archived === false), true, "活动流水的 archived 必须为 false");
+
+  const withArchived = await runAccounting("query_records", { startDate: "2026-08-01", endDate: "2026-08-31", includeArchived: true }) as any;
+  assert.equal(withArchived.ok, true);
+  const archivedRow = withArchived.data.records.find((r: any) => r.recordId === archTarget.data.recordId);
+  assert.ok(archivedRow, "includeArchived=true 必须能查到归档流水");
+  assert.equal(archivedRow.archived, true, "归档流水必须带 archived=true");
+  assert.equal(archivedRow.account, cashId);
+
+  const incomeOnly = await runAccounting("query_records", { year: 2026, direction: "income", includeArchived: true }) as any;
+  assert.equal(incomeOnly.ok, true);
+  assert.equal(incomeOnly.data.records.length >= 1, true);
+  assert.equal(incomeOnly.data.records.every((r: any) => r.direction === "income"), true, "原有方向过滤必须继续生效");
+
+  const strictReject = await runAccounting("query_records", { year: 2026, unknownField: true } as never);
+  assert.equal(strictReject.ok, false, "未知字段必须继续被严格 Schema 拒绝");
+
+  // 6. list_accounts：缺省只返回活动账户，includeArchived 返回全部并可区分状态
+  await runAccounting("archive_account", { accountId: willArchive.data.accountId, expectedUpdatedAt: willArchive.data.updatedAt });
+  const activeAccounts = await runAccounting("list_accounts", {}) as any;
+  assert.equal(activeAccounts.ok, true);
+  assert.equal(activeAccounts.data.accounts.some((a: any) => a.name === "归档账户"), false, "缺省列表不得返回归档账户");
+  assert.equal(activeAccounts.data.accounts.every((a: any) => a.archived === false), true);
+  const allAccounts = await runAccounting("list_accounts", { includeArchived: true }) as any;
+  assert.equal(allAccounts.ok, true);
+  const archivedAccount = allAccounts.data.accounts.find((a: any) => a.name === "归档账户");
+  assert.ok(archivedAccount, "includeArchived=true 必须返回归档账户");
+  assert.equal(archivedAccount.archived, true, "归档账户必须可区分状态");
+
+  // ── TASK-049：收紧引用校验、写后回读证明与帮助合同 ──
+
+  // 7. 空白 account/counterAccount 必须 Schema 拒绝且零写入
+  saveCalls = 0;
+  const blankAdd = await runAccounting("add_record", { title: "空白账户", direction: "expense", amount: 1, date: "2026-08-22", account: "" });
+  assert.equal(blankAdd.ok, false, "空白来源账户必须被拒绝");
+  const blankCounter = await runAccounting("add_record", { title: "空白目标", direction: "transfer", amount: 1, date: "2026-08-22", account: cashId, counterAccount: "   " });
+  assert.equal(blankCounter.ok, false, "空白转入账户必须被拒绝");
+  const blankPatch = await runAccounting("update_record", { recordId: expenseRecordId, expectedUpdatedAt: titleOnly.data.updatedAt, patch: { counterAccount: "" } });
+  assert.equal(blankPatch.ok, false, "update 空白账户补丁必须被拒绝");
+  assert.equal(saveCalls, 0, "空白引用必须在 Schema 层拒绝且零写入");
+
+  // 8. 悬空转账引用：只改标题也必须失败且原记录不变（历史数据经存储层直接构造）
+  const recordsFileKey = getRecordsFile(2026);
+  const ghostFile = JSON.parse(JSON.stringify(accountingStore.get(recordsFileKey))) as any;
+  const ghostRow = ghostFile.records.find((r: any) => r.recordId === transfer.data.recordId);
+  ghostRow.account = "accounting-asset-ghost-missing";
+  accountingStore.set(recordsFileKey, ghostFile);
+  saveCalls = 0;
+  const danglingUpdate = await runAccounting("update_record", { recordId: transfer.data.recordId, expectedUpdatedAt: ghostRow.updatedAt, patch: { title: "悬空改标题" } });
+  assert.equal(danglingUpdate.ok, false, "转账存在悬空引用时不得通过其他字段修改绕过校验");
+  assert.equal(saveCalls, 0, "悬空引用更新必须零写入");
+  const afterDangling = await runAccounting("query_records", { startDate: "2026-08-01", endDate: "2026-08-31" }) as any;
+  const danglingRow = afterDangling.data.records.find((r: any) => r.recordId === transfer.data.recordId);
+  assert.equal(danglingRow.title, "转账测试", "失败的更新不得改动原记录");
+
+  // 9. 合法旧名称转账：只改标题可通过且保留未提交的名称表示；ID/名称指向同账户时判同拒绝
+  const namedTransfer = await runAccounting("add_record", { title: "命名转账", direction: "transfer", amount: 8, date: "2026-08-22", account: "现金", counterAccount: "银行卡" }) as any;
+  assert.equal(namedTransfer.ok, true);
+  const namedFile = JSON.parse(JSON.stringify(accountingStore.get(recordsFileKey))) as any;
+  const namedRow = namedFile.records.find((r: any) => r.recordId === namedTransfer.data.recordId);
+  namedRow.account = "现金";
+  namedRow.counterAccount = "银行卡";
+  accountingStore.set(recordsFileKey, namedFile);
+  saveCalls = 0;
+  const sameViaUpdate = await runAccounting("update_record", { recordId: namedTransfer.data.recordId, expectedUpdatedAt: namedRow.updatedAt, patch: { account: bankId } });
+  assert.equal(sameViaUpdate.ok, false, "显式 ID 与既有名称指向同一真实账户时必须判同并拒绝");
+  assert.equal(saveCalls, 0);
+  const renameTitleOnly = await runAccounting("update_record", { recordId: namedTransfer.data.recordId, expectedUpdatedAt: namedRow.updatedAt, patch: { title: "命名转账二" } }) as any;
+  assert.equal(renameTitleOnly.ok, true, "唯一合法旧名称的转账必须允许修改无关字段");
+  const afterNamed = await runAccounting("query_records", { startDate: "2026-08-01", endDate: "2026-08-31" }) as any;
+  const keptRow = afterNamed.data.records.find((r: any) => r.recordId === namedTransfer.data.recordId);
+  assert.equal(keptRow.title, "命名转账二");
+  assert.equal(keptRow.account, "现金", "未显式提交的账户字段必须保留原表示");
+  assert.equal(keptRow.counterAccount, "银行卡", "未显式提交的账户字段必须保留原表示");
+
+  // 10. 同毫秒时间戳容忍：固定保存时间等于该记录更新前真实的 updatedAt，
+  // 使 expectedUpdatedAt、本次保存结果、写后回读三者完全相同仍成功。
+  const pinnedIso = titleOnly.data.updatedAt as string;
+  const realToIso = Date.prototype.toISOString;
+  Date.prototype.toISOString = function () { return pinnedIso; };
+  let pinnedUpdate: any;
+  try {
+    pinnedUpdate = await runAccounting("update_record", { recordId: expenseRecordId, expectedUpdatedAt: pinnedIso, patch: { note: "同毫秒写入证明" } });
+  } finally {
+    Date.prototype.toISOString = realToIso;
+  }
+  assert.equal(pinnedUpdate.ok, true, "expectedUpdatedAt 与保存/回读时间戳完全相同时不得误判失败");
+  assert.equal(pinnedUpdate.data.note, "同毫秒写入证明", "补丁字段必须真实持久化，成功不是空操作");
+  assert.equal(pinnedUpdate.data.updatedAt, pinnedIso, "回读 updatedAt 必须等于 expectedUpdatedAt（即本次保存结果）");
+
+  // 11. 帮助合同：真实 agent_tool_help.describe_action 公开 includeArchived
+  const helpTool = createAgentToolHelpTool({ externalSkillSettings: {} as never, availableTools: [{ name: "homepage_components", actions: ["accounting.query_records", "accounting.list_accounts"] }] });
+  const helpCtx = { question: "", callCounts: {} } as never;
+  const qHelp = await helpTool.execute(helpCtx, { action: "describe_action", toolName: "homepage_components", actionName: "accounting.query_records" } as never);
+  assert.equal(qHelp.ok, true);
+  const qSchema = (qHelp.data as any).argsSchema as any;
+  assert.equal(qSchema.properties.includeArchived?.type, "boolean", "query_records 帮助必须公开 includeArchived 类型");
+  assert.match(String(qSchema.properties.includeArchived?.description), /false/, "帮助必须说明缺省 false 仅活动流水");
+  assert.match(String(qSchema.properties.includeArchived?.description), /archived/, "帮助必须说明归档返回语义");
+  const aHelp = await helpTool.execute(helpCtx, { action: "describe_action", toolName: "homepage_components", actionName: "accounting.list_accounts" } as never);
+  assert.equal(aHelp.ok, true);
+  const aSchema = (aHelp.data as any).argsSchema as any;
+  assert.equal(aSchema.properties.includeArchived?.type, "boolean", "list_accounts 帮助必须公开 includeArchived 类型");
+  assert.match(String(aSchema.properties.includeArchived?.description), /归档/, "帮助必须说明归档返回语义");
 }
 
 console.log("主页 Agent 工具验收断言通过。");

@@ -104,9 +104,10 @@ export async function loadAccountingRecordsForRange(
     plugin: any,
     startDate: string,
     endDate: string,
+    includeArchived = false,
 ): Promise<AccountingLoadResult> {
     try {
-        const records = await loadAccountingRecordsByRange(plugin, startDate, endDate);
+        const records = await loadAccountingRecordsByRange(plugin, startDate, endDate, includeArchived);
         return {
             records: sortRecordsDesc(records),
             status: createStatus(true, `${records.length} 条记录`),

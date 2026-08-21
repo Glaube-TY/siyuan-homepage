@@ -363,22 +363,23 @@ export async function updateAccountingSummaryIndexForYears(plugin: any, years: n
 
 // ── Record operations ──
 
-export async function loadAccountingRecordsByYear(plugin: any, year: number): Promise<AccountingRecord[]> {
+export async function loadAccountingRecordsByYear(plugin: any, year: number, includeArchived = false): Promise<AccountingRecord[]> {
     const file = await loadAccountingRecordsFile(plugin, year);
-    return file.records.filter((r) => !r.archived);
+    return includeArchived ? file.records : file.records.filter((r) => !r.archived);
 }
 
 export async function loadAccountingRecordsByRange(
     plugin: any,
     startDate: string,
     endDate: string,
+    includeArchived = false,
 ): Promise<AccountingRecord[]> {
     const startYear = parseInt(startDate.slice(0, 4), 10);
     const endYear = parseInt(endDate.slice(0, 4), 10);
     if (!Number.isFinite(startYear) || !Number.isFinite(endYear)) return [];
     const records: AccountingRecord[] = [];
     for (let year = startYear; year <= endYear; year++) {
-        const yearRecords = await loadAccountingRecordsByYear(plugin, year);
+        const yearRecords = await loadAccountingRecordsByYear(plugin, year, includeArchived);
         records.push(...yearRecords.filter((r) => r.date >= startDate && r.date <= endDate));
     }
     return records;

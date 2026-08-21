@@ -38,9 +38,9 @@ export function normalizeAccount(input: AccountingAccountInput): AccountingAccou
     };
 }
 
-export async function loadAccountingAccounts(plugin: any): Promise<AccountingAccountLoadResult> {
+export async function loadAccountingAccounts(plugin: any, includeArchived = false): Promise<AccountingAccountLoadResult> {
     try {
-        const accounts = await readAccountingAssets(plugin, false);
+        const accounts = await readAccountingAssets(plugin, includeArchived);
         return {
             accounts: accounts.sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name)),
             status: createStatus(true, `${accounts.length} 个资产`),
