@@ -31,6 +31,7 @@ import {
   getReviewSummary,
 } from "../src/components/utils/widgetBlock/widget/reviewDocs/reviewDocs";
 import type { ReviewItem } from "../src/components/utils/widgetBlock/widget/reviewDocs/reviewDocsTypes";
+import { createHomepageFixedAssetsActionTools } from "../src/features/kb/services/agent-workbench/tools/homepage-components/homepage-fixed-assets.tool";
 
 function makeGateTool(actions: Record<string, { readOnly?: boolean }>): { tool: NativeTool; count: () => number; preflightCount: () => number } {
   let underlyingExecutes = 0;
@@ -1048,6 +1049,56 @@ function actionEnum(registry: ToolRegistry): string[] {
   assert.equal(overdueList.every((item) => item.dueStatus === "overdue" && item.overdueDays > 0), true);
   assert.equal(todayList.every((item) => item.dueStatus === "today" && item.overdueDays === 0), true);
   assert.equal(futureList30.every((item) => item.dueStatus === "future" && item.overdueDays === 0), true);
+}
+
+// ── 固定资产更新补丁 Schema 验收：创建默认值不得污染部分更新 ──
+{
+  const fixedAssetsTools = createHomepageFixedAssetsActionTools();
+  const faUpdateTool = fixedAssetsTools.find((entry) => entry.action === "update")!.tool;
+  const faAddTool = fixedAssetsTools.find((entry) => entry.action === "add")!.tool;
+
+  // 1. 只提交一个字段：解析后 patch 键集合与输入完全一致
+  const parsedSingle = faUpdateTool.inputSchema.parse({
+    assetId: "asset-1",
+    expectedUpdatedAt: "2026-08-21T00:00:00.000Z",
+    patch: { note: "备注" },
+  });
+  assert.deepEqual(Object.keys(parsedSingle.patch), ["note"], "单字段 patch 解析后键集合必须与输入一致");
+
+  // 2. 复现真实故障输入（名称、额外费用、预计天数、备注）：不得注入 category/costMode 等未提交字段
+  const parsedPartial = faUpdateTool.inputSchema.parse({
+    assetId: "asset-1",
+    expectedUpdatedAt: "2026-08-21T00:00:00.000Z",
+    patch: { name: "新名称", extraCost: 5, expectedDays: 30, note: "备注" },
+  });
+  assert.deepEqual(
+    Object.keys(parsedPartial.patch).sort(),
+    ["expectedDays", "extraCost", "name", "note"],
+    "patch 键集合必须与显式输入一致",
+  );
+  assert.equal("category" in parsedPartial.patch, false, "未提交的 category 不得被 Schema 注入默认值");
+  assert.equal("costMode" in parsedPartial.patch, false, "未提交的 costMode 不得被 Schema 注入默认值");
+
+  // 3. 显式提交空分类、elapsed、0 额外费用必须原样保留，不能误当成缺失
+  const parsedExplicit = faUpdateTool.inputSchema.parse({
+    assetId: "asset-1",
+    expectedUpdatedAt: "2026-08-21T00:00:00.000Z",
+    patch: { category: "", costMode: "elapsed", extraCost: 0 },
+  });
+  assert.deepEqual(parsedExplicit.patch, { category: "", costMode: "elapsed", extraCost: 0 });
+
+  // 4. patch 严格模式保持：未知字段继续拒绝
+  assert.throws(
+    () => faUpdateTool.inputSchema.parse({ assetId: "a", expectedUpdatedAt: "x", patch: { unknownField: true } }),
+    undefined,
+    "patch 未知字段必须继续被拒绝",
+  );
+
+  // 5. add 默认值语义不变：category=""、extraCost=0、costMode="elapsed"
+  const parsedAdd = faAddTool.inputSchema.parse({ name: "验收资产", purchasePrice: 100, purchaseDate: "2026-08-21" });
+  assert.equal(parsedAdd.category, "");
+  assert.equal(parsedAdd.extraCost, 0);
+  assert.equal(parsedAdd.costMode, "elapsed");
 }
 
 console.log("主页 Agent 工具验收断言通过。");

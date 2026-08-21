@@ -16,20 +16,28 @@ import { alwaysAvailable, homepageComponentFailure, HomepageComponentConflictErr
 const dateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 const costModeSchema = z.enum(["elapsed", "expectedLife", "retireDate"]);
 const periodSchema = z.enum(["day", "week", "month", "quarter", "year"]);
+// 底层字段校验器不带创建默认值；默认值只在新增 Schema 上生效，
+// 更新 patch 解析后只能包含调用者显式提交的字段。
 const assetFields = {
   name: z.string().trim().min(1).max(200),
-  category: z.string().trim().max(100).default(""),
+  category: z.string().trim().max(100),
   icon: z.string().trim().max(20).optional(),
   purchasePrice: z.number().finite().nonnegative(),
-  extraCost: z.number().finite().nonnegative().default(0),
+  extraCost: z.number().finite().nonnegative(),
   purchaseDate: dateSchema,
   retireDate: dateSchema.optional(),
   warrantyDate: dateSchema.optional(),
   expectedDays: z.number().int().min(1).max(365250).optional(),
-  costMode: costModeSchema.default("elapsed"),
+  costMode: costModeSchema,
   note: z.string().max(2000).optional(),
 };
-const addSchema = z.object(assetFields).strict();
+const assetCreateFields = {
+  ...assetFields,
+  category: assetFields.category.default(""),
+  extraCost: assetFields.extraCost.default(0),
+  costMode: assetFields.costMode.default("elapsed"),
+};
+const addSchema = z.object(assetCreateFields).strict();
 const updateSchema = z.object({
   assetId: z.string().trim().min(1),
   expectedUpdatedAt: z.string().min(1),
