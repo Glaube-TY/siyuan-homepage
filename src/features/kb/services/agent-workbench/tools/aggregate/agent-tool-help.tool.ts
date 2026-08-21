@@ -262,6 +262,7 @@ function describeTool(
     argsSchema: snapshot.argsSchema ?? tool.argsSchema,
     inputHint: tool.inputHint,
     examples: tool.examples,
+
     notes: tool.notes,
     ...(actions.length === 0 ? {
       note: `${tool.name} 不是 action 聚合工具，请直接按该工具的 input schema 调用，不要使用 describe_action。`,
@@ -319,6 +320,8 @@ function describeAction(
     boundary: actionHelp?.boundary ?? action.boundary ?? tool.boundary,
     argsUsage: `调用 ${tool.name} 时传入 { "action": "${action.name}", "args": { ... } }。args 使用该 action 的参数对象，可根据参数校验错误补齐字段。`,
     argsSchema: actionHelp?.argsSchema ?? action.argsSchema,
+    outputSchema: actionHelp?.outputSchema ?? undefined,
+    resultEnvelope: "执行成功时返回 { ok: true, data: ... }；执行失败时返回 { ok: false, data: null, error: { code, message, recoverable, hint?, details? } }。",
     inputHint: actionHelp?.inputHint,
     examples: action.examples,
     notes: action.notes,

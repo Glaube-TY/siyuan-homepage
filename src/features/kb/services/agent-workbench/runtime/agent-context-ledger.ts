@@ -2,6 +2,7 @@ import { estimateTextTokensConservative } from "../../../types/context-usage";
 
 export type AgentContextLayer = "constraints" | "working-state" | "recent-verbatim" | "summary" | "retrieval-index";
 
+
 export type AgentContextSourceId =
   | "current-turn"
   | "compaction-snapshot"
@@ -9,13 +10,11 @@ export type AgentContextSourceId =
   | "working-target"
   | "global-memory"
   | "attached-documents"
-  | "knowledge-guidance"
   | "attached-document-content"
   | "external-skills"
   | "skill-instructions"
   | "runtime-tools"
   | "tool-manifest";
-
 export interface AgentContextManifestEntry {
   source: AgentContextSourceId;
   layer: AgentContextLayer;

@@ -232,10 +232,7 @@ const denied = await restrictedTool?.execute(
 );
 assert.equal(denied?.ok, false);
 assert.equal(denied?.error?.code, "permission_denied");
-const restrictedPrompt = buildAgentSystemPrompt({
-  isToolAvailable: (toolName) => toolName === "safe_aggregate",
-  isActionAvailable: (_toolName, action) => action === "read",
-});
+const restrictedPrompt = buildAgentSystemPrompt();
 assert.equal(restrictedPrompt.includes("notebrain_file.run_command"), false);
 assert.equal(restrictedPrompt.includes("homepage_manage"), false);
 

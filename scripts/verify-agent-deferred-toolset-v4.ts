@@ -620,7 +620,7 @@ async function verifyProductionFirstTurn(): Promise<void> {
     getState: () => emptyState(),
     updateState: () => undefined,
     actualPromptContext: {
-      systemPrompt: buildAgentSystemPrompt({ isToolAvailable: (name) => initialSelection.activeProviderToolNames.has(name) }),
+      systemPrompt: buildAgentSystemPrompt(),
       contextInstructions: "",
       activeToolDefinitions: initialSelection.tools,
       currentQuestion: question,
@@ -659,7 +659,7 @@ async function verifyProductionFirstTurn(): Promise<void> {
     toolRegistry: nativeRegistry,
     providerToolsetController: controller,
     systemPrompt: "base",
-    buildSystemPrompt: (active) => buildAgentSystemPrompt({ isToolAvailable: (name) => active.has(name) }),
+    buildSystemPrompt: () => buildAgentSystemPrompt(),
     contextWindowTokens: 8_192,
     maxOutputTokens: 512,
   });
@@ -669,7 +669,7 @@ async function verifyProductionFirstTurn(): Promise<void> {
   assert.equal(provider.seenTools.length < initialSelection.registeredToolCount, true);
   const promptBudget = buildPromptBudget({
     providerMessages: [
-      { role: "system", content: buildAgentSystemPrompt({ isToolAvailable: (name) => initialSelection.activeProviderToolNames.has(name) }) },
+      { role: "system", content: buildAgentSystemPrompt() },
       { role: "user", content: question },
     ],
     providerTools: initialSelection.tools,

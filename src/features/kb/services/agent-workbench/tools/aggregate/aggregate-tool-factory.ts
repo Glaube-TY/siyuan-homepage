@@ -105,6 +105,15 @@ function resolveActionArgsSchema(contract: ToolContract): unknown | undefined {
   }
 }
 
+function resolveActionOutputSchema(contract: ToolContract): unknown | undefined {
+  if (!contract.outputSchema) return undefined;
+  try {
+    return z.toJSONSchema(contract.outputSchema as z.ZodType, { io: "output" });
+  } catch {
+    return undefined;
+  }
+}
+
 function getStrictFieldDiagnostics(params: {
   schema: unknown;
   args: unknown;
@@ -201,10 +210,12 @@ function buildAggregateActionHelp(
   const help: Record<string, AggregateActionHelp> = {};
   for (const binding of actions) {
     const contract = binding.tool;
+    const outputSchema = resolveActionOutputSchema(contract);
     help[binding.action] = {
       action: binding.action,
       internalToolName: contract.name,
       argsSchema: sanitizeProviderVisibleValue(resolveActionArgsSchema(contract)),
+      outputSchema: outputSchema ? sanitizeProviderVisibleValue(outputSchema) : undefined,
       inputHint: contract.inputHint,
       boundary: contract.boundary,
       readOnly: contract.readOnly,

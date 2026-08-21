@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Thin ToolContract — a tool is a global independent capability.
  *
  * ToolExecutor is the SINGLE observation envelope generator.
@@ -81,6 +81,7 @@ export interface AggregateActionHelp {
   /** 仅供运行时 Help 将内部 contract 名解析到公开聚合 action，不进入 Provider Schema。 */
   internalToolName?: string;
   argsSchema?: unknown;
+  outputSchema?: unknown;
   inputHint?: string;
   boundary?: string;
   readOnly?: boolean;

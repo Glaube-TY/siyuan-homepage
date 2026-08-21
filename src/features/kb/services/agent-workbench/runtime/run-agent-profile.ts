@@ -759,7 +759,6 @@ export async function runAgentProfile<TResult>(
       runtimeToolsSettings: agentProfileAllowsContext(agentProfile, "runtime-tools")
         ? settings.runtimeTools
         : undefined,
-      includeKnowledgeGuidance: agentProfileAllowsContext(agentProfile, "knowledge"),
       includeSkillInstructions: agentProfileAllowsContext(agentProfile, "skills"),
       runtimeToolCapabilities: {
         sandboxEnabled,
@@ -772,12 +771,7 @@ export async function runAgentProfile<TResult>(
       ? [...(params.historicalMessages ?? [])]
       : [];
     const providerTools = nativeToolRegistry.listProviderVisible();
-    const buildCurrentSystemPrompt = (activeToolNames: ReadonlySet<string>): string => buildAgentSystemPrompt({
-      isToolAvailable: (toolName) => activeToolNames.has(toolName)
-        && nativeToolRegistry.get(toolName)?.providerVisible === true,
-      isActionAvailable: (toolName, action) =>
-        wb.toolRegistry.getTool(toolName)?.aggregateActionHelp?.[action] !== undefined,
-    });
+    const buildCurrentSystemPrompt = (): string => buildAgentSystemPrompt();
     const resolveProviderToolset = (
       nextHistoricalMessages: readonly AgentMessage[] = historicalMessages,
       contextInstructions: string = context.contextInstructions,
@@ -796,11 +790,8 @@ export async function runAgentProfile<TResult>(
           { role: "user", content: params.question },
         ]),
       });
-      const provisionalPrompt = buildCurrentSystemPrompt(providerToolsetController.getActiveProviderToolNames());
-      let selection = resolve(provisionalPrompt);
-      let systemPrompt = buildCurrentSystemPrompt(selection.activeProviderToolNames);
-      selection = resolve(systemPrompt);
-      systemPrompt = buildCurrentSystemPrompt(selection.activeProviderToolNames);
+      const systemPrompt = buildCurrentSystemPrompt();
+      const selection = resolve(systemPrompt);
       return { selection, systemPrompt };
     };
     const rebuildProviderPromptState = (
@@ -1003,7 +994,7 @@ export async function runAgentProfile<TResult>(
       providerToolsetController,
       session,
       systemPrompt: finalPromptState.systemPrompt,
-      buildSystemPrompt: (activeToolNames) => buildCurrentSystemPrompt(activeToolNames),
+      buildSystemPrompt: () => buildCurrentSystemPrompt(),
       contextInstructions: finalPromptState.contextInstructions,
       historicalMessages: finalPromptState.historicalMessages,
       contextWindowTokens: params.contextWindowTokens ?? selected.model?.contextWindowTokens,

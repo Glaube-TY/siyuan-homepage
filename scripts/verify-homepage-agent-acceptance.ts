@@ -474,10 +474,13 @@ function actionEnum(registry: ToolRegistry): string[] {
   const buttonsMeta = settingsMeta?.actions.find((action) => action.name === "update_buttons");
   assert.equal(JSON.stringify(buttonsMeta).includes("新增按钮"), false, "update_buttons metadata 不得提示新增按钮");
   const systemPrompt = buildAgentSystemPrompt();
-  assert.equal(systemPrompt.includes("homepage_components.enhanced_diary.*"), true, "系统提示必须指向 enhanced_diary 子路由");
-  assert.equal(systemPrompt.includes("instance.list 用于获取当前主页组件及其 type/subtool"), true, "系统提示必须说明 instance.list 的索引职责");
-  assert.equal(systemPrompt.includes("跨组件索引 instance.*"), false, "系统提示不得把通用 instance.* 描述为 CRUD 入口");
-  assert.equal(systemPrompt.includes("强化日记任务统一优先使用 diary_task"), false, "系统提示不得把组件强化日记指向 diary_task");
+  const nonBlankLines = systemPrompt.split("\n").filter((line) => line.trim().length > 0);
+  assert.ok(nonBlankLines.length <= 25, `系统提示非空行数必须 <= 25，实际 ${nonBlankLines.length}`);
+  assert.equal(systemPrompt.includes("homepage_components"), false, "系统提示不得包含具体业务工具路由");
+  assert.equal(systemPrompt.includes("全量测试"), false, "系统提示不得包含测试流程");
+  assert.equal(systemPrompt.includes("disposable"), false, "系统提示不得包含单次测试对象要求");
+  assert.equal(systemPrompt.includes("user_rejected"), true, "系统提示必须保留确认与拒绝原则");
+  assert.equal(systemPrompt.includes("[[cite:"), true, "系统提示必须保留引用协议");
   const settingsSchema = AGGREGATE_TOOL_CATALOG.find((tool) => tool.name === "homepage_manage")?.actions.find((action) => action.name === "update_settings")?.argsSchema as {
     properties?: { patch?: { properties?: Record<string, { maxLength?: number }> } };
   } | undefined;

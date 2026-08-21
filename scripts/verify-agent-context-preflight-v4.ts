@@ -760,7 +760,6 @@ async function verifyCoveredHistoryToolPressure(): Promise<void> {
     question,
     conversationContext,
     globalMemory: "",
-    includeKnowledgeGuidance: true,
     includeSkillInstructions: true,
     runtimeToolCapabilities: {
       sandboxEnabled: false,
@@ -770,7 +769,7 @@ async function verifyCoveredHistoryToolPressure(): Promise<void> {
   });
 
   const buildScenario = (supportsCoreFallback: boolean) => ({
-    systemPrompt: buildAgentSystemPrompt({ isToolAvailable: (name) => productionTools.some((tool) => tool.name === name) }),
+    systemPrompt: buildAgentSystemPrompt(),
     contextInstructions: builtContext.contextInstructions,
     activeToolDefinitions: productionTools,
     registeredToolCount: productionTools.length,
@@ -800,7 +799,7 @@ async function verifyCoveredHistoryToolPressure(): Promise<void> {
         contextInstructions: builtContext.contextInstructions,
         historicalMessages: nextHistoricalMessages,
         manifest: nextContext.manifest,
-        systemPrompt: buildAgentSystemPrompt({ isToolAvailable: (name) => activeNames.has(name) }),
+        systemPrompt: buildAgentSystemPrompt(),
         providerToolSelection: selection,
         toolDefinitions,
         registeredToolCount: productionTools.length,
@@ -1501,8 +1500,121 @@ async function verifyInvariantMismatchRejection(): Promise<void> {
   assert.equal(provider.called, false, "发生 mismatch 时不得向 Provider 发起真实请求");
 }
 
+async function verifyUniversalPromptAndHelpContract(): Promise<void> {
+  // 1. Universal System Prompt bounds & invariant content
+  const systemPrompt = buildAgentSystemPrompt();
+  const nonBlankLines = systemPrompt.split("\n").filter((l) => l.trim().length > 0);
+  assert.ok(nonBlankLines.length <= 25, `System prompt non-blank lines must be <= 25, got ${nonBlankLines.length}`);
+  assert.equal(systemPrompt.includes("测试报告"), false, "System prompt 不得包含测试报告");
+  assert.equal(systemPrompt.includes("全量测试"), false, "System prompt 不得包含全量测试流程");
+  assert.equal(systemPrompt.includes("disposable"), false, "System prompt 不得包含单次测试专用要求");
+  assert.equal(systemPrompt.includes("homepage_components"), false, "System prompt 不得包含具体组件路由");
+  assert.equal(systemPrompt.includes("invalid_action_args"), false, "System prompt 不得包含错误码操作手册");
+  assert.equal(systemPrompt.includes("agent_tool_help"), true, "System prompt 允许唯一系统帮助工具名 agent_tool_help");
+  assert.equal(systemPrompt.includes("user_rejected"), true, "System prompt 保留确认与拒绝原则");
+  assert.equal(systemPrompt.includes("[[cite:"), true, "System prompt 保留引用协议");
+
+  // 2. Help describe_action outputSchema and resultEnvelope
+  const workbench = createAgentWorkbenchRuntime({
+    profile: getAgentProfile(KNOWLEDGE_CHAT_AGENT_PROFILE_ID),
+    providerToolsetController: new ProviderToolsetController(),
+    kbRetrievalToolDeps: {
+      getScope: () => ({ type: "whole_kb" as const }),
+      getEffectiveScope: () => ({ type: "whole_kb" as const }),
+      loadPluginData: async <T>(_key: string) => null as T | null,
+      savePluginData: async <T>(_key: string, _data: T) => {},
+    },
+    globalToolAccess: { agentToolHelp: true, webFetch: false },
+    builtinCapabilityAccess: {
+      knowledgeBase: true,
+      scheduleTaskDiary: true,
+      databaseAssistant: true,
+      docContentEditing: true,
+      notebookDocTree: true,
+      tagBookmarkOutline: true,
+      assetManagement: true,
+      riffReview: true,
+      homepageManagement: true,
+      homepageComponents: true,
+      temporaryWorkbench: true,
+      homepageQuickNote: true,
+      homepageFocus: true,
+      homepageAccounting: true,
+      homepageFixedAssets: true,
+      homepageAnniversary: true,
+      homepageFavorites: true,
+      homepageReview: true,
+      homepageMusic: true,
+    },
+    externalSkillSettings: DEFAULT_EXTERNAL_SKILL_SETTINGS,
+    mcpSettings: DEFAULT_MCP_SETTINGS,
+  });
+  const helpTool = workbench.toolRegistry.listTools().find((t) => t.name === "agent_tool_help");
+  assert.ok(helpTool, "agent_tool_help 工具必须存在于 workbench");
+  const describeResult = await helpTool.execute({} as never, {
+    action: "describe_action",
+    toolName: "siyuan_kb",
+    actionName: "search",
+  });
+  assert.equal(describeResult.ok, true);
+  const describeData = describeResult.data as Record<string, unknown>;
+  assert.ok(typeof describeData.resultEnvelope === "string", "describe_action 必须返回 resultEnvelope");
+  assert.ok(describeData.resultEnvelope.includes("{ ok: true"), "resultEnvelope 必须说明成功结构");
+  assert.ok(describeData.resultEnvelope.includes("{ ok: false"), "resultEnvelope 必须说明失败结构");
+
+  // 3. Provider wire projection must NOT contain internal fields
+  const nativeRegistry = createNativeToolRegistryFromWorkbench({
+    toolRegistry: workbench.toolRegistry,
+    observationLog: workbench.observationLog,
+    question: "test",
+  });
+  const providerTools = nativeRegistry.listProviderVisible();
+  assert.ok(providerTools.length >= 14, `Provider-visible 顶层工具数必须 >= 14，实际 ${providerTools.length}`);
+
+  const openAiTools = nativeToolsToOpenAITools(providerTools);
+  const geminiTools = nativeToolsToGeminiFunctionDeclarations(providerTools);
+  const anthropicTools = nativeToolsToAnthropicTools(providerTools);
+
+  for (const t of openAiTools) {
+    assert.deepEqual(Object.keys(t).sort(), ["function", "type"]);
+    assert.deepEqual(Object.keys(t.function).sort(), ["description", "name", "parameters"]);
+    assert.equal("execute" in (t as object), false);
+    assert.equal("boundary" in (t as object), false);
+    assert.equal("aggregateActionHelp" in (t as object), false);
+    assert.equal("outputSchema" in (t as object), false);
+  }
+  for (const t of geminiTools) {
+    assert.deepEqual(Object.keys(t).sort(), ["description", "name", "parameters"]);
+    assert.equal("execute" in (t as object), false);
+    assert.equal("boundary" in (t as object), false);
+    assert.equal("aggregateActionHelp" in (t as object), false);
+    assert.equal("outputSchema" in (t as object), false);
+  }
+  for (const t of anthropicTools) {
+    assert.deepEqual(Object.keys(t).sort(), ["description", "input_schema", "name"]);
+    assert.equal("execute" in (t as object), false);
+    assert.equal("boundary" in (t as object), false);
+    assert.equal("aggregateActionHelp" in (t as object), false);
+    assert.equal("outputSchema" in (t as object), false);
+  }
+
+  // 4. Manifest must not contain knowledge-guidance
+  const contextBuilt = buildAgentContextInstructions({
+    toolRegistry: workbench.toolRegistry,
+    skillRegistry: workbench.skillRegistry,
+    observationLog: workbench.observationLog,
+    question: "test",
+  });
+  assert.equal(
+    contextBuilt.manifest.entries.some((entry) => (entry.source as string) === "knowledge-guidance"),
+    false,
+    "Manifest 不得包含已废弃的 knowledge-guidance 条目",
+  );
+}
+
 await verifyNoHistoryDoesNotCompact();
 await verifyDeferredProviderToolset();
+await verifyUniversalPromptAndHelpContract();
 await verifyHiddenDispatchAndErrors();
 await verifyCompactionFullRebuildPromptState();
 await verifyControlledFailureFullProviderPromptUsage();
