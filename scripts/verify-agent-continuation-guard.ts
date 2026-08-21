@@ -16,6 +16,7 @@ import {
   assertFinalAnswer,
   buildFinalAnswerComposerPrompt,
 } from "../src/features/kb/services/agent-workbench/runtime/final-answer-composer";
+import { buildAgentSystemPrompt } from "../src/features/kb/services/agent-core/prompts/system-prefix";
 import {
   routeAgentStreamEvent,
   routeFinalAnswerComposerEvent,
@@ -243,7 +244,16 @@ assert.equal(composedMessage.content.includes("让我先核对"), false);
 assert.ok(composedMessage.reasoning);
 assert.equal(composedMessage.reasoning.status, "done");
 
-// === 4. Composer Prompt & Safety Boundary ===
+// === 4. Composer Prompt, System Prompt & Safety Boundary ===
+const universalSystemPrompt = buildAgentSystemPrompt();
+const promptNonBlankLines = universalSystemPrompt.split("\n").filter((l) => l.trim().length > 0);
+assert.ok(promptNonBlankLines.length <= 25, `System prompt 行数必须 <= 25，实际 ${promptNonBlankLines.length}`);
+assert.equal(universalSystemPrompt.includes("用户当前消息明确提供的内容可作输入事实"), true);
+assert.equal(universalSystemPrompt.includes("历史回答不得作为本轮外部状态证据"), true);
+assert.equal(universalSystemPrompt.includes("必须依据本轮真实 tool_result"), true);
+assert.equal(universalSystemPrompt.includes("未执行工具时不得声称已检查或给出当前状态"), true);
+
+// 4.1. 有 Observation 场景：结构化执行证据
 const composerPrompt = buildFinalAnswerComposerPrompt({
   question: "汇总已完成结果",
   draftBody: "Agent draft D:\\private\\draft.md",
@@ -258,9 +268,22 @@ const composerPrompt = buildFinalAnswerComposerPrompt({
   }],
 });
 assert.match(composerPrompt, /查询完成/);
+assert.equal(composerPrompt.includes("本轮真实结构化证据"), true);
 assert.equal(composerPrompt.includes("raw-sensitive-tool-content"), false);
 assert.equal(composerPrompt.includes("D:\\private\\result.json"), false);
 assert.equal(composerPrompt.includes("should-not-leak"), false);
+
+// 4.2. 无 Observation 场景：明确声明无工具证据，草稿不得作为外部检查事实
+const zeroObservationPrompt = buildFinalAnswerComposerPrompt({
+  question: "检查当前数据库组件配置",
+  draftBody: "已完成只读检查，当前数据源为 manual，包含两条任务。",
+  globalMemory: "token=should-not-leak",
+  observations: [],
+});
+assert.equal(zeroObservationPrompt.includes("本轮未执行任何工具，无外部状态证据"), true);
+assert.equal(zeroObservationPrompt.includes("草稿、历史会话和全局记忆均不是外部状态证据"), true);
+assert.equal(zeroObservationPrompt.includes("非外部事实证据，不得据此声称已检查或已操作"), true);
+assert.equal(zeroObservationPrompt.includes("should-not-leak"), false);
 
 assert.throws(
   () => assertFinalAnswer(""),

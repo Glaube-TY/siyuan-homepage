@@ -61,9 +61,22 @@ export function buildFinalAnswerComposerPrompt(params: Pick<
   const memory = safePromptText(params.globalMemory, MAX_MEMORY_CHARS);
   const observationSummary = buildObservationSummary(params.observations);
   const draftBody = safePromptText(params.draftBody, MAX_DRAFT_CHARS);
+  const hasObservations = params.observations.length > 0;
+
+  const roleInstruction = hasObservations
+    ? "你是知识库 Agent 的最终回答 Composer。请根据用户问题、已完成工具安全摘要和 Agent 草稿，直接生成给用户看的最终回答。工具摘要是本轮真实执行证据，草稿仅用于组织表达，不得补充未经本轮工具验证的外部事实。"
+    : "你是知识库 Agent 的最终回答 Composer。注意：本轮未执行任何工具，草稿、历史会话和全局记忆均不是外部状态证据。只能回答通用知识或整理用户当前明确提供的内容；严禁把草稿中的陈述当作已检查或已完成的外部事实。";
+
+  const observationSection = hasObservations && observationSummary
+    ? "已完成工具结果的安全摘要（本轮真实结构化证据）：\n<observations>\n" + observationSummary + "\n</observations>"
+    : "已完成工具结果摘要：无（本轮未执行任何工具，无外部状态证据）。";
+
+  const draftSectionHeader = hasObservations
+    ? "Agent 草稿（仅用于组织本轮结果，不得补充外部事实）："
+    : "Agent 草稿（非外部事实证据，不得据此声称已检查或已操作）：";
 
   return [
-    "你是知识库 Agent 的最终回答 Composer。请根据用户问题、已完成工具摘要和 Agent 草稿，直接生成给用户看的最终回答。",
+    roleInstruction,
     "只输出最终回答正文：不要输出思考过程、执行计划、工具调用、核对过程、草稿说明或 JSON；不要把 Agent 的过程性话术原样复述为回答。",
     "只使用提供的事实；证据不足时要明确说明，不要编造来源、结果或已完成的写入。保留草稿中可验证且对用户有用的引用标记。",
     "用户问题：",
@@ -71,10 +84,8 @@ export function buildFinalAnswerComposerPrompt(params: Pick<
     safePromptText(params.question, 4_000),
     "</question>",
     memory ? "全局记忆（仅作必要上下文）：\n<memory>\n" + memory + "\n</memory>" : "",
-    observationSummary
-      ? "已完成工具结果的安全摘要（不是原始工具正文）：\n<observations>\n" + observationSummary + "\n</observations>"
-      : "已完成工具结果摘要：无。",
-    "Agent 草稿（可能包含过程性文字，只可提炼事实）：",
+    observationSection,
+    draftSectionHeader,
     "<draft>",
     draftBody,
     "</draft>",
