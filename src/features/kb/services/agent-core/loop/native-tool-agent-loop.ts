@@ -486,7 +486,12 @@ export class NativeToolAgentLoop {
       let lastOutputInspectionAt = 0;
       let finishReason: string | undefined;
       let stepUsage: AgentTokenUsage | undefined;
-      if (this.providerRequestCount === 0 && this.options.preflightPromptSummary) {
+      if (
+        appendUser
+        && this.currentResumeAttempt === 0
+        && this.providerRequestCount === 0
+        && this.options.preflightPromptSummary
+      ) {
         const preflight = this.options.preflightPromptSummary;
         const firstStepSummary: PreflightPromptStateSummary = {
           snapshotGeneration: preflight.snapshotGeneration,

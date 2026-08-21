@@ -1315,15 +1315,31 @@ async function verifyResumeDoesNotUseInitialPreparedPayload(): Promise<void> {
         breakdown: { systemPrompt: 10, contextInstructions: 0, conversationTokens: 0, currentUserTokens: 10, toolDefinitionTokens: 0, runtimeObservationTokens: 0 },
       },
     },
+    preflightPromptSummary: {
+      snapshotGeneration: 0,
+      inputTokens: 50,
+      activeToolNames: ["agent_tool_help"],
+      systemPromptTokenCount: 10,
+      contextInstructionTokenCount: 0,
+      historicalTokenCount: 0,
+      toolDefinitionTokenCount: 0,
+    },
   });
 
   const result = await loop.resume();
   assert.equal(result.status, "answer_ready");
+  assert.equal(result.providerRequestCount, 1, "Resume 恢复必须成功发起恰好 1 次 Provider 请求");
+  assert.equal(result.errorCode, undefined, "Resume 不得产生 agent_prompt_state_mismatch 或其他错误");
   assert.ok(receivedRequest);
   assert.equal(
     receivedRequest.messages.some((m) => m.role === "system" && m.content === "WRONG_FRESH_SYSTEM"),
     false,
     "Resume 恢复路径不得使用 fresh initialPreparedPayload",
+  );
+  assert.equal(
+    receivedRequest.messages.some((m) => m.role === "tool" && m.toolCallId === "c1"),
+    true,
+    "Resume 恢复请求中必须包含 Checkpoint 已完成的工具消息",
   );
 }
 
