@@ -24,6 +24,13 @@ import { buildAgentSystemPrompt } from "../src/features/kb/services/agent-core/p
 import { mergeKbSettings } from "../src/features/kb/services/settings/kb-settings-service";
 import type { NativeTool } from "../src/features/kb/services/agent-core/tools/native-tool";
 import type { KbGlobalToolName } from "../src/features/kb/types/settings";
+import {
+  computeReviewDueStatus,
+  refreshReviewItemDueStatus,
+  filterAndSortReviewItems,
+  getReviewSummary,
+} from "../src/components/utils/widgetBlock/widget/reviewDocs/reviewDocs";
+import type { ReviewItem } from "../src/components/utils/widgetBlock/widget/reviewDocs/reviewDocsTypes";
 
 function makeGateTool(actions: Record<string, { readOnly?: boolean }>): { tool: NativeTool; count: () => number; preflightCount: () => number } {
   let underlyingExecutes = 0;
@@ -950,6 +957,97 @@ function actionEnum(registry: ToolRegistry): string[] {
     (globalThis as any).window = prevWindow;
     (globalThis as any).CustomEvent = prevCustomEvent;
   }
+}
+
+// ── 文档复习到期状态派生与读取刷新验收 ──
+{
+  const baseDate = "2026-08-21";
+
+  // 1. 验证 computeReviewDueStatus 纯函数规则
+  assert.deepEqual(computeReviewDueStatus("2026-06-23", baseDate), { dueStatus: "overdue", overdueDays: 59 });
+  assert.deepEqual(computeReviewDueStatus("2026-07-15", baseDate), { dueStatus: "overdue", overdueDays: 37 });
+  assert.deepEqual(computeReviewDueStatus("2026-08-21", baseDate), { dueStatus: "today", overdueDays: 0 });
+  assert.deepEqual(computeReviewDueStatus("2026-08-30", baseDate), { dueStatus: "future", overdueDays: 0 });
+
+  // 2. 构造携带陈旧 dueStatus: "future", overdueDays: 0 的持久化索引 fixture
+  function makeReviewItem(id: string, nextDate: string): ReviewItem {
+    return {
+      id,
+      rootId: id,
+      box: "box-1",
+      path: `/${id}`,
+      hpath: `/复习文档-${id}`,
+      type: "doc",
+      blockType: "d",
+      title: `文档-${id}`,
+      content: "",
+      created: "2026-01-01",
+      updated: "2026-01-01",
+      attrs: {
+        reviewId: `r-${id}`,
+        nextDate,
+        note: "",
+        category: "学习",
+        priority: "medium",
+        plan: "manual",
+        intervals: [],
+        intervalIndex: 0,
+        reviewCount: 0,
+        lastReviewedAt: "",
+        targetType: "doc",
+        createdAt: "2026-01-01",
+        updatedAt: "2026-01-01",
+      },
+      dueStatus: "future",
+      overdueDays: 0,
+    };
+  }
+
+  const staleFixtures: ReviewItem[] = [
+    makeReviewItem("doc-1", "2026-06-23"),
+    makeReviewItem("doc-2", "2026-07-15"),
+    makeReviewItem("doc-3", "2026-07-15"),
+    makeReviewItem("doc-4", "2026-08-21"),
+    makeReviewItem("doc-5", "2026-08-30"),
+  ];
+
+  // 3. 验证 refreshReviewItemDueStatus 刷新后状态与逾期天数
+  const refreshed = staleFixtures.map((item) => refreshReviewItemDueStatus(item, baseDate));
+  assert.equal(refreshed[0].dueStatus, "overdue");
+  assert.equal(refreshed[0].overdueDays, 59);
+  assert.equal(refreshed[1].dueStatus, "overdue");
+  assert.equal(refreshed[1].overdueDays, 37);
+  assert.equal(refreshed[2].dueStatus, "overdue");
+  assert.equal(refreshed[2].overdueDays, 37);
+  assert.equal(refreshed[3].dueStatus, "today");
+  assert.equal(refreshed[3].overdueDays, 0);
+  assert.equal(refreshed[4].dueStatus, "future");
+  assert.equal(refreshed[4].overdueDays, 0);
+
+  // 4. 验证原始 fixture 对象未被就地修改（只读不可变）
+  assert.equal(staleFixtures[0].dueStatus, "future");
+  assert.equal(staleFixtures[0].overdueDays, 0);
+
+  // 5. 显式传入 baseDate，验证 filterAndSortReviewItems 与 getReviewSummary 口径完全一致
+  const summaryDefault = getReviewSummary(staleFixtures, 7, baseDate);
+  const futureListDefault = filterAndSortReviewItems(staleFixtures, { view: "future" }, baseDate);
+  assert.equal(futureListDefault.length, summaryDefault.future, "默认 7 天未来列表必须与 summaryDefault.future 一致");
+
+  const summary30 = getReviewSummary(staleFixtures, 30, baseDate);
+  const allList = filterAndSortReviewItems(staleFixtures, { view: "all" }, baseDate);
+  const overdueList = filterAndSortReviewItems(staleFixtures, { view: "overdue" }, baseDate);
+  const todayList = filterAndSortReviewItems(staleFixtures, { view: "today" }, baseDate);
+  const dueList = filterAndSortReviewItems(staleFixtures, { view: "due" }, baseDate);
+  const futureList30 = filterAndSortReviewItems(staleFixtures, { view: "future", futureDays: 30 }, baseDate);
+
+  assert.equal(allList.length, summary30.total, "全部列表长度必须与 summary.total 一致");
+  assert.equal(overdueList.length, summary30.overdue, "逾期列表长度必须与 summary.overdue 一致");
+  assert.equal(todayList.length, summary30.today, "今日列表长度必须与 summary.today 一致");
+  assert.equal(dueList.length, summary30.due, "到期列表长度必须与 summary.due 一致");
+  assert.equal(futureList30.length, summary30.future, "30 天未来列表必须与 summary.future 一致");
+  assert.equal(overdueList.every((item) => item.dueStatus === "overdue" && item.overdueDays > 0), true);
+  assert.equal(todayList.every((item) => item.dueStatus === "today" && item.overdueDays === 0), true);
+  assert.equal(futureList30.every((item) => item.dueStatus === "future" && item.overdueDays === 0), true);
 }
 
 console.log("主页 Agent 工具验收断言通过。");

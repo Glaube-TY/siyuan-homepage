@@ -21,6 +21,7 @@ import type {
     CompleteReviewParams,
     PostponeReviewParams,
     ReviewAttrs,
+    ReviewDueStatus,
     ReviewItem,
     ReviewLogAction,
     ReviewLogEntry,
@@ -161,6 +162,35 @@ export async function getReviewTargetInfo(
     return normalizeBlockRow(row, targetType);
 }
 
+export function computeReviewDueStatus(
+    nextDate: string,
+    today: string = toLocalDateString(),
+): { dueStatus: ReviewDueStatus; overdueDays: number } {
+    const daysFromToday = diffDays(nextDate, today);
+    const dueStatus: ReviewDueStatus = daysFromToday < 0 ? "overdue" : daysFromToday === 0 ? "today" : "future";
+    const overdueDays = daysFromToday < 0 ? Math.abs(daysFromToday) : 0;
+    return { dueStatus, overdueDays };
+}
+
+export function refreshReviewItemDueStatus(
+    item: ReviewItem,
+    today: string = toLocalDateString(),
+): ReviewItem {
+    const nextDate = item?.attrs?.nextDate;
+    if (!nextDate) {
+        return item;
+    }
+    const { dueStatus, overdueDays } = computeReviewDueStatus(nextDate, today);
+    if (item.dueStatus === dueStatus && item.overdueDays === overdueDays) {
+        return item;
+    }
+    return {
+        ...item,
+        dueStatus,
+        overdueDays,
+    };
+}
+
 export async function loadAllReviewItems(
     plugin?: any,
     notebookIds: string[] = [],
@@ -183,8 +213,9 @@ export async function loadAllReviewItemsResult(
 ): Promise<ComponentDataResult<ReviewItem>> {
     void plugin;
     const result = await getReviewIndexResult<any>();
+    const rawItems = (result as ComponentDataResult<ReviewItem>).items || [];
     const items = filterReviewItemsByNotebooks(
-        (result as ComponentDataResult<ReviewItem>).items,
+        rawItems.map((item) => refreshReviewItemDueStatus(item)),
         notebookIds,
     );
     return {
@@ -194,8 +225,7 @@ export async function loadAllReviewItemsResult(
     };
 }
 
-function matchesView(item: ReviewItem, view: ReviewView, futureDays: number): boolean {
-    const today = toLocalDateString();
+function matchesView(item: ReviewItem, view: ReviewView, futureDays: number, today: string = toLocalDateString()): boolean {
     const delta = diffDays(item.attrs.nextDate, today);
     if (view === "today") return delta === 0;
     if (view === "overdue") return delta < 0;
@@ -234,7 +264,8 @@ function compareReviewItems(sortBy: ReviewSortBy): (a: ReviewItem, b: ReviewItem
 
 export function filterAndSortReviewItems(
     items: ReviewItem[],
-    options: ReviewQueryOptions = {}
+    options: ReviewQueryOptions = {},
+    today: string = toLocalDateString(),
 ): ReviewItem[] {
     const view = options.view || "due";
     const sortBy = options.sortBy || "dueAsc";
@@ -243,11 +274,13 @@ export function filterAndSortReviewItems(
     const category = (options.category || "").trim();
     const priority = options.priority || "all";
 
-    let filtered = items.filter((item) => {
+    const refreshedItems = items.map((item) => refreshReviewItemDueStatus(item, today));
+
+    let filtered = refreshedItems.filter((item) => {
         if (options.showDocs === false && item.type === "doc") return false;
         if (options.showBlocks === false && item.type === "block") return false;
         if (options.showFuture === false && item.dueStatus === "future") return false;
-        if (!matchesView(item, view, futureDays)) return false;
+        if (!matchesView(item, view, futureDays, today)) return false;
         if (category && item.attrs.category !== category) return false;
         if (priority !== "all" && item.attrs.priority !== priority) return false;
         if (search) {
@@ -279,8 +312,7 @@ export async function queryReviewItems(
     return filterAndSortReviewItems(items, options);
 }
 
-export function getReviewSummary(items: ReviewItem[], futureDays = 7): ReviewSummary {
-    const today = toLocalDateString();
+export function getReviewSummary(items: ReviewItem[], futureDays = 7, today: string = toLocalDateString()): ReviewSummary {
     const summary: ReviewSummary = {
         today: 0,
         overdue: 0,
@@ -295,7 +327,8 @@ export function getReviewSummary(items: ReviewItem[], futureDays = 7): ReviewSum
         },
     };
 
-    for (const item of items) {
+    for (const rawItem of items) {
+        const item = refreshReviewItemDueStatus(rawItem, today);
         const delta = diffDays(item.attrs.nextDate, today);
         if (delta === 0) summary.today += 1;
         if (delta < 0) summary.overdue += 1;
@@ -360,14 +393,12 @@ function buildLogEntry(
 }
 
 function reviewItemFromTarget(target: ReviewTargetInfo, attrs: ReviewAttrs): ReviewItem {
-    const today = toLocalDateString();
-    const daysFromToday = diffDays(attrs.nextDate, today);
-    const dueStatus = daysFromToday < 0 ? "overdue" : daysFromToday === 0 ? "today" : "future";
+    const { dueStatus, overdueDays } = computeReviewDueStatus(attrs.nextDate);
     return {
         ...target,
         attrs,
         dueStatus,
-        overdueDays: daysFromToday < 0 ? Math.abs(daysFromToday) : 0,
+        overdueDays,
     };
 }
 
