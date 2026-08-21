@@ -52,27 +52,19 @@ export function createReadAttributeViewTool(
         const result = await deps.executeReadAttributeView(args);
         return { ok: true, data: result.safeOutput };
       } catch (error) {
+        const code = (error as Record<string, unknown>)?.code as string | undefined;
         const msg = error instanceof Error ? error.message : String(error);
-        let code: string;
-        let hint: string;
-
-        if (msg.startsWith("[invalid_database_id]")) {
-          code = "invalid_database_id";
-          hint = "databaseId 不能为空。请提供 list_attribute_views 中 usableForRead=true 的真实数据库 ID。";
-        } else if (msg.startsWith("[resource_not_found]")) {
-          code = "resource_not_found";
-          hint = "请确认 databaseId 是真实数据库 ID，来自 list_attribute_views 或用户提供的 ID。";
-        } else {
-          code = "attribute_view_read_failed";
-          hint = "请确认 databaseId 来自 list_attribute_views 或用户提供的真实数据库 ID。";
-        }
-
+        const hint = code === "invalid_database_id"
+          ? "databaseId 不能为空。请提供 list_attribute_views 中 usableForRead=true 的真实数据库 ID。"
+          : code === "resource_not_found"
+            ? "请确认 databaseId 是真实数据库 ID，来自 list_attribute_views 或用户提供的 ID。"
+            : "请确认 databaseId 来自 list_attribute_views 或用户提供的真实数据库 ID。";
         return {
           ok: false,
           data: null,
           error: {
-            code,
-            message: msg.replace(/^\[[^\]]+\]\s*/, ""),
+            code: code ?? "attribute_view_read_failed",
+            message: msg,
             recoverable: true,
             hint,
           },

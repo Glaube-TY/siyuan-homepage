@@ -35,6 +35,14 @@ export class DeviceViewAccessBlockedError extends Error {
     }
 }
 
+export class DeviceViewRevisionConflictError extends Error {
+    public readonly code = "view_revision_conflict";
+    constructor(message: string) {
+        super(message);
+        this.name = "DeviceViewRevisionConflictError";
+    }
+}
+
 export const DEFAULT_HOMEPAGE_NOT_READY_MESSAGE = "主页数据暂不可用，请刷新页面后重试。";
 
 export function getSafeDeviceViewErrorMessage(error: unknown): string {

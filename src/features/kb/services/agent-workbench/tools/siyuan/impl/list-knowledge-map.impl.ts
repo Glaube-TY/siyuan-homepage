@@ -24,6 +24,7 @@ import type {
   KnowledgeMapNode,
   KnowledgeMapNotebook,
 } from "../contracts/list-knowledge-map.contract";
+import { SiyuanToolDomainError } from "../siyuan-generic-tool-factory";
 
 interface FilterSpec {
   box?: string;
@@ -521,7 +522,7 @@ function buildTreeSafeOutput(
   if (args.rootDocId) {
     const rootExists = sourceMapping.some((m) => m.internalDocId === args.rootDocId);
     if (!rootExists) {
-      throw new Error(`[resource_not_found] rootDocId "${args.rootDocId}" 在当前范围内不存在。请确认 rootDocId 是否来自当前可见范围内的真实文档 ID。`);
+      throw new SiyuanToolDomainError(`rootDocId "${args.rootDocId}" 在当前范围内不存在。请确认 rootDocId 是否来自当前可见范围内的真实文档 ID。`, "resource_not_found");
     }
   }
 
@@ -529,7 +530,7 @@ function buildTreeSafeOutput(
   if (args.notebookId) {
     const notebookExists = sourceMapping.some((m) => m.box === args.notebookId);
     if (!notebookExists) {
-      throw new Error(`[resource_not_found] notebookId "${args.notebookId}" 在当前范围内不存在。请使用工具返回的真实 notebookId。`);
+      throw new SiyuanToolDomainError(`notebookId "${args.notebookId}" 在当前范围内不存在。请使用工具返回的真实 notebookId。`, "resource_not_found");
     }
   }
 
@@ -615,7 +616,7 @@ function buildListSafeOutput(
   if (args.rootDocId) {
     const rootExists = sourceMapping.some((m) => m.internalDocId === args.rootDocId);
     if (!rootExists) {
-      throw new Error(`[resource_not_found] rootDocId "${args.rootDocId}" 在当前范围内不存在。请确认 rootDocId 是否来自当前可见范围内的真实文档 ID。`);
+      throw new SiyuanToolDomainError(`rootDocId "${args.rootDocId}" 在当前范围内不存在。请确认 rootDocId 是否来自当前可见范围内的真实文档 ID。`, "resource_not_found");
     }
   }
 
@@ -623,7 +624,7 @@ function buildListSafeOutput(
   if (args.notebookId) {
     const notebookExists = sourceMapping.some((m) => m.box === args.notebookId);
     if (!notebookExists) {
-      throw new Error(`[resource_not_found] notebookId "${args.notebookId}" 在当前范围内不存在。请使用工具返回的真实 notebookId。`);
+      throw new SiyuanToolDomainError(`notebookId "${args.notebookId}" 在当前范围内不存在。请使用工具返回的真实 notebookId。`, "resource_not_found");
     }
   }
 
@@ -821,7 +822,7 @@ function buildNeighborhoodOutput(
   const centerDocId = args.centerDocId ?? args.rootDocId;
   const center = findMappingByDocId(sourceMapping, centerDocId);
   if (!center) {
-    throw new Error(`[resource_not_found] centerDocId "${centerDocId ?? ""}" 在当前范围内不存在。请使用当前工具结果中明确返回的 docId 作为 centerDocId。`);
+    throw new SiyuanToolDomainError(`centerDocId "${centerDocId ?? ""}" 在当前范围内不存在。请使用当前工具结果中明确返回的 docId 作为 centerDocId。`, "resource_not_found");
   }
 
   // 父级链：从根到直接父级

@@ -59,6 +59,7 @@ export interface CountdownBulkPatch {
 }
 
 export class CountdownEventConflictError extends Error {
+  readonly code = "countdown_event_conflict";
   constructor(public readonly latest: CountdownEventRecord) {
     super("该纪念日已在其他窗口被修改，请重新加载或明确覆盖。");
     this.name = "CountdownEventConflictError";

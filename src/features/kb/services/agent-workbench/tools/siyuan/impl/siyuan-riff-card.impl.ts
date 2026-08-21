@@ -16,6 +16,7 @@ import {
 import { pushAgentDebugEvent } from "../../../debug/workbench-debug";
 import type { SiyuanToolOutput } from "../contracts/siyuan-common.contract";
 import { isFullSiyuanId, normalizeRiffDue, type SiyuanRiffCardInput } from "../contracts/siyuan-riff-card.contract";
+import { SiyuanToolInvalidArgsError } from "../siyuan-generic-tool-factory";
 import { outputForAction, requireString, requireStringArray } from "./siyuan-tool-impl-utils.impl";
 
 function safeErrorSummary(err: unknown): string {
@@ -237,12 +238,12 @@ export async function executeSiyuanRiffCard(args: SiyuanRiffCardInput): Promise<
       let resolvedDeckID = args.deckID?.trim();
       if (resetType === "deck") {
         if (resolvedDeckID && resolvedDeckID !== targetId) {
-          throw new Error(`[invalid_args] resetType="deck" 时 deckID 与 id 必须一致（收到 id: ${targetId}, deckID: ${resolvedDeckID}）。`);
+          throw new SiyuanToolInvalidArgsError(`resetType="deck" 时 deckID 与 id 必须一致（收到 id: ${targetId}, deckID: ${resolvedDeckID}）。`);
         }
         resolvedDeckID = targetId;
       } else if (resetType === "tree" || resetType === "notebook") {
         if (!resolvedDeckID) {
-          throw new Error(`[invalid_args] resetType="${resetType}" 需要显式指定 deckID（通常应为 Kernel 内置/目标卡包 ID）。`);
+          throw new SiyuanToolInvalidArgsError(`resetType="${resetType}" 需要显式指定 deckID（通常应为 Kernel 内置/目标卡包 ID）。`);
         }
       }
       data = await resetRiffCards({
@@ -255,16 +256,16 @@ export async function executeSiyuanRiffCard(args: SiyuanRiffCardInput): Promise<
     }
     case "set_due_time": {
       if (!args.cardDues || args.cardDues.length === 0) {
-        throw new Error("[invalid_args] cardDues 不能为空。");
+        throw new SiyuanToolInvalidArgsError("cardDues 不能为空。");
       }
       const normalizedCardDues = [];
       for (const cd of args.cardDues) {
         if (!isFullSiyuanId(cd.id)) {
-          throw new Error(`[invalid_args] set_due_time 的 cardDues[].id 必须是完整 riffCardID（例如 20260703221339-at4oz7a），不要传短后缀或 blockID。收到：${cd.id}`);
+          throw new SiyuanToolInvalidArgsError(`set_due_time 的 cardDues[].id 必须是完整 riffCardID（例如 20260703221339-at4oz7a），不要传短后缀或 blockID。收到：${cd.id}`);
         }
         const due = normalizeRiffDue(cd.due);
         if (!due) {
-          throw new Error(`[invalid_args] due 无法解析：${cd.due}，需要 YYYYMMDD、YYYYMMDDHHmmss 或 ISO 时间。`);
+          throw new SiyuanToolInvalidArgsError(`due 无法解析：${cd.due}，需要 YYYYMMDD、YYYYMMDDHHmmss 或 ISO 时间。`);
         }
         normalizedCardDues.push({ id: cd.id, due });
       }

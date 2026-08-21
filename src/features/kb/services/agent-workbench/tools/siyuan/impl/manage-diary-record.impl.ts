@@ -11,7 +11,6 @@ import type { SiyuanToolDeps as KbRetrievalToolDeps } from "../siyuan-tool-deps"
 import type { ManageDiaryRecordInput, ManageDiaryRecordOutput } from "../contracts/manage-diary-record.contract";
 import { createDiaryToolPluginAdapter, loadAgendaEnhancedDiaryConfig, prepareAgendaEnhancedDiaryIndex } from "./agenda-utils.impl";
 import {
-  EnhancedDiaryProjectWriteTargetError,
   validateEnhancedDiaryProjectWriteTarget,
 } from "@/components/utils/widgetBlock/widget/enhancedDiary/workspace/enhancedDiaryWorkspaceProjectLifecycle";
 
@@ -27,8 +26,9 @@ async function resolveProject(
 }
 
 function projectError(reason: unknown): { errorCode: string; message: string } {
-  if (reason instanceof EnhancedDiaryProjectWriteTargetError) {
-    return { errorCode: reason.code, message: reason.message };
+  const code = (reason as Record<string, unknown>)?.code;
+  if (typeof code === "string" && code) {
+    return { errorCode: code, message: reason instanceof Error ? reason.message : "项目操作失败。" };
   }
   return { errorCode: "project_index_unavailable", message: reason instanceof Error ? reason.message : "无法确认项目状态。" };
 }

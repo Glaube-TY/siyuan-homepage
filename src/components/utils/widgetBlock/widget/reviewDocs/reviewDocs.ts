@@ -48,9 +48,22 @@ function runReviewMutation<T>(mutation: () => Promise<T>): Promise<T> {
     return next;
 }
 
+export class ReviewConflictError extends Error {
+    readonly code = "review_conflict";
+    readonly details?: { expectedUpdatedAt?: string; currentUpdatedAt?: string };
+    constructor(message: string, details?: { expectedUpdatedAt?: string; currentUpdatedAt?: string }) {
+        super(message);
+        this.name = "ReviewConflictError";
+        this.details = details;
+    }
+}
+
 function assertExpectedReviewUpdatedAt(expected: string | undefined, current: ReviewAttrs): void {
     if (expected !== undefined && current.updatedAt !== expected) {
-        throw new Error("复习计划已在其他窗口修改，请重新读取。");
+        throw new ReviewConflictError("复习计划已在其他窗口修改，请重新读取。", {
+            expectedUpdatedAt: expected,
+            currentUpdatedAt: current.updatedAt,
+        });
     }
 }
 

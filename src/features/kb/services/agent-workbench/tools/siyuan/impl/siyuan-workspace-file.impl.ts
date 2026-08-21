@@ -9,6 +9,7 @@ import {
 import { pushAgentDebugEvent } from "../../../debug/workbench-debug";
 import type { SiyuanToolOutput } from "../contracts/siyuan-common.contract";
 import type { SiyuanWorkspaceFileInput } from "../contracts/siyuan-workspace-file.contract";
+import { SiyuanToolInvalidArgsError } from "../siyuan-generic-tool-factory";
 import { outputForAction, requireString } from "./siyuan-tool-impl-utils.impl";
 import { guardWorkspaceFilePath } from "./workspace-file-guard.impl";
 
@@ -17,7 +18,7 @@ function checkedPath(value: unknown, field: string): string {
   const guarded = guardWorkspaceFilePath(raw);
   if (guarded.ok === false) {
     pushAgentDebugEvent("SIYUAN_WORKSPACE_FILE_BLOCKED", { field, reason: guarded.message }, "warn");
-    throw new Error(`[invalid_args] ${guarded.message}`);
+    throw new SiyuanToolInvalidArgsError(guarded.message);
   }
   return guarded.path;
 }

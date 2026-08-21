@@ -1,5 +1,6 @@
 import type { DeviceViewContext, DeviceWidgetDocument } from "./deviceViewTypes";
 import { readDeviceWidget, removeDeviceWidget, writeDeviceWidget } from "./deviceViewStorage";
+import { DeviceViewRevisionConflictError } from "./deviceViewErrors";
 import { createRuntimeId } from "@/libs/runtime-id";
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
@@ -69,7 +70,7 @@ export async function updateWidgetInstanceConfigExpected(
     const current = await readDeviceWidget(context, instanceId);
     if (!current) throw new Error(`组件 ${instanceId} 配置不存在`);
     if (current.revision !== expectedRevision) {
-        throw new Error(`组件 ${instanceId} revision 冲突：预期 ${expectedRevision}，当前 ${current.revision}`);
+        throw new DeviceViewRevisionConflictError(`组件 ${instanceId} revision 冲突：预期 ${expectedRevision}，当前 ${current.revision}`);
     }
     const next = mutate({ ...current.config });
     if (!isPlainObject(next)) throw new Error(`组件 ${instanceId} 更新结果不是普通对象`);

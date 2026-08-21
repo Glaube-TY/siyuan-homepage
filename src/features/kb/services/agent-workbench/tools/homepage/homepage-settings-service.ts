@@ -7,7 +7,6 @@ import {
   updateDeviceViewSettings,
 } from "@/homepage/deviceView/deviceViewStorage";
 import {
-  DeviceViewAccessBlockedError,
   getSafeDeviceViewErrorMessage,
 } from "@/homepage/deviceView/deviceViewErrors";
 import {
@@ -122,12 +121,6 @@ export class HomepageSettingsService {
       if (!view) throw new Error("桌面主页 view.json 缺失");
       return { context, view };
     } catch (error) {
-      if (error instanceof DeviceViewAccessBlockedError) {
-        throw new HomepageSettingsServiceError(
-          "homepage_not_ready",
-          error.safeMessage,
-        );
-      }
       throw new HomepageSettingsServiceError(
         "homepage_not_ready",
         getSafeDeviceViewErrorMessage(error),
@@ -175,8 +168,7 @@ export class HomepageSettingsService {
     try {
       await updateDeviceViewSettings(context, mutation, { expectedRevision: expectedViewRevision });
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      if (message.includes("并发更新")) {
+      if ((error as Record<string, unknown>)?.code === "view_revision_conflict") {
         throw new HomepageSettingsServiceError("view_revision_conflict", "主页设置已被并发更新，请重新读取后再操作。");
       }
       throw new HomepageSettingsServiceError("settings_write_failed", "主页设置写入失败，请刷新页面后重试。", false);

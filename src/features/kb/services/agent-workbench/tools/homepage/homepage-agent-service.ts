@@ -35,7 +35,6 @@ import {
 } from "@/homepage/deviceView/desktopHomepageSectionModel";
 import {
     createDeviceViewBlockedError,
-    DeviceViewAccessBlockedError,
     getSafeDeviceViewErrorMessage,
 } from "@/homepage/deviceView/deviceViewErrors";
 import type { HomepageAgentReadResult, HomepageAgentSurface, HomepageWidgetResolutionStatus } from "./homepage-manage-types";
@@ -201,12 +200,6 @@ export class HomepageAgentService {
       const snapshot = await this.dv.readSnapshot(context);
       return { plugin, context, surface: resolvedSurface, snapshot, profile: getProfile(snapshot) };
     } catch (error) {
-      if (error instanceof DeviceViewAccessBlockedError) {
-        throw new HomepageAgentServiceError(
-          "homepage_not_ready",
-          error.safeMessage,
-        );
-      }
       throw new HomepageAgentServiceError(
         "homepage_not_ready",
         getSafeDeviceViewErrorMessage(error),
@@ -693,7 +686,11 @@ export class HomepageAgentService {
     try {
       await updateWidgetInstanceConfigExpected(state.context, input.widgetId, input.expectedWidgetRevision, (config) => applyHomepageWidgetPatch(config, type, input.patch, { advancedEnabled }));
     } catch (error) {
-      if (error instanceof HomepageAgentServiceError) throw error;
+      const errCode = (error as Record<string, unknown>)?.code;
+      if (errCode === "view_revision_conflict" || errCode === "widget_revision_conflict") {
+        throw new HomepageAgentServiceError("widget_revision_conflict", "组件目标字段已与预期值不一致，请重新读取组件配置。");
+      }
+      if (typeof errCode === "string" && errCode) throw error;
       throw new HomepageAgentServiceError("invalid_widget_patch", "组件 patch 无效，请重新读取组件后重试。");
     }
     const verified = await this.getWidget(state.surface, input.widgetId, type);

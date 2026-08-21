@@ -2,7 +2,6 @@ import { z } from "zod";
 import type { ToolAvailability, ToolContract, ToolResult } from "../../contracts/tool-contract";
 import {
   HomepageSettingsService,
-  HomepageSettingsServiceError,
   type HomepageButtonsSnapshot,
   type HomepageButtonsUpdateResult,
   type HomepageSettingsSnapshot,
@@ -25,15 +24,17 @@ const updateButtonsInputSchema = z.object({
 }).strict();
 
 function failure<T>(error: unknown): ToolResult<T> {
-  if (error instanceof HomepageSettingsServiceError) {
+  const errCode = (error as Record<string, unknown>)?.code;
+  if (typeof errCode === "string" && errCode) {
+    const recoverable = (error as Record<string, unknown>)?.recoverable !== false;
     return {
       ok: false,
       data: null,
       error: {
-        code: error.code,
-        message: error.message,
-        recoverable: error.recoverable,
-        hint: error.code.includes("conflict") ? "请重新读取当前主页设置后再操作。" : undefined,
+        code: errCode,
+        message: error instanceof Error ? error.message : "主页设置操作失败。",
+        recoverable,
+        hint: errCode.includes("conflict") ? "请重新读取当前主页设置后再操作。" : undefined,
       },
     };
   }

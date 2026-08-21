@@ -86,9 +86,42 @@ export async function requestRaw(url: string, data: any): Promise<IWebSocketData
     return response;
 }
 
+export interface SiyuanApiErrorOptions {
+    siyuanCode: number;
+    siyuanMsg?: string;
+    url?: string;
+    label?: string;
+}
+
+export class SiyuanApiError extends Error {
+    readonly code = "siyuan_api_failed";
+    readonly isApiError = true;
+    readonly siyuanCode: number;
+    readonly siyuanMsg?: string;
+    readonly url?: string;
+    readonly label?: string;
+
+    constructor(message: string, options: SiyuanApiErrorOptions) {
+        super(message);
+        this.name = "SiyuanApiError";
+        this.siyuanCode = options.siyuanCode;
+        this.siyuanMsg = options.siyuanMsg;
+        this.url = options.url;
+        this.label = options.label;
+    }
+}
+
+export class SiyuanInvalidArgsError extends Error {
+    readonly code = "invalid_args";
+    constructor(message: string) {
+        super(message);
+        this.name = "SiyuanInvalidArgsError";
+    }
+}
+
 /**
  * Checked request wrapper for Notebrain Agent API calls.
- * Throws Error when response.code !== 0, so callers cannot mistake API failures for success.
+ * Throws SiyuanApiError when response.code !== 0, so callers cannot mistake API failures for success.
  * Returns response.data when code === 0 (data may be null, which is a valid success result).
  */
 export async function requestChecked(url: string, data: any, label?: string): Promise<any> {
@@ -96,7 +129,13 @@ export async function requestChecked(url: string, data: any, label?: string): Pr
     diagnoseInvalidIdArgument(url, label || "requestChecked", data, response);
     if (response.code !== 0) {
         const prefix = label ? `[${label}] ` : "";
-        throw new Error(`${prefix}思源 API 调用失败：code=${response.code}，msg=${response.msg ?? "(无)"}`);
+        const message = `${prefix}思源 API 调用失败：code=${response.code}，msg=${response.msg ?? "(无)"}`;
+        throw new SiyuanApiError(message, {
+            siyuanCode: response.code,
+            siyuanMsg: response.msg,
+            url,
+            label,
+        });
     }
     return response.data;
 }
@@ -411,10 +450,10 @@ export async function createDocWithMd(notebook: NotebookId, path: string, markdo
     let url = '/api/filetree/createDocWithMd';
     const response = await requestRaw(url, data);
     if (response.code !== 0) {
-        throw new Error(`[createDocWithMd] 思源 API 调用失败：code=${response.code}，msg=${response.msg ?? "(无)"}`);
+        throw new SiyuanApiError(`[createDocWithMd] 思源 API 调用失败：code=${response.code}，msg=${response.msg ?? "(无)"}`, { siyuanCode: response.code, siyuanMsg: response.msg, url, label: "createDocWithMd" });
     }
     if (typeof response.data !== "string" || response.data.trim() === "") {
-        throw new Error(`[createDocWithMd] 接口成功但 data 不是有效文档 ID：received=${summarizeSafeApiData(response.data)}`);
+        throw new SiyuanApiError(`[createDocWithMd] 接口成功但 data 不是有效文档 ID：received=${summarizeSafeApiData(response.data)}`, { siyuanCode: 0, url, label: "createDocWithMd" });
     }
     return response.data.trim();
 }
@@ -1772,7 +1811,7 @@ export async function putFileChecked(path: string, isDir: boolean, file: any): P
     if (runtime.putFile) {
         const response = await runtime.putFile(path, isDir, file);
         if (response.code !== 0) {
-            throw new Error(`[putFile] 思源 API 调用失败：code=${response.code}，msg=${response.msg ?? "(无)"}`);
+            throw new SiyuanApiError(`[putFile] 思源 API 调用失败：code=${response.code}，msg=${response.msg ?? "(无)"}`, { siyuanCode: response.code, siyuanMsg: response.msg, url: path, label: "putFile" });
         }
         return;
     }
@@ -1797,10 +1836,10 @@ export async function readDirOrNullChecked(path: string): Promise<IResReadDir[] 
     const response: IWebSocketData = await fetchSyncPost('/api/file/readDir', { path });
     if (response.code === 404) return null;
     if (response.code !== 0) {
-        throw new Error(`[readDir] 思源 API 调用失败：code=${response.code}，msg=${response.msg ?? "(无)"}`);
+        throw new SiyuanApiError(`[readDir] 思源 API 调用失败：code=${response.code}，msg=${response.msg ?? "(无)"}`, { siyuanCode: response.code, siyuanMsg: response.msg, url: path, label: "readDir" });
     }
     if (!Array.isArray(response.data)) {
-        throw new Error(`[readDir] 思源 API 返回了无效目录数据，路径: ${path}`);
+        throw new SiyuanApiError(`[readDir] 思源 API 返回了无效目录数据，路径: ${path}`, { siyuanCode: 0, url: path, label: "readDir" });
     }
     return response.data as IResReadDir[];
 }
@@ -1849,7 +1888,7 @@ export async function getFileChecked(path: string): Promise<any> {
     }
     // If the response has a code field and it's non-zero, treat as failure
     if (content?.code !== undefined && content.code !== 0) {
-        throw new Error(`[getFile] 思源 API 调用失败：code=${content.code}，msg=${content.msg ?? "(无)"}`);
+        throw new SiyuanApiError(`[getFile] 思源 API 调用失败：code=${content.code}，msg=${content.msg ?? "(无)"}`, { siyuanCode: content.code, siyuanMsg: content.msg, url: path, label: "getFile" });
     }
     return content;
 }
@@ -1867,7 +1906,7 @@ export async function getFileOrNullChecked(path: string): Promise<any | null> {
     }
     if (content?.code === 404) return null;
     if (content?.code !== undefined && content.code !== 0) {
-        throw new Error(`[getFile] 思源 API 调用失败：code=${content.code}，msg=${content.msg ?? "(无)"}`);
+        throw new SiyuanApiError(`[getFile] 思源 API 调用失败：code=${content.code}，msg=${content.msg ?? "(无)"}`, { siyuanCode: content.code, siyuanMsg: content.msg, url: path, label: "getFile" });
     }
     return content;
 }
@@ -2213,11 +2252,11 @@ export async function getFileAnnotation(path: string): Promise<SiyuanFileAnnotat
         return { exists: false, valid: true, annotation: {} };
     }
     if (response.code !== 0) {
-        throw new Error(`[getFileAnnotation] 思源 API 调用失败：code=${response.code}，msg=${response.msg ?? '(无)'}`);
+        throw new SiyuanApiError(`[getFileAnnotation] 思源 API 调用失败：code=${response.code}，msg=${response.msg ?? '(无)'}`, { siyuanCode: response.code, siyuanMsg: response.msg, url: '/api/asset/getFileAnnotation', label: "getFileAnnotation" });
     }
     const rawData = isRecord(response.data) ? response.data.data : undefined;
     if (typeof rawData !== 'string') {
-        throw new Error('[getFileAnnotation] 思源 API 返回了无效标注数据。');
+        throw new SiyuanApiError('[getFileAnnotation] 思源 API 返回了无效标注数据。', { siyuanCode: 0, url: '/api/asset/getFileAnnotation', label: "getFileAnnotation" });
     }
     try {
         const parsed = JSON.parse(rawData);

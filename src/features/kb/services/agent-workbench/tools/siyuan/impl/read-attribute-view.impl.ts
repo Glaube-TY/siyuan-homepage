@@ -4,6 +4,7 @@ import {
   getAttributeViewItemIDsByBoundIDs,
   renderAttributeView,
 } from "@/api";
+import { SiyuanToolDomainError } from "../siyuan-generic-tool-factory";
 import type { SiyuanToolDeps } from "../siyuan-tool-deps";
 import type { ReadAttributeViewInput, ReadAttributeViewOutput } from "../contracts/read-attribute-view.contract";
 import {
@@ -33,7 +34,7 @@ export async function readAttributeViewSafeOutput(
 
   // 拒绝空 databaseId
   if (!databaseId) {
-    throw new Error("[invalid_database_id] databaseId 不能为空，请提供真实的数据库 ID。");
+    throw new SiyuanToolDomainError("databaseId 不能为空，请提供真实的数据库 ID。", "invalid_database_id");
   }
 
   const [av, rawKeys] = await Promise.all([
@@ -42,7 +43,7 @@ export async function readAttributeViewSafeOutput(
   ]);
 
   if (!av) {
-    throw new Error("[resource_not_found] 未找到数据库，请确认 databaseId 是真实数据库 ID。");
+    throw new SiyuanToolDomainError("未找到数据库，请确认 databaseId 是真实数据库 ID。", "resource_not_found");
   }
 
   let renderResult: any = null;

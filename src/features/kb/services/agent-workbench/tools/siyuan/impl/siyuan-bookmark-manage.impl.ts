@@ -2,6 +2,7 @@ import { getBookmark, sqlChecked, setBlockAttrsChecked } from "../../../../../..
 import { buildFtsMatchClause, escapeSqlLike } from "@/components/tools/siyuanSqlPaging";
 import type { SiyuanToolOutput } from "../contracts/siyuan-common.contract";
 import type { SiyuanBookmarkManageInput } from "../contracts/siyuan-bookmark-manage.contract";
+import { SiyuanToolInvalidArgsError } from "../siyuan-generic-tool-factory";
 import { outputForAction } from "./siyuan-tool-impl-utils.impl";
 
 interface BookmarkBlockItem {
@@ -190,7 +191,7 @@ export async function executeSiyuanBookmarkManage(args: SiyuanBookmarkManageInpu
       const newBookmark = args.newBookmark;
       const blockIds = args.blockIds;
       if (!blockIds || blockIds.length === 0) {
-        throw new Error("[invalid_args] bookmark.rename 必须提供 blockIds；请先调用 list_blocks 定位真实块 ID。");
+        throw new SiyuanToolInvalidArgsError("bookmark.rename 必须提供 blockIds；请先调用 list_blocks 定位真实块 ID。");
       }
       const results: Array<{ blockId: string; ok: boolean; reason?: string }> = [];
       for (const blockId of blockIds) {
@@ -213,7 +214,7 @@ export async function executeSiyuanBookmarkManage(args: SiyuanBookmarkManageInpu
       const bookmark = args.bookmark;
       const blockIds = args.blockIds;
       if (!blockIds || blockIds.length === 0) {
-        throw new Error("[invalid_args] bookmark.remove 必须提供 blockIds；请先调用 list_blocks 定位真实块 ID。");
+        throw new SiyuanToolInvalidArgsError("bookmark.remove 必须提供 blockIds；请先调用 list_blocks 定位真实块 ID。");
       }
       const results: Array<{ blockId: string; ok: boolean; reason?: string }> = [];
       for (const blockId of blockIds) {

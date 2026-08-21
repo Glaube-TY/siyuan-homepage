@@ -1,9 +1,29 @@
 import type { ToolResult } from "../../contracts/tool-contract";
 
+export class HomepageComponentConflictError extends Error {
+  readonly code = "conflict";
+  constructor(message: string) {
+    super(message);
+    this.name = "HomepageComponentConflictError";
+  }
+}
+
+export function isComponentConflictError(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const err = error as Record<string, unknown>;
+  return (
+    typeof err.code === "string" && (
+      err.code === "conflict"
+      || err.code.endsWith("_conflict")
+      || err.code === "revision_mismatch"
+      || err.code === "stale_revision"
+    )
+  );
+}
+
 export function homepageComponentFailure(error: unknown, fallbackCode: string, fallbackMessage: string): ToolResult {
   const message = error instanceof Error ? error.message : fallbackMessage;
-  const conflict = /conflict|stale|revision|expected/i.test(message)
-    || /已变化|已被.*修改|冲突|重新读取|版本不一致/.test(message);
+  const conflict = isComponentConflictError(error);
   return {
     ok: false,
     data: null,

@@ -76,7 +76,7 @@ export async function assetFileValueToText(value: unknown): Promise<string> {
     bytes.set(new Uint8Array(view.buffer, view.byteOffset, view.byteLength));
     return new TextDecoder().decode(bytes);
   }
-  throw new Error("[asset_content] 工作区文件返回了不支持的内容类型。");
+  throw new Error("工作区文件返回了不支持的内容类型。");
 }
 
 export async function readAssetTextContentByPath(rawPath: string): Promise<AssetTextContentResult> {

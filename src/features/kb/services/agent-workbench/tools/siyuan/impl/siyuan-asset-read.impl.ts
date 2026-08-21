@@ -11,6 +11,7 @@ import {
 import type { SiyuanToolOutput } from "../contracts/siyuan-common.contract";
 import type { SiyuanAssetReadInput } from "../contracts/siyuan-asset-read.contract";
 import { isPdfAnnotationAssetPath, toSiyuanAssetApiPath } from "../contracts/siyuan-asset-manage.contract";
+import { SiyuanToolInvalidArgsError } from "../siyuan-generic-tool-factory";
 import { readAssetTextContentByPath } from "./siyuan-asset-content.impl";
 import { outputForAction, requireString } from "./siyuan-tool-impl-utils.impl";
 
@@ -36,7 +37,7 @@ export async function executeSiyuanAssetRead(args: SiyuanAssetReadInput): Promis
       {
         const path = requireString(args.path, "path");
         if (!isPdfAnnotationAssetPath(path)) {
-          throw new Error("[invalid_args] file_annotation 只支持 PDF 资源或对应的 .pdf.sya 标注文件。");
+          throw new SiyuanToolInvalidArgsError("file_annotation 只支持 PDF 资源或对应的 .pdf.sya 标注文件。");
         }
         data = await getFileAnnotation(toSiyuanAssetApiPath(path));
       }

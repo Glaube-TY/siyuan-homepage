@@ -70,7 +70,11 @@ function actionTool<T>(name: string, schema: z.ZodType<T>, readOnly: boolean, ex
     async execute(_ctx, raw): Promise<ToolResult> {
       try { return { ok: true, data: await execute(schema.parse(raw)) }; }
       catch (error) {
-        if (error instanceof CountdownEventConflictError) return { ok: false, data: null, error: { code: "countdown_event_conflict", message: error.message, recoverable: true, details: { latest: safeEvent(error.latest, new Map()) } } };
+        const errCode = (error as Record<string, unknown>)?.code;
+        if (errCode === "countdown_event_conflict") {
+          const latest = (error as Record<string, unknown>)?.latest as CountdownEventRecord | undefined;
+          return { ok: false, data: null, error: { code: "countdown_event_conflict", message: error instanceof Error ? error.message : "纪念日操作冲突。", recoverable: true, details: latest ? { latest: safeEvent(latest, new Map()) } : undefined } };
+        }
         return homepageComponentFailure(error, `countdown_${name}_failed`, `纪念日操作 ${name} 失败。`);
       }
     }, summarizeResult: (result) => result.ok ? `纪念日 ${name} 完成。` : result.error?.message ?? "纪念日操作失败。" };

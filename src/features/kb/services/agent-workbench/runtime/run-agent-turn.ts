@@ -3,7 +3,7 @@ import {
   KNOWLEDGE_CHAT_AGENT_PROFILE_ID,
 } from "../../../../agent-platform/agent-profile";
 import type { AgentTurnResult } from "../contracts/turn-result";
-import { buildMissingCitationRetryInstruction, resolveInlineCitations } from "./inline-citation";
+import { resolveInlineCitations } from "./inline-citation";
 import {
   buildReferenceGroundingSet,
   collectObservationReferences,
@@ -20,6 +20,7 @@ import {
   toTemporaryWorkbenchReference,
 } from "../tools/homepage/homepage-workbench.tool";
 import { attachTemporaryWorkbenchUsage } from "../tools/homepage/temporary-workbench-store";
+import { validateTurnFinalAnswer } from "./tool-evidence-validator";
 
 export type RunAgentTurnParams = Omit<
   RunAgentProfileParams<AgentTurnResult>,
@@ -34,10 +35,7 @@ export async function runAgentTurn(params: RunAgentTurnParams): Promise<AgentTur
     ...params,
     profile: getAgentProfile(KNOWLEDGE_CHAT_AGENT_PROFILE_ID),
     composeFinalAnswer: (composition) => streamFinalAnswerFromDraft(composition),
-    validateFinalAnswer: (answer, observations) => buildMissingCitationRetryInstruction(
-      answer,
-      collectObservationReferences(observations),
-    ),
+    validateFinalAnswer: (answer, context) => validateTurnFinalAnswer(answer, context),
     finalize: async ({ answer, events, observations, resolvedScope }) => {
       const observationRefs = collectObservationReferences(observations);
       buildReferenceGroundingSet({

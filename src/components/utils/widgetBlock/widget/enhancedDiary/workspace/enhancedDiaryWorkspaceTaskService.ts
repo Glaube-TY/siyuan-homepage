@@ -37,7 +37,7 @@ import { parseVisibleProjectTargetId, resolveProjectRelation } from "./enhancedD
 import { ENHANCED_DIARY_PROJECT_TARGET_ATTR, parseEnhancedDiaryBatchBlockAttrs } from "../enhancedDiaryProjectTypes";
 import type { EnhancedDiaryProjectIndexPayload } from "../enhancedDiaryProjectTypes";
 import {
-    EnhancedDiaryProjectWriteTargetError,
+    extractProjectWriteTargetErrorCode,
     validateEnhancedDiaryProjectWriteTarget,
 } from "./enhancedDiaryWorkspaceProjectLifecycle";
 
@@ -578,7 +578,7 @@ export async function updateWorkspaceTask(
         } catch (reason) {
             return {
                 ok: false,
-                reason: reason instanceof EnhancedDiaryProjectWriteTargetError ? reason.code : "project_index_unavailable",
+                reason: extractProjectWriteTargetErrorCode(reason) ?? "project_index_unavailable",
                 message: reason instanceof Error ? reason.message : "无法确认项目状态，任务未更新。",
             };
         }

@@ -37,10 +37,9 @@ export function mapAgentErrorToUserFacing(input: {
   message?: string;
 }): UserFacingAgentError {
   const code = (input.agentErrorCode ?? "").toLowerCase();
-  const msg = (input.message ?? "").toLowerCase();
 
   // 超时
-  if (code.includes("agent_timeout") || code.includes("provider_timeout") || code.includes("stream_idle_timeout") || msg.includes("超时")) {
+  if (code.includes("agent_timeout") || code.includes("provider_timeout") || code.includes("stream_idle_timeout")) {
     return {
       title: "模型响应超时",
       message: "模型没有在设定时间内返回可继续执行的内容，本轮已停止。",
@@ -96,6 +95,23 @@ export function mapAgentErrorToUserFacing(input: {
       title: "模型输出被过滤",
       message: "模型生成内容时被安全策略拦截，本轮已停止。",
       suggestion: "可以换用更适合 Agent 的模型后重试，或将需求拆成更明确的小步骤。",
+    };
+  }
+
+  // 终稿证据与校验错误
+  if (code === "missing_citation_reference") {
+    return {
+      title: "回答未通过来源引用校验",
+      message: "回答使用了外部工具读取的内容，但未包含有效的来源引用标记，本轮已停止。",
+      suggestion: "可以重试，让模型在回答中附带明确的来源引用。",
+    };
+  }
+
+  if (code === "final_answer_validation_failed") {
+    return {
+      title: "终稿校验未通过",
+      message: "模型的最终回答未能通过一致性与证据校验，本轮已停止。",
+      suggestion: "可以重试，或更换更适合 Agent 任务的模型。",
     };
   }
 
@@ -157,7 +173,7 @@ export function mapAgentErrorToUserFacing(input: {
   }
 
   // 工具参数不完整
-  if (code.includes("invalid_args") || msg.includes("参数不符合")) {
+  if (code.includes("invalid_args")) {
     return {
       title: "工具参数不完整",
       message: "工具调用参数不符合要求，本轮未完成该操作。",

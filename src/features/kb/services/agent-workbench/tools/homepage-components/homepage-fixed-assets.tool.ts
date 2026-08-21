@@ -11,7 +11,7 @@ import {
   type FixedAssetCostPeriod,
   type FixedAssetRecord,
 } from "@/components/utils/widgetBlock/widget/fixedAssets/fixedAssetsData";
-import { alwaysAvailable, homepageComponentFailure } from "./homepage-component-tool-utils";
+import { alwaysAvailable, homepageComponentFailure, HomepageComponentConflictError } from "./homepage-component-tool-utils";
 
 const dateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 const costModeSchema = z.enum(["elapsed", "expectedLife", "retireDate"]);
@@ -150,7 +150,7 @@ export function createHomepageFixedAssetsActionTools(): Array<{ action: string; 
       if (!loaded.status.ok) throw new Error(loaded.status.message);
       const current = loaded.assets.find((item) => item.id === assetId);
       if (!current) throw new Error("固定资产不存在。");
-      if (current.updatedAt !== expectedUpdatedAt) throw new Error("固定资产已变化，请重新读取。");
+      if (current.updatedAt !== expectedUpdatedAt) throw new HomepageComponentConflictError("固定资产已变化，请重新读取。");
       const candidate = addSchema.parse({ ...editableAssetInput(current), ...patch });
       validateAsset(candidate);
       await saveFixedAsset({ ...current, ...candidate, id: current.id }, { expectedUpdatedAt });

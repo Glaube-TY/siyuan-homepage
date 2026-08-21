@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { SiyuanToolInvalidArgsError } from "../siyuan-generic-tool-factory";
 
 const DISPOSABLE_MARKERS = ["nb_agent", "notebrain_agent", "notebrain_test", "notebrain-agent-test"];
 
@@ -24,7 +25,7 @@ export function toSiyuanAssetApiPath(raw: string): string {
 export function toSiyuanAssetWorkspaceFilePath(raw: string): string {
   const path = toSiyuanAssetApiPath(raw);
   if (!path.startsWith("assets/") || path.includes("..")) {
-    throw new Error("[invalid_args] 资源路径必须位于 assets/ 目录。");
+    throw new SiyuanToolInvalidArgsError("资源路径必须位于 assets/ 目录。");
   }
   return `/data/${path}`;
 }

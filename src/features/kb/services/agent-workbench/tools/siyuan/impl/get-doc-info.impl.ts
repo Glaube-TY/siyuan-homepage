@@ -13,6 +13,7 @@ import { escapeSqlString } from "../../../../siyuan/safe-sql";
 import type { SiyuanToolDeps } from "../siyuan-tool-deps";
 import type { GetDocInfoInput, GetDocInfoOutput } from "../contracts/get-doc-info.contract";
 import { pushAgentDebugEvent } from "../../../debug/workbench-debug";
+import { SiyuanToolDomainError } from "../siyuan-generic-tool-factory";
 
 interface DocRow {
   id: string;
@@ -53,7 +54,7 @@ export async function executeGetDocInfo(
   );
 
   if (!Array.isArray(rows) || rows.length === 0) {
-    throw new Error(`[resource_not_found] 文档 "${docId}" 不存在或不是文档。`);
+    throw new SiyuanToolDomainError(`文档 "${docId}" 不存在或不是文档。`, "resource_not_found");
   }
 
   const row = rows[0];

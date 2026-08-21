@@ -8,6 +8,7 @@ import {
   findUniqueAttributeViewKeyByName,
   normalizeFieldName,
 } from "../internal/attribute-view/attribute-view-normalizer";
+import { SiyuanToolDomainError } from "../siyuan-generic-tool-factory";
 
 function includesText(value: string | undefined, query: string): boolean {
   return String(value || "").toLowerCase().includes(query.toLowerCase());
@@ -37,10 +38,10 @@ export async function executeFindAttributeViewRows(
   if (args.fieldName) {
     const found = findUniqueAttributeViewKeyByName(output.schema, args.fieldName);
     if (found.status === "missing") {
-      throw new Error(`[field_not_found] 未找到字段「${args.fieldName}」，请先 read_attribute_view 查看真实字段名和 keyId。`);
+      throw new SiyuanToolDomainError(`未找到字段「${args.fieldName}」，请先 read_attribute_view 查看真实字段名和 keyId。`, "field_not_found");
     }
     if (found.status === "ambiguous") {
-      throw new Error(`[ambiguous_field] 字段名「${args.fieldName}」不唯一，请改用 read_attribute_view 返回的 keyId 判断。`);
+      throw new SiyuanToolDomainError(`字段名「${args.fieldName}」不唯一，请改用 read_attribute_view 返回的 keyId 判断。`, "ambiguous_field");
     }
     selectedKeyId = found.key?.keyId;
   }

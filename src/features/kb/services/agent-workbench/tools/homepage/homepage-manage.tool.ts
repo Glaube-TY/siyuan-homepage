@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { ToolContract, ToolResult, ToolRuntimeContext } from "../../contracts/tool-contract";
 import type { HomepageAgentReadResult, HomepageAgentSurface } from "./homepage-manage-types";
-import { HomepageAgentService, HomepageAgentServiceError } from "./homepage-agent-service";
+import { HomepageAgentService } from "./homepage-agent-service";
 
 const surfaceSchema = z.enum(["desktop-homepage", "mobile-homepage"]).optional();
 const surfaceInputSchema = z.object({ surface: surfaceSchema }).strict();
@@ -67,23 +67,26 @@ type ComponentReadAction = "catalog.list_types" | "catalog.get_type" | "instance
 type ReadAction = GlobalReadAction | ComponentReadAction;
 
 function failure(error: unknown): ToolResult<HomepageAgentReadResult> {
-  if (error instanceof HomepageAgentServiceError) {
+  const errCode = (error as Record<string, unknown>)?.code;
+  if (typeof errCode === "string" && errCode) {
+    const recoverable = (error as Record<string, unknown>)?.recoverable !== false;
+    const details = (error as Record<string, unknown>)?.details as Record<string, unknown> | undefined;
     return {
       ok: false,
       data: null,
       error: {
-        code: error.code,
-        message: error.message,
-        recoverable: error.recoverable,
-        details: error.details,
-        hint: error.code.includes("conflict") ? "请重新读取当前主页状态后再操作。" : undefined,
+        code: errCode,
+        message: error instanceof Error ? error.message : "主页操作失败。",
+        recoverable,
+        details,
+        hint: errCode.includes("conflict") ? "请重新读取当前主页状态后再操作。" : undefined,
       },
     };
   }
   return {
     ok: false,
     data: null,
-    error: { code: "homepage_tool_failed", message: "主页操作失败，请刷新页面后重试。", recoverable: true },
+    error: { code: "homepage_tool_failed", message: error instanceof Error ? error.message : "主页操作失败，请刷新页面后重试。", recoverable: true },
   };
 }
 

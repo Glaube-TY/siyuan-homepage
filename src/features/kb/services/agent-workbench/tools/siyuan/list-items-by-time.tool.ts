@@ -61,12 +61,13 @@ export function createListItemsByTimeTool(deps: ListItemsByTimeDeps): ToolContra
         return { ok: true, data: result.safeOutput };
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        const isInvalidArgs = msg.startsWith("[invalid_args]");
+        const errObj = err as Record<string, unknown> | null | undefined;
+        const isInvalidArgs = errObj?.code === "invalid_args";
         return {
           ok: false, data: null,
           error: {
             code: isInvalidArgs ? "invalid_args" : "tool_internal_error",
-            message: msg.replace(/^\[invalid_args\]\s*/, ""),
+            message: msg,
             recoverable: true,
             hint: isInvalidArgs
               ? "请检查时间格式，支持 YYYY-MM-DD 或 YYYYMMDDHHmmss。"

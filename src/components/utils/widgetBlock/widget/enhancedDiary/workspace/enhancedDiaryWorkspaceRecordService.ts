@@ -37,7 +37,7 @@ import { appendRecordProjectReference, parseVisibleProjectTargetId, removeVisibl
 import { ENHANCED_DIARY_PROJECT_TARGET_ATTR } from "../enhancedDiaryProjectTypes";
 import { removeProjectRecordIndexItem, replaceProjectRecordIndexForDiary, upsertProjectRecordIndexItem } from "../enhancedDiaryProjectRecordIndex";
 import {
-    EnhancedDiaryProjectWriteTargetError,
+    extractProjectWriteTargetErrorCode,
     validateEnhancedDiaryProjectWriteTarget,
 } from "./enhancedDiaryWorkspaceProjectLifecycle";
 
@@ -692,7 +692,7 @@ export async function updateQuickRecord(
             } catch (reason) {
                 return {
                     ok: false,
-                    reason: reason instanceof EnhancedDiaryProjectWriteTargetError ? reason.code : "project_index_unavailable",
+                    reason: extractProjectWriteTargetErrorCode(reason) ?? "project_index_unavailable",
                     message: reason instanceof Error ? reason.message : "无法确认项目状态，记录未更新。",
                 };
             }

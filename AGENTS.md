@@ -18,6 +18,14 @@ Use Ponytail `full` for every coding task. Stop at the first option that works:
 
 Fix root causes at the shared boundary instead of adding guards to individual callers. Prefer deletion over compatibility layers, wrappers, speculative configuration, and parallel implementations. Do not simplify away validation, write verification, data-loss protection, permissions, security, accessibility, or explicit user requirements.
 
+## 通用 Agent 架构原则
+
+- Agent 必须保持通用、简洁和语言无关。全局提示只说明身份、运行环境、可用能力和工具使用边界，不得累积具体业务流程、历史故障补丁、测试步骤或特定问题的处置规则。
+- 工具必须通过名称、简短用途、输入 Schema、返回契约和结构化错误码把能力说明清楚；工具选择、调用顺序和参数组合由模型依据这些契约自行决定。模型调用错误属于模型行为，不得用自然语言关键词、正则、词表或问题专用分支替模型决策。
+- 模型经常误解能力时，先精简或修正系统提示、工具描述与 Schema；只有权限、数据安全、写入校验等确定性不变量才由运行时强制执行。
+- 如果问题来自传输、状态恢复、上下文、工具执行、超时、重试、去重或终态交付等链路稳定性，必须修复共享链路根因，不得识别某种用户问题或正文措辞后打补丁。
+- 新增 Agent 规则前先判断它属于提示与工具契约、确定性运行时约束，还是单次任务要求；单次业务要求不得进入全局 Agent 架构。优先删除过时规则和重复提示，不建立平行判断层。
+
 ## Small verification loop
 
 - Run the narrowest existing verification that covers the change first.

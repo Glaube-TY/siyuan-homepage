@@ -50,13 +50,13 @@ export function createGetDocInfoTool(deps: GetDocInfoDeps): ToolContract<GetDocI
         const result = await deps.executeGetDocInfo(args);
         return { ok: true, data: result.safeOutput };
       } catch (err) {
+        const code = (err as Record<string, unknown>)?.code as string | undefined;
         const msg = err instanceof Error ? err.message : String(err);
-        const code = msg.startsWith("[resource_not_found]") ? "resource_not_found" : "tool_internal_error";
         return {
           ok: false, data: null,
           error: {
-            code,
-            message: msg.replace(/^\[resource_not_found\]\s*/, ""),
+            code: code ?? "tool_internal_error",
+            message: msg,
             recoverable: true,
             hint: code === "resource_not_found"
               ? "请确认 docId 来自真实文档 ID。"

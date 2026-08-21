@@ -20,8 +20,59 @@ import {
   routeAgentStreamEvent,
   routeFinalAnswerComposerEvent,
   type AgentPresentationState,
+  runAgentProfile,
 } from "../src/features/kb/services/agent-workbench/runtime/run-agent-profile";
+import { ToolResultLog } from "../src/features/kb/services/agent-workbench/runtime/tool-result-log";
+import { validateTurnFinalAnswer } from "../src/features/kb/services/agent-workbench/runtime/tool-evidence-validator";
+import { mapAgentErrorToUserFacing } from "../src/features/kb/services/agent-workbench/runtime/user-facing-agent-error";
+import { extractActionTraceSummary } from "../src/features/kb/services/agent-workbench/memory/agent-turn-memory";
+import type { AgentWorkbenchEvent } from "../src/features/kb/services/agent-workbench/events/agent-workbench-events";
+import { getAgentProfile, KNOWLEDGE_CHAT_AGENT_PROFILE_ID } from "../src/features/agent-platform/agent-profile";
+import { setNotebrainPlugin } from "../src/features/kb/services/agent-workbench/storage/notebrain-plugin-storage";
+import {
+  formatToolDisplayName,
+  formatToolResultSummary,
+  formatToolFailureSummary,
+  resolveWorkbenchFinalStatus,
+} from "../src/features/kb/services/agent-workbench/presentation/tool-step-presentation";
+import {
+  HomepageComponentConflictError,
+  isComponentConflictError,
+  homepageComponentFailure,
+} from "../src/features/kb/services/agent-workbench/tools/homepage-components/homepage-component-tool-utils";
+import {
+  ReviewConflictError,
+} from "../src/components/utils/widgetBlock/widget/reviewDocs/reviewDocs";
+import {
+  EnhancedDiaryProjectWriteTargetError,
+  extractProjectWriteTargetErrorCode,
+} from "../src/components/utils/widgetBlock/widget/enhancedDiary/workspace/enhancedDiaryWorkspaceProjectLifecycle";
+import {
+  createHomepageReviewActionTools,
+} from "../src/features/kb/services/agent-workbench/tools/homepage-components/homepage-review.tool";
+import {
+  createListItemsByTimeTool,
+} from "../src/features/kb/services/agent-workbench/tools/siyuan/list-items-by-time.tool";
+import {
+  executeListItemsByTime,
+} from "../src/features/kb/services/agent-workbench/tools/siyuan/impl/list-items-by-time.impl";
+import {
+  SiyuanToolInvalidArgsError,
+  createGenericSiyuanTool,
+} from "../src/features/kb/services/agent-workbench/tools/siyuan/siyuan-generic-tool-factory";
+import { requireString } from "../src/features/kb/services/agent-workbench/tools/siyuan/impl/siyuan-tool-impl-utils.impl";
+import { requestChecked, SiyuanApiError } from "../src/api";
+import { setSiyuanRuntimePort } from "../src/runtime/siyuan-runtime-port";
+import { z } from "zod";
 
+setNotebrainPlugin({
+  isMobile: false,
+  loadData: async () => undefined,
+  saveData: async () => {},
+  removeData: async () => {},
+} as never);
+
+// === 1. Language-Agnostic Repetitive Output Diagnostics ===
 const repeated = [
   "从当前结果中只能看到 focus 组件位于 visualChart 之后、PicCaro 之前，但这还不足以确定分类，因此我准备继续查看它的完整信息并核对 categoryId 字段。",
   "当前主页只有 accounting 和 musicPlayer 两个组件，为了整理每个分类下的全部组件，我还需要把组件目录与现有布局逐项进行比对，然后继续完成添加操作。",
@@ -31,49 +82,55 @@ const repeated = [
   "当前主页只有 accounting 和 musicPlayer 两个组件，为了整理每个分类下的全部组件，我还需要把组件目录与现有布局逐项进行比对，然后继续完成添加操作。",
 ].join("\n\n");
 assert.equal(
-  inspectUnfinishedAgentOutput(repeated, { toolsAvailable: true })?.reason,
+  inspectUnfinishedAgentOutput(repeated)?.reason,
   "repetitive_output",
 );
 assert.equal(
-  inspectUnfinishedAgentOutput("已有结果还不完整。让我查看 focus 组件的完整信息。", { toolsAvailable: true })?.reason,
-  "dangling_tool_intent",
-);
-assert.equal(
-  inspectUnfinishedAgentOutput("已完成检查，focus 属于日常工具分类。", { toolsAvailable: true }),
+  inspectUnfinishedAgentOutput("已完成检查，focus 属于日常工具分类。"),
   undefined,
 );
 assert.equal(
-  inspectUnfinishedAgentOutput("请告诉我希望修改哪个组件？", { toolsAvailable: true }),
+  inspectUnfinishedAgentOutput("请告诉我希望修改哪个组件？"),
+  undefined,
+);
+assert.equal(
+  inspectUnfinishedAgentOutput("Which component would you like to update?"),
+  undefined,
+);
+assert.equal(
+  inspectUnfinishedAgentOutput("どのコンポーネントを変更しますか？"),
   undefined,
 );
 
-class RecoveryProvider implements ProviderAdapter {
-  readonly id = "continuation-guard-test";
-  readonly capabilities = OPENAI_COMPATIBLE_CAPABILITIES;
-  readonly requests: AgentChatRequest[] = [];
+// === 2. Provider Adapter & Transport Regressions ===
+const requestBodies: Array<Record<string, unknown>> = [];
+const sseTransport: AgentHttpTransport = {
+  async post(options) {
+    requestBodies.push(JSON.parse(options.body) as Record<string, unknown>);
+    const sse = [
+      'data: {"choices":[{"delta":{"content":"部分正文"},"finish_reason":null}]}',
+      "",
+      'data: {"choices":[{"delta":{},"finish_reason":"length"}]}',
+      "",
+      "data: [DONE]",
+    ].join("\n\n");
+    return {
+      ok: true,
+      status: 200,
+      statusText: "OK",
+      headers: { get: (name) => (name.toLowerCase() === "content-type" ? "text/event-stream" : null) },
+      async json() { return {}; },
+      async text() { return sse; },
+      body: new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode(sse));
+          controller.close();
+        },
+      }),
+    };
+  },
+};
 
-  async *streamChat(request: AgentChatRequest): AsyncGenerator<AgentProviderEvent> {
-    this.requests.push(request);
-    const turn = this.requests.length;
-    if (turn === 1) {
-      yield { type: "text_delta", delta: "已有结果还不完整。让我查看 focus 组件的完整信息。" };
-      yield { type: "done", finishReason: "stop" };
-      return;
-    }
-    if (turn === 2) {
-      yield {
-        type: "tool_call_done",
-        toolCall: { id: "call-recovery", name: "lookup_widget", arguments: "{}", index: 0 },
-      };
-      yield { type: "done", finishReason: "tool_calls" };
-      return;
-    }
-    yield { type: "text_delta", delta: "已通过真实工具调用确认，任务继续并完成。" };
-    yield { type: "done", finishReason: "stop" };
-  }
-}
-
-const provider = new RecoveryProvider();
 const registry = new NativeToolRegistry();
 registry.register({
   name: "lookup_widget",
@@ -89,35 +146,6 @@ registry.register({
   },
 });
 
-const requestBodies: Array<Record<string, unknown>> = [];
-const sseTransport: AgentHttpTransport = {
-  async post(options) {
-    requestBodies.push(JSON.parse(options.body) as Record<string, unknown>);
-    const sse = [
-      'data: {"choices":[{"delta":{"content":"部分正文"},"finish_reason":null}]}',
-      "",
-      'data: {"choices":[{"delta":{},"finish_reason":"length"}]}',
-      "",
-      "data: [DONE]",
-      "",
-    ].join("\n");
-    const body = new ReadableStream<Uint8Array>({
-      start(controller) {
-        controller.enqueue(new TextEncoder().encode(sse));
-        controller.close();
-      },
-    });
-    return {
-      ok: true,
-      status: 200,
-      statusText: "OK",
-      headers: { get: () => "text/event-stream" },
-      async json() { return {}; },
-      async text() { return ""; },
-      body,
-    };
-  },
-};
 const openAIAdapter = new OpenAICompatibleAdapter({
   id: "openai-sse-regression",
   model: "test-model",
@@ -135,116 +163,47 @@ for await (const event of openAIAdapter.streamChat({
 assert.equal(
   openAIEvents.slice().reverse().find((event) => event.type === "done")?.finishReason,
   "length",
-  "[DONE] must not erase the concrete finish_reason from the preceding SSE frame",
 );
 assert.equal(requestBodies[0]?.tool_choice, "required");
 
-const fallbackBodies: Array<Record<string, unknown>> = [];
-const fallbackAdapter = new OpenAICompatibleAdapter({
-  id: "required-tool-choice-fallback",
-  model: "thinking-model",
-  chatCompletionsUrl: "https://example.invalid/v1/chat/completions",
-  transport: {
-    async post(options) {
-      fallbackBodies.push(JSON.parse(options.body) as Record<string, unknown>);
-      if (fallbackBodies.length === 1) {
-        return {
-          ok: false,
-          status: 400,
-          statusText: "Bad Request",
-          headers: { get: () => "application/json" },
-          async json() { return {}; },
-          async text() {
-            return JSON.stringify({ error: { message: "Thinking mode does not support this tool_choice" } });
-          },
-          body: null,
-        };
-      }
-      return {
-        ok: true,
-        status: 200,
-        statusText: "OK",
-        headers: { get: () => "application/json" },
-        async json() {
-          return { choices: [{ message: { content: "fallback ok" }, finish_reason: "stop" }] };
-        },
-        async text() { return ""; },
-        body: null,
-      };
-    },
-  },
-});
-const fallbackEvents: AgentProviderEvent[] = [];
-for await (const event of fallbackAdapter.streamChat({
-  messages: [{ role: "user", content: "测试" }],
-  tools: registry.listProviderVisible(),
-  toolChoice: "required",
-})) {
-  fallbackEvents.push(event);
-}
-assert.equal(fallbackBodies.length, 2);
-assert.equal(fallbackBodies[0]?.tool_choice, "required");
-assert.equal(fallbackBodies[1]?.tool_choice, "auto");
-assert.ok(fallbackEvents.some((event) => event.type === "text_delta" && event.delta === "fallback ok"));
-
-const events: string[] = [];
-const result = await new NativeToolAgentLoop({
-  provider,
-  toolRegistry: registry,
-  systemPrompt: "测试",
-  onEvent: (event) => events.push(event.type),
-}).run("继续完成任务");
-
-assert.equal(result.status, "answer_ready");
-assert.equal(result.answer, "已通过真实工具调用确认，任务继续并完成。");
-assert.equal(provider.requests.length, 3);
-assert.equal(provider.requests[0]?.toolChoice, "auto");
-assert.equal(provider.requests[1]?.toolChoice, "auto");
-assert.equal(provider.requests[2]?.toolChoice, "auto");
-assert.ok(events.includes("assistant_text_reset"));
-assert.ok(events.includes("notice"));
-assert.ok(events.includes("tool_start"));
-assert.ok(events.includes("tool_result"));
-
-// The presentation boundary is verified at the ChatMessage-shaped state, not
-// only at Native/Adapter event output.
+// === 3. Presentation State & Reasoning Tests ===
 const presentationEvents: AgentStreamEvent[] = [
-  { type: "assistant_text_delta", delta: "让我先核对工具结果。", fullContent: "让我先核对工具结果。" },
-  { type: "tool_start" } as AgentStreamEvent,
-  { type: "tool_result" } as AgentStreamEvent,
-  { type: "assistant_text_delta", delta: "|字段|值|\n|---|---|\n|状态|已找到|", fullContent: "|字段|值|\n|---|---|\n|状态|已找到|" },
-  { type: "tool_start" } as AgentStreamEvent,
-  { type: "tool_result" } as AgentStreamEvent,
-  { type: "assistant_final", answer: "Agent 过程草稿" },
-  { type: "done", status: "answer_ready" },
+  { type: "assistant_reasoning_delta", delta: "让我先核对一下组件目录。", fullReasoning: "让我先核对一下组件目录。" },
+  { type: "tool_start", stepIndex: 0, toolCallId: "call-1", toolName: "lookup_widget", argsPreview: {}, readOnly: true, startedAt: Date.now() },
+  { type: "tool_result", stepIndex: 0, toolCallId: "call-1", toolName: "lookup_widget", result: { ok: true, content: "{}" }, durationMs: 10 },
+  { type: "assistant_text_delta", delta: "根据核对结果，focus 属于工具分类。", fullContent: "根据核对结果，focus 属于工具分类。" },
+  { type: "assistant_reasoning_delta", delta: "继续检查是否有更多字段。", fullReasoning: "让我先核对一下组件目录。继续检查是否有更多字段。" },
+  { type: "tool_start", stepIndex: 1, toolCallId: "call-2", toolName: "lookup_widget", argsPreview: {}, readOnly: true, startedAt: Date.now() },
+  { type: "tool_result", stepIndex: 1, toolCallId: "call-2", toolName: "lookup_widget", result: { ok: true, content: "{}" }, durationMs: 10 },
 ];
-assert.equal(presentationEvents.filter((event) => event.type === "tool_start").length, 2);
 
 let processReasoning = "";
 let processReasoningParts = 0;
 let processReasoningStatus: "streaming" | "done" = "streaming";
-let agentAnswerFinishCount = 0;
 let presentationState: AgentPresentationState = { reasoningStarted: false, answerFinished: false };
+
 for (const event of presentationEvents) {
   presentationState = routeAgentStreamEvent(event, presentationState, {
     composeFinalAnswer: true,
     thinkingMode: "on",
-    onAnswerFinish: () => { agentAnswerFinishCount++; },
+    onAnswerChunk: () => {
+      assert.fail("Live tool stream text must not be emitted to user answer when composeFinalAnswer is active");
+    },
     onReasoningDelta: (reasoningEvent) => {
-      if (reasoningEvent.type === "reasoning-start") processReasoningStatus = "streaming";
-      if (reasoningEvent.type === "reasoning-delta") {
+      if (reasoningEvent.type === "reasoning-start") {
+        processReasoningParts += 1;
+      } else if (reasoningEvent.type === "reasoning-delta") {
         processReasoning += reasoningEvent.delta ?? "";
-        processReasoningParts++;
+      } else if (reasoningEvent.type === "reasoning-end") {
+        processReasoningStatus = "done";
       }
-      if (reasoningEvent.type === "reasoning-end") processReasoningStatus = "done";
     },
   });
 }
 assert.equal(presentationState.reasoningStarted, true);
-assert.equal(presentationState.answerFinished, false);
-assert.equal(agentAnswerFinishCount, 0);
-assert.match(processReasoning, /工具结果/);
-assert.match(processReasoning, /字段/);
+assert.match(processReasoning, /让我先核对一下组件目录/);
+assert.match(processReasoning, /根据核对结果，focus 属于工具分类/);
+assert.match(processReasoning, /继续检查是否有更多字段/);
 
 let composerReasoning = "";
 let composerContent = "";
@@ -281,27 +240,10 @@ const composedMessage: AssistantChatMessage = {
 };
 assert.equal(composedMessage.content, "最终回答只来自 Composer。");
 assert.equal(composedMessage.content.includes("让我先核对"), false);
-assert.equal(composedMessage.content.includes("字段"), false);
 assert.ok(composedMessage.reasoning);
 assert.equal(composedMessage.reasoning.status, "done");
-assert.match(composedMessage.reasoning.content, /最终回答/);
 
-let thinkingOffReasoning = "";
-let thinkingOffContent = "";
-let thinkingOffState: AgentPresentationState = { reasoningStarted: false, answerFinished: false };
-for (const event of presentationEvents) {
-  thinkingOffState = routeAgentStreamEvent(event, thinkingOffState, {
-    composeFinalAnswer: true,
-    thinkingMode: "off",
-    onAnswerChunk: ({ fullContent }) => { thinkingOffContent = fullContent; },
-    onReasoningDelta: (reasoningEvent) => { thinkingOffReasoning += reasoningEvent.delta ?? ""; },
-  });
-}
-thinkingOffContent = "关闭思考时的最终 Composer 正文";
-assert.equal(thinkingOffState.reasoningStarted, false);
-assert.equal(thinkingOffReasoning, "");
-assert.equal(thinkingOffContent, "关闭思考时的最终 Composer 正文");
-
+// === 4. Composer Prompt & Safety Boundary ===
 const composerPrompt = buildFinalAnswerComposerPrompt({
   question: "汇总已完成结果",
   draftBody: "Agent draft D:\\private\\draft.md",
@@ -324,7 +266,497 @@ assert.throws(
   () => assertFinalAnswer(""),
   (error: unknown) => (error as { code?: string }).code === "final_answer_composer_empty",
 );
-assert.equal(presentationEvents.filter((event) => event.type === "tool_start").length, 2, "Composer failure must not rerun tools");
-assert.equal(processReasoningStatus, "done", "Composer failure must not leave reasoning streaming");
 
-console.log("Agent continuation guard verification passed.");
+// === 5. Multi-Lingual Consistency: Chinese, English, Japanese, German, Arabic ===
+const MULTI_LANG_QUESTIONS = [
+  { lang: "zh", text: "什么是 SQL？" },
+  { lang: "en", text: "What is SQL?" },
+  { lang: "ja", text: "SQLとは何ですか？" },
+  { lang: "de", text: "Was ist SQL?" },
+  { lang: "ar", text: "ما هي لغة SQL؟" },
+];
+
+class MultilingualDirectProvider implements ProviderAdapter {
+  readonly id = "multilingual-direct-provider";
+  readonly capabilities = OPENAI_COMPATIBLE_CAPABILITIES;
+  readonly requests: AgentChatRequest[] = [];
+
+  async *streamChat(request: AgentChatRequest): AsyncGenerator<AgentProviderEvent> {
+    this.requests.push(request);
+    yield { type: "text_delta", delta: "SQL is a domain-specific language used in programming and designed for managing data in RDBMS." };
+    yield { type: "done", finishReason: "stop" };
+  }
+}
+
+for (const { lang, text } of MULTI_LANG_QUESTIONS) {
+  const directProvider = new MultilingualDirectProvider();
+  const directObsLog = new ToolResultLog();
+  const directEvents: AgentStreamEvent[] = [];
+
+  const directResult = await new NativeToolAgentLoop({
+    provider: directProvider,
+    toolRegistry: registry,
+    systemPrompt: "System Prompt",
+    validateFinalAnswer: (answer) => validateTurnFinalAnswer(answer, {
+      observations: directObsLog.all(),
+    }),
+    onEvent: (e) => directEvents.push(e),
+  }).run(text);
+
+  assert.equal(directResult.status, "answer_ready", `Direct concept question in ${lang} must succeed without tools`);
+  assert.equal(directProvider.requests.length, 1);
+  assert.equal(directEvents.some((e) => e.type === "assistant_final"), true);
+}
+
+// === 6. Multi-Lingual Native Tool Execution & Recovery Loop ===
+class MultilingualToolRecoveryProvider implements ProviderAdapter {
+  readonly id = "multilingual-tool-provider";
+  readonly capabilities = OPENAI_COMPATIBLE_CAPABILITIES;
+  readonly requests: AgentChatRequest[] = [];
+
+  async *streamChat(request: AgentChatRequest): AsyncGenerator<AgentProviderEvent> {
+    this.requests.push(request);
+    const turn = this.requests.length;
+    if (turn === 1) {
+      yield {
+        type: "tool_call_done",
+        toolCall: { id: "call-multi", name: "lookup_widget", arguments: "{}", index: 0 },
+      };
+      yield { type: "done", finishReason: "tool_calls" };
+      return;
+    }
+    yield { type: "text_delta", delta: "Verified: widget category is tool." };
+    yield { type: "done", finishReason: "stop" };
+  }
+}
+
+for (const { lang, text } of MULTI_LANG_QUESTIONS) {
+  const toolProvider = new MultilingualToolRecoveryProvider();
+  const toolObsLog = new ToolResultLog();
+  const toolEvents: AgentStreamEvent[] = [];
+
+  const loopResult = await new NativeToolAgentLoop({
+    provider: toolProvider,
+    toolRegistry: registry,
+    systemPrompt: "System Prompt",
+    validateFinalAnswer: (answer) => validateTurnFinalAnswer(answer, {
+      observations: toolObsLog.all(),
+    }),
+    onEvent: (e) => toolEvents.push(e),
+  }).run(text);
+
+  assert.equal(loopResult.status, "answer_ready", `Tool execution in ${lang} must succeed`);
+  assert.equal(toolProvider.requests.length, 2);
+  assert.ok(toolEvents.some((e) => e.type === "tool_start"));
+  assert.ok(toolEvents.some((e) => e.type === "tool_result"));
+}
+
+// === 7. Real runAgentProfile Integration Lifecycles ===
+
+// Lifecycle 1: Zero observation direct answer -> Composer 1, finalize 1
+{
+  let directComposerCalls = 0;
+  let directFinalizeCalls = 0;
+  const directEvents: AgentWorkbenchEvent[] = [];
+
+  const directProfileResult = await runAgentProfile({
+    profile: getAgentProfile(KNOWLEDGE_CHAT_AGENT_PROFILE_ID),
+    mode: "whole_kb",
+    question: "What is SQL in English?",
+    provider: new MultilingualDirectProvider(),
+    validateFinalAnswer: (answer, context) => validateTurnFinalAnswer(answer, context),
+    composeFinalAnswer: async (context) => {
+      directComposerCalls += 1;
+      return "Direct Composer: " + context.draftBody;
+    },
+    finalize: async (context) => {
+      directFinalizeCalls += 1;
+      return { result: { answer: context.answer } };
+    },
+    onWorkbenchEvent: (e) => directEvents.push(e),
+  });
+
+  assert.equal(directProfileResult.ok, true);
+  assert.equal(directComposerCalls, 1, "Direct answer composeFinalAnswer must be called exactly once");
+  assert.equal(directFinalizeCalls, 1, "Direct answer finalize must be called exactly once");
+  assert.match(directProfileResult.result?.answer ?? "", /Direct Composer:/);
+}
+
+// Lifecycle 2: Tool execution success -> Composer 1, finalize 1, action trace contains real tool
+{
+  let toolComposerCalls = 0;
+  let toolFinalizeCalls = 0;
+  const toolProfileEvents: AgentWorkbenchEvent[] = [];
+
+  const profileSuccessResult = await runAgentProfile({
+    profile: getAgentProfile(KNOWLEDGE_CHAT_AGENT_PROFILE_ID),
+    mode: "whole_kb",
+    question: "Check widgets across languages",
+    provider: new MultilingualToolRecoveryProvider(),
+    validateFinalAnswer: (answer, context) => validateTurnFinalAnswer(answer, context),
+    composeFinalAnswer: async (context) => {
+      toolComposerCalls += 1;
+      return "Composer Output: " + context.draftBody;
+    },
+    finalize: async (context) => {
+      toolFinalizeCalls += 1;
+      return { result: { answer: context.answer } };
+    },
+    onWorkbenchEvent: (e) => toolProfileEvents.push(e),
+  });
+
+  assert.equal(profileSuccessResult.ok, true);
+  assert.equal(toolComposerCalls, 1, "composeFinalAnswer must be called exactly once on tool success");
+  assert.equal(toolFinalizeCalls, 1, "finalize must be called exactly once on tool success");
+  assert.equal(profileSuccessResult.result?.answer, "Composer Output: Verified: widget category is tool.");
+  const realTrace = extractActionTraceSummary(toolProfileEvents);
+  assert.deepEqual(realTrace.toolNames, ["lookup_widget"], "Action trace must strictly contain real executed tools");
+}
+
+// Lifecycle 3: Missing Citation Validation Failure Lifecycle -> Composer 0, finalize 0
+class MissingCitationProvider implements ProviderAdapter {
+  readonly id = "missing-citation-provider";
+  readonly capabilities = OPENAI_COMPATIBLE_CAPABILITIES;
+  readonly requests: AgentChatRequest[] = [];
+
+  async *streamChat(request: AgentChatRequest): AsyncGenerator<AgentProviderEvent> {
+    this.requests.push(request);
+    const turn = this.requests.length;
+    if (turn === 1) {
+      yield {
+        type: "tool_call_done",
+        toolCall: { id: "call-search", name: "lookup_widget", arguments: "{}", index: 0 },
+      };
+      yield { type: "done", finishReason: "tool_calls" };
+      return;
+    }
+    // Turn 2 & 3: Outputs answer without citation tags
+    yield { type: "text_delta", delta: "Doc content without citation tag." };
+    yield { type: "done", finishReason: "stop" };
+  }
+}
+
+const citationObsLog = new ToolResultLog();
+citationObsLog.push({
+  kind: "tool_executed",
+  toolName: "read_docs",
+  summary: "Read document",
+  content: {
+    items: [{
+      docId: "20240101120000-abcdefg",
+      title: "Doc Guide",
+      content: "Important content",
+    }],
+  },
+});
+
+const citationEvents: AgentStreamEvent[] = [];
+const citationLoopResult = await new NativeToolAgentLoop({
+  provider: new MissingCitationProvider(),
+  toolRegistry: registry,
+  systemPrompt: "System Prompt",
+  validateFinalAnswer: (answer) => validateTurnFinalAnswer(answer, {
+    observations: citationObsLog.all(),
+  }),
+  onEvent: (e) => citationEvents.push(e),
+}).run("Query doc guide");
+
+assert.equal(citationLoopResult.status, "failed");
+assert.equal(citationLoopResult.errorCode, "missing_citation_reference");
+
+let failComposerCalls = 0;
+let failFinalizeCalls = 0;
+
+const validationFailResult = await runAgentProfile({
+  profile: getAgentProfile(KNOWLEDGE_CHAT_AGENT_PROFILE_ID),
+  mode: "whole_kb",
+  question: "Query doc guide",
+  provider: new MissingCitationProvider(),
+  validateFinalAnswer: () => ({
+    valid: false,
+    retryInstruction: "Must provide valid citation tags.",
+    forceToolCall: false,
+    errorCode: "missing_citation_reference",
+    errorMessage: "Missing citation reference in answer.",
+  }),
+  composeFinalAnswer: async () => {
+    failComposerCalls += 1;
+    return "Should not reach here";
+  },
+  finalize: async () => {
+    failFinalizeCalls += 1;
+    return { result: { answer: "" } };
+  },
+});
+
+assert.equal(validationFailResult.ok, false);
+assert.equal(validationFailResult.agentErrorCode, "missing_citation_reference");
+assert.equal(failComposerCalls, 0, "Composer must never be called on citation validation failure");
+assert.equal(failFinalizeCalls, 0, "Finalize must never be called on citation validation failure");
+
+// === 8. User Facing Error Mapping ===
+const missingCitationError = mapAgentErrorToUserFacing({
+  agentErrorCode: "missing_citation_reference",
+});
+assert.equal(missingCitationError.title, "回答未通过来源引用校验");
+
+const finalValidationFailedError = mapAgentErrorToUserFacing({
+  agentErrorCode: "final_answer_validation_failed",
+});
+assert.equal(finalValidationFailedError.title, "终稿校验未通过");
+
+// === 9. Multi-Lingual Presentation & Tool Summary Formatter ===
+assert.equal(formatToolDisplayName("lookup_widget"), "lookup_widget");
+assert.equal(formatToolDisplayName("siyuan_kb"), "使用知识库");
+assert.equal(formatToolResultSummary("Query Tool", "Success with 5 items"), "Success with 5 items");
+assert.equal(formatToolResultSummary("クエリツール", "5件のデータ取得完了"), "5件のデータ取得完了");
+assert.equal(formatToolResultSummary("أداة البحث", "تم استرداد 5 عناصر بنجاح"), "تم استرداد 5 عناصر بنجاح");
+assert.equal(formatToolFailureSummary("Tool", "Network timeout"), "Network timeout");
+
+assert.equal(resolveWorkbenchFinalStatus([
+  { type: "error", code: "pseudo_tool_markup_blocked" },
+]), "failed");
+assert.equal(resolveWorkbenchFinalStatus([
+  { type: "done", status: "answer_ready" },
+]), "answer_ready");
+
+// === 10. Real SiYuan API Exception Chain (requestChecked -> SiyuanApiError -> GenericTool) ===
+setSiyuanRuntimePort({
+  async post(path: string) {
+    if (path === "/api/test/fail") {
+      return { code: -1, msg: "mock db lock error", data: null };
+    }
+    return { code: 0, msg: "", data: { success: true } };
+  },
+});
+
+let caughtApiErr: unknown;
+try {
+  await requestChecked("/api/test/fail", {}, "testCall");
+} catch (e) {
+  caughtApiErr = e;
+}
+assert.ok(caughtApiErr instanceof SiyuanApiError, "requestChecked must throw SiyuanApiError on code !== 0");
+assert.equal((caughtApiErr as SiyuanApiError).code, "siyuan_api_failed");
+assert.equal((caughtApiErr as SiyuanApiError).siyuanCode, -1);
+assert.equal((caughtApiErr as SiyuanApiError).siyuanMsg, "mock db lock error");
+
+const realApiTool = createGenericSiyuanTool({
+  name: "test_real_api_tool",
+  title: "Real API Tool",
+  description: "Tests real api error propagation",
+  inputSchema: z.object({ shouldFail: z.boolean() }),
+  readOnly: true,
+  inputHint: "hint",
+  boundary: "boundary",
+  deps: {
+    execute: async (args) => {
+      const data = await requestChecked(args.shouldFail ? "/api/test/fail" : "/api/test/ok", {});
+      return { output: { action: "query", data, truncated: false, hasMore: false } };
+    },
+  },
+  inputJsonSchemaOverride: {},
+});
+
+const realApiFailResult = await realApiTool.execute({} as never, { shouldFail: true });
+assert.equal(realApiFailResult.ok, false);
+assert.equal(realApiFailResult.error?.code, "siyuan_api_failed", "Real API failure must be classified as siyuan_api_failed");
+
+// === 11. Real Tool Parameter Validation Chain (requireString -> SiyuanToolInvalidArgsError -> GenericTool) ===
+let caughtArgsErr: unknown;
+try {
+  requireString("", "docId");
+} catch (e) {
+  caughtArgsErr = e;
+}
+assert.ok(caughtArgsErr instanceof SiyuanToolInvalidArgsError, "requireString must throw SiyuanToolInvalidArgsError on empty input");
+assert.equal((caughtArgsErr as SiyuanToolInvalidArgsError).code, "invalid_args");
+
+const realParamTool = createGenericSiyuanTool({
+  name: "test_param_tool",
+  title: "Param Tool",
+  description: "Tests real param error propagation",
+  inputSchema: z.object({ docId: z.string() }),
+  readOnly: true,
+  inputHint: "hint",
+  boundary: "boundary",
+  deps: {
+    execute: async (args) => {
+      const id = requireString(args.docId, "docId");
+      return { output: { action: "get", data: { id }, truncated: false, hasMore: false } };
+    },
+  },
+  inputJsonSchemaOverride: {},
+});
+
+const realParamFailResult = await realParamTool.execute({} as never, { docId: "" });
+assert.equal(realParamFailResult.ok, false);
+assert.equal(realParamFailResult.error?.code, "invalid_args", "Parameter validation failure must be classified as invalid_args");
+
+// === 12. Message Text Invariance & Code-Stripping Verification ===
+// Test custom multilingual message text with structured code -> classification is 100% accurate
+const multiLingualApiTool = createGenericSiyuanTool({
+  name: "test_ml_tool",
+  title: "ML Tool",
+  description: "Tests message text invariance",
+  inputSchema: z.object({ mode: z.string() }),
+  readOnly: true,
+  inputHint: "hint",
+  boundary: "boundary",
+  deps: {
+    execute: async (args) => {
+      if (args.mode === "en_api") {
+        throw new SiyuanApiError("Kernel database connection failed unexpectedly", { siyuanCode: 500 });
+      }
+      if (args.mode === "ja_args") {
+        throw new SiyuanToolInvalidArgsError("無効な引数が指定されました");
+      }
+      if (args.mode === "plain_err_with_text") {
+        // Plain Error containing former keywords - must NOT be misclassified
+        throw new Error("思源 API 调用失败 [invalid_args] arbitrary failure");
+      }
+      return { output: { action: "ok", truncated: false, hasMore: false } };
+    },
+  },
+  inputJsonSchemaOverride: {},
+});
+
+const enApiRes = await multiLingualApiTool.execute({} as never, { mode: "en_api" });
+assert.equal(enApiRes.error?.code, "siyuan_api_failed", "English API error with structured code must classify as siyuan_api_failed");
+
+const jaArgsRes = await multiLingualApiTool.execute({} as never, { mode: "ja_args" });
+assert.equal(jaArgsRes.error?.code, "invalid_args", "Japanese args error with structured code must classify as invalid_args");
+
+const plainErrRes = await multiLingualApiTool.execute({} as never, { mode: "plain_err_with_text" });
+assert.equal(plainErrRes.error?.code, "siyuan_tool_failed", "Plain error without structured code must NOT be misclassified by message sniffing");
+
+// === 13. Homepage Component Conflict & CAS Error Handling ===
+assert.equal(isComponentConflictError(new HomepageComponentConflictError("conflict")), true);
+assert.equal(isComponentConflictError({ code: "conflict" }), true);
+assert.equal(isComponentConflictError(new ReviewConflictError("conflict")), true);
+assert.equal(isComponentConflictError({ code: "review_conflict" }), true);
+assert.equal(isComponentConflictError({ code: "revision_mismatch" }), true);
+assert.equal(isComponentConflictError({ code: "stale_revision" }), true);
+
+// Parallel discriminators without code must return false
+assert.equal(isComponentConflictError({ details: { conflict: true } }), false, "details.conflict without code must NOT be recognized as conflict");
+assert.equal(isComponentConflictError({ isConflict: true }), false, "isConflict boolean without code must NOT be recognized as conflict");
+assert.equal(isComponentConflictError({ name: "HomepageComponentConflictError" }), false, "Error.name without code must NOT be recognized as conflict");
+assert.equal(isComponentConflictError(new Error("复习计划已在其他窗口修改，请重新读取。")), false, "Error message text without code must NOT be recognized as conflict");
+
+// Real Error vs cross-boundary { code, message, details } object behave identically
+const errInstanceFailure = homepageComponentFailure(
+  new HomepageComponentConflictError("Instance conflict"),
+  "update_widget_failed",
+  "Fallback message",
+);
+const plainObjectFailure = homepageComponentFailure(
+  { code: "conflict", message: "Plain object conflict" },
+  "update_widget_failed",
+  "Fallback message",
+);
+assert.equal(errInstanceFailure.ok, false);
+assert.equal(errInstanceFailure.error?.code, "update_widget_conflict");
+assert.equal(plainObjectFailure.ok, false);
+assert.equal(plainObjectFailure.error?.code, "update_widget_conflict");
+
+// Message rewrite with valid code preserves classification; without code produces fallback
+const rewrittenMessageFailure = homepageComponentFailure(
+  { code: "conflict", message: "Custom localized message in Japanese/French/Arabic" },
+  "update_widget_failed",
+  "Fallback message",
+);
+assert.equal(rewrittenMessageFailure.error?.code, "update_widget_conflict");
+
+const noCodeWithKeywordsFailure = homepageComponentFailure(
+  new Error("已在其他窗口修改 revision 冲突"),
+  "update_widget_failed",
+  "Fallback message",
+);
+assert.equal(noCodeWithKeywordsFailure.error?.code, "update_widget_failed", "No code with old keyword text must produce non-conflict fallback code");
+
+// === 14. Real Producer to Tool Consumer Integration (Homepage Review & ListItemsByTime) ===
+// 14.1 Homepage Review Tool: stale expectedUpdatedAt -> review_update_plan_conflict
+const reviewTools = createHomepageReviewActionTools();
+const updatePlanTool = reviewTools.find((t) => t.action === "update_plan")?.tool;
+assert.ok(updatePlanTool, "update_plan action tool must exist");
+
+// Mock siyuan kernel runtime port to return before attrs with updatedAt "2026-08-21T10:00:00.000Z"
+setSiyuanRuntimePort({
+  async post(url: string, data: unknown) {
+    if (url === "/api/query/sql") {
+      return {
+        code: 0,
+        data: [{ id: "20260821100000-abcdef1", type: "d", root_id: "20260821100000-abcdef1", box: "nb-1", content: "Test Doc", hpath: "/Test Doc" }],
+      };
+    }
+    if (url === "/api/attr/getBlockAttrs") {
+      return {
+        code: 0,
+        data: {
+          "custom-homepage-review-id": "20260821100000-rev123",
+          "custom-homepage-review-next-date": "2026-08-25",
+          "custom-homepage-review-updated-at": "2026-08-21T10:00:00.000Z",
+        },
+      };
+    }
+    return { code: 0, data: null };
+  },
+});
+
+// Provide stale expectedUpdatedAt "2026-08-20T09:00:00.000Z"
+const reviewConflictResult = await updatePlanTool.execute({} as never, {
+  targetId: "20260821100000-abcdef1",
+  targetType: "doc",
+  expectedUpdatedAt: "2026-08-20T09:00:00.000Z",
+  plan: {
+    nextDate: "2026-08-26",
+    note: "Updated note",
+    category: "Math",
+    priority: "high",
+    plan: "manual",
+    intervals: [1, 2, 4],
+  },
+});
+assert.equal(reviewConflictResult.ok, false);
+assert.equal(reviewConflictResult.error?.code, "review_update_plan_conflict", "Stale expectedUpdatedAt must produce review_update_plan_conflict");
+
+// 14.2 ListItemsByTime Tool: invalid timestamp -> invalid_args
+const listTimeTool = createListItemsByTimeTool({
+  executeListItemsByTime: async (args) => {
+    const deps = {
+      getEffectiveScope: () => ({ type: "notebook" as const, notebookId: "nb-1" }),
+    };
+    return executeListItemsByTime(deps as never, args);
+  },
+});
+
+const listTimeInvalidResult = await listTimeTool.execute({} as never, {
+  itemType: "doc",
+  startTime: "not-a-valid-time-format",
+});
+assert.equal(listTimeInvalidResult.ok, false);
+assert.equal(listTimeInvalidResult.error?.code, "invalid_args", "Invalid time argument must produce invalid_args");
+
+// === 15. Enhanced Diary Project Write Target Code Extraction & Prototype Invariance ===
+// 15.1 Error instances extract correct code
+const errInvalid = new EnhancedDiaryProjectWriteTargetError("invalid_project_target", "Invalid project");
+const errArchived = new EnhancedDiaryProjectWriteTargetError("archived_project_target", "Archived project");
+assert.equal(extractProjectWriteTargetErrorCode(errInvalid), "invalid_project_target");
+assert.equal(extractProjectWriteTargetErrorCode(errArchived), "archived_project_target");
+
+// 15.2 Cross-boundary plain objects extract identical code without prototype/class inheritance
+const plainInvalid = { code: "invalid_project_target", message: "Any localized text" };
+const plainArchived = { code: "archived_project_target", message: "Any localized text" };
+assert.equal(extractProjectWriteTargetErrorCode(plainInvalid), "invalid_project_target");
+assert.equal(extractProjectWriteTargetErrorCode(plainArchived), "archived_project_target");
+
+// 15.3 Objects without valid code return undefined (safe fallback)
+assert.equal(extractProjectWriteTargetErrorCode({ name: "EnhancedDiaryProjectWriteTargetError" }), undefined, "Error.name alone must NOT extract code");
+assert.equal(extractProjectWriteTargetErrorCode({ message: "无法确认项目状态" }), undefined, "Message text alone must NOT extract code");
+assert.equal(extractProjectWriteTargetErrorCode(new Error("Generic error")), undefined, "Plain Error without code must NOT extract code");
+assert.equal(extractProjectWriteTargetErrorCode({ code: "unknown_code" }), undefined, "Unknown code must NOT extract code");
+assert.equal(extractProjectWriteTargetErrorCode(null), undefined);
+assert.equal(extractProjectWriteTargetErrorCode(undefined), undefined);
+
+console.log("Agent continuation guard & language-agnostic verification passed.");

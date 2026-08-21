@@ -23,7 +23,7 @@ import { ENHANCED_DIARY_KEY_RECORD_ATTR, ENHANCED_DIARY_PROJECT_TARGET_ATTR } fr
 import { appendRecordProjectReference } from "./workspace/enhancedDiaryWorkspaceProjectRelation";
 import { synchronizeTaskIndexAfterWrite } from "@/components/tools/siyuanComponentDataApi";
 import {
-    EnhancedDiaryProjectWriteTargetError,
+    extractProjectWriteTargetErrorCode,
     validateEnhancedDiaryProjectWriteTarget,
 } from "./workspace/enhancedDiaryWorkspaceProjectLifecycle";
 
@@ -47,8 +47,9 @@ export interface EnhancedDiaryActionResult {
 }
 
 function projectWriteValidationFailure(reason: unknown): EnhancedDiaryActionResult {
-    if (reason instanceof EnhancedDiaryProjectWriteTargetError) {
-        return { ok: false, reason: reason.code, message: reason.message };
+    const code = extractProjectWriteTargetErrorCode(reason);
+    if (code) {
+        return { ok: false, reason: code, message: reason instanceof Error ? reason.message : "项目验证失败。" };
     }
     return {
         ok: false,

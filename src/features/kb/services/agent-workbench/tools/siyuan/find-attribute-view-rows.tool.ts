@@ -53,18 +53,14 @@ export function createFindAttributeViewRowsTool(
         const result = await deps.executeFindAttributeViewRows(args);
         return { ok: true, data: result.safeOutput };
       } catch (error) {
+        const code = (error as Record<string, unknown>)?.code as string | undefined;
         const msg = error instanceof Error ? error.message : String(error);
-        const code = msg.startsWith("[field_not_found]")
-          ? "field_not_found"
-          : msg.startsWith("[ambiguous_field]")
-            ? "ambiguous_field"
-            : "attribute_view_find_rows_failed";
         return {
           ok: false,
           data: null,
           error: {
-            code,
-            message: msg.replace(/^\[[^\]]+\]\s*/, ""),
+            code: code ?? "attribute_view_find_rows_failed",
+            message: msg,
             recoverable: true,
             hint: "请先使用 read_attribute_view 查看真实字段结构，必要时改用 keyId 判断。",
           },

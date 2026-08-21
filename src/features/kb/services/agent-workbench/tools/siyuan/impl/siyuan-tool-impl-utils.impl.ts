@@ -1,4 +1,5 @@
 import type { SiyuanToolOutput } from "../contracts/siyuan-common.contract";
+import { SiyuanToolInvalidArgsError } from "../siyuan-generic-tool-factory";
 import {
   clampMaxChars,
   clampMaxItems,
@@ -8,7 +9,7 @@ import {
 
 export function requireString(value: unknown, field: string): string {
   if (typeof value !== "string" || value.trim().length === 0) {
-    throw new Error(`[invalid_args] 缺少必填参数：${field}`);
+    throw new SiyuanToolInvalidArgsError(`缺少必填参数：${field}`);
   }
   return value.trim();
 }
@@ -19,16 +20,16 @@ export function optionalString(value: unknown): string | undefined {
 
 export function requireStringArray(value: unknown, field: string, maxItems: number): string[] {
   if (!Array.isArray(value)) {
-    throw new Error(`[invalid_args] 缺少必填数组参数：${field}`);
+    throw new SiyuanToolInvalidArgsError(`缺少必填数组参数：${field}`);
   }
   const items = value
     .filter((item): item is string => typeof item === "string" && item.trim().length > 0)
     .map((item) => item.trim());
   if (items.length === 0) {
-    throw new Error(`[invalid_args] ${field} 不能为空。`);
+    throw new SiyuanToolInvalidArgsError(`${field} 不能为空。`);
   }
   if (items.length > maxItems) {
-    throw new Error(`[invalid_args] ${field} 最多允许 ${maxItems} 项。`);
+    throw new SiyuanToolInvalidArgsError(`${field} 最多允许 ${maxItems} 项。`);
   }
   return items;
 }

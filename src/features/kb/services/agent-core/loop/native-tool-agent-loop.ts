@@ -69,6 +69,34 @@ export interface InitialPreparedProviderPayload {
   selection?: ProviderToolsetSelection;
 }
 
+export interface FinalAnswerValidationResult {
+  valid: boolean;
+  retryInstruction?: string;
+  forceToolCall?: boolean;
+  errorCode?: string;
+  errorMessage?: string;
+}
+
+export type FinalAnswerValidator = (
+  answer: string,
+) => FinalAnswerValidationResult | string | undefined;
+
+function normalizeFinalAnswerValidation(
+  result: FinalAnswerValidationResult | string | undefined,
+): FinalAnswerValidationResult | undefined {
+  if (!result) return undefined;
+  if (typeof result === "string") {
+    return {
+      valid: false,
+      retryInstruction: result,
+      errorCode: "final_answer_validation_failed",
+      errorMessage: "回答未能通过终稿校验，本轮已停止。",
+    };
+  }
+  if (!result.valid) return result;
+  return undefined;
+}
+
 export interface NativeToolAgentLoopOptions {
   provider: ProviderAdapter;
   toolRegistry: NativeToolRegistry;
@@ -99,7 +127,7 @@ export interface NativeToolAgentLoopOptions {
   abortSignal?: AbortSignal;
   onEvent?: (event: AgentStreamEvent) => void;
   /** 返回重写指令时丢弃当前草稿并重新生成一次最终回答。 */
-  validateFinalAnswer?: (answer: string) => string | undefined;
+  validateFinalAnswer?: FinalAnswerValidator;
   /** 当前 run 的安全恢复边界；调用方负责最小化后持久化。 */
   onCheckpoint?: (checkpoint: AgentRunCheckpoint) => void;
   /** 当前恢复请求的序号；旧检查点没有该字段时由调用方按 1 开始。 */
@@ -734,18 +762,44 @@ export class NativeToolAgentLoop {
             errorMessage: message,
           };
         }
-        const finalAnswerRetryInstruction = this.options.validateFinalAnswer?.(answer);
-        if (finalAnswerRetryInstruction && finalAnswerValidationRetryCount < 1) {
-          finalAnswerValidationRetryCount += 1;
+        const validation = normalizeFinalAnswerValidation(this.options.validateFinalAnswer?.(answer));
+        if (validation) {
+          if (finalAnswerValidationRetryCount < 1) {
+            finalAnswerValidationRetryCount += 1;
+            if (emittedTextLive) {
+              this.options.onEvent?.({ type: "assistant_text_reset" });
+            }
+            if (emittedReasoningLive) {
+              this.options.onEvent?.({ type: "assistant_reasoning_reset" });
+            }
+            this.options.onEvent?.({ type: "notice", message: "回答校验未通过，正在修正。" });
+            this.session.append(createSystemMessage(validation.retryInstruction || "回答校验未通过，请按要求修正。"));
+            requireToolCallForNextTurn = tools.length > 0 && Boolean(validation.forceToolCall);
+            continue;
+          }
           if (emittedTextLive) {
             this.options.onEvent?.({ type: "assistant_text_reset" });
           }
           if (emittedReasoningLive) {
             this.options.onEvent?.({ type: "assistant_reasoning_reset" });
           }
-          this.options.onEvent?.({ type: "notice", message: "回答校验未通过，正在修正。" });
-          this.session.append(createSystemMessage(finalAnswerRetryInstruction));
-          continue;
+          const code = validation.errorCode || "final_answer_validation_failed";
+          const message = validation.errorMessage || "回答未能通过终稿校验，本轮已停止。";
+          this.options.onEvent?.({ type: "error", code, message });
+          this.options.onEvent?.({
+            type: "done",
+            status: "failed",
+            providerFinishReason: finishReason,
+            outputChars: 0,
+          });
+          return {
+            status: "failed",
+            answer: "",
+            steps,
+            messages: this.session.snapshot(),
+            errorCode: code,
+            errorMessage: message,
+          };
         }
         // Final answer: if content was not streamed live, do fallback send.
         if (!emittedReasoningLive && reasoning) {
@@ -877,9 +931,7 @@ export class NativeToolAgentLoop {
     finishReason?: string;
     steps: number;
   }): Omit<NativeToolAgentLoopResult, "identity" | "usage" | "providerRequestCount"> {
-    const reason = params.diagnostic.reason === "repetitive_output"
-      ? "repetitive_output"
-      : "dangling_tool_intent";
+    const reason = params.diagnostic.reason;
     const message = [
       "模型连续输出了未完成的 Agent 草稿，且没有产生可执行的原生工具调用。",
       `diagnostic=${reason}`,

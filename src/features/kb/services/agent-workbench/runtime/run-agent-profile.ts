@@ -4,6 +4,7 @@ import {
   NativeToolAgentLoop,
   type PreflightPromptStateSummary,
   type InitialPreparedProviderPayload,
+  type FinalAnswerValidationResult,
 } from "../../agent-core/loop/native-tool-agent-loop";
 import { RegisteredConfirmationBridge } from "../../agent-core/permissions/confirmation-bridge";
 import { SiyuanToolRuntimeState } from "../tools/siyuan/siyuan-tool-runtime";
@@ -20,6 +21,7 @@ import { getNotebrainRuntimeEnvironment } from "../workspace/notebrain-runtime-e
 import type { ConversationContextSnapshot } from "./conversation-context-builder";
 import type { AgentWorkbenchRuntimeOptions } from "./create-agent-workbench";
 import { resolveSelectedChatConfig } from "../../settings/chat-provider-config";
+import { buildPromptBudget, estimateAgentMessagesTokens } from "../../../types/context-usage";
 import { getLastSecretDiagnostics } from "../../settings/kb-settings-service";
 import {
   mapAgentErrorToUserFacing,
@@ -31,6 +33,7 @@ import { buildGlobalMemoryContext, getGlobalMemoryProfile } from "../memory/glob
 import { setMcpRuntimeSettings } from "../mcp/mcp-client-manager";
 import { buildAgentSystemPrompt } from "../../agent-core/prompts/system-prefix";
 import { createProviderAdapterForKbModel } from "../../agent-core/providers/agent-provider-factory";
+import type { ProviderAdapter } from "../../agent-core/providers/provider-adapter";
 import { normalizeProviderError } from "../../agent-core/providers/provider-error";
 import { createNativeToolRegistryFromWorkbench } from "../../agent-core/tools/workbench-tool-adapter";
 import {
@@ -60,7 +63,6 @@ import type { AgentMessage, AgentToolCall } from "../../agent-core/messages/agen
 import { compactAgentSessionMessagesForStorage } from "../../agent-core/messages/message-compactor";
 import { sanitizeMessageForStorage } from "../../agent-core/session/session-store";
 import type { ToolResultEntry } from "./tool-result-log";
-import { estimateAgentMessagesTokens, estimateValueTokens } from "../../../types/context-usage";
 import {
   agentProfileAllowsContext,
   agentProfileAllowsMemory,
@@ -179,7 +181,11 @@ export interface RunAgentProfileParams<TResult> {
   /** 在真实工具注册表和系统提示组装后执行统一上下文预检。 */
   onContextPrepared?: (context: OnContextPreparedContext) => Promise<OnContextPreparedResult | undefined> | OnContextPreparedResult | undefined;
   kbSettings?: Awaited<ReturnType<typeof getKbSettings>>;
-  validateFinalAnswer?: (answer: string, observations: readonly ToolResultEntry[]) => string | undefined;
+  provider?: ProviderAdapter;
+  validateFinalAnswer?: (
+    answer: string,
+    context: AgentProfileFinalValidationContext,
+  ) => FinalAnswerValidationResult | string | undefined;
   finalize: (context: AgentProfileFinalizeContext) => Promise<{
     result: TResult;
     footerReferencesCount?: number;
@@ -187,6 +193,10 @@ export interface RunAgentProfileParams<TResult> {
     result: TResult;
     footerReferencesCount?: number;
   };
+}
+
+export interface AgentProfileFinalValidationContext {
+  observations: readonly ToolResultEntry[];
 }
 
 export interface AgentProfileFinalizeContext {
@@ -675,7 +685,7 @@ export async function runAgentProfile<TResult>(
       params.chatModelSelection?.modelId ?? settings.selectedChatModelId,
     );
 
-    if (!selected.provider || !selected.model) {
+    if (!params.provider && (!selected.provider || !selected.model)) {
       const code = "provider_tool_call_not_supported";
       emitNativeEvent({ type: "error", code, message: "当前没有可用于 Agent 的模型配置。" });
       saveCurrentTrace({ status: "failed", steps: 0 });
@@ -684,7 +694,7 @@ export async function runAgentProfile<TResult>(
 
     // Pre-flight: if provider needs an API key but it's empty due to decrypt failure,
     // return a clear user-facing error instead of sending empty key → 401.
-    if (!selected.provider.apiKey) {
+    if (!params.provider && selected.provider && !selected.provider.apiKey) {
       const secretDiag = getLastSecretDiagnostics();
       const providerNeedsKey = selected.provider.type !== "openai-compatible"
         || (selected.provider.baseUrl && !selected.provider.baseUrl.includes("127.0.0.1") && !selected.provider.baseUrl.includes("localhost"));
@@ -702,9 +712,9 @@ export async function runAgentProfile<TResult>(
       }
     }
 
-    const provider = createProviderAdapterForKbModel({
-      provider: selected.provider,
-      model: selected.model,
+    const provider = params.provider ?? createProviderAdapterForKbModel({
+      provider: selected.provider!,
+      model: selected.model!,
       thinkingMode: params.thinkingMode ?? "off",
       agentThinkingEnabled: settings.agentThinkingEnabled,
     });
@@ -777,8 +787,8 @@ export async function runAgentProfile<TResult>(
         tools: providerTools,
         question: params.question,
         coreOnly: toolsetMode === "core",
-        contextWindowTokens: params.contextWindowTokens ?? selected.model.contextWindowTokens,
-        maxOutputTokens: selected.model.maxTokens,
+        contextWindowTokens: params.contextWindowTokens ?? selected.model?.contextWindowTokens,
+        maxOutputTokens: selected.model?.maxTokens,
         providerMessageTokens: estimateAgentMessagesTokens([
           { role: "system", content: prompt },
           ...(contextInstructions ? [{ role: "system", content: contextInstructions }] : []),
@@ -824,7 +834,7 @@ export async function runAgentProfile<TResult>(
       historicalMessages,
     );
     pushAgentDebugEvent("PROVIDER_TOOLSET_SELECTED", {
-      contextWindowTokens: params.contextWindowTokens ?? selected.model.contextWindowTokens,
+      contextWindowTokens: params.contextWindowTokens ?? selected.model?.contextWindowTokens,
       registeredToolCount: initialPromptState.registeredToolCount,
       activeToolCount: initialPromptState.toolDefinitions.length,
       activeToolNames: initialPromptState.toolDefinitions.map((tool) => tool.name),
@@ -839,8 +849,8 @@ export async function runAgentProfile<TResult>(
       registeredToolCount: initialPromptState.registeredToolCount,
       toolsetReduced: initialPromptState.toolsetReduced,
       historicalMessages: initialPromptState.historicalMessages,
-      contextWindowTokens: params.contextWindowTokens ?? selected.model.contextWindowTokens,
-      maxOutputTokens: selected.model.maxTokens,
+      contextWindowTokens: params.contextWindowTokens ?? selected.model?.contextWindowTokens,
+      maxOutputTokens: selected.model?.maxTokens,
       rebuildProviderPromptState,
       rebuildProviderContext: (conversationContext, nextHistoricalMessages, options) => {
         const rebuilt = rebuildProviderPromptState(conversationContext, nextHistoricalMessages, options);
@@ -964,18 +974,28 @@ export async function runAgentProfile<TResult>(
       latestCheckpoint = safeCheckpoint;
       params.onCheckpoint?.(safeCheckpoint);
     };
-    const preflightPromptSummary: PreflightPromptStateSummary = preparedContext?.preflightPromptSummary ?? {
-      inputTokens: estimateAgentMessagesTokens([
+    const fallbackPreflightBudget = buildPromptBudget({
+      providerMessages: [
         { role: "system", content: finalPromptState.systemPrompt },
         ...(finalPromptState.contextInstructions ? [{ role: "system", content: finalPromptState.contextInstructions }] : []),
         ...finalPromptState.historicalMessages,
         { role: "user", content: params.question },
-      ]) + estimateValueTokens(finalPromptState.toolDefinitions),
+      ],
+      providerTools: finalPromptState.toolDefinitions,
+      systemPrompt: finalPromptState.systemPrompt,
+      contextInstructions: finalPromptState.contextInstructions,
+      historicalMessages: finalPromptState.historicalMessages,
+      currentRunMessages: [{ role: "user", content: params.question }],
+      contextWindowTokens: params.contextWindowTokens ?? selected.model?.contextWindowTokens,
+      maxOutputTokens: selected.model?.maxTokens,
+    });
+    const preflightPromptSummary: PreflightPromptStateSummary = preparedContext?.preflightPromptSummary ?? {
+      inputTokens: fallbackPreflightBudget.inputTokens,
       activeToolNames: finalPromptState.toolDefinitions.map((tool) => tool.name),
-      systemPromptTokenCount: estimateValueTokens(finalPromptState.systemPrompt),
-      contextInstructionTokenCount: estimateValueTokens(finalPromptState.contextInstructions),
-      historicalTokenCount: estimateAgentMessagesTokens(finalPromptState.historicalMessages),
-      toolDefinitionTokenCount: estimateValueTokens(finalPromptState.toolDefinitions),
+      systemPromptTokenCount: fallbackPreflightBudget.breakdown.systemPrompt,
+      contextInstructionTokenCount: fallbackPreflightBudget.breakdown.contextInstructions,
+      historicalTokenCount: fallbackPreflightBudget.breakdown.conversationTokens,
+      toolDefinitionTokenCount: fallbackPreflightBudget.breakdown.toolDefinitionTokens,
     };
     const loop = new NativeToolAgentLoop({
       provider,
@@ -986,8 +1006,8 @@ export async function runAgentProfile<TResult>(
       buildSystemPrompt: (activeToolNames) => buildCurrentSystemPrompt(activeToolNames),
       contextInstructions: finalPromptState.contextInstructions,
       historicalMessages: finalPromptState.historicalMessages,
-      contextWindowTokens: params.contextWindowTokens ?? selected.model.contextWindowTokens,
-      maxOutputTokens: selected.model.maxTokens,
+      contextWindowTokens: params.contextWindowTokens ?? selected.model?.contextWindowTokens,
+      maxOutputTokens: selected.model?.maxTokens,
       initialPreparedPayload: preparedContext?.initialPreparedPayload,
       preflightPromptSummary,
       conversationId,
@@ -1006,7 +1026,9 @@ export async function runAgentProfile<TResult>(
       resumeContext: params.resumeCheckpoint?.recoveryContext,
       successfulWriteGuards: params.resumeCheckpoint?.successfulWriteGuards,
       validateFinalAnswer: params.validateFinalAnswer
-        ? (answer) => params.validateFinalAnswer?.(answer, wb.observationLog.all())
+        ? (answer) => params.validateFinalAnswer?.(answer, {
+            observations: wb.observationLog.all(),
+          })
         : undefined,
       onCheckpoint: handleCheckpoint,
       onEvent: (event) => {

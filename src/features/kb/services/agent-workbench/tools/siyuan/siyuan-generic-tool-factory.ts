@@ -3,6 +3,26 @@ import type { ToolContract, ToolResult, ToolRuntimeContext } from "../../contrac
 import { pushAgentDebugEvent } from "../../debug/workbench-debug";
 import { siyuanToolOutputSchema, type SiyuanToolOutput } from "./contracts/siyuan-common.contract";
 
+import { SiyuanApiError } from "../../../../../../api";
+
+export { SiyuanApiError };
+
+export class SiyuanToolInvalidArgsError extends Error {
+  readonly code = "invalid_args";
+  constructor(message: string) {
+    super(message);
+    this.name = "SiyuanToolInvalidArgsError";
+  }
+}
+
+/** 工具领域结构化错误：从 impl 携带 code 到 Tool consumer，消费者只读 code。 */
+export class SiyuanToolDomainError extends Error {
+  constructor(message: string, readonly code: string) {
+    super(message);
+    this.name = "SiyuanToolDomainError";
+  }
+}
+
 export interface GenericSiyuanToolDeps<TArgs> {
   execute(args: TArgs): Promise<{ output: SiyuanToolOutput }>;
 }
@@ -80,22 +100,19 @@ export function createGenericSiyuanTool<TArgs>(
           action,
           error: message.slice(0, 160),
         }, "warn");
-        // Distinguish API failures from argument/tool logic failures
-        const isApiFailure = message.includes("思源 API 调用失败");
+
+        const errObj = err as Record<string, unknown> | null | undefined;
+        const errCode = typeof errObj?.code === "string" ? errObj.code : undefined;
+        const finalCode = errCode ?? "siyuan_tool_failed";
+
         return {
           ok: false,
           data: null,
           error: {
-            code: message.startsWith("[invalid_args]")
-              ? "invalid_args"
-              : isApiFailure
-                ? "siyuan_api_failed"
-                : "siyuan_tool_failed",
-            message: isApiFailure
-              ? message
-              : message.replace(/^\[invalid_args\]\s*/, ""),
+            code: finalCode,
+            message,
             recoverable: true,
-            hint: isApiFailure
+            hint: finalCode === "siyuan_api_failed"
               ? "思源内核 API 调用失败，请检查块 ID、路径或笔记本是否有效，或内核是否正常运行。"
               : "请检查参数是否来自真实的思源 ID、路径或工具返回结果。",
           },

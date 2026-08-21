@@ -2,7 +2,6 @@ import { z } from "zod";
 import type { ToolContract, ToolResult } from "../../contracts/tool-contract";
 import { getNotebrainPlugin } from "../../storage/notebrain-plugin-storage";
 import {
-  MusicPlayerRuntimeUnavailableError,
   addTrackToHomepageCloudPlaylist,
   controlHomepageMusicPlayback,
   createHomepageCloudPlaylist,
@@ -31,7 +30,8 @@ function actionTool<T>(name: string, schema: z.ZodType<T>, readOnly: boolean, ex
     async execute(_ctx, raw): Promise<ToolResult> {
       try { return { ok: true, data: await execute(schema.parse(raw)) }; }
       catch (error) {
-        if (error instanceof MusicPlayerRuntimeUnavailableError) return { ok: false, data: null, error: { code: "music_player_runtime_unavailable", message: error.message, recoverable: true, hint: "请先在主页挂载并初始化音乐播放器。" } };
+        const errCode = (error as Record<string, unknown>)?.code;
+        if (errCode === "music_player_runtime_unavailable") return { ok: false, data: null, error: { code: "music_player_runtime_unavailable", message: error instanceof Error ? error.message : "当前窗口未找到活跃的音乐播放器实例。", recoverable: true, hint: "请先在主页挂载并初始化音乐播放器。" } };
         return homepageComponentFailure(error, `music_${name}_failed`, `音乐操作 ${name} 失败。`);
       }
     }, summarizeResult: (result) => result.ok ? `音乐 ${name} 完成。` : result.error?.message ?? "音乐操作失败。" };

@@ -8,12 +8,13 @@ import {
 } from "../../../../../../../api";
 import type { SiyuanToolOutput } from "../contracts/siyuan-common.contract";
 import { getSiyuanAssetRenameNameError, isDisposableAssetPath, isPdfAnnotationAssetPath, toSiyuanAssetApiPath, type SiyuanAssetManageInput } from "../contracts/siyuan-asset-manage.contract";
+import { SiyuanToolInvalidArgsError } from "../siyuan-generic-tool-factory";
 import { outputForAction, requireString, requireStringArray } from "./siyuan-tool-impl-utils.impl";
 
 function requireDisposablePath(value: unknown, field: string): string {
   const path = requireString(value, field);
   if (!isDisposableAssetPath(path)) {
-    throw new Error(`[invalid_args] ${field} 只能指向本轮 disposable 测试资源（路径需包含 nb_agent / notebrain_agent / notebrain_test / notebrain-agent-test）。`);
+    throw new SiyuanToolInvalidArgsError(`${field} 只能指向本轮 disposable 测试资源（路径需包含 nb_agent / notebrain_agent / notebrain_test / notebrain-agent-test）。`);
   }
   return toSiyuanAssetApiPath(path);
 }
@@ -27,7 +28,7 @@ export async function executeSiyuanAssetManage(args: SiyuanAssetManageInput): Pr
         const newName = requireString(args.newName, "newName");
         const nameError = getSiyuanAssetRenameNameError(path, newName);
         if (nameError) {
-          throw new Error(`[invalid_args] ${nameError}`);
+          throw new SiyuanToolInvalidArgsError(nameError);
         }
         data = await renameAsset(toSiyuanAssetApiPath(path), newName);
       }
@@ -36,7 +37,7 @@ export async function executeSiyuanAssetManage(args: SiyuanAssetManageInput): Pr
       {
         const path = requireString(args.path, "path");
         if (!isPdfAnnotationAssetPath(path)) {
-          throw new Error("[invalid_args] set_annotation 只支持 PDF 资源或对应的 .pdf.sya 标注文件。");
+          throw new SiyuanToolInvalidArgsError("set_annotation 只支持 PDF 资源或对应的 .pdf.sya 标注文件。");
         }
         data = await setFileAnnotation(
           toSiyuanAssetApiPath(path),
@@ -57,7 +58,7 @@ export async function executeSiyuanAssetManage(args: SiyuanAssetManageInput): Pr
       const paths = requireStringArray(args.paths, "paths", 20);
       for (const path of paths) {
         if (!isDisposableAssetPath(path)) {
-          throw new Error(`[invalid_args] paths 中包含非 disposable 路径：${path}；整批拒绝。`);
+          throw new SiyuanToolInvalidArgsError(`paths 中包含非 disposable 路径：${path}；整批拒绝。`);
         }
       }
       const results = [];
@@ -69,7 +70,7 @@ export async function executeSiyuanAssetManage(args: SiyuanAssetManageInput): Pr
     }
     case "full_reindex_content": {
       if (args.confirmGlobal !== true) {
-        throw new Error("[invalid_args] full_reindex_content 是全局索引重建，必须传 confirmGlobal:true。");
+        throw new SiyuanToolInvalidArgsError("full_reindex_content 是全局索引重建，必须传 confirmGlobal:true。");
       }
       data = await fullReindexAssetContent();
       break;

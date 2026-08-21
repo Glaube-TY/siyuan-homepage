@@ -28,14 +28,25 @@ export type EnhancedDiaryProjectLifecycleChangeResult =
     | { status: "partial"; affectedCount: number; verifiedCount: number; unverifiedTargetIds: string[]; message: string }
     | { status: "blocked"; affectedCount: 0; verifiedCount: 0; blockingTarget: EnhancedDiaryProjectTarget; message: string };
 
+export type EnhancedDiaryProjectWriteTargetErrorCode = "invalid_project_target" | "archived_project_target";
+
 export class EnhancedDiaryProjectWriteTargetError extends Error {
     constructor(
-        public readonly code: "invalid_project_target" | "archived_project_target",
+        public readonly code: EnhancedDiaryProjectWriteTargetErrorCode,
         message: string,
     ) {
         super(message);
         this.name = "EnhancedDiaryProjectWriteTargetError";
     }
+}
+
+export function extractProjectWriteTargetErrorCode(reason: unknown): EnhancedDiaryProjectWriteTargetErrorCode | undefined {
+    if (!reason || typeof reason !== "object") return undefined;
+    const code = (reason as Record<string, unknown>).code;
+    if (code === "invalid_project_target" || code === "archived_project_target") {
+        return code;
+    }
+    return undefined;
 }
 
 function lifecycleOf(index: EnhancedDiaryProjectIndexPayload, targetId: string): EnhancedDiaryProjectLifecycleStatus {

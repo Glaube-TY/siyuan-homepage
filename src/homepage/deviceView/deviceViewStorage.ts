@@ -24,7 +24,7 @@ import {
     type DeviceViewSettings,
     type DeviceWidgetDocument,
 } from "./deviceViewTypes";
-import { createDeviceViewBlockedError } from "./deviceViewErrors";
+import { createDeviceViewBlockedError, DeviceViewRevisionConflictError } from "./deviceViewErrors";
 import { dispatchDeviceViewChanged } from "./deviceViewEvents";
 import { assertDesktopHomepageLayoutInvariants } from "./desktopHomepageSectionModel";
 import { cloneJsonSafe, hasSameJsonSemantic, isJsonSafe, isPlainJsonObject } from "./jsonSafe";
@@ -497,7 +497,7 @@ export async function updateDeviceViewLayout(
         const latest = await readDeviceViewLayout(context, { allowUnmigrated: true });
         if (!latest) throw new Error(`设备布局 ${path} 缺失，拒绝以运行期状态重新创建`);
         if (options.expectedRevision !== undefined && latest.revision !== options.expectedRevision) {
-            throw new Error(`设备布局 ${path} 已被并发更新，拒绝覆盖最新 revision`);
+            throw new DeviceViewRevisionConflictError(`设备布局 ${path} 已被并发更新，拒绝覆盖最新 revision`);
         }
         const mutated = mutate(cloneJsonSafe(latest, "设备布局 mutator 输入"));
         validateLayout(mutated, context, path);
@@ -542,7 +542,7 @@ export async function updateDeviceViewSettings(
         const latest = await readDeviceViewSettings(context);
         if (!latest) throw new Error(`设备视图配置 ${path} 缺失，拒绝以局部配置重新创建`);
         if (options.expectedRevision !== undefined && latest.revision !== options.expectedRevision) {
-            throw new Error(`设备视图配置 ${path} 已被并发更新，拒绝覆盖最新 revision`);
+            throw new DeviceViewRevisionConflictError(`设备视图配置 ${path} 已被并发更新，拒绝覆盖最新 revision`);
         }
         const config = mutate(cloneJsonSafe(latest.config, "设备视图配置 mutator 输入"));
         if (!isPlainJsonObject(config) || !isJsonSafe(config)) throw new Error("设备视图配置更新结果无效");
@@ -590,7 +590,7 @@ export async function writeDeviceWidget(
         if (options.expectedRevision !== undefined) {
             if (latest) {
                 if (latest.revision !== options.expectedRevision) {
-                    throw new Error(`组件 ${instanceId} 已被并发修改，期望 revision ${options.expectedRevision}，实际 ${latest.revision}`);
+                    throw new DeviceViewRevisionConflictError(`组件 ${instanceId} 已被并发修改，期望 revision ${options.expectedRevision}，实际 ${latest.revision}`);
                 }
             } else if (options.expectedRevision !== 0) {
                 throw new Error(`组件 ${instanceId} 不存在，期望 revision ${options.expectedRevision} 与实际 0 不一致`);
@@ -633,7 +633,7 @@ export async function removeDeviceWidget(
         }
 
         if (options.expectedRevision !== undefined && latest.revision !== options.expectedRevision) {
-            throw new Error(`组件 ${instanceId} 已被并发修改，期望 revision ${options.expectedRevision}，实际 ${latest.revision}`);
+            throw new DeviceViewRevisionConflictError(`组件 ${instanceId} 已被并发修改，期望 revision ${options.expectedRevision}，实际 ${latest.revision}`);
         }
 
         await removeFileChecked(path);

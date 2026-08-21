@@ -283,7 +283,7 @@ function trimOutcomes(outcomes: AgentTurnActionOutcome[], maxCount: number): Age
 /*  Extraction: build full action trace summary from events            */
 /* ------------------------------------------------------------------ */
 
-function extractActionTraceSummary(
+export function extractActionTraceSummary(
   events: readonly AgentWorkbenchEvent[] | undefined,
 ): AgentTurnActionTraceSummary {
   const emptyResult: AgentTurnActionTraceSummary = { toolNames: [] };

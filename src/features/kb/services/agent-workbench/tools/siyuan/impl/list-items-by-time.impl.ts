@@ -12,6 +12,7 @@ import { escapeSqlString } from "../../../../siyuan/safe-sql";
 import type { SiyuanToolDeps } from "../siyuan-tool-deps";
 import type { AgentScope } from "../../../scope/types";
 import { pushAgentDebugEvent } from "../../../debug/workbench-debug";
+import { SiyuanToolInvalidArgsError } from "../siyuan-generic-tool-factory";
 import type {
   ListItemsByTimeInput,
   ListItemsByTimeOutput,
@@ -44,7 +45,7 @@ function normalizeSiyuanTimestampInput(value: string | undefined, boundary: Time
     return datetime[1] + datetime[2] + datetime[3] + datetime[4] + datetime[5] + datetime[6];
   }
 
-  throw new Error(`[invalid_args] 时间格式不支持（"${raw}"），请使用 YYYY-MM-DD 或 YYYYMMDDHHmmss。`);
+  throw new SiyuanToolInvalidArgsError(`时间格式不支持（"${raw}"），请使用 YYYY-MM-DD 或 YYYYMMDDHHmmss。`);
 }
 
 // ── scope WHERE clause ──
@@ -136,7 +137,7 @@ export async function executeListItemsByTime(
   const normalizedEnd = normalizeSiyuanTimestampInput(args.endTime, "end");
 
   if (normalizedStart && normalizedEnd && normalizedStart > normalizedEnd) {
-    throw new Error("[invalid_args] startTime 不能晚于 endTime。");
+    throw new SiyuanToolInvalidArgsError("startTime 不能晚于 endTime。");
   }
 
   const sqlLimit = Math.min(limit + 1, 101);

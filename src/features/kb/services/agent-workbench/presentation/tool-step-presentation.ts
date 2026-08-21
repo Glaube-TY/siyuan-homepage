@@ -75,25 +75,6 @@ const VIEW_LABELS: Record<string, string> = {
   list: "列表",
 };
 
-function localizeKnownTerms(title: string): string {
-  return title
-    .replace(/HTTP\s+GET/gi, "读取网络数据")
-    .replace(/HTTP\s+POST/gi, "提交网络数据")
-    .replace(/Notebrain/gi, "工作区")
-    .replace(/Skill/gi, "能力包")
-    .replace(/MCP/gi, "扩展工具")
-    .replace(/Server/gi, "服务")
-    .replace(/Agent/gi, "智能助手")
-    .replace(/action/gi, "操作")
-    .trim();
-}
-
-function chineseOnlyTitle(title: string | undefined, fallback: string): string {
-  if (!title) return fallback;
-  const localized = localizeKnownTerms(title);
-  return /[A-Za-z_]/.test(localized) ? fallback : localized;
-}
-
 function getActionName(argsPreview: Record<string, unknown> | undefined): string | undefined {
   const value = argsPreview?.action;
   return typeof value === "string" && value ? value : undefined;
@@ -111,19 +92,16 @@ export function formatToolDisplayName(
     if (override) return override;
 
     const actionMeta = findAggregateActionMeta(toolName, actionName);
-    if (actionMeta) {
-      const familyFallback = AGGREGATE_TOOL_DISPLAY_NAMES[toolName] ?? "调用扩展工具";
-      return chineseOnlyTitle(actionMeta.title, familyFallback);
-    }
+    if (actionMeta?.title) return actionMeta.title;
   }
 
   const aggregateFallback = AGGREGATE_TOOL_DISPLAY_NAMES[toolName];
   if (aggregateFallback) return aggregateFallback;
 
   const aggregateMeta = findAggregateToolMeta(toolName);
-  if (aggregateMeta) return chineseOnlyTitle(aggregateMeta.title, "调用扩展工具");
+  if (aggregateMeta?.title) return aggregateMeta.title;
 
-  return "调用扩展工具";
+  return toolName;
 }
 
 function compactPlainText(value: string, maxChars = 48): string | undefined {
@@ -189,8 +167,7 @@ export function formatToolArgsPreview(argsPreview: Record<string, unknown> | und
 function safeToolSummary(summary: string | undefined, toolName: string | undefined): string | undefined {
   const text = summary?.replace(/\s+/g, " ").trim();
   if (!text || text.length > 160) return undefined;
-  if (toolName && text.includes(toolName)) return undefined;
-  if (/[A-Za-z_{}\[\]`\\]/.test(text)) return undefined;
+  if (toolName && text === toolName) return undefined;
   return text;
 }
 
@@ -246,11 +223,7 @@ export function resolveWorkbenchFinalStatus(
   events: readonly WorkbenchTerminalEventInput[],
 ): "answer_ready" | "failed" | "cancelled" | undefined {
   const pseudoToolMarkupBlocked = events.some((event) =>
-    (event.type === "error" && event.code === "pseudo_tool_markup_blocked")
-    || (
-      event.type === "assistant_final"
-      && (event.answer ?? event.message ?? "").includes("伪工具调用格式")
-    )
+    event.type === "error" && event.code === "pseudo_tool_markup_blocked",
   );
   if (pseudoToolMarkupBlocked) return "failed";
 
