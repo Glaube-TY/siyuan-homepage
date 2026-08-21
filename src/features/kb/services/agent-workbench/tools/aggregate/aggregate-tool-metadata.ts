@@ -233,9 +233,9 @@ function homepageComponentReusedRouteMetadata(): AggregateActionMeta[] {
 
 function homepageComponentInstanceActionMetadata(): AggregateActionMeta[] {
   const shared = {
-    get: { title: "读取组件", readOnly: true, required: ["widgetId"], properties: { widgetId: { type: "string" } } },
-    add: { title: "添加组件", readOnly: false, required: ["expectedLayoutRevision"], properties: { sectionId: { type: "string" }, position: { type: "integer", minimum: 0 }, initialConfig: { type: "object" }, expectedLayoutRevision: { type: "integer", minimum: 1 } } },
-    update: { title: "更新组件", readOnly: false, required: ["widgetId", "expectedWidgetRevision", "expectedValues", "patch"], properties: { widgetId: { type: "string" }, expectedWidgetRevision: { type: "integer", minimum: 1 }, expectedLayoutRevision: { type: "integer", minimum: 1 }, expectedValues: { type: "object" }, patch: { type: "object" } } },
+    get: { title: "读取组件", readOnly: true, required: ["widgetId"], properties: { widgetId: { type: "string", description: "从 instance.list 读取的真实 widgetId。" } } },
+    add: { title: "添加组件", readOnly: false, required: ["expectedLayoutRevision"], properties: { sectionId: { type: "string", description: "目标分栏 ID（启用分栏时可选，省略时使用当前活动分栏）。" }, position: { type: "integer", minimum: 0, description: "可选；全局插入位置提示（限制在 0..当前组件数），追加到末尾或由分栏决定时可省略。" }, initialConfig: { type: "object", description: "可选的扁平配置对象；键必须来自 catalog.get_type.editableFields，禁止包裹 data、type、instanceId、rowSize、colSize 或样式字段。" }, expectedLayoutRevision: { type: "integer", minimum: 1, description: "从 instance.list 或 instance.get 读取的当前 layoutRevision。" } } },
+    update: { title: "更新组件", readOnly: false, required: ["widgetId", "expectedWidgetRevision", "expectedValues", "patch"], properties: { widgetId: { type: "string", description: "组件实例 ID。" }, expectedWidgetRevision: { type: "integer", minimum: 1, description: "从 instance.get 读取的当前 configRevision。" }, expectedLayoutRevision: { type: "integer", minimum: 1, description: "可选；当前 layoutRevision。" }, expectedValues: { type: "object", description: "修改前读取的扁平字段当前值，必须与 patch 包含相同字段名。" }, patch: { type: "object", description: "包含修改字段新值的扁平对象，键来自 editableFields，禁止传 data 外壳。" } } },
     update_style: { title: "更新组件样式", readOnly: false, required: ["widgetId", "expectedWidgetRevision", "expectedLayoutRevision", "expectedSectionId", "patch"], properties: { widgetId: { type: "string" }, expectedWidgetRevision: { type: "integer", minimum: 1 }, expectedLayoutRevision: { type: "integer", minimum: 1 }, expectedSectionId: { type: ["string", "null"] }, patch: { type: "object" } } },
     move: { title: "移动组件", readOnly: false, required: ["widgetId", "expectedIndex", "expectedSectionId", "targetIndex", "expectedLayoutRevision"], properties: { widgetId: { type: "string" }, expectedIndex: { type: "integer", minimum: 0 }, expectedSectionId: { type: ["string", "null"] }, targetIndex: { type: "integer", minimum: 0 }, targetSectionId: { type: "string" }, expectedLayoutRevision: { type: "integer", minimum: 1 } } },
     remove: { title: "移除组件", readOnly: false, required: ["widgetId", "expectedWidgetRevision", "expectedLayoutRevision", "expectedIndex", "expectedSectionId", "expectedLabel"], properties: { widgetId: { type: "string" }, expectedWidgetRevision: { type: "integer", minimum: 1 }, expectedLayoutRevision: { type: "integer", minimum: 1 }, expectedIndex: { type: "integer", minimum: 0 }, expectedSectionId: { type: ["string", "null"] }, expectedLabel: { type: "string" } } },
@@ -246,6 +246,15 @@ function homepageComponentInstanceActionMetadata(): AggregateActionMeta[] {
       .map((operation) => {
       const action = operation.slice(`${route.prefix}.instance.`.length) as keyof typeof shared;
       const item = shared[action];
+      const examples = (action === "add" && route.prefix === "custom_text")
+        ? [{
+            action: "custom_text.instance.add",
+            args: {
+              expectedLayoutRevision: 1,
+              initialConfig: { customText: "这是一张临时测试卡片，请勿保留" },
+            },
+          }]
+        : undefined;
       return {
         name: operation,
         title: `${route.label}·${item.title}`,
@@ -253,7 +262,17 @@ function homepageComponentInstanceActionMetadata(): AggregateActionMeta[] {
         readOnly: item.readOnly,
         required: [...item.required],
         argsSchema: homepageObjectSchema(item.properties, [...item.required]),
-        notes: ["路由会固定校验组件 type；不得用于其他组件。", `写入前先读取 instance.list 或该组件的 ${route.prefix}.instance.get action 获取真实 revision。`],
+        ...(examples ? { examples } : {}),
+        notes: [
+          "路由会固定校验组件 type；不得用于其他组件。",
+          action === "get"
+            ? "返回的 editableConfig 包含当前可安全读取的扁平字段；redactedEditableFields 列出因包含凭据/敏感参数/本地路径而脱敏的字段（不可用于回写）；safeConfig 仅作安全化只读参考，不得把 safeConfig、data 外壳或只读/样式字段传给 initialConfig、patch 或 expectedValues。"
+            : action === "add"
+              ? "initialConfig 是可选的扁平对象，键必须来自 catalog.get_type.editableFields，可参考同类型 instance.get.editableConfig。禁止传 data 外壳、type、instanceId、rowSize、colSize 或样式字段。position 是可选的全局插入提示；在启用分栏时建议省略 position 并传入 sectionId，由分栏逻辑决定末尾插入。"
+              : action === "update"
+                ? `写入前先读取 ${route.prefix}.instance.get 获取真实 configRevision 和当前 editableConfig。expectedValues 与 patch 必须包含相同的可编辑扁平字段名；若字段在 redactedEditableFields 中则不能直接原值回写（除非提供新安全值）；禁止传 data 外壳、只读或样式字段。`
+                : `写入前先读取 instance.list 或该组件的 ${route.prefix}.instance.get action 获取真实 revision。`,
+        ],
       };
     }));
 }

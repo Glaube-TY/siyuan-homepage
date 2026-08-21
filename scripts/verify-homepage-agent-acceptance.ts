@@ -16,6 +16,10 @@ import { ToolRegistry } from "../src/features/kb/services/agent-workbench/regist
 import { registerHomepageAgentCapabilities } from "../src/features/kb/services/agent-workbench/composition/register-homepage-tools";
 import { createSiyuanSharedActionBindings, registerSiyuanTools } from "../src/features/kb/services/agent-workbench/composition/register-siyuan-tools";
 import { setNotebrainPlugin } from "../src/features/kb/services/agent-workbench/storage/notebrain-plugin-storage";
+import { setSiyuanRuntimePort } from "../src/runtime/siyuan-runtime-port";
+import { sanitizeWidgetConfigForAgent, isSecurityRedactedValue } from "../src/features/kb/services/agent-workbench/tools/homepage/homepage-agent-widget-sanitizer";
+import { compactAgentSessionMessagesForStorage } from "../src/features/kb/services/agent-core/messages/message-compactor";
+import { normalizeToolCallMessages } from "../src/features/kb/services/agent-core/messages/message-normalizer";
 import { buildAgentSystemPrompt } from "../src/features/kb/services/agent-core/prompts/system-prefix";
 import { mergeKbSettings } from "../src/features/kb/services/settings/kb-settings-service";
 import type { NativeTool } from "../src/features/kb/services/agent-core/tools/native-tool";
@@ -631,6 +635,314 @@ function actionEnum(registry: ToolRegistry): string[] {
     assert.equal(buttonsUnchangedResult.changed, false);
     assert.equal(buttonsUnchangedResult.viewRevision, 3);
     assert.equal(dispatchedEvents.length, 0, "changed=false 时不得派发外部刷新事件");
+  } finally {
+    (globalThis as any).window = prevWindow;
+    (globalThis as any).CustomEvent = prevCustomEvent;
+  }
+}
+
+// ── TASK-20260821-028: 组件 instance.get editableConfig 与 instance.add 合同及零写入验证 ──
+{
+  const prevWindow = (globalThis as any).window;
+  const prevCustomEvent = (globalThis as any).CustomEvent;
+  (globalThis as any).CustomEvent = class MockCustomEvent {
+    public detail: unknown;
+    constructor(public type: string, init?: { detail?: unknown }) {
+      this.detail = init?.detail;
+    }
+  };
+  (globalThis as any).window = {
+    dispatchEvent: () => true,
+  };
+
+  try {
+    // 1. custom_text.instance.get 返回扁平 editableConfig
+    const testDocs: Record<string, unknown> = {
+      "custom-text-1": {
+        config: {
+          type: "custom-text",
+          instanceId: "custom-text-1",
+          rowSize: 2,
+          colSize: 2,
+          data: [{ customText: "验证文本" }],
+        },
+        revision: 1,
+      },
+    };
+    let createWidgetCalled = 0;
+    let saveLayoutCalled = 0;
+    let layoutRevision = 1;
+    let currentLayout = {
+      order: [{ id: "custom-text-1", style: null, index: 0 }],
+      componentSectionsModelVersion: 1,
+      componentSectionsModeEnabled: false,
+    };
+    setSiyuanRuntimePort({
+      post: async () => ({ code: 0 }),
+      getFile: async (path: string) => {
+        const match = path.match(/widgets\/([^/]+)\.json$/);
+        if (match && testDocs[match[1]]) {
+          return JSON.stringify(testDocs[match[1]]);
+        }
+        return { code: 404 };
+      },
+      putFile: async (_path, _isDir, file) => {
+        createWidgetCalled += 1;
+        let text = typeof file === "string" ? file : (file instanceof Blob ? await file.text() : JSON.stringify(file));
+        const parsed = JSON.parse(text);
+        testDocs[parsed.instanceId] = parsed;
+        return { code: 0 };
+      },
+    });
+    const realService = new HomepageAgentService({
+      getPlugin: () => ({ isMobile: false }) as any,
+      deviceView: {
+        getContext: () => ({
+          physicalDeviceId: "acceptance",
+          scopeId: "acceptance",
+          surface: "desktop-homepage",
+          isMobileShared: false,
+        }) as any,
+        ensureReady: async () => {},
+        readSnapshot: async () => ({
+          layout: {
+            layout: JSON.parse(JSON.stringify(currentLayout)),
+            revision: layoutRevision,
+            deviceId: "acceptance",
+            surface: "desktop-homepage",
+          },
+          view: null,
+        }),
+        readWidgetDocument: async (_ctx, widgetId) => (testDocs[widgetId] ?? null) as any,
+        saveLayoutData: async (_ctx, nextLayout) => {
+          saveLayoutCalled += 1;
+          currentLayout = JSON.parse(JSON.stringify(nextLayout));
+          layoutRevision += 1;
+          return { status: "success" } as any;
+        },
+        loadLayoutSettings: async () => ({ widgetLayoutNumber: 4, widgetGap: 8 }),
+        deleteWidgetFromSurface: async () => ({ status: "success" }) as any,
+      },
+    });
+
+    const getResult = await realService.getWidget("desktop-homepage", "custom-text-1") as any;
+    assert.equal(getResult.status, "ok");
+    assert.deepEqual(getResult.editableConfig, { customText: "验证文本" });
+    assert.deepEqual(getResult.redactedEditableFields, []);
+    assert.equal("data" in getResult.editableConfig, false);
+    assert.equal("type" in getResult.editableConfig, false);
+    assert.equal("instanceId" in getResult.editableConfig, false);
+    assert.equal("rowSize" in getResult.editableConfig, false);
+    assert.equal("colSize" in getResult.editableConfig, false);
+
+    // 1b. 安全负例：URL userinfo / 查询 Token / 本地绝对路径 / 敏感键不得泄漏进 editableConfig 与 compaction observation
+    const urlSanitized = sanitizeWidgetConfigForAgent("https://alice:SUPER_SECRET@example.com/page?mode=1");
+    assert.equal(typeof urlSanitized, "string");
+    assert.equal((urlSanitized as string).includes("alice"), false);
+    assert.equal((urlSanitized as string).includes("SUPER_SECRET"), false);
+    assert.ok((urlSanitized as string).includes("example.com/page"));
+    assert.ok((urlSanitized as string).includes("mode=1"));
+
+    assert.equal(isSecurityRedactedValue({ apiKey: "secret_val", theme: "dark" }, sanitizeWidgetConfigForAgent({ apiKey: "secret_val", theme: "dark" })), true);
+    assert.equal(isSecurityRedactedValue({ theme: "dark", count: 5 }, sanitizeWidgetConfigForAgent({ theme: "dark", count: 5 })), false);
+
+    testDocs["custom-web-secret"] = {
+      config: {
+        type: "custom-web",
+        instanceId: "custom-web-secret",
+        data: [{ url: "https://alice:SUPER_SECRET@example.com/page?token=TOP_SECRET_KEY&mode=1" }],
+      },
+      revision: 1,
+    };
+    currentLayout.order.push({ id: "custom-web-secret", style: null, index: 1 });
+    const webResult = await realService.getWidget("desktop-homepage", "custom-web-secret") as any;
+    assert.equal(webResult.status, "ok");
+    assert.deepEqual(webResult.redactedEditableFields, ["url"]);
+    assert.equal("url" in webResult.editableConfig, false, "脱敏字段不得进入 editableConfig");
+    assert.equal(JSON.stringify(webResult).includes("alice"), false, "生产结果不得包含 URL 用户名");
+    assert.equal(JSON.stringify(webResult).includes("SUPER_SECRET"), false, "生产结果不得包含 URL 密码");
+    assert.equal(JSON.stringify(webResult).includes("TOP_SECRET_KEY"), false, "生产结果不得包含 Token 原文");
+
+    // 真实生产 webResult 送入 storage compaction 检验端到端安全
+    const webToolMsgs = [
+      { role: "assistant" as const, content: "", toolCalls: [{ id: "call-web-secret", name: "homepage_components", arguments: JSON.stringify({ action: "custom_web.instance.get", args: { widgetId: "custom-web-secret" } }) }] },
+      { role: "tool" as const, toolCallId: "call-web-secret", name: "homepage_components", content: JSON.stringify({ ok: true, data: { action: "custom_web.instance.get", result: webResult } }) },
+    ];
+    const compactedWeb = compactAgentSessionMessagesForStorage(normalizeToolCallMessages(webToolMsgs), { resolveCallReadOnly: (_name, args) => String(args?.action ?? "").endsWith(".instance.get") });
+    const webToolMsg = compactedWeb.find((m) => m.role === "tool")!;
+    assert.ok(webToolMsg, "必须保留 compacted web tool message");
+    const parsedWebCompacted = JSON.parse(webToolMsg.content);
+    assert.deepEqual(parsedWebCompacted.redactedEditableFields, ["url"]);
+    assert.equal("url" in parsedWebCompacted.editableConfig, false);
+    assert.equal(webToolMsg.content.includes("alice"), false, "compacted observation 不得包含 alice");
+    assert.equal(webToolMsg.content.includes("SUPER_SECRET"), false, "compacted observation 不得包含 SUPER_SECRET");
+    assert.equal(webToolMsg.content.includes("TOP_SECRET_KEY"), false, "compacted observation 不得包含 TOP_SECRET_KEY");
+
+    testDocs["custom-text-path"] = {
+      config: {
+        type: "custom-text",
+        instanceId: "custom-text-path",
+        data: [{ customText: "C:\\Users\\tester\\secret\\file.png" }],
+      },
+      revision: 1,
+    };
+    currentLayout.order.push({ id: "custom-text-path", style: null, index: 2 });
+    const pathResult = await realService.getWidget("desktop-homepage", "custom-text-path") as any;
+    assert.equal(pathResult.status, "ok");
+    assert.deepEqual(pathResult.redactedEditableFields, ["customText"]);
+    assert.equal("customText" in pathResult.editableConfig, false, "本地绝对路径字段不得进入 editableConfig");
+    assert.equal(JSON.stringify(pathResult).includes("Users/tester/secret") || JSON.stringify(pathResult).includes("Users\\\\tester\\\\secret"), false, "生产结果不得包含绝对路径");
+
+    // 真实生产 pathResult 送入 storage compaction 检验端到端安全
+    const pathToolMsgs = [
+      { role: "assistant" as const, content: "", toolCalls: [{ id: "call-path-secret", name: "homepage_components", arguments: JSON.stringify({ action: "custom_text.instance.get", args: { widgetId: "custom-text-path" } }) }] },
+      { role: "tool" as const, toolCallId: "call-path-secret", name: "homepage_components", content: JSON.stringify({ ok: true, data: { action: "custom_text.instance.get", result: pathResult } }) },
+    ];
+    const compactedPath = compactAgentSessionMessagesForStorage(normalizeToolCallMessages(pathToolMsgs), { resolveCallReadOnly: (_name, args) => String(args?.action ?? "").endsWith(".instance.get") });
+    const pathToolMsg = compactedPath.find((m) => m.role === "tool")!;
+    assert.ok(pathToolMsg, "必须保留 compacted path tool message");
+    const parsedPathCompacted = JSON.parse(pathToolMsg.content);
+    assert.deepEqual(parsedPathCompacted.redactedEditableFields, ["customText"]);
+    assert.equal("customText" in parsedPathCompacted.editableConfig, false);
+    assert.equal(pathToolMsg.content.includes("Users/tester/secret") || pathToolMsg.content.includes("Users\\\\tester\\\\secret"), false);
+
+    // 1c. 安全负例：格式损坏但包含凭据的 URL 必须失败关闭（返回 [REDACTED] 并不泄漏任何原片断）
+    const invalidUrlSanitized = sanitizeWidgetConfigForAgent("https://alice:SUPER_SECRET@");
+    assert.equal(invalidUrlSanitized, "[REDACTED]");
+    assert.equal(typeof invalidUrlSanitized, "string");
+    assert.equal((invalidUrlSanitized as string).includes("alice"), false);
+    assert.equal((invalidUrlSanitized as string).includes("SUPER_SECRET"), false);
+
+    testDocs["custom-web-invalid"] = {
+      config: {
+        type: "custom-web",
+        instanceId: "custom-web-invalid",
+        data: [{ url: "https://alice:SUPER_SECRET@" }],
+      },
+      revision: 1,
+    };
+    currentLayout.order.push({ id: "custom-web-invalid", style: null, index: 3 });
+    const invalidWebResult = await realService.getWidget("desktop-homepage", "custom-web-invalid") as any;
+    assert.equal(invalidWebResult.status, "ok");
+    assert.deepEqual(invalidWebResult.redactedEditableFields, ["url"]);
+    assert.equal("url" in invalidWebResult.editableConfig, false, "格式损坏的 URL 必须从 editableConfig 剔除");
+    assert.equal((invalidWebResult.safeConfig as any)?.data?.[0]?.url, "[REDACTED]");
+    assert.equal(JSON.stringify(invalidWebResult).includes("alice"), false, "生产结果不得包含无效 URL 中的用户名");
+    assert.equal(JSON.stringify(invalidWebResult).includes("SUPER_SECRET"), false, "生产结果不得包含无效 URL 中的密码");
+
+    const invalidWebToolMsgs = [
+      { role: "assistant" as const, content: "", toolCalls: [{ id: "call-web-invalid", name: "homepage_components", arguments: JSON.stringify({ action: "custom_web.instance.get", args: { widgetId: "custom-web-invalid" } }) }] },
+      { role: "tool" as const, toolCallId: "call-web-invalid", name: "homepage_components", content: JSON.stringify({ ok: true, data: { action: "custom_web.instance.get", result: invalidWebResult } }) },
+    ];
+    const compactedInvalidWeb = compactAgentSessionMessagesForStorage(normalizeToolCallMessages(invalidWebToolMsgs), { resolveCallReadOnly: (_name, args) => String(args?.action ?? "").endsWith(".instance.get") });
+    const invalidWebToolMsg = compactedInvalidWeb.find((m) => m.role === "tool")!;
+    assert.ok(invalidWebToolMsg, "必须保留 compacted invalid web tool message");
+    const parsedInvalidWebCompacted = JSON.parse(invalidWebToolMsg.content);
+    assert.deepEqual(parsedInvalidWebCompacted.redactedEditableFields, ["url"]);
+    assert.equal("url" in parsedInvalidWebCompacted.editableConfig, false);
+    assert.equal(invalidWebToolMsg.content.includes("alice"), false, "compacted observation 不得包含 alice");
+    assert.equal(invalidWebToolMsg.content.includes("SUPER_SECRET"), false, "compacted observation 不得包含 SUPER_SECRET");
+
+    // 1d. 安全负例：占位符碰撞（原值已存在 [REDACTED] 标记时仍必须正确识别新增安全脱敏）
+    // 1) 对象普通字段已是 [REDACTED]、另一敏感键为真实秘密：判定为 redacted
+    assert.equal(isSecurityRedactedValue({ note: "[REDACTED]", apiKey: "SUPER_SECRET" }, sanitizeWidgetConfigForAgent({ note: "[REDACTED]", apiKey: "SUPER_SECRET" })), true);
+
+    // 2) 超长普通文本包含字面量 [REDACTED]，只发生长度截断：判定为非安全脱敏
+    const longTextWithMarker = "这是一段非常长的文字内容，其中包含占位符 [REDACTED] " + "超长补充内容 ".repeat(200);
+    assert.equal(isSecurityRedactedValue(longTextWithMarker, sanitizeWidgetConfigForAgent(longTextWithMarker)), false);
+
+    // 3) URL 用户名已是字面量 [REDACTED]、密码仍是真实秘密：判定为 redacted
+    const urlWithMarker = "https://[REDACTED]:SUPER_SECRET@example.com/";
+    assert.equal(isSecurityRedactedValue(urlWithMarker, sanitizeWidgetConfigForAgent(urlWithMarker)), true);
+
+    testDocs["custom-web-collision"] = {
+      config: {
+        type: "custom-web",
+        instanceId: "custom-web-collision",
+        data: [{ url: "https://[REDACTED]:SUPER_SECRET@example.com/" }],
+      },
+      revision: 1,
+    };
+    currentLayout.order.push({ id: "custom-web-collision", style: null, index: 4 });
+    const collisionWebResult = await realService.getWidget("desktop-homepage", "custom-web-collision") as any;
+    assert.equal(collisionWebResult.status, "ok");
+    assert.deepEqual(collisionWebResult.redactedEditableFields, ["url"]);
+    assert.equal("url" in collisionWebResult.editableConfig, false, "包含真实密码的碰撞 URL 必须从 editableConfig 剔除");
+    assert.equal(JSON.stringify(collisionWebResult).includes("SUPER_SECRET"), false, "生产结果不得包含碰撞 URL 中的密码");
+
+    const collisionWebToolMsgs = [
+      { role: "assistant" as const, content: "", toolCalls: [{ id: "call-web-collision", name: "homepage_components", arguments: JSON.stringify({ action: "custom_web.instance.get", args: { widgetId: "custom-web-collision" } }) }] },
+      { role: "tool" as const, toolCallId: "call-web-collision", name: "homepage_components", content: JSON.stringify({ ok: true, data: { action: "custom_web.instance.get", result: collisionWebResult } }) },
+    ];
+    const compactedCollisionWeb = compactAgentSessionMessagesForStorage(normalizeToolCallMessages(collisionWebToolMsgs), { resolveCallReadOnly: (_name, args) => String(args?.action ?? "").endsWith(".instance.get") });
+    const collisionWebToolMsg = compactedCollisionWeb.find((m) => m.role === "tool")!;
+    assert.ok(collisionWebToolMsg, "必须保留 compacted collision web tool message");
+    const parsedCollisionWebCompacted = JSON.parse(collisionWebToolMsg.content);
+    assert.deepEqual(parsedCollisionWebCompacted.redactedEditableFields, ["url"]);
+    assert.equal("url" in parsedCollisionWebCompacted.editableConfig, false);
+    assert.equal(collisionWebToolMsg.content.includes("SUPER_SECRET"), false, "compacted observation 不得包含 SUPER_SECRET");
+
+    // 2. custom_text.instance.add action 帮助元数据
+    const componentsToolMeta = AGGREGATE_TOOL_CATALOG.find((tool) => tool.name === "homepage_components");
+    const addActionMeta = componentsToolMeta?.actions.find((action) => action.name === "custom_text.instance.add");
+    assert.ok(addActionMeta, "必须存在 custom_text.instance.add metadata");
+    const addSchema = addActionMeta.argsSchema as any;
+    assert.ok(addSchema?.properties?.initialConfig?.description?.includes("扁平"), "initialConfig 必须声明为扁平配置对象");
+    assert.ok(addSchema?.properties?.initialConfig?.description?.includes("editableFields"), "initialConfig 必须声明键来自 editableFields");
+    assert.ok(addSchema?.properties?.initialConfig?.description?.includes("禁止包裹 data"), "initialConfig 必须声明禁止 data 外壳");
+    assert.ok(addSchema?.properties?.position?.description?.includes("全局插入位置"), "position 必须声明为全局插入位置");
+    assert.deepEqual(addActionMeta.examples, [{
+      action: "custom_text.instance.add",
+      args: {
+        expectedLayoutRevision: 1,
+        initialConfig: { customText: "这是一张临时测试卡片，请勿保留" },
+      },
+    }], "必须提供 custom-text 真实可执行示例");
+    assert.ok(addActionMeta.notes?.some((n) => n.includes("editableConfig")), "notes 必须引导参考 instance.get.editableConfig");
+
+    // 3. 错误 initialConfig（如嵌套 data 外壳）必须在创建配置前抛出 invalid_widget_patch，且底层零写入
+    createWidgetCalled = 0;
+    saveLayoutCalled = 0;
+    await assert.rejects(
+      async () => {
+        await realService.addWidget({
+          surface: "desktop-homepage",
+          widgetType: "custom-text",
+          expectedLabel: "文字内容",
+          expectedLayoutRevision: 1,
+          initialConfig: { data: [{ customText: "错误包裹" }] },
+        });
+      },
+      (err: unknown) => {
+        assert.ok(err instanceof HomepageAgentServiceError);
+        assert.equal(err.code, "invalid_widget_patch");
+        assert.ok(err.message.includes("initialConfig 只接受 editableFields 中的扁平字段"));
+        return true;
+      },
+      "传入 data 外壳必须抛出 invalid_widget_patch",
+    );
+    assert.equal(createWidgetCalled, 0, "校验失败必须零组件文件创建");
+    assert.equal(saveLayoutCalled, 0, "校验失败必须零布局写入");
+
+    // 4. 正确扁平 initialConfig 必须成功创建且生成正确底层结构
+    createWidgetCalled = 0;
+    saveLayoutCalled = 0;
+    const addResult = await realService.addWidget({
+      surface: "desktop-homepage",
+      widgetType: "custom-text",
+      expectedLabel: "文字内容",
+      expectedLayoutRevision: 1,
+      initialConfig: { customText: "新卡片" },
+    }) as any;
+    assert.equal(addResult.status, "ok");
+    assert.equal(createWidgetCalled, 1, "合法添加必须创建 1 个组件文件");
+    assert.equal(saveLayoutCalled, 1, "合法添加必须提交 1 次布局保存");
+    const initialKeys = new Set(["custom-text-1", "custom-web-secret", "custom-text-path", "custom-web-invalid", "custom-web-collision"]);
+    const createdDocId = Object.keys(testDocs).find((id) => !initialKeys.has(id));
+    assert.ok(createdDocId, "必须在存储中生成新组件 ID");
+    const createdDoc = testDocs[createdDocId!] as any;
+    assert.equal(createdDoc.config.type, "custom-text");
+    assert.deepEqual(createdDoc.config.data, [{ customText: "新卡片" }]);
   } finally {
     (globalThis as any).window = prevWindow;
     (globalThis as any).CustomEvent = prevCustomEvent;

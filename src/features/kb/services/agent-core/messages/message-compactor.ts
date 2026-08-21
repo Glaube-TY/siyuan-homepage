@@ -134,6 +134,37 @@ function compactSafeConfig(value: unknown, previewChars = MAX_SAFE_CONFIG_PREVIE
   return { safeConfig: value, safeConfigTruncated: false };
 }
 
+function compactEditableConfig(
+  value: unknown,
+  previewChars = MAX_SAFE_CONFIG_PREVIEW_CHARS,
+): Record<string, unknown> {
+  const record = asRecord(value);
+  if (Object.keys(record).length === 0) return { editableConfig: {}, editableConfigTruncated: false };
+  let truncated = false;
+  const projected: Record<string, unknown> = {};
+  for (const [key, val] of Object.entries(record)) {
+    if (typeof val === "string") {
+      if (val.length > previewChars) {
+        projected[key] = `${val.slice(0, previewChars)}... [已截断]`;
+        truncated = true;
+      } else {
+        projected[key] = val;
+      }
+    } else if (typeof val === "number" || typeof val === "boolean" || val === null) {
+      projected[key] = val;
+    } else if (Array.isArray(val)) {
+      projected[key] = val.slice(0, 20);
+      if (val.length > 20) truncated = true;
+    } else {
+      projected[key] = val;
+    }
+  }
+  return {
+    editableConfig: projected,
+    editableConfigTruncated: truncated,
+  };
+}
+
 function compactBusinessCapability(value: unknown): Record<string, unknown> | null {
   const capability = asRecord(value);
   if (Object.keys(capability).length === 0) return null;
@@ -333,6 +364,7 @@ function compactHomepageInstanceGet(
       editableFieldsTotalCount: editable.totalCount,
       editableFieldsReturnedCount: editable.returnedCount,
       editableFieldsOmittedCount: editable.omittedCount,
+      redactedEditableFields: safeStrings(payload.redactedEditableFields, 10, 64),
       readOnlyFields: readOnly.items,
       readOnlyFieldsTotalCount: readOnly.totalCount,
       readOnlyFieldsReturnedCount: readOnly.returnedCount,
@@ -343,6 +375,7 @@ function compactHomepageInstanceGet(
       unsupportedFieldsOmittedCount: unsupported.omittedCount,
       fieldsTruncated: editable.omittedCount > 0 || readOnly.omittedCount > 0 || unsupported.omittedCount > 0,
       businessCapability: compactBusinessCapability(payload.businessCapability),
+      ...compactEditableConfig(payload.editableConfig ?? null, Math.min(1_000, previewChars)),
       ...compactSafeConfig(payload.safeConfig ?? null, previewChars),
       warnings: safeStrings(payload.warnings, 3, 64),
       note: "Homepage component instance result compacted for storage.",
@@ -351,9 +384,9 @@ function compactHomepageInstanceGet(
 
   let fieldLimit = 20;
   let fieldChars = 64;
-  let previewChars = MAX_SAFE_CONFIG_PREVIEW_CHARS;
+  let previewChars = Math.min(2_000, MAX_SAFE_CONFIG_PREVIEW_CHARS);
   let result = build(fieldLimit, fieldChars, previewChars);
-  while (result.length > MAX_HOMEPAGE_LIST_OUTPUT_CHARS && (previewChars > 3 || fieldLimit > 0)) {
+  while ((result.length > MAX_HOMEPAGE_LIST_OUTPUT_CHARS || estimateTextTokensConservative(result) > 2_500) && (previewChars > 3 || fieldLimit > 0)) {
     if (previewChars > 256) previewChars = Math.max(256, Math.floor(previewChars / 2));
     else if (fieldLimit > 0) fieldLimit -= 1;
     else previewChars = Math.max(3, Math.floor(previewChars / 2));

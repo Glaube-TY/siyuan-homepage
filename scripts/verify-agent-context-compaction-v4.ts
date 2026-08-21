@@ -35,6 +35,7 @@ import type { AgentMessage } from "../src/features/kb/services/agent-core/messag
 import type { NativeTool } from "../src/features/kb/services/agent-core/tools/native-tool";
 import { NativeToolRegistry, resolveNativeToolReadOnly } from "../src/features/kb/services/agent-core/tools/native-tool-registry";
 import { HOMEPAGE_COMPONENT_ROUTE_DEFINITIONS } from "../src/features/kb/services/agent-workbench/tools/homepage/homepage-agent-business-capabilities";
+import { sanitizeWidgetConfigForAgent, isSecurityRedactedValue } from "../src/features/kb/services/agent-workbench/tools/homepage/homepage-agent-widget-sanitizer";
 
 function makeMessages(turnCount: number): ChatMessage[] {
   const messages: ChatMessage[] = [];
@@ -821,5 +822,84 @@ assert.equal(corruptedLegacy.corrupted, true);
 assert.equal(corruptedLegacy.title, "仍可见");
 assert.equal(corruptedLegacy.unparseableVisibleCount, 1);
 assert.equal(corruptedLegacy.ignoredInternalCount, 1);
+
+// TASK-20260821-028: compactHomepageInstanceGet editableConfig projection
+{
+  const longText = "这是一段非常长的文字内容。".repeat(300);
+  const rawPayload = {
+    ok: true,
+    data: {
+      status: "ok",
+      surface: "desktop-homepage",
+      layoutRevision: 1,
+      widgetId: "custom-text-1",
+      resolutionStatus: "resolved",
+      type: "custom-text",
+      label: "文字内容",
+      configRevision: 1,
+      layoutIndex: 0,
+      sectionId: null,
+      sectionName: null,
+      editableConfig: { customText: longText },
+      editableFields: ["customText"],
+      readOnlyFields: ["type", "instanceId", "schema", "version", "revision"],
+      unsupportedFields: ["业务数据", "凭据", "本地绝对路径"],
+      safeConfig: { type: "custom-text", data: [{ customText: longText }] },
+      warnings: [],
+    },
+  };
+  const sessionMessages = homepageToolMessages("call-get-1", "custom_text.instance.get", rawPayload.data, {
+    widgetId: "custom-text-1",
+  });
+  const compacted = compactAgentSessionMessagesForStorage(sessionMessages, homepageReadCompactionOptions);
+  const toolMsg = compacted.find((m) => m.role === "tool");
+  assert.ok(toolMsg, "必须保留 tool observation");
+  const parsed = JSON.parse(toolMsg.content);
+  assert.deepEqual(parsed.redactedEditableFields, []);
+  assert.equal(parsed.status, "ok");
+  assert.equal(typeof parsed.editableConfig, "object");
+  assert.ok(parsed.editableConfig.customText.includes("这是一段非常长的文字内容"));
+  assert.equal(parsed.editableConfig.customText.includes("[已截断]"), true, "超长 customText 必须带显式截断标记");
+  assert.equal(parsed.editableConfigTruncated, true);
+
+  // TASK-20260821-030: 真实 raw config（含 URL 用户名、密码及查询 Token）经脱敏与投影后进入 observation compaction，断言原凭据绝不泄漏
+  const rawWebConfig = { type: "custom-web", data: [{ url: "https://alice:SUPER_SECRET@example.com/page?token=TOP_SECRET&mode=1" }] };
+  const rawData = rawWebConfig.data[0];
+  const sanitizedUrl = sanitizeWidgetConfigForAgent(rawData.url);
+  const isRedacted = isSecurityRedactedValue(rawData.url, sanitizedUrl);
+  assert.equal(isRedacted, true);
+  const realWebPayload = {
+    status: "ok",
+    surface: "desktop-homepage",
+    layoutRevision: 1,
+    widgetId: "custom-web-1",
+    resolutionStatus: "resolved",
+    type: "custom-web",
+    label: "网页",
+    configRevision: 1,
+    layoutIndex: 1,
+    sectionId: null,
+    sectionName: null,
+    editableConfig: {},
+    redactedEditableFields: isRedacted ? ["url"] : [],
+    editableFields: ["url"],
+    readOnlyFields: ["type", "instanceId", "schema", "version", "revision"],
+    unsupportedFields: ["业务数据", "凭据", "本地绝对路径"],
+    safeConfig: sanitizeWidgetConfigForAgent(rawWebConfig),
+    warnings: [],
+  };
+  const secretMessages = homepageToolMessages("call-get-secret", "custom_web.instance.get", realWebPayload, {
+    widgetId: "custom-web-1",
+  });
+  const compactedSecret = compactAgentSessionMessagesForStorage(secretMessages, homepageReadCompactionOptions);
+  const secretToolMsg = compactedSecret.find((m) => m.role === "tool");
+  assert.ok(secretToolMsg, "必须保留 secret tool observation");
+  const secretParsed = JSON.parse(secretToolMsg.content);
+  assert.deepEqual(secretParsed.redactedEditableFields, ["url"]);
+  assert.equal("url" in secretParsed.editableConfig, false);
+  assert.equal(secretToolMsg.content.includes("alice"), false, "compacted observation 绝对不得包含 alice");
+  assert.equal(secretToolMsg.content.includes("SUPER_SECRET"), false, "compacted observation 绝对不得包含 SUPER_SECRET");
+  assert.equal(secretToolMsg.content.includes("TOP_SECRET"), false, "compacted observation 绝对不得包含 TOP_SECRET");
+}
 
 console.log("verify-agent-context-compaction-v4: extended assertions passed");

@@ -17,12 +17,16 @@ function basename(value: string): string {
 function sanitizeUrl(value: string): unknown {
   try {
     const url = new URL(value);
+    if (url.username || url.password) {
+      if (url.username) url.username = "[REDACTED]";
+      if (url.password) url.password = "[REDACTED]";
+    }
     for (const key of Array.from(url.searchParams.keys())) {
       if (SENSITIVE_QUERY_KEY.test(key)) url.searchParams.set(key, "[REDACTED]");
     }
     return url.toString().replace(/%5BREDACTED%5D/gi, "[REDACTED]");
   } catch {
-    return value;
+    return "[REDACTED]";
   }
 }
 
@@ -60,6 +64,44 @@ export function sanitizeWidgetConfigForAgent(value: unknown, depth = 0): unknown
     output[key] = sanitizeWidgetConfigForAgent(child, depth + 1);
   }
   return output;
+}
+
+function isSecurityRedactedUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    if (url.username || url.password) return true;
+    for (const key of Array.from(url.searchParams.keys())) {
+      if (SENSITIVE_QUERY_KEY.test(key)) return true;
+    }
+    return false;
+  } catch {
+    return true;
+  }
+}
+
+export function isSecurityRedactedValue(rawVal: unknown, _sanitizedVal?: unknown): boolean {
+  if (rawVal === null || rawVal === undefined) return false;
+  if (typeof rawVal === "number" || typeof rawVal === "boolean") return false;
+
+  if (typeof rawVal === "string") {
+    if (isAbsoluteLocalPath(rawVal)) return true;
+    if (/^https?:\/\//i.test(rawVal)) return isSecurityRedactedUrl(rawVal);
+    return false;
+  }
+
+  if (Array.isArray(rawVal)) {
+    return rawVal.some((item) => isSecurityRedactedValue(item));
+  }
+
+  if (typeof rawVal === "object") {
+    for (const [key, child] of Object.entries(rawVal as Record<string, unknown>)) {
+      if (isSensitiveHomepageConfigKey(key) && child !== undefined) return true;
+      if (key.toLowerCase() === "headers" && child && typeof child === "object") return true;
+      if (isSecurityRedactedValue(child)) return true;
+    }
+  }
+
+  return false;
 }
 
 export function assertHomepagePatchContainsNoSensitiveFields(value: unknown, path = "patch"): void {

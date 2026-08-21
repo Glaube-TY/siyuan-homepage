@@ -48,7 +48,7 @@ import {
   surfaceCategoryLabel,
   surfaceCategorySource,
 } from "./homepage-agent-surface-resolution";
-import { sanitizeWidgetConfigForAgent } from "./homepage-agent-widget-sanitizer";
+import { isSecurityRedactedValue, sanitizeWidgetConfigForAgent } from "./homepage-agent-widget-sanitizer";
 import { applyHomepageWidgetPatch, createHomepageWidgetConfig, readHomepageWidgetData, validateAndNormalizeHomepageWidgetPatch } from "./homepage-agent-widget-adapters";
 import {
   applyWidgetStylePatch,
@@ -353,6 +353,22 @@ export class HomepageAgentService {
     const sectionName = sectionId
       ? deriveDesktopHomepageSectionsFromLayout(state.snapshot.layout.layout, state.context.scopeId).find((item) => item.id === sectionId)?.name ?? sectionId
       : null;
+    const rawData = readHomepageWidgetData(doc.config);
+    const editableConfig: Record<string, unknown> = {};
+    const redactedEditableFields: string[] = [];
+    if (descriptor?.editableFields) {
+      for (const field of descriptor.editableFields) {
+        if (field in rawData && rawData[field] !== undefined) {
+          const rawVal = rawData[field];
+          const sanitizedVal = sanitizeWidgetConfigForAgent(rawVal);
+          if (isSecurityRedactedValue(rawVal, sanitizedVal)) {
+            redactedEditableFields.push(field);
+          } else {
+            editableConfig[field] = rawVal;
+          }
+        }
+      }
+    }
     return {
       status: "ok",
       surface: state.surface,
@@ -367,6 +383,8 @@ export class HomepageAgentService {
       sectionName,
       style: state.surface === "desktop-homepage" ? readWidgetStyle(layoutItem.style, doc.config) : undefined,
       safeConfig: sanitizeWidgetConfigForAgent(doc.config),
+      editableConfig,
+      redactedEditableFields,
       editableFields: descriptor?.editableFields ?? [],
       readOnlyFields: ["type", "instanceId", "schema", "version", "revision"],
       unsupportedFields: ["业务数据", "凭据", "本地绝对路径"],
@@ -588,7 +606,20 @@ export class HomepageAgentService {
       }
     }
     const widgetId = createWidgetInstanceId();
-    const config = createHomepageWidgetConfig(input.widgetType, widgetId, input.initialConfig ?? {}, { advancedEnabled: isHomepageEntitlementGranted(), surface: state.surface });
+    let config: Record<string, unknown>;
+    try {
+      config = createHomepageWidgetConfig(input.widgetType, widgetId, input.initialConfig ?? {}, {
+        advancedEnabled: isHomepageEntitlementGranted(),
+        surface: state.surface,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "initialConfig 校验失败";
+      throw new HomepageAgentServiceError(
+        "invalid_widget_patch",
+        `组件初始配置无效：${message}。initialConfig 只接受 editableFields 中的扁平字段；不要传 data 外壳或只读/样式字段。`,
+        true,
+      );
+    }
     const created = await createWidgetInstanceConfig(state.context, widgetId, config);
     let layoutCommitted = false;
     try {
