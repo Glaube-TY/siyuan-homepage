@@ -73,13 +73,14 @@ export function createAddAttributeViewRowsTool(
       try {
         const result = await deps.executeAddAttributeViewRows(args);
         if (!result.ok) {
+          const code = result.errorCode || "attribute_view_rows_add_failed";
           return {
             ok: false,
             data: null,
             error: {
-              code: result.errorCode || "attribute_view_rows_add_failed",
+              code,
               message: result.safeOutput.message,
-              recoverable: true,
+              recoverable: code !== "attribute_view_rows_add_verification_failed",
             },
           };
         }

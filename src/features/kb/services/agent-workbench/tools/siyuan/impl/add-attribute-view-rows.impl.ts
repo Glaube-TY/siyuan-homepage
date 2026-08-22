@@ -1,8 +1,8 @@
 import {
   addAttributeViewBlocksChecked,
   appendAttributeViewDetachedBlocksWithValuesChecked,
+  getAttributeView,
   getAttributeViewItemIDsByBoundIDs,
-  performTransactionsChecked,
   setAttributeViewBlockAttrChecked,
 } from "@/api";
 import type { SiyuanToolDeps } from "../siyuan-tool-deps";
@@ -12,10 +12,11 @@ import type {
 } from "../contracts/add-attribute-view-rows.contract";
 import type { NormalizedAttributeViewKey } from "../internal/attribute-view/attribute-view-normalizer";
 import {
+  collectAttributeViewRowIds,
   findAttributeViewKeyById,
   findUniqueAttributeViewKeyByName,
 } from "../internal/attribute-view/attribute-view-normalizer";
-import { createAttributeViewValue, createSiyuanLikeId } from "../internal/attribute-view/attribute-view-value-codec";
+import { createAttributeViewValue } from "../internal/attribute-view/attribute-view-value-codec";
 import { readAttributeViewSafeOutput } from "./read-attribute-view.impl";
 import { normalizeItemIdMap } from "../internal/attribute-view/attribute-view-id-map";
 
@@ -30,6 +31,27 @@ function fail(args: AddAttributeViewRowsInput, message: string, errorCode: strin
       databaseId: args.databaseId,
       addedCount: 0,
       message,
+    },
+  };
+}
+
+/** 从原始 AV 结构收集所有真实 rowId/itemId（共享权威 helper，与 groupRows 同一规则）。 */
+async function readRawRowIdSet(databaseId: string): Promise<Set<string>> {
+  const av = await getAttributeView(databaseId);
+  if (!av) return new Set<string>();
+  return collectAttributeViewRowIds(av);
+}
+
+/** 写入已开始后的异常：不可恢复、不可重放。 */
+function failWriteUncertain(args: AddAttributeViewRowsInput, detail: string): ExecResult {
+  return {
+    ok: false,
+    errorCode: "attribute_view_rows_add_verification_failed",
+    safeOutput: {
+      status: "failed",
+      databaseId: args.databaseId,
+      addedCount: 0,
+      message: `写入已开始，${detail}，结果不确定。禁止重放写入，请仅重新读取确认。`,
     },
   };
 }
@@ -74,18 +96,15 @@ async function applyDefaultValuesToRows(params: {
   schema: NormalizedAttributeViewKey[];
   rowIds: string[]; // 真实条目 ID（itemID）列表
   defaultValues: Record<string, string>;
-  warnings: string[];
 }) {
   for (const [rawKey, valueText] of Object.entries(params.defaultValues)) {
     const key = resolveValueKey(params.schema, rawKey);
     if (!key) {
-      params.warnings.push(`默认值字段「${rawKey}」不存在，已跳过。`);
-      continue;
+      throw new Error(`默认值字段「${rawKey}」不存在。`);
     }
     const encoded = createAttributeViewValue(key, valueText);
     if (!encoded.ok || encoded.value === undefined) {
-      params.warnings.push(encoded.message || `默认值字段「${key.name}」不支持写入，已跳过。`);
-      continue;
+      throw new Error(encoded.message || `默认值字段「${key.name}」不支持写入。`);
     }
     for (const rowId of params.rowIds) {
       await setAttributeViewBlockAttrChecked(params.databaseId, key.keyId, rowId, encoded.value);
@@ -114,6 +133,7 @@ export async function executeAddAttributeViewRows(
     return fail(args, "一次最多添加 20 行，请分批确认。", "batch_too_large");
   }
 
+  let writeAttempted = false;
   try {
     const read = await readAttributeViewSafeOutput({
       databaseId,
@@ -121,116 +141,75 @@ export async function executeAddAttributeViewRows(
       includeRaw: false,
     });
     const schema = read.schema;
-    let addedCount = 0;
+
+    // 写前采集当前真实 rowId 集合（不依赖 Render 行数）
+    const beforeRowIds = await readRawRowIdSet(databaseId);
+
+    // ── 写前纯校验：所有 detachedRows 编码与 defaultValues 编码不涉及任何写 API 调用 ──
+    if (args.defaultValues && Object.keys(args.defaultValues).length > 0) {
+      for (const [rawKey, valueText] of Object.entries(args.defaultValues)) {
+        const key = resolveValueKey(schema, rawKey);
+        if (!key) {
+          return fail(args, `默认值字段「${rawKey}」不存在，请使用 read_attribute_view 返回的真实 keyId。`, "invalid_field_value");
+        }
+        const encoded = createAttributeViewValue(key, valueText);
+        if (!encoded.ok || encoded.value === undefined) {
+          return fail(args, encoded.message || `默认值字段「${key.name}」不支持写入。`, "invalid_field_value");
+        }
+      }
+    }
+
+    const blocksValues: any[][] = [];
+    for (const row of detachedRows) {
+      const built = buildDetachedRowValues(schema, row, args.defaultValues);
+      if (built.ok === false) return fail(args, built.message, "invalid_field_value");
+      blocksValues.push(built.values);
+    }
+
+    const addedCount = blockIds.length + detachedRows.length;
     const affectedBlockIds: string[] = [];
     const rowIds: string[] = [];
 
+    // ── 执行写入（writeAttempted 在 API 调用前设置，任何后续异常均不可重放）──
     if (blockIds.length > 0) {
-      // 尝试使用 addAttributeViewBlocksChecked
-      let blocksAdded = false;
-      try {
-        await addAttributeViewBlocksChecked({
-          avID: databaseId,
-          blockID: args.databaseBlockId?.trim() || undefined,
-          blockIDs: blockIds,
-        });
-        blocksAdded = true;
-      } catch (error) {
-        // addAttributeViewBlocks 失败，使用 transaction 兜底
-        warnings.push(`addAttributeViewBlocks 失败（${error instanceof Error ? error.message : String(error)}），尝试使用 transaction 兜底。`);
+      writeAttempted = true;
+      await addAttributeViewBlocksChecked({
+        avID: databaseId,
+        blockID: args.databaseBlockId?.trim() || undefined,
+        blockIDs: blockIds,
+      });
+      affectedBlockIds.push(...blockIds);
 
-        // 需要 databaseBlockId 来构造 transaction
-        const databaseBlockId = args.databaseBlockId?.trim();
-        if (!databaseBlockId) {
-          // 尝试从 read 结果中解析 databaseBlockId
-          const rawBlockId = (read.database as any)?.blockId ?? (read.raw as any)?.av?.blockID ?? "";
-          if (!rawBlockId) {
-            return fail(args, "addAttributeViewBlocks 失败且未提供 databaseBlockId，无法使用 transaction 兜底。请提供 databaseBlockId 参数。", "missing_database_block_id");
-          }
-          // 使用解析到的 blockId
-          try {
-            const txOp: any = {
-              action: "insertAttrViewBlock",
-              avID: databaseId,
-              blockID: rawBlockId,
-              srcs: blockIds.map((id) => ({ itemID: createSiyuanLikeId(), id, isDetached: false })),
-              ignoreDefaultFill: args.ignoreDefaultFill ?? false,
-            };
-            if (args.viewID) txOp.viewID = args.viewID;
-            if (args.groupID) txOp.groupID = args.groupID;
-            if (args.previousID) txOp.previousID = args.previousID;
-            await performTransactionsChecked([{
-              doOperations: [txOp],
-              undoOperations: [],
-            }]);
-            blocksAdded = true;
-          } catch (txError) {
-            return fail(args, `transaction 兜底也失败：${txError instanceof Error ? txError.message : String(txError)}`, "transaction_fallback_failed");
-          }
-        } else {
-          try {
-            const txOp: any = {
-              action: "insertAttrViewBlock",
-              avID: databaseId,
-              blockID: databaseBlockId,
-              srcs: blockIds.map((id) => ({ itemID: createSiyuanLikeId(), id, isDetached: false })),
-              ignoreDefaultFill: args.ignoreDefaultFill ?? false,
-            };
-            if (args.viewID) txOp.viewID = args.viewID;
-            if (args.groupID) txOp.groupID = args.groupID;
-            if (args.previousID) txOp.previousID = args.previousID;
-            await performTransactionsChecked([{
-              doOperations: [txOp],
-              undoOperations: [],
-            }]);
-            blocksAdded = true;
-          } catch (txError) {
-            return fail(args, `transaction 兜底也失败：${txError instanceof Error ? txError.message : String(txError)}`, "transaction_fallback_failed");
-          }
+      if (args.defaultValues && Object.keys(args.defaultValues).length > 0) {
+        const rawMap = await getAttributeViewItemIDsByBoundIDs(databaseId, blockIds);
+        const mapped = normalizeItemIdMap(rawMap, blockIds);
+        const mappedRowIds = Object.values(mapped).filter(Boolean);
+        if (mappedRowIds.length !== blockIds.length) {
+          throw new Error("未能取得全部新增条目的条目 ID，默认字段值写入不完整。");
         }
-      }
-
-      if (blocksAdded) {
-        addedCount += blockIds.length;
-        affectedBlockIds.push(...blockIds);
-
-        try {
-          const rawMap = await getAttributeViewItemIDsByBoundIDs(databaseId, blockIds);
-          const mapped = normalizeItemIdMap(rawMap, blockIds);
-          rowIds.push(...Object.values(mapped).filter(Boolean));
-        } catch (error) {
-          warnings.push(`已有块已尝试加入数据库，但条目 ID 映射失败：${error instanceof Error ? error.message : String(error)}`);
-        }
-
-        if (args.defaultValues && Object.keys(args.defaultValues).length > 0) {
-          if (rowIds.length === 0) {
-            warnings.push("未能取得新增条目的条目 ID（itemID），默认字段值未写入；请重新读取数据库确认。");
-          } else {
-            await applyDefaultValuesToRows({
-              databaseId,
-              schema,
-              rowIds,
-              defaultValues: args.defaultValues,
-              warnings,
-            });
-          }
-        }
+        await applyDefaultValuesToRows({ databaseId, schema, rowIds: mappedRowIds, defaultValues: args.defaultValues });
       }
     }
 
     if (detachedRows.length > 0) {
-      const blocksValues: any[][] = [];
-      for (const row of detachedRows) {
-        const built = buildDetachedRowValues(schema, row, args.defaultValues);
-        if (built.ok === false) {
-          return fail(args, built.message, "invalid_field_value");
-        }
-        blocksValues.push(built.values);
-      }
+      writeAttempted = true;
       await appendAttributeViewDetachedBlocksWithValuesChecked(databaseId, blocksValues);
-      addedCount += detachedRows.length;
-      warnings.push("脱离块行接口未稳定返回 rowId；请重新读取数据库确认新增条目。");
     }
+
+
+    // ── 写后回读验证：旧 ID 全保留 + 新增数量精确匹配 + 返回真实新 rowIds ──
+    const afterRowIds = await readRawRowIdSet(databaseId);
+    const disappeared = [...beforeRowIds].filter((id) => !afterRowIds.has(id));
+    if (disappeared.length > 0) {
+      return failWriteUncertain(args, `写后回读发现 ${disappeared.length} 个原有条目消失`);
+    }
+    const actualNewIds = [...afterRowIds].filter((id) => !beforeRowIds.has(id));
+    const expectedTotal = blockIds.length + detachedRows.length;
+    if (expectedTotal > 0 && actualNewIds.length !== expectedTotal) {
+      return failWriteUncertain(args, `写后回读新增 ${actualNewIds.length} 条，预期 ${expectedTotal} 条`);
+    }
+    rowIds.length = 0;
+    rowIds.push(...actualNewIds);
 
     return {
       ok: true,
@@ -245,6 +224,9 @@ export async function executeAddAttributeViewRows(
       },
     };
   } catch (error) {
+    if (writeAttempted) {
+      return failWriteUncertain(args, `写入过程中发生异常：${error instanceof Error ? error.message : String(error)}`);
+    }
     return fail(args, `添加数据库条目失败：${error instanceof Error ? error.message : String(error)}`, "attribute_view_rows_add_failed");
   }
 }

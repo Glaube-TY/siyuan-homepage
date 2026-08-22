@@ -552,6 +552,75 @@ function normalizeRenderRows(renderResult: any, schema: NormalizedAttributeViewK
   return { rows: Array.from(rowMap.values()), skippedRows, skippedValues, rowsSource };
 }
 
+/**
+ * 检查 raw view 是否存在有效筛选、排序或分组约束。
+ * 同时支持思源真实顶层数组形态与兼容嵌套形态。
+ * 空筛选占位（字段/操作符/值均空）不算有效约束；value 为空不排除 is-empty 类操作。
+ */
+export function hasEffectiveViewConstraints(rawView: any): boolean {
+  if (!rawView || typeof rawView !== "object") return false;
+  const type = safeString(rawView.type ?? rawView.viewType);
+  if (type === "kanban" || type === "gallery") return true;
+
+  // group 为视图自身字段，非空即视为约束
+  if (rawView.group && typeof rawView.group === "object" && Object.keys(rawView.group).length > 0) return true;
+
+  // filters：支持顶层数组和嵌套 .filters
+  const filterSource = Array.isArray(rawView.filters)
+    ? rawView.filters
+    : Array.isArray(rawView.filters?.filters) ? rawView.filters.filters : [];
+  for (const f of filterSource) {
+    if (!f || typeof f !== "object") continue;
+    // 字段 + 操作符即可成立，value 可为空（is-empty 类）
+    const col = safeString(f.column ?? f.field ?? f.keyID);
+    const op = safeString(f.operator ?? f.condition);
+    if (col && op) return true;
+  }
+
+  // sorts：支持顶层数组、嵌套 .sorts、sortRules 兼容
+  const sortSource = Array.isArray(rawView.sorts)
+    ? rawView.sorts
+    : Array.isArray(rawView.sorts?.sorts) ? rawView.sorts.sorts
+    : Array.isArray(rawView.sortRules) ? rawView.sortRules : [];
+  for (const s of sortSource) {
+    if (!s || typeof s !== "object") continue;
+    const field = safeString(s.column ?? s.field);
+    const dir = safeString(s.direction ?? s.order);
+    if (field && dir) return true;
+  }
+
+  return false;
+}
+
+/**
+ * 从原始 AV 结构收集所有真实 rowId/itemId 的权威共享边界。
+ * blockID 准入只依赖 view itemIds 的不可变快照，keyValues 严格 itemID 不得反向扩大该快照。
+ */
+export function collectAttributeViewRowIds(av: AttributeView): Set<string> {
+  const ids = new Set<string>();
+  const views = (av as any)?.views ?? (av as any)?.raw?.views ?? [];
+
+  // 固定不可变的 view itemIds 快照，blockID 准入仅依赖此快照
+  const viewItemIdsSnapshot = new Set<string>();
+  for (const view of views) {
+    const itemIds = view?.itemIds ?? view?.itemIDs ?? [];
+    if (Array.isArray(itemIds)) {
+      for (const id of itemIds) { if (id) { ids.add(String(id)); viewItemIdsSnapshot.add(String(id)); } }
+    }
+  }
+
+  for (const keyValue of av.keyValues ?? []) {
+    for (const value of keyValue.values ?? []) {
+      const rowId = readStrictItemId(value);
+      if (rowId) { ids.add(rowId); continue; }
+      // blockID 只有原本就在 view itemIds 快照中时才可当作 rowId
+      const blockId = safeString(value?.blockID ?? value?.blockId);
+      if (blockId && viewItemIdsSnapshot.has(blockId)) ids.add(blockId);
+    }
+  }
+  return ids;
+}
+
 export function normalizeAttributeViewRead(params: {
   databaseId: string;
   av: AttributeView;
@@ -570,10 +639,67 @@ export function normalizeAttributeViewRead(params: {
     views[0]?.viewId ||
     null;
 
-  // 优先使用 renderAttributeView 返回的行（有正确的视图顺序），否则回退到 getAttributeView 的 keyValues 分组
+  // 合并语义：区分"Render 已执行但返回空"与"Render 未执行"。
+  // 有约束视图：Render 已执行即为成员/顺序权威（含空结果）。
+  // 无约束视图：Render 有行时合并 fallback，无行时走 fallback。
+  const renderAttempted = params.includeRows && params.renderResult != null;
   const renderResult = params.includeRows ? normalizeRenderRows(params.renderResult, schema, params.viewId) : null;
   const fallbackGrouped = groupRows(params.av);
-  const groupedRows = renderResult && renderResult.rows.length > 0 ? renderResult.rows : fallbackGrouped.rows;
+
+  const rawViews = (params.av as any)?.views ?? (params.av as any)?.raw?.views ?? [];
+  const currentRawView = rawViews.find((v: any) => safeString(v?.id ?? v?.viewID ?? v?.viewId) === selectedViewId);
+  const constrained = hasEffectiveViewConstraints(currentRawView);
+
+  let groupedRows: RowAccumulator[];
+  if (constrained && renderAttempted) {
+    // 有约束 + Render 已执行：Render 是成员/顺序权威（含空结果）
+    groupedRows = renderResult ? renderResult.rows : [];
+    if (fallbackGrouped.rows.length > groupedRows.length) {
+      warnings.push(`当前视图存在筛选/排序/分组约束，renderAttributeView 返回 ${groupedRows.length} 行为权威结果；原始数据中另有 ${fallbackGrouped.rows.length} 条未被当前视图渲染。`);
+    }
+  } else if (!constrained && renderResult && renderResult.rows.length > 0) {
+    // 无约束 + Render 有行：Render 值优先，fallback 补充缺失 rowId 和字段
+    const fallbackById = new Map(fallbackGrouped.rows.map((row) => [row.rowId, row]));
+    const mergedById = new Map<string, RowAccumulator>();
+
+    for (const renderRow of renderResult.rows) {
+      const fallbackRow = fallbackById.get(renderRow.rowId);
+      if (!fallbackRow) {
+        mergedById.set(renderRow.rowId, renderRow);
+        continue;
+      }
+      const values = new Map(fallbackRow.values);
+      for (const [keyId, value] of renderRow.values) values.set(keyId, value);
+      mergedById.set(renderRow.rowId, {
+        rowId: renderRow.rowId,
+        boundBlockId: renderRow.boundBlockId ?? fallbackRow.boundBlockId,
+        values,
+      });
+    }
+    for (const fallbackRow of fallbackGrouped.rows) {
+      if (!mergedById.has(fallbackRow.rowId)) mergedById.set(fallbackRow.rowId, fallbackRow);
+    }
+
+    const orderedItemIds = Array.isArray(currentRawView?.itemIds ?? currentRawView?.itemIDs)
+      ? ((currentRawView.itemIds ?? currentRawView.itemIDs) as unknown[]).map(String)
+      : null;
+    const mergedArray = Array.from(mergedById.values());
+    if (orderedItemIds && orderedItemIds.length > 0) {
+      const orderIndex = new Map(orderedItemIds.map((id, i) => [id, i]));
+      mergedArray.sort((a, b) =>
+        (orderIndex.get(a.rowId) ?? Number.MAX_SAFE_INTEGER) -
+        (orderIndex.get(b.rowId) ?? Number.MAX_SAFE_INTEGER),
+      );
+    }
+    groupedRows = mergedArray;
+
+    if (fallbackGrouped.rows.length > renderResult.rows.length) {
+      warnings.push(`renderAttributeView 仅返回 ${renderResult.rows.length} 行（可能为部分渲染），已从原始数据合并补充至 ${groupedRows.length} 行。`);
+    }
+  } else {
+    // Render 未执行，或无约束且 Render 返回空
+    groupedRows = fallbackGrouped.rows;
+  }
 
   const truncated = params.includeRows && groupedRows.length > params.rowLimit;
   if (schema.length > MAX_ROW_FIELDS) {

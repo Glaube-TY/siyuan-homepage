@@ -37,6 +37,7 @@
     "verify:agent-platform": "cross-env TS_NODE_TRANSPILE_ONLY=true node --loader ts-node/esm --loader ./scripts/ts-node-alias-loader.mjs --experimental-specifier-resolution=node scripts/verify-agent-platform-profile.ts",
     "verify:homepage-manage-comprehensive": "cross-env TS_NODE_TRANSPILE_ONLY=true node --loader ts-node/esm --loader ./scripts/ts-node-alias-loader.mjs --experimental-specifier-resolution=node scripts/verify-homepage-manage-comprehensive.ts",
     "verify:agent-runtime": "cross-env TS_NODE_TRANSPILE_ONLY=true node --loader ts-node/esm --loader ./scripts/ts-node-alias-loader.mjs --experimental-specifier-resolution=node scripts/verify-agent-runtime-protocol.ts",
+    "verify:database-row-merge": "cross-env TS_NODE_FILES=true node --loader ts-node/esm --loader ./scripts/ts-node-alias-loader.mjs --experimental-specifier-resolution=node scripts/verify-database-row-merge.ts",
     "verify:siyuan-asset-content": "cross-env TS_NODE_TRANSPILE_ONLY=true node --loader ts-node/esm --experimental-specifier-resolution=node scripts/verify-siyuan-asset-content.ts",
     "verify:siyuan-asset-annotation": "cross-env TS_NODE_TRANSPILE_ONLY=true node --loader ts-node/esm --experimental-specifier-resolution=node scripts/verify-siyuan-asset-annotation.ts",
     "verify:siyuan-asset-rename": "cross-env TS_NODE_TRANSPILE_ONLY=true node --loader ts-node/esm --experimental-specifier-resolution=node scripts/verify-siyuan-asset-rename.ts",
