@@ -136,6 +136,15 @@ for (const name of ["homepage_components", "notification_manage", "automation_ma
     return action.endsWith(".get") || action.endsWith(".list") || ["read", "list", "overview"].includes(action);
   });
 }
+registerSafetyTool(safetyRegistry, "siyuan_database", false, (args) => {
+  const nested = args.args && typeof args.args === "object" ? args.args as Record<string, unknown> : args;
+  const rawAction = typeof args.action === "string" ? args.action : "";
+  const action = rawAction.startsWith("database.") ? rawAction.slice("database.".length) : rawAction;
+  const readOnlySubActions = ["filter_sort", "primary_key_values", "keys_by_av_id", "keys_by_block_id"];
+  return ["list", "read", "find_rows"].includes(action)
+    || (action === "extra_read" && typeof nested.action === "string" && readOnlySubActions.includes(nested.action))
+    || (rawAction.startsWith("extra_read.") && readOnlySubActions.includes(rawAction.slice("extra_read.".length)));
+});
 const safetyResolver = (toolName: string, args?: Record<string, unknown>) =>
   resolveNativeToolReadOnly(safetyRegistry, toolName, args);
 assert.equal(safetyResolver("notebrain_file", { action: "write_file" }), false);
@@ -900,6 +909,176 @@ assert.equal(corruptedLegacy.ignoredInternalCount, 1);
   assert.equal(secretToolMsg.content.includes("alice"), false, "compacted observation 绝对不得包含 alice");
   assert.equal(secretToolMsg.content.includes("SUPER_SECRET"), false, "compacted observation 绝对不得包含 SUPER_SECRET");
   assert.equal(secretToolMsg.content.includes("TOP_SECRET"), false, "compacted observation 绝对不得包含 TOP_SECRET");
+}
+
+// ── TASK-20260822-055: siyuan_database 聚合 envelope 的有界领域投影 ──
+{
+  const bookTitles = ["三体", "球状闪电", "流浪地球", "黑暗森林", "死神永生", "超新星纪元", "中国2185"];
+  const databaseReadPayload = {
+    database: { databaseId: "20260801-library-av", name: "图书主库", views: [
+      { viewId: "view-table-all", name: "全部图书", type: "table" },
+      { viewId: "view-gallery-cover", name: "封面墙", type: "gallery" },
+    ] },
+    viewId: "view-table-all",
+    schema: [
+      { keyId: "key-title", name: "书名", type: "block" },
+      { keyId: "key-author", name: "作者", type: "text" },
+      { keyId: "key-rating", name: "评分", type: "number" },
+    ],
+    rows: bookTitles.map((title, index) => ({
+      rowId: `row-book-${index + 1}`,
+      boundBlockId: `block-book-${index + 1}`,
+      title,
+      cells: {
+        书名: { keyId: "key-title", name: "书名", type: "text", text: title },
+        作者: { keyId: "key-author", name: "作者", type: "text", text: index % 2 === 0 ? "刘慈欣" : "其他作者" },
+      },
+    })),
+    rowCount: 7,
+    truncated: false,
+    warnings: [],
+    padding: "z".repeat(40_000),
+  };
+  // 真实生产 envelope：外层 executionOutcomeToNativeResult + 聚合层；result 直接是 bindingData。
+  // read 的 bindingData 直接是 ReadAttributeViewOutput；extra_read 的 bindingData 是 SiyuanToolOutput{action,...}。
+  const SECRET_PASSWORD = "SUP3R_SECRET_PASSWORD";
+  const SECRET_TOKEN = "tok_9f8e7d6c5b4a";
+  const SECRET_BEARER = "Bearer abc.def.ghi";
+  const SECRET_API_KEY = "api_4e3d2c1b";
+  const SECRET_COOKIE = "session=private-cookie";
+  const SECRET_CREDENTIAL = "credential-private-value";
+  const SECRET_PRIVATE_KEY = "private-key-material";
+  const SECRET_URL = "https://alice:hunter2@example.com/upload?api_key=KA9P8L7M";
+  const SECRET_WIN_PATH = "C:\\Users\\dev\\秘密\\绝对路径\\notes.md";
+  const SECRET_UNIX_PATH = "/home/dev/.config/secrets.env";
+  const SIYUAN_PATHS = ["/daily note/2026/08/2026-08-22", "/六月的一个夜晚"];
+  const PUBLIC_URL = "https://example.com/library?view=all";
+  const LONG_FIELD_KEY = `metadata_${"x".repeat(70)}`;
+  const ALL_SECRETS = [
+    SECRET_PASSWORD, SECRET_TOKEN, SECRET_BEARER, SECRET_API_KEY, SECRET_COOKIE,
+    SECRET_CREDENTIAL, SECRET_PRIVATE_KEY, SECRET_URL, SECRET_WIN_PATH, SECRET_UNIX_PATH,
+  ];
+  const secretNote = `password=${SECRET_PASSWORD}; token=${SECRET_TOKEN}; Authorization: ${SECRET_BEARER}; url=${SECRET_URL}; win=${SECRET_WIN_PATH}; unix=${SECRET_UNIX_PATH}`;
+  const structuredSecrets = {
+    password: SECRET_PASSWORD,
+    nested: {
+      accessToken: SECRET_TOKEN,
+      apiKey: SECRET_API_KEY,
+      authorization: SECRET_BEARER,
+      cookie: SECRET_COOKIE,
+      credential: SECRET_CREDENTIAL,
+      privateKey: SECRET_PRIVATE_KEY,
+    },
+  };
+
+  const aggregateEnvelope = (outerAction: string, bindingData: unknown) => JSON.stringify({
+    ok: true,
+    toolName: "siyuan_database",
+    data: { action: outerAction, result: bindingData },
+  });
+  const dbMessages = (
+    toolCallId: string,
+    outerAction: string,
+    bindingData: unknown,
+    args: Record<string, unknown> = {},
+  ) => normalizeToolCallMessages([
+    { role: "assistant", content: "", toolCalls: [{ id: toolCallId, name: "siyuan_database", arguments: JSON.stringify({ action: outerAction, args }) }] },
+    { role: "tool", toolCallId, name: "siyuan_database", content: aggregateEnvelope(outerAction, bindingData) },
+  ]);
+
+  // 1. read：保留数据库/当前视图身份、视图类型、schema、行数与全部书名
+  const dbReadStorage = compactAgentSessionMessagesForStorage(dbMessages("db-read", "read", databaseReadPayload), homepageReadCompactionOptions);
+  const dbReadRuntime = compactAgentMessages(dbMessages("db-read", "read", databaseReadPayload), homepageReadCompactionOptions);
+  for (const [label, compacted] of [["storage", dbReadStorage], ["runtime", dbReadRuntime]] as const) {
+    const payload = compactedToolPayload(compacted, "db-read", 12_000);
+    assert.equal(payload.databaseId, "20260801-library-av", `${label} 必须保留数据库 ID`);
+    assert.equal(payload.databaseName, "图书主库", `${label} 必须保留数据库名称`);
+    assert.equal(payload.currentViewId, "view-table-all", `${label} 必须保留当前视图`);
+    assert.equal(payload.currentViewName, "全部图书", `${label} 必须保留当前视图名称`);
+    assert.equal(payload.currentViewType, "table", `${label} 必须保留视图类型`);
+    assert.deepEqual(payload.primaryKey, { keyId: "key-title", name: "书名", type: "block" }, `${label} 必须明确主字段身份`);
+    assert.equal(payload.rowCount, 7, `${label} 必须保留总行数`);
+    assert.equal(payload.schemaKeys.length, 3, `${label} 必须保留字段 schema`);
+    const rowTitles = (payload.rows as Array<{ title?: string }>).map((row) => row.title);
+    assert.deepEqual([...rowTitles].sort(), [...bookTitles].sort(), `${label} 必须保留全部书名`);
+    assert.equal(payload.padding, undefined, `${label} 不得保留原始大正文填充`);
+    assert.ok(String(payload.note).includes("siyuan_database"));
+  }
+
+  // 2. extra_read.filter_sort：结构化规则完整保留，字符串值经同一脱敏边界
+  const filterSortData = {
+    sortRules: [{ field: "评分", direction: "desc" }],
+    filterRules: [{ field: "评分", op: ">=", value: "8" }],
+  };
+  const filterSortWithSecrets = {
+    sortRules: [{ field: "备注", direction: `asc ${SECRET_UNIX_PATH}` }],
+    filterRules: [
+      { field: "来源", op: "==", value: SECRET_URL },
+      { field: "文档路径", op: "in", value: SIYUAN_PATHS },
+    ],
+    security: structuredSecrets,
+    publicUrl: PUBLIC_URL,
+    [LONG_FIELD_KEY]: "字段名必须保持完整",
+  };
+  const fsPayload = compactedToolPayload(
+    compactAgentSessionMessagesForStorage(dbMessages("db-filter-sort", "extra_read.filter_sort", { action: "filter_sort", data: filterSortData }, { action: "filter_sort", avID: "20260801-library-av", blockID: "block-av-root" }), homepageReadCompactionOptions),
+    "db-filter-sort",
+  );
+  assert.equal(fsPayload.innerAction, "filter_sort");
+  assert.deepEqual(fsPayload.filterSort, filterSortData, "筛选排序规则必须完整保留");
+  const fsSecretMessages = dbMessages("db-fs-secret-short", "extra_read.filter_sort", { action: "filter_sort", data: filterSortWithSecrets }, { action: "filter_sort", avID: "20260801-library-av", blockID: "block-av-root" });
+  const fsSecretVariants = [
+    ["storage", compactAgentSessionMessagesForStorage(fsSecretMessages, homepageReadCompactionOptions)],
+    ["runtime", compactAgentMessages(fsSecretMessages, homepageReadCompactionOptions)],
+  ] as const;
+  for (const [label, compacted] of fsSecretVariants) {
+    const payload = compactedToolPayload(compacted, "db-fs-secret-short");
+    const serialized = JSON.stringify(payload);
+    for (const secret of ALL_SECRETS) {
+      assert.equal(serialized.includes(secret), false, `${label} 短 filter_sort 不得泄漏：${secret}`);
+    }
+    for (const path of SIYUAN_PATHS) {
+      assert.equal(serialized.includes(path), true, `${label} 必须逐字保留思源逻辑路径：${path}`);
+    }
+    assert.equal(serialized.includes(PUBLIC_URL), true, `${label} 必须保留普通公开 URL`);
+    assert.equal(serialized.includes(LONG_FIELD_KEY), true, `${label} 不得裁剪结构化字段名`);
+  }
+  const fsSecretShort = compactedToolPayload(fsSecretVariants[0][1], "db-fs-secret-short");
+  assert.equal((fsSecretShort.filterSort as { sortRules?: unknown[] }).sortRules?.length, 1, "脱敏后排序规则结构必须保留");
+
+  // 3. extra_read.primary_key_values：保留全部主键值文本
+  const pkData = { values: bookTitles.map((title) => ({ text: title })), totalPageCount: 1 };
+  const pkPayload = compactedToolPayload(
+    compactAgentSessionMessagesForStorage(dbMessages("db-pk", "extra_read.primary_key_values", { action: "primary_key_values", data: pkData }, { action: "primary_key_values", avID: "20260801-library-av" }), homepageReadCompactionOptions),
+    "db-pk",
+  );
+  assert.deepEqual(pkPayload.primaryKeyValues, bookTitles, "主键值必须完整保留");
+
+  // 4. 未识别形态（短/长）：明确 shape_unknown，预览无论长短都必须脱敏，不伪造计数
+  const unknownWeird = {
+    action: "keys_by_av_id",
+    data: { security: structuredSecrets, note: secretNote, paths: SIYUAN_PATHS, publicUrl: PUBLIC_URL, weird: { nested: true } },
+  };
+  const unknownLong = { ...unknownWeird, padding: "p".repeat(3_000) };
+  for (const [label, bindingData] of [["short", unknownWeird], ["long", unknownLong]] as const) {
+    const storagePayload = compactedToolPayload(
+      compactAgentSessionMessagesForStorage(dbMessages(`db-unknown-${label}`, "extra_read.keys_by_av_id", bindingData, { action: "keys_by_av_id", avID: "20260801-library-av" }), homepageReadCompactionOptions),
+      `db-unknown-${label}`,
+    );
+    assert.equal(storagePayload.status, "compacted_shape_unknown", `${label} 未识别形态必须显式标记`);
+    assert.equal(typeof storagePayload.preview, "string", `${label} 预览必须是已脱敏的序列化字符串`);
+    assert.equal("itemCount" in storagePayload, false, `${label} 未识别形态不得伪造空集合计数`);
+    const runtimePayload = compactedToolPayload(
+      compactAgentMessages(dbMessages(`db-unknown-${label}-rt`, "extra_read.keys_by_av_id", bindingData, { action: "keys_by_av_id", avID: "20260801-library-av" }), homepageReadCompactionOptions),
+      `db-unknown-${label}-rt`,
+    );
+    for (const payload of [storagePayload, runtimePayload]) {
+      const serializedPayload = JSON.stringify(payload);
+      for (const secret of ALL_SECRETS) {
+        assert.equal(serializedPayload.includes(secret), false, `${label} 不得泄漏原始敏感值：${secret}`);
+      }
+    }
+  }
 }
 
 console.log("verify-agent-context-compaction-v4: extended assertions passed");

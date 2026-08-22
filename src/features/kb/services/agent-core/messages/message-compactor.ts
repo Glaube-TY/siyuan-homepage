@@ -395,6 +395,188 @@ function compactHomepageInstanceGet(
   return result;
 }
 
+const MAX_DATABASE_ROW_CHARS = 320;
+const MAX_DATABASE_SCHEMA_KEYS = 40;
+
+const SENSITIVE_FIELD_PATTERN = /(^|[_-])(password|passwd|pwd|secret|token|bearer|authorization|api[_-]?key|credential|cookie|private[_-]?key)([_-]|$)/i;
+
+function isSensitiveToolField(key: string): boolean {
+  return SENSITIVE_FIELD_PATTERN.test(key.replace(/([a-z0-9])([A-Z])/g, "$1_$2").replace(/\s+/g, "_"));
+}
+
+/** 结构化值统一在序列化前按字段与字符串语义脱敏。 */
+function deepSanitizeToolValue(value: unknown, fieldName?: string): unknown {
+  if (fieldName && isSensitiveToolField(fieldName)) return "[redacted]";
+  if (typeof value === "string") return sanitizeToolStringValue(value);
+  if (Array.isArray(value)) return value.map((item) => deepSanitizeToolValue(item));
+  if (value && typeof value === "object") {
+    const out: Record<string, unknown> = {};
+    for (const [key, item] of Object.entries(value)) {
+      out[key] = deepSanitizeToolValue(item, key);
+    }
+    return out;
+  }
+  return value;
+}
+
+/** 预算内的工具消息也必须经过同一安全边界。 */
+function sanitizeToolMessageStrings(message: AgentToolMessage): AgentToolMessage {
+  if (typeof message.content !== "string" || !message.content.trim()) return message;
+  const parsed = parseToolResultContentEnvelope(message.content);
+  if (!parsed) return { ...message, content: sanitizeToolStringValue(message.content) };
+  try {
+    return { ...message, content: JSON.stringify(deepSanitizeToolValue(parsed)) };
+  } catch {
+    return { ...message, content: sanitizeToolStringValue(message.content) };
+  }
+}
+
+/** 有界且始终脱敏的序列化预览：短内容也必须先过同一字符串安全边界。 */
+function boundedJsonValue(value: unknown, maxChars: number): string | undefined {
+  if (value === undefined) return undefined;
+  let serialized: string;
+  try {
+    serialized = JSON.stringify(deepSanitizeToolValue(value)) ?? "";
+  } catch {
+    return undefined;
+  }
+  return serialized.length > maxChars
+    ? `${serialized.slice(0, Math.max(0, maxChars - 3))}...`
+    : serialized;
+}
+
+function extractPrimaryKeyValueTexts(source: unknown, limit: number): string[] {
+  const container = asRecord(source);
+  const values = Array.isArray(source)
+    ? source
+    : Array.isArray(container.values)
+      ? container.values
+      : Array.isArray(container.data)
+        ? container.data
+        : [];
+  const texts = values
+    .map((item: any) => typeof item === "string" ? item : sanitizeToolResultString(asRecord(item).text ?? asRecord(item).value, 100))
+    .filter((text): text is string => !!text);
+  return [...new Set(texts)].slice(0, limit);
+}
+
+function compactSiyuanDatabaseRow(row: Record<string, any>, maxChars: number): Record<string, unknown> {
+  const cells = asRecord(row.cells);
+  const cellEntries = Object.entries(cells)
+    .map(([name, cell]) => ({ name: sanitizeToolResultString(name, 40), text: sanitizeToolResultString(asRecord(cell).text, 80) }))
+    .filter((cell) => cell.text);
+  const projected: Record<string, unknown> = {
+    rowId: safeOptionalString(row.rowId, 64),
+    ...(row.boundBlockId ? { boundBlockId: safeOptionalString(row.boundBlockId, 64) } : {}),
+    title: safeOptionalString(row.title, 160),
+    cellNames: cellEntries.slice(0, 12).map((cell) => cell.name),
+    primaryText: cellEntries[0]?.text,
+  };
+  return JSON.stringify(projected).length <= maxChars
+    ? projected
+    : { rowId: projected.rowId, title: projected.title, truncated: true };
+}
+
+/** 主字段判定复用生产语义：优先 type==="block"，否则回退第一字段。 */
+function resolveDatabasePrimaryKey(schemaKeys: Array<Record<string, unknown>>): Record<string, string> | undefined {
+  const chosen = schemaKeys.find((key) => safeOptionalString(key.type) === "block") ?? schemaKeys[0];
+  if (!chosen) return undefined;
+  const keyId = safeOptionalString(chosen.keyId, 64);
+  const name = safeOptionalString(chosen.name, 64);
+  if (!keyId || !name) return undefined;
+  return { keyId, name, type: safeOptionalString(chosen.type, 24) ?? "text" };
+}
+
+/**
+ * siyuan_database 只读结果的有界领域投影：
+ * 保留数据库/当前视图身份、视图类型、字段 schema、行数与行代表（含标题），
+ * extra_read.filter_sort/primary_key_values 保留完整筛选排序与主键值。
+ * 未识别形态不伪装成空集合，而是给出明确的 shape_unknown 状态与安全预览。
+ */
+function compactSiyuanDatabasePayload(
+  base: Record<string, unknown>,
+  payload: Record<string, any>,
+): string {
+  const innerAction = typeof payload.action === "string" ? payload.action : undefined;
+  const database = asRecord(payload.database);
+  const views = Array.isArray(database.views) ? database.views.map(asRecord) : [];
+  const requestedViewId = safeOptionalString(payload.viewId);
+  const currentView = requestedViewId
+    ? views.find((view) => safeOptionalString(view.viewId ?? view.id) === requestedViewId) ?? {}
+    : {};
+  const schemaKeys = Array.isArray(payload.schema) ? payload.schema.map(asRecord) : [];
+  const rowsSource = Array.isArray(payload.rows) ? payload.rows.map(asRecord) : [];
+
+  const build = (rowLimit: number, rowChars: number): string => {
+    const projectedRows = rowsSource.slice(0, rowLimit).map((row) => compactSiyuanDatabaseRow(row, rowChars));
+    const record: Record<string, unknown> = {
+      ...base,
+      ...(innerAction ? { innerAction } : {}),
+      databaseId: safeOptionalString(database.databaseId ?? database.id, 64),
+      databaseName: safeOptionalString(database.name, 120),
+      currentViewId: safeOptionalString(payload.viewId, 64),
+      currentViewName: safeOptionalString(currentView.name, 120),
+      currentViewType: safeOptionalString(currentView.type ?? currentView.viewType, 32),
+      rowCount: finiteNumberOrNull(payload.rowCount),
+      returnedRowCount: projectedRows.length,
+      truncated: payload.truncated === true || rowsSource.length > projectedRows.length,
+      primaryKey: resolveDatabasePrimaryKey(schemaKeys),
+      schemaKeys: schemaKeys.slice(0, MAX_DATABASE_SCHEMA_KEYS).map((key) => ({
+        keyId: safeOptionalString(key.keyId, 64),
+        name: safeOptionalString(key.name, 64),
+        type: safeOptionalString(key.type, 24),
+      })),
+      warnings: safeStrings(payload.warnings, 3, 80),
+      note: "siyuan_database read result compacted for storage.",
+    };
+    if (projectedRows.length > 0) record.rows = projectedRows;
+    if (innerAction === "filter_sort") {
+      const sanitizedRules = deepSanitizeToolValue(payload.data);
+      const serializedRules = JSON.stringify(sanitizedRules ?? null) ?? "";
+      record.filterSort = serializedRules.length <= 1_500
+        ? sanitizedRules
+        : boundedJsonValue(payload.data, 1_500);
+    }
+    if (innerAction === "primary_key_values") {
+      const texts = extractPrimaryKeyValueTexts(payload.data, 60);
+      if (texts.length > 0) {
+        record.primaryKeyValues = texts;
+        record.primaryKeyTruncated = texts.length >= 60;
+      } else {
+        record.primaryKeyValueShapeUnknown = true;
+        record.primaryKeyPreview = boundedJsonValue(payload.data, 400);
+      }
+    }
+    return JSON.stringify(record);
+  };
+
+  const hasRecognizedStructure =
+    rowsSource.length > 0
+    || schemaKeys.length > 0
+    || views.length > 0
+    || finiteNumberOrNull(payload.rowCount) !== undefined
+    || !!safeOptionalString(payload.databaseId, 64)
+    || innerAction === "filter_sort"
+    || innerAction === "primary_key_values";
+
+  if (!hasRecognizedStructure) {
+    return JSON.stringify({
+      ...base,
+      status: "compacted_shape_unknown",
+      preview: boundedJsonValue(payload, 600),
+      note: "siyuan_database result structure not recognized; raw projection withheld to avoid fake empty counts.",
+    });
+  }
+
+  let rowLimit = 50;
+  let output = build(rowLimit, MAX_DATABASE_ROW_CHARS);
+  while (output.length > MAX_HOMEPAGE_LIST_OUTPUT_CHARS && rowLimit > 0) {
+    rowLimit = rowLimit > 8 ? Math.max(8, Math.floor(rowLimit / 2)) : 0;
+    output = build(rowLimit, rowLimit === 0 ? 0 : MAX_DATABASE_ROW_CHARS);
+  }
+  return output;
+}
+
 function actionAwareStorageContent(
   message: AgentToolMessage,
   rawArgs?: Record<string, unknown>,
@@ -412,15 +594,16 @@ function actionAwareStorageContent(
 
   if (!ok) {
     const error = asRecord(parsed.error);
-    const details = asRecord(parsed.details ?? error.details ?? payload.details);
+    const nestedError = asRecord(payload.error);
+    const details = asRecord(parsed.details ?? error.details ?? nestedError.details ?? payload.details);
     const diagnostic = (value: unknown, maxChars: number) => (
       typeof value === "string" ? sanitizeToolResultString(value, maxChars) || undefined : undefined
     );
     return JSON.stringify({
       ...base,
       status: "failed",
-      errorCode: diagnostic(parsed.errorCode ?? parsed.code ?? error.code ?? payload.reasonCode, 80),
-      message: diagnostic(parsed.message ?? error.message ?? payload.message, 240),
+      errorCode: diagnostic(parsed.errorCode ?? parsed.code ?? error.code ?? nestedError.code ?? payload.reasonCode, 80),
+      message: diagnostic(parsed.message ?? error.message ?? nestedError.message ?? payload.message, 240),
       hint: diagnostic(parsed.hint ?? error.hint ?? details.hint, 240),
       requestedToolName: diagnostic(details.requestedToolName ?? payload.requestedToolName, 120),
       requestedActionName: diagnostic(details.requestedActionName ?? payload.requestedActionName, 120),
@@ -456,6 +639,10 @@ function actionAwareStorageContent(
     if (action === "instance.get" || action.endsWith(".instance.get") || nestedAction === "instance.get") {
       return compactHomepageInstanceGet(base, payload, action);
     }
+  }
+
+  if (message.name === "siyuan_database") {
+    return compactSiyuanDatabasePayload(base, payload);
   }
 
   const items = Array.isArray(payload.items)
@@ -517,25 +704,30 @@ function capToolResultContent(content: string, maxChars: number, maxTokens: numb
   return tokenCapped.length > maxChars ? truncateText(tokenCapped, maxChars) : tokenCapped;
 }
 
-const SENSITIVE_STRING_KEYS = ["api_key", "apikey", "secret", "token", "password", "authorization"];
+const SENSITIVE_STRING_KEYS = [
+  "api[_-]?key", "apikey", "secret", "token", "password", "passwd", "pwd",
+  "authorization", "bearer", "cookie", "credential", "private[_-]?key",
+];
+
+function sanitizeToolStringValue(value: string): string {
+  let sanitized = value;
+  sanitized = sanitized.replace(/(\bhttps?:\/\/)[^\s/@]+:[^\s/@]+@/gi, "$1[redacted]@");
+  sanitized = sanitized.replace(/\b[a-zA-Z]:[\\/](?:[^\\/\s]+[\\/])*[^\\/\s]*\b/g, "[path]");
+  sanitized = sanitized.replace(
+    /(^|[\s(\[{"'=,;:])(\/(?:Users|home|root|mnt|data|var|opt|tmp)(?=\/|$)(?:\/[^\s,;)\]}"']*)?)/g,
+    "$1[path]",
+  );
+  sanitized = sanitized.replace(/\b(Authorization)\s*:\s*(Bearer\s+[^\s,]+)/gi, "$1: [redacted]");
+  sanitized = sanitized.replace(/\bBearer\s+[A-Za-z0-9._~+/=-]+/gi, "Bearer [redacted]");
+  const pattern = new RegExp("\\b(" + SENSITIVE_STRING_KEYS.join("|") + ")\\s*[:=]\\s*[^\\s&,\"]+", "gi");
+  return sanitized.replace(pattern, "$1=[redacted]");
+}
 
 function sanitizeToolResultString(value: string, maxChars: number): string {
-  let sanitized = value.trim();
-
-  // Redact absolute/internal paths
-  sanitized = sanitized.replace(/\b[a-zA-Z]:[\\/](?:[^\\/\s]+[\\/])*[^\\/\s]*\b/g, "[path]");
-  // Unix-like absolute paths: only match after start/whitespace/punctuation to avoid URLs like https://example.com/path
-  sanitized = sanitized.replace(/(^|[\s(\[\{"'=,;:])(\/[^/\s]+(?:\/[^/\s]+)*\/?)/g, "$1[path]");
-
-  // Redact Authorization: Bearer <token> before generic key=value patterns
-  sanitized = sanitized.replace(/\b(Authorization)\s*:\s*(Bearer\s+[^\s,]+)/gi, "$1: [redacted]");
-
-  // Redact sensitive key=value patterns
-  const pattern = new RegExp(`\\b(${SENSITIVE_STRING_KEYS.join("|")})\\s*[:=]\\s*[^\\s&,"]+`, "gi");
-  sanitized = sanitized.replace(pattern, "$1=[redacted]");
+  let sanitized = sanitizeToolStringValue(value).trim();
 
   if (sanitized.length > maxChars) {
-    sanitized = `${sanitized.slice(0, maxChars - 3)}...`;
+    sanitized = maxChars > 3 ? `${sanitized.slice(0, maxChars - 3)}...` : sanitized.slice(0, Math.max(0, maxChars));
   }
   return sanitized;
 }
@@ -571,7 +763,7 @@ function compactToolMessage(
   if (
     message.content.length <= maxChars
     && estimateTextTokensConservative(message.content) <= maxTokens
-  ) return message;
+  ) return sanitizeToolMessageStrings(message);
   return {
     ...message,
     content: capToolResultContent(

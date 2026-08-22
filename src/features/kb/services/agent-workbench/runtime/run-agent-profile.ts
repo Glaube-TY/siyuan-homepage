@@ -62,7 +62,8 @@ import {
 import type { AgentMessage, AgentToolCall } from "../../agent-core/messages/agent-message";
 import { compactAgentSessionMessagesForStorage } from "../../agent-core/messages/message-compactor";
 import { sanitizeMessageForStorage } from "../../agent-core/session/session-store";
-import type { ToolResultEntry } from "./tool-result-log";
+import type { ToolResultEntry, ToolResultLog } from "./tool-result-log";
+import { parseToolResultContentEnvelope } from "../../agent-core/tools/tool-execution-result";
 import {
   agentProfileAllowsContext,
   agentProfileAllowsMemory,
@@ -434,6 +435,55 @@ function sanitizeSuccessfulWriteGuards(
   return sanitized.length > 0 ? sanitized : undefined;
 }
 
+/**
+ * 检查点续跑：从已通过存储压缩与脱敏边界的当前 run 工具消息恢复 Observation。
+ * - 先建立 assistant toolCalls 的 toolCallId -> toolName 配对索引；
+ * - 只恢复存在有效配对且名称一致的 role=tool 消息（未配对/冲突一律跳过，不伪造证据）；
+ * - 同一 toolCallId 只恢复一次；不同 id 即使内容相同也各自保留；
+ * - 结构化 ok/status 判定成功(tool_executed)/失败(tool_failed)，失败保留错误码，
+ *   不进入成功引用提取路径；只写 Observation，不派发事件、不执行工具。
+ */
+function restoreObservationsFromCheckpointMessages(
+  log: ToolResultLog,
+  messages: readonly AgentMessage[],
+): number {
+  const pairedToolNames = new Map<string, string>();
+  for (const message of messages) {
+    if (message.role !== "assistant") continue;
+    for (const call of message.toolCalls ?? []) {
+      if (call.id && typeof call.name === "string" && call.name.trim()) {
+        pairedToolNames.set(call.id, call.name.trim());
+      }
+    }
+  }
+
+  const seenToolCallIds = new Set<string>();
+  let restored = 0;
+  for (const message of messages) {
+    if (message.role !== "tool" || !message.toolCallId) continue;
+    if (seenToolCallIds.has(message.toolCallId)) continue;
+    const pairedName = pairedToolNames.get(message.toolCallId);
+    if (!pairedName) continue;
+    const messageName = typeof message.name === "string" ? message.name.trim() : "";
+    if (messageName && messageName !== pairedName) continue;
+    seenToolCallIds.add(message.toolCallId);
+
+    const parsed = parseToolResultContentEnvelope(typeof message.content === "string" ? message.content : undefined) ?? {};
+    const ok = parsed.ok === true || parsed.status === "success";
+    const errorCode = typeof parsed.errorCode === "string" ? parsed.errorCode
+      : typeof parsed.code === "string" ? parsed.code : undefined;
+    log.push({
+      kind: ok ? "tool_executed" : "tool_failed",
+      toolName: pairedName,
+      reasonCode: errorCode ?? (ok ? undefined : "unknown"),
+      summary: `[检查点恢复] ${pairedName} ${ok ? "执行成功" : `执行失败（${errorCode ?? "unknown"}）`}`,
+      content: parsed,
+    });
+    restored += 1;
+  }
+  return restored;
+}
+
 export async function runAgentProfile<TResult>(
   params: RunAgentProfileParams<TResult>,
 ): Promise<AgentProfileRunOutcome<TResult>> {
@@ -740,6 +790,21 @@ export async function runAgentProfile<TResult>(
       notebrainWorkspaceSettings: settings.notebrainWorkspace,
       mcpSettings,
     });
+
+    // 检查点续跑：checkpoint.messages 是唯一事实源，恢复前再次通过压缩+脱敏边界，
+    // 然后只把其中的安全工具消息回填为当前 Observation（以 toolCallId 去重，绝不重放调用）。
+    if (params.resumeCheckpoint) {
+      const restoredObservations = restoreObservationsFromCheckpointMessages(
+        wb.observationLog,
+        compactAndSanitizeAgentMessages(params.resumeCheckpoint.messages, nativeToolRegistry),
+      );
+      if (restoredObservations > 0) {
+        pushAgentDebugEvent("AGENT_RESUME_EVIDENCE_RESTORED_SAFE", {
+          restoredObservations,
+          checkpointPhase: params.resumeCheckpoint.phase,
+        }, "info");
+      }
+    }
 
     const profileConversationContext = agentProfileAllowsContext(agentProfile, "conversation")
       ? params.conversationContext

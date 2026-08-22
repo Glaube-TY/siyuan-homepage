@@ -536,7 +536,8 @@ function sanitizeAgentTurnErrorCode(raw: string | undefined): string {
   return String(raw).slice(0, 64);
 }
 
-function mergeWorkbenchEvents(a: AgentWorkbenchEvent[], b: AgentWorkbenchEvent[]): AgentWorkbenchEvent[] {
+/** 恢复事件与续跑事件的去重合并；导出供验收脚本复用同一合并语义。 */
+export function mergeWorkbenchEvents(a: AgentWorkbenchEvent[], b: AgentWorkbenchEvent[]): AgentWorkbenchEvent[] {
   const seen = new Set<string>();
   const out: AgentWorkbenchEvent[] = [];
   for (const event of a) {
@@ -1345,13 +1346,13 @@ export async function runAgentWorkbenchModeFlow(
 
     if (setMessages) {
       flushPendingAgentStreams?.();
+      // action trace 必须与最终 workbenchEvents 一致：基于“恢复事件 + 当前续跑事件”的去重合并结果构建。
+      const finalWorkbenchEvents = mergeWorkbenchEvents(liveWorkbenchEvents, result.events);
       const agentMemory = buildAgentTurnMemory({
         turnId: assistantMessageId,
         userQuestion: trimmed,
-        result,
+        result: { ...result, events: finalWorkbenchEvents },
       });
-
-      const finalWorkbenchEvents = mergeWorkbenchEvents(liveWorkbenchEvents, result.events);
 
       const isPartialProviderAnswer =
         agentTurnOutcome.stopReasonCode === PROVIDER_OUTPUT_TRUNCATED_ERROR_CODE;

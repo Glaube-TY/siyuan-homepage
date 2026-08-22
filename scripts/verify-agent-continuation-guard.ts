@@ -31,6 +31,10 @@ import {
 import { ToolResultLog } from "../src/features/kb/services/agent-workbench/runtime/tool-result-log";
 import { validateTurnFinalAnswer } from "../src/features/kb/services/agent-workbench/runtime/tool-evidence-validator";
 import { mapAgentErrorToUserFacing } from "../src/features/kb/services/agent-workbench/runtime/user-facing-agent-error";
+import { buildAgentTurnMemory } from "../src/features/kb/services/agent-workbench/memory/agent-turn-memory";
+import { mergeWorkbenchEvents } from "../src/features/kb/services/orchestration/agent-workbench-mode-flow";
+import type { AgentRunCheckpoint as AgentRunCheckpointType } from "../src/features/kb/services/agent-core/session/agent-run-checkpoint";
+import type { ToolResultEntry as ToolResultEntryLite } from "../src/features/kb/services/agent-workbench/runtime/tool-result-log";
 import { extractActionTraceSummary } from "../src/features/kb/services/agent-workbench/memory/agent-turn-memory";
 import type { AgentWorkbenchEvent } from "../src/features/kb/services/agent-workbench/events/agent-workbench-events";
 import { getAgentProfile, KNOWLEDGE_CHAT_AGENT_PROFILE_ID } from "../src/features/agent-platform/agent-profile";
@@ -789,7 +793,6 @@ assert.equal(extractProjectWriteTargetErrorCode(undefined), undefined);
 
 // === 16. Final Composer Empty-Stream Bounded Recovery (real streamFinalAnswerFromDraft) ===
 
-// 16.1 端到端：两个只读工具成功 + 草稿有效 + 首次 Composer 流为空 -> 恰好一次非流式恢复
 class TwoToolThenDraftProvider implements ProviderAdapter {
   readonly id = "two-tool-draft-provider";
   readonly capabilities = OPENAI_COMPATIBLE_CAPABILITIES;
@@ -871,7 +874,6 @@ const composerObservations = [
   { id: 2, timestamp: 0, kind: "tool_executed" as const, toolName: "lookup_extra", summary: "查询完成 B", content: "{}" },
 ];
 
-// 16.2 连续空流：非流式恢复抛结构化 empty_stream（真实 callLlm 合同，message 已改写）-> 稳定 final_answer_composer_empty
 {
   let doubleEmptyStreams = 0;
   let doubleEmptyCalls = 0;
@@ -892,7 +894,6 @@ const composerObservations = [
   assert.equal(doubleEmptyCalls, 1);
 }
 
-// 16.2b 非流式恢复返回空字符串：同样归一为 final_answer_composer_empty
 {
   let emptyReturnCalls = 0;
   const emptyReturnIo: FinalAnswerComposerIo = {
@@ -906,7 +907,6 @@ const composerObservations = [
   assert.equal(emptyReturnCalls, 1);
 }
 
-// 16.2c stream 正常 resolve 但零 chunk/零正文（textStream 形态）-> 走同一恢复入口恰好一次
 {
   let silentResolveStreams = 0;
   let recoveryCalls = 0;
@@ -923,7 +923,6 @@ const composerObservations = [
   assert.equal(recoveryCalls, 1);
 }
 
-// 16.2d non_stream 模式首次请求即空流 -> 精确 final_answer_composer_empty 且只请求一次
 {
   let nonStreamCalls = 0;
   const nonStreamIo: FinalAnswerComposerIo = {
@@ -937,7 +936,6 @@ const composerObservations = [
   assert.equal(nonStreamCalls, 1, "non_stream 首次为空不得额外再请求一次");
 }
 
-// 16.3 已输出部分正文后失败：不恢复、不重复 chunk、原错误保留
 {
   let callInvocations = 0;
   const receivedChunks: string[] = [];
@@ -960,7 +958,6 @@ const composerObservations = [
   assert.deepEqual(receivedChunks, ["部分正文"], "不得重复输出 chunk");
 }
 
-// 16.4 正常流式终稿：行为与调用次数不变
 {
   let streamInvocations = 0;
   let callInvocations = 0;
@@ -983,7 +980,6 @@ const composerObservations = [
   assert.equal(callInvocations, 0, "正常流式不得触发非流式调用");
 }
 
-// 16.5 分类只由稳定 code 决定；中止与普通 Error 不进入恢复
 {
   assert.equal(isEmptyStreamError(new AgentProviderError("任意改写的消息", { code: "empty_stream" })), true, "改写 message 后仍按 code 命中");
   assert.equal(isEmptyStreamError(new Error("模型流式返回空内容")), false, "普通未知 Error 不得因措辞命中");
@@ -1022,6 +1018,239 @@ const composerObservations = [
   assert.equal(composerEmptyUserFacing.title, "最终回答生成失败");
   assert.match(composerEmptyUserFacing.message, /工具步骤已经完成/);
   assert.match(composerEmptyUserFacing.suggestion ?? "", /不要据此重复执行/);
+}
+
+// === 17. Checkpoint Resume Restores Sanitized Observations From Messages (no replay) ===
+{
+  // 记忆中枢写入有“写后读校验”：本节改用可回读的内存插件桩。
+  const sectionPluginStore = new Map<string, unknown>();
+  setNotebrainPlugin({
+    isMobile: false,
+    loadData: async (key: string) => (sectionPluginStore.has(key) ? JSON.parse(JSON.stringify(sectionPluginStore.get(key))) : undefined),
+    saveData: async (key: string, data: unknown) => { sectionPluginStore.set(key, JSON.parse(JSON.stringify(data))); },
+    removeData: async (key: string) => { sectionPluginStore.delete(key); },
+  } as never);
+
+  type ScriptedCall = { name: string; arguments: string };
+  // 真实 workbench 工具：纯 JS、无需思源内核即可成功（记忆中枢经 notebrain 存储桩运行）。
+  // 延迟工具集下需先用 agent_tool_help.describe_tool 激活 memory_manage。
+  const ACTIVATE_MEMORY_CALLS: ScriptedCall[] = [
+    { name: "agent_tool_help", arguments: JSON.stringify({ action: "describe_tool", toolName: "memory_manage" }) },
+  ];
+  const MEMORY_SEARCH_CALLS: ScriptedCall[] = [
+    { name: "memory_manage", arguments: JSON.stringify({ action: "search", args: { query: "" } }) },
+  ];
+  const SECRET_TOKEN = "TOP_SECRET_TOKEN=abc123";
+  const SECRET_PATH = "D:\\秘密\\绝对路径\\note.md";
+  const MEMORY_REMEMBER_CALLS: ScriptedCall[] = [
+    { name: "memory_manage", arguments: JSON.stringify({ action: "remember", args: { type: "experience", content: `检查点续跑验证 ${SECRET_TOKEN} ${SECRET_PATH}`, reason: "explicit" } }) },
+  ];
+
+  function makeProvider(script: Array<ScriptedCall[] | "draft" | "fail">): ProviderAdapter {
+    let requestCount = 0;
+    return {
+      id: `scripted-provider-${Math.random().toString(36).slice(2)}`,
+      capabilities: OPENAI_COMPATIBLE_CAPABILITIES,
+      async *streamChat(): AsyncGenerator<AgentProviderEvent> {
+        const step = script[Math.min(requestCount, script.length - 1)];
+        requestCount += 1;
+        if (step === "fail") throw new Error("模拟首次续跑仍无进展的失败");
+        if (step === "draft") {
+          yield { type: "text_delta", delta: "草稿：所有检查均已完成。" };
+          yield { type: "done", finishReason: "stop" };
+          return;
+        }
+        for (const [index, call] of step.entries()) {
+          yield { type: "tool_call_done", toolCall: { id: `call-${requestCount}-${index}`, ...call, index } };
+        }
+        yield { type: "done", finishReason: "tool_calls" };
+      },
+    };
+  }
+
+  const countToolResults = (events: AgentWorkbenchEvent[]): number =>
+    events.filter((event) => event.type === "tool_result").length;
+
+  async function runProfile(options: {
+    resumeCheckpoint?: AgentRunCheckpointType;
+    script: Array<ScriptedCall[] | "draft" | "fail">;
+    onWorkbenchEvent?: (event: AgentWorkbenchEvent) => void;
+    onCheckpoint?: (checkpoint: AgentRunCheckpointType) => void;
+  }) {
+    let composerObservations: readonly ToolResultEntryLite[] = [];
+    let finalizeEvents: AgentWorkbenchEvent[] = [];
+    let finalizeObservations: readonly ToolResultEntryLite[] = [];
+    const outcome = await runAgentProfile({
+      profile: getAgentProfile(KNOWLEDGE_CHAT_AGENT_PROFILE_ID),
+      mode: "whole_kb",
+      question: "汇总检查点前的工具证据",
+      conversationId: "conv-resume-evidence",
+      provider: makeProvider(options.script),
+      composeFinalAnswer: async (composition) => {
+        composerObservations = composition.observations;
+        return streamFinalAnswerFromDraft(composition, {
+          stream: async () => {},
+          call: async () => "续跑后的最终回答正文。",
+        });
+      },
+      finalize: async (context) => {
+        finalizeEvents = context.events;
+        finalizeObservations = context.observations;
+        return { result: { answer: context.answer } };
+      },
+      ...(options.resumeCheckpoint ? { resumeCheckpoint: options.resumeCheckpoint } : {}),
+      onWorkbenchEvent: options.onWorkbenchEvent,
+      onCheckpoint: options.onCheckpoint,
+    });
+    return { outcome, composerObservations, finalizeEvents, finalizeObservations };
+  }
+
+  function toolMessagesOf(checkpoint: AgentRunCheckpointType): AgentRunCheckpointType["messages"] {
+    return checkpoint.messages.filter((message) => message.role === "tool");
+  }
+
+  // ── 场景 1：两个只读工具成功 -> after_tool checkpoint -> 续跑零重放并恢复两条 Observation ──
+  const firstRunEvents: AgentWorkbenchEvent[] = [];
+  let savedCheckpoint: AgentRunCheckpointType | undefined;
+  await runProfile({
+    script: [ACTIVATE_MEMORY_CALLS, MEMORY_SEARCH_CALLS, "fail"],
+    onWorkbenchEvent: (event) => firstRunEvents.push(event),
+    onCheckpoint: (checkpoint) => {
+      if (checkpoint.phase === "after_tool") savedCheckpoint = checkpoint;
+    },
+  });
+
+  const firstToolResults = firstRunEvents.filter((event) => event.type === "tool_result");
+  assert.ok(savedCheckpoint, "工具完成后必须产出 after_tool 检查点");
+  assert.equal(countToolResults(firstRunEvents), 2, "第一段必须真实执行两个只读工具");
+  assert.equal(firstToolResults.every((event) => (event as { result: { ok: boolean } }).result.ok), true, "两个只读工具必须真实成功");
+
+  // 安全边界：checkpoint 不得再有并行证据字段；工具消息是唯一事实源
+  const checkpointJson = JSON.stringify(savedCheckpoint);
+  assert.equal(checkpointJson.includes("completedToolEvidence"), false, "检查点不得携带并行证据字段");
+  assert.equal(toolMessagesOf(savedCheckpoint).length >= 2, true, "checkpoint 必须包含当前 run 的工具消息事实源");
+
+  const recoveredEvents = firstRunEvents.filter((event) => event.type !== "done" && event.type !== "error");
+
+  async function assertResumeRestoresTwo(
+    label: string,
+    checkpoint: AgentRunCheckpointType,
+    expectedComposerLength: number,
+  ): Promise<{ resumeEvents: AgentWorkbenchEvent[]; finalizeEvents: AgentWorkbenchEvent[]; composerObservations: readonly ToolResultEntryLite[] }> {
+    const resumeEvents: AgentWorkbenchEvent[] = [];
+    const resume = await runProfile({
+      resumeCheckpoint: checkpoint,
+      script: ["draft"],
+      onWorkbenchEvent: (event) => resumeEvents.push(event),
+    });
+    assert.equal(resume.outcome.ok, true, `${label} 续跑必须交付 answer_ready`);
+    assert.equal(countToolResults(resumeEvents), 0, `${label} 续跑不得重放任何工具`);
+    assert.equal(countToolResults(firstRunEvents) + countToolResults(resumeEvents), 2, `${label} 两段合计真实 tool_result 必须仍为 2`);
+    assert.equal(resume.composerObservations.length, expectedComposerLength, `${label} Composer 恢复 Observation 数量不符`);
+    assert.deepEqual(
+      resume.composerObservations.map((entry) => entry.toolName).slice(0, 2),
+      ["agent_tool_help", "memory_manage"],
+      `${label} 恢复的 toolName 顺序必须与检查点一致`,
+    );
+    assert.equal(resume.finalizeObservations.length, expectedComposerLength, `${label} finalize 必须看到同样的恢复 Observation`);
+    return { outcome: resume.outcome, resumeEvents, finalizeEvents: resume.finalizeEvents, composerObservations: resume.composerObservations };
+  }
+
+  // 装载两次同一 checkpoint：每次都稳定恢复同样两条
+  const loadOnce = await assertResumeRestoresTwo("首次装载", savedCheckpoint!, 2);
+  const loadTwice = await assertResumeRestoresTwo("重复装载", savedCheckpoint!, 2);
+  assert.deepEqual(loadTwice.composerObservations.map((e) => e.summary), loadOnce.composerObservations.map((e) => e.summary), "重复装载结果必须稳定");
+
+  // 最终 workbenchEvents 与 actionTraceSummary 一致（恢复 + 续跑去重合并）
+  const merged = mergeWorkbenchEvents(recoveredEvents, loadOnce.finalizeEvents);
+  assert.equal(merged.filter((event) => event.type === "tool_result" && event.result.ok).length, 2, "合并后必须恰好两次成功 tool_result");
+  const memory = buildAgentTurnMemory({
+    turnId: "mem-resume-1",
+    userQuestion: "q",
+    result: { answer: loadOnce.outcome.result?.answer ?? "", events: merged } as never,
+  });
+  assert.equal(memory.actionTraceSummary.outcomes?.every((outcome) => outcome.ok === true), true);
+  assert.deepEqual([...memory.actionTraceSummary.toolNames].sort(), ["agent_tool_help", "memory_manage"]);
+
+  // 幂等：事件同时出现在 recovered/current 两侧时去重
+  const mergedTwice = mergeWorkbenchEvents(merged, recoveredEvents);
+  assert.equal(mergedTwice.filter((event) => event.type === "tool_result").length, 2, "重复装载不得产生重复事件");
+
+  // 稳定去重 A：同一 checkpoint 内人为重复同一 toolCallId 的工具消息 → 只恢复一次
+  const originalToolMsgs = toolMessagesOf(savedCheckpoint);
+  const duplicateIdCheckpoint: AgentRunCheckpointType = {
+    ...savedCheckpoint,
+    messages: [...savedCheckpoint.messages, JSON.parse(JSON.stringify(originalToolMsgs[originalToolMsgs.length - 1]))],
+  };
+  await assertResumeRestoresTwo("同 toolCallId 去重", duplicateIdCheckpoint, 2);
+
+  // 稳定去重 B：不同 toolCallId 即使内容相同也各自保留
+  const lastToolMsg = originalToolMsgs[originalToolMsgs.length - 1];
+  const copiedToolCallId = `${lastToolMsg.toolCallId}-copy`;
+  const differentIdCheckpoint: AgentRunCheckpointType = {
+    ...savedCheckpoint,
+    messages: [
+      ...savedCheckpoint.messages,
+      { role: "assistant", content: "", toolCalls: [{ id: copiedToolCallId, name: lastToolMsg.name, arguments: "{}" }] } as never,
+      { ...JSON.parse(JSON.stringify(lastToolMsg)), toolCallId: copiedToolCallId } as never,
+    ],
+  };
+  await assertResumeRestoresTwo("不同 toolCallId 各自保留", differentIdCheckpoint, 3);
+
+  // 隔离：无当前 run 工具消息的 checkpoint 不得伪造 Observation
+  const isolatedCheckpoint: AgentRunCheckpointType = {
+    ...savedCheckpoint,
+    messages: savedCheckpoint.messages.filter((message) => message.role !== "tool"),
+  };
+  const isolated = await runProfile({ resumeCheckpoint: isolatedCheckpoint, script: ["draft"] });
+  assert.equal(isolated.outcome.ok, true);
+  assert.equal(isolated.composerObservations.length, 0, "没有当前 run 工具消息时不得伪造 Observation");
+  assert.equal(isolated.finalizeObservations.length, 0);
+
+  // ── 场景 2：写工具成功后断点，续跑保留证据且不重复写入；敏感值不得进入 checkpoint ──
+  const writeFirstEvents: AgentWorkbenchEvent[] = [];
+  let writeCheckpoint: AgentRunCheckpointType | undefined;
+  await runProfile({
+    script: [ACTIVATE_MEMORY_CALLS, MEMORY_REMEMBER_CALLS, "fail"],
+    onWorkbenchEvent: (event) => writeFirstEvents.push(event),
+    onCheckpoint: (checkpoint) => {
+      if (checkpoint.phase === "after_tool") writeCheckpoint = checkpoint;
+    },
+  });
+
+  const writeResults = writeFirstEvents.filter((event) =>
+    event.type === "tool_result" && (event as { toolName?: string }).toolName === "memory_manage");
+  assert.equal(writeResults.length, 1, "写入必须恰好执行一次");
+  assert.equal(
+    (writeResults[0] as { result?: { ok?: boolean } })?.result?.ok,
+    true,
+    "写入必须真实成功",
+  );
+
+  const writeCheckpointJson = JSON.stringify(writeCheckpoint);
+  assert.equal(writeCheckpointJson.includes(SECRET_TOKEN), false, "敏感 Token 不得进入 checkpoint");
+  assert.equal(writeCheckpointJson.includes(SECRET_PATH), false, "敏感绝对路径不得进入 checkpoint");
+  assert.equal(writeCheckpointJson.includes("completedToolEvidence"), false);
+
+  const writeResumeEvents: AgentWorkbenchEvent[] = [];
+  const writeResume = await runProfile({
+    resumeCheckpoint: writeCheckpoint!,
+    script: ["draft"],
+    onWorkbenchEvent: (event) => writeResumeEvents.push(event),
+  });
+  assert.equal(countToolResults(writeResumeEvents), 0, "续跑不得重复写入");
+  const writeComposerNames = writeResume.composerObservations.map((entry) => entry.toolName);
+  assert.equal(writeComposerNames.includes("agent_tool_help") && writeComposerNames.includes("memory_manage"), true, "续跑必须同时恢复激活与写入两条成功证据");
+
+  const writeMemory = buildAgentTurnMemory({
+    turnId: "mem-resume-write",
+    userQuestion: "q",
+    result: { answer: "", events: mergeWorkbenchEvents(
+      writeFirstEvents.filter((event) => event.type !== "done" && event.type !== "error"),
+      writeResume.finalizeEvents,
+    ) } as never,
+  });
+  assert.equal(writeMemory.actionTraceSummary.lastWriteStatus, "success", "恢复证据必须支撑 lastWriteStatus=success");
 }
 
 console.log("Agent continuation guard & language-agnostic verification passed.");
