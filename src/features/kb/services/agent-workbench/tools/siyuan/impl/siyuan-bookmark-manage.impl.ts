@@ -1,5 +1,4 @@
-import { getBookmark, sqlChecked, setBlockAttrsChecked } from "../../../../../../../api";
-import { buildFtsMatchClause, escapeSqlLike } from "@/components/tools/siyuanSqlPaging";
+import { getBookmark, setBlockAttrsChecked } from "../../../../../../../api";
 import type { SiyuanToolOutput } from "../contracts/siyuan-common.contract";
 import type { SiyuanBookmarkManageInput } from "../contracts/siyuan-bookmark-manage.contract";
 import { SiyuanToolInvalidArgsError } from "../siyuan-generic-tool-factory";
@@ -122,38 +121,6 @@ async function listBookmarkBlocksFromApi(keyword: string | undefined, maxItems: 
   return items;
 }
 
-function buildBookmarkBlocksSql(keyword: string | undefined, maxItems: number): string {
-  if (!keyword) {
-    return `SELECT id, content, created, updated, bookmark FROM blocks WHERE bookmark IS NOT NULL AND bookmark != '' ORDER BY updated DESC LIMIT ${maxItems}`;
-  }
-
-  const safeKw = escapeSqlLike(keyword);
-  const terms = keyword.split(/\s+/).filter((term) => term.length > 0);
-  const contentFtsClause = terms.length > 0
-    ? buildFtsMatchClause(terms, ["content"], { limit: maxItems })
-    : "1=0";
-  return `SELECT id, content, created, updated, bookmark FROM blocks WHERE bookmark IS NOT NULL AND bookmark != '' AND (bookmark LIKE '%${safeKw}%' ESCAPE '\\' OR ${contentFtsClause}) ORDER BY updated DESC LIMIT ${maxItems}`;
-}
-
-function mapSqlBookmarkRows(rows: unknown[], maxChars: number): BookmarkBlockItem[] {
-  return rows
-    .map((row): BookmarkBlockItem | null => {
-      const bookmark = readStringField(row, ["bookmark", "Bookmark", "BOOKMARK"]);
-      if (!bookmark) {
-        return null;
-      }
-      const content = readStringField(row, ["content", "Content", "CONTENT"]);
-      return {
-        id: readStringField(row, ["id", "ID"]),
-        bookmark,
-        contentPreview: previewText(content, maxChars),
-        created: readStringField(row, ["created", "Created", "CREATED"]),
-        updated: readStringField(row, ["updated", "Updated", "UPDATED"]),
-      };
-    })
-    .filter((item): item is BookmarkBlockItem => Boolean(item));
-}
-
 export async function executeSiyuanBookmarkManage(args: SiyuanBookmarkManageInput): Promise<{ output: SiyuanToolOutput }> {
   let data: unknown;
   switch (args.action) {
@@ -165,24 +132,10 @@ export async function executeSiyuanBookmarkManage(args: SiyuanBookmarkManageInpu
       const keyword = args.keyword?.trim();
       const maxChars = args.maxChars ?? 2000;
       const apiItems = await listBookmarkBlocksFromApi(keyword, maxItems, maxChars);
-      if (apiItems.length > 0) {
-        data = {
-          total: apiItems.length,
-          source: "getBookmark",
-          items: apiItems,
-        };
-        break;
-      }
-
-      const rows = await sqlChecked(buildBookmarkBlocksSql(keyword, maxItems));
-      const sqlRows = Array.isArray(rows) ? rows : [];
-      const items = mapSqlBookmarkRows(sqlRows, maxChars);
       data = {
-        total: items.length,
-        source: "blocks.bookmark",
-        sqlRows: sqlRows.length,
-        sqlRowsWithoutUsableBookmark: sqlRows.length - items.length,
-        items,
+        total: apiItems.length,
+        source: "getBookmark",
+        items: apiItems,
       };
       break;
     }
