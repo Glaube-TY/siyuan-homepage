@@ -115,6 +115,15 @@ export function mapAgentErrorToUserFacing(input: {
     };
   }
 
+  // 终稿 Composer 连续空流（已自动恢复一次仍失败）
+  if (code === "final_answer_composer_empty") {
+    return {
+      title: "最终回答生成失败",
+      message: "本轮工具步骤已经完成，但模型没有生成最终回答正文；已执行的操作仍然有效。",
+      suggestion: "可以重新发起一次回答整理；不要据此重复执行已完成的写入操作。",
+    };
+  }
+
   // Agent 工具调用不兼容
   if (code.includes("native_tool") || code.includes("required_tool_choice") || code.includes("tool_call_not_supported")) {
     return {

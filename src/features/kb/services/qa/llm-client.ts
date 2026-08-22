@@ -19,6 +19,7 @@ import type { ProviderNativeAgentCompatibility } from "../../types/settings";
 import { DEFAULT_TEMPERATURE } from "../../constants/default-settings";
 import { pushAgentDebugEvent, getIsVerboseStreamDebugEnabled } from "../agent-workbench/debug/workbench-debug";
 import { resolveProviderProfile, resolveModelTemperatureForRequest } from "./provider-profile";
+import { AgentProviderError } from "../agent-core/providers/provider-error";
 
 export class AiProviderUnavailableError extends Error {
   providerType: string;
@@ -409,7 +410,10 @@ export async function callLlm(
         durationMs,
         success: false,
       });
-      throw new Error("模型返回空内容");
+      throw new AgentProviderError("模型返回空内容", {
+        code: "empty_stream",
+        retryable: false,
+      });
     }
 
     const durationMs = Date.now() - startTime;
@@ -436,6 +440,10 @@ export async function callLlm(
     const providerInfo = `${selected.providerLabel} / ${selected.modelLabel}`;
 
     if (err?.name === "AbortError" || options.abortSignal?.aborted) {
+      throw err;
+    }
+
+    if (err instanceof AgentProviderError && err.code === "empty_stream") {
       throw err;
     }
 
@@ -788,13 +796,15 @@ export async function streamLlm(
           seenPartTypes: [...seenPartTypes],
         }, "warn");
 
-        const wrappedError = new Error("模型流式返回空内容");
-        (wrappedError as any).errorType = "EMPTY_STREAM_CONTENT";
-        (wrappedError as any).providerType = selected.providerConfig.type;
-        (wrappedError as any).providerLabel = selected.providerLabel;
-        (wrappedError as any).modelLabel = selected.modelLabel;
-        callbacks.onError?.(wrappedError);
-        throw wrappedError;
+        const emptyStreamError = new AgentProviderError("模型流式返回空内容", {
+          code: "empty_stream",
+          retryable: false,
+        });
+        (emptyStreamError as any).providerType = selected.providerConfig.type;
+        (emptyStreamError as any).providerLabel = selected.providerLabel;
+        (emptyStreamError as any).modelLabel = selected.modelLabel;
+        callbacks.onError?.(emptyStreamError);
+        throw emptyStreamError;
       }
 
       const streamDurationMs = Date.now() - streamStartTime;
@@ -863,7 +873,7 @@ export async function streamLlm(
       if ((err as any).providerRejectionInfo !== undefined) {
         throw err;
       }
-      if ((err as any).errorType === "EMPTY_STREAM_CONTENT") {
+      if (err instanceof AgentProviderError && err.code === "empty_stream") {
         throw err;
       }
       const wrappedError = buildLlmStreamError(err, selected, fullContent);
@@ -885,8 +895,15 @@ export async function streamLlm(
 
       // 非主动取消且模型返回空内容，视为模型错误
       if (!abortSignal?.aborted && !fullContent.trim()) {
-        callbacks.onError?.(new Error("模型返回空内容"));
-        return;
+        const emptyStreamError = new AgentProviderError("模型返回空内容", {
+          code: "empty_stream",
+          retryable: false,
+        });
+        (emptyStreamError as any).providerType = selected.providerConfig.type;
+        (emptyStreamError as any).providerLabel = selected.providerLabel;
+        (emptyStreamError as any).modelLabel = selected.modelLabel;
+        callbacks.onError?.(emptyStreamError);
+        throw emptyStreamError;
       }
 
       await callbacks.onFinish?.(fullContent);
@@ -895,6 +912,9 @@ export async function streamLlm(
       if (err?.name === "AbortError" || abortSignal?.aborted) {
         await callbacks.onFinish?.(fullContent);
         return;
+      }
+      if (err instanceof AgentProviderError && err.code === "empty_stream") {
+        throw err;
       }
 
       const wrappedError = buildLlmStreamError(err, selected, fullContent);

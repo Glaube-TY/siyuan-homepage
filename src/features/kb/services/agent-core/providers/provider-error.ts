@@ -77,3 +77,8 @@ export function normalizeProviderError(err: unknown): AgentProviderError {
   return new AgentProviderError(String(err), { code: "agent_workbench_unexpected_error", retryable: false });
 }
 
+/** 只按稳定错误码识别结构化空流；不解析 message、name 或自然语言。 */
+export function isEmptyStreamError(err: unknown): boolean {
+  return err instanceof AgentProviderError && err.code === "empty_stream";
+}
+

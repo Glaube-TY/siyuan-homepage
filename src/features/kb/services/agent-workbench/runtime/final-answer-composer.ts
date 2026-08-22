@@ -1,4 +1,4 @@
-import { AgentProviderError } from "../../agent-core/providers/provider-error";
+import { AgentProviderError, isEmptyStreamError } from "../../agent-core/providers/provider-error";
 import {
   callModelText,
   streamModelText,
@@ -8,6 +8,14 @@ import type { ThinkingMode } from "../../../types/session";
 import type { ToolResultEntry } from "./tool-result-log";
 
 export type FinalComposeMode = "auto" | "stream" | "non_stream";
+
+/** 仅测试注入的最小模型 I/O 接缝；生产默认固定使用 streamModelText/callModelText。 */
+export interface FinalAnswerComposerIo {
+  stream: typeof streamModelText;
+  call: typeof callModelText;
+}
+
+const defaultComposerIo: FinalAnswerComposerIo = { stream: streamModelText, call: callModelText };
 
 export interface FinalAnswerComposerParams {
   question: string;
@@ -105,44 +113,74 @@ export function assertFinalAnswer(answer: string): string {
 /**
  * Agent 完成工具执行后唯一的最终正文生成入口。
  * Composer 失败时直接抛出，不把 Agent 草稿降级为最终正文。
+ *
+ * 零正文空响应合同（fullStream/textStream/非流式统一为结构化 empty_stream）：
+ * - 流式/auto 路径下，无论空响应以抛错还是正常结束出现，只要未输出任何正文且未被中止，
+ *   允许恰好一次仅限 Composer 的非流式恢复；不重放工具，不递归。
+ * - 恢复请求返回空或再抛 empty_stream 都归一为 final_answer_composer_empty；其他错误原样传播。
  */
 export async function streamFinalAnswerFromDraft(
   params: FinalAnswerComposerParams,
+  composerIo: FinalAnswerComposerIo = defaultComposerIo,
 ): Promise<string> {
   const prompt = buildFinalAnswerComposerPrompt(params);
+
+  const callComposerText = async (): Promise<string> => {
+    try {
+      return await composerIo.call(prompt, params.thinkingMode, {
+        purpose: "compose",
+        chatModelSelection: params.chatModelSelection,
+        abortSignal: params.abortSignal,
+      });
+    } catch (error) {
+      if (isEmptyStreamError(error)) return "";
+      throw error;
+    }
+  };
+
   if (params.finalComposeMode === "non_stream") {
-    const answer = await callModelText(prompt, params.thinkingMode, {
-      purpose: "compose",
-      chatModelSelection: params.chatModelSelection,
-      abortSignal: params.abortSignal,
-    });
-    return assertFinalAnswer(answer);
+    return assertFinalAnswer(await callComposerText());
   }
 
   let fullContent = "";
-  await streamModelText(
-    prompt,
-    params.thinkingMode,
-    {
-      onChunk: (event) => {
-        fullContent = event.fullContent;
-        params.onChunk?.(event);
+  let emittedAnyChunk = false;
+  try {
+    await composerIo.stream(
+      prompt,
+      params.thinkingMode,
+      {
+        onChunk: (event) => {
+          if (event.chunk) emittedAnyChunk = true;
+          fullContent = event.fullContent;
+          params.onChunk?.(event);
+        },
+        onStreamStatus: (event) => {
+          if (event.type === "reasoning-start") {
+            params.onReasoningDelta?.({ type: "reasoning-start" });
+          } else if (event.type === "reasoning-delta") {
+            params.onReasoningDelta?.({ type: "reasoning-delta", delta: event.delta });
+          } else if (event.type === "reasoning-end") {
+            params.onReasoningDelta?.({ type: "reasoning-end" });
+          }
+        },
       },
-      onStreamStatus: (event) => {
-        if (event.type === "reasoning-start") {
-          params.onReasoningDelta?.({ type: "reasoning-start" });
-        } else if (event.type === "reasoning-delta") {
-          params.onReasoningDelta?.({ type: "reasoning-delta", delta: event.delta });
-        } else if (event.type === "reasoning-end") {
-          params.onReasoningDelta?.({ type: "reasoning-end" });
-        }
+      {
+        purpose: "compose",
+        chatModelSelection: params.chatModelSelection,
+        abortSignal: params.abortSignal,
       },
-    },
-    {
-      purpose: "compose",
-      chatModelSelection: params.chatModelSelection,
-      abortSignal: params.abortSignal,
-    },
-  );
+    );
+  } catch (error) {
+    const recoverable =
+      isEmptyStreamError(error)
+      && !emittedAnyChunk
+      && !fullContent.trim()
+      && !params.abortSignal?.aborted;
+    if (!recoverable) throw error;
+    return assertFinalAnswer(await callComposerText());
+  }
+  if (!fullContent.trim() && !params.abortSignal?.aborted) {
+    return assertFinalAnswer(await callComposerText());
+  }
   return assertFinalAnswer(fullContent);
 }

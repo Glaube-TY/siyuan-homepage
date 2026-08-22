@@ -15,7 +15,12 @@ import type { AssistantChatMessage } from "../src/features/kb/types/chat";
 import {
   assertFinalAnswer,
   buildFinalAnswerComposerPrompt,
+  streamFinalAnswerFromDraft,
+  type FinalAnswerComposerIo,
 } from "../src/features/kb/services/agent-workbench/runtime/final-answer-composer";
+import { AgentProviderError, isEmptyStreamError } from "../src/features/kb/services/agent-core/providers/provider-error";
+import type { StreamModelTextCallbacks } from "../src/features/kb/services/qa/kb-model-call";
+import type { ThinkingMode } from "../src/features/kb/types/session";
 import { buildAgentSystemPrompt } from "../src/features/kb/services/agent-core/prompts/system-prefix";
 import {
   routeAgentStreamEvent,
@@ -781,5 +786,242 @@ assert.equal(extractProjectWriteTargetErrorCode(new Error("Generic error")), und
 assert.equal(extractProjectWriteTargetErrorCode({ code: "unknown_code" }), undefined, "Unknown code must NOT extract code");
 assert.equal(extractProjectWriteTargetErrorCode(null), undefined);
 assert.equal(extractProjectWriteTargetErrorCode(undefined), undefined);
+
+// === 16. Final Composer Empty-Stream Bounded Recovery (real streamFinalAnswerFromDraft) ===
+
+// 16.1 端到端：两个只读工具成功 + 草稿有效 + 首次 Composer 流为空 -> 恰好一次非流式恢复
+class TwoToolThenDraftProvider implements ProviderAdapter {
+  readonly id = "two-tool-draft-provider";
+  readonly capabilities = OPENAI_COMPATIBLE_CAPABILITIES;
+  readonly requests: AgentChatRequest[] = [];
+
+  async *streamChat(request: AgentChatRequest): AsyncGenerator<AgentProviderEvent> {
+    this.requests.push(request);
+    if (this.requests.length === 1) {
+      yield { type: "tool_call_done", toolCall: { id: "call-a", name: "lookup_widget", arguments: "{}", index: 0 } };
+      yield { type: "tool_call_done", toolCall: { id: "call-b", name: "lookup_extra", arguments: "{}", index: 1 } };
+      yield { type: "done", finishReason: "tool_calls" };
+      return;
+    }
+    yield { type: "text_delta", delta: "草稿：两项查询均已完成。" };
+    yield { type: "done", finishReason: "stop" };
+  }
+}
+
+registry.register({
+  name: "lookup_extra",
+  title: "查询组件二",
+  description: "测试用只读查询二",
+  parameters: { type: "object", additionalProperties: false, properties: {} },
+  readOnly: true,
+  providerVisible: true,
+  source: "builtin",
+  safety: { readOnly: true },
+  async execute() {
+    return { ok: true, content: "{}", summary: "查询完成 B" };
+  },
+});
+
+{
+  let composerStreamCalls = 0;
+  let composerCallCalls = 0;
+  const recoverEvents: AgentWorkbenchEvent[] = [];
+  const recoveryIo: FinalAnswerComposerIo = {
+    stream: async () => {
+      composerStreamCalls += 1;
+      throw new AgentProviderError("模型流式返回空内容", { code: "empty_stream", retryable: false });
+    },
+    call: async () => {
+      composerCallCalls += 1;
+      return "恢复生成的最终回答正文。";
+    },
+  };
+
+  const recoverOutcome = await runAgentProfile({
+    profile: getAgentProfile(KNOWLEDGE_CHAT_AGENT_PROFILE_ID),
+    mode: "whole_kb",
+    question: "汇总数据库读取结果",
+    provider: new TwoToolThenDraftProvider(),
+    validateFinalAnswer: (answer, context) => validateTurnFinalAnswer(answer, context),
+    composeFinalAnswer: async (composition) => streamFinalAnswerFromDraft(composition, recoveryIo),
+    finalize: async (context) => ({ result: { answer: context.answer } }),
+    onWorkbenchEvent: (e) => recoverEvents.push(e),
+  });
+
+  assert.equal(recoverOutcome.ok, true, "空流恢复后整轮必须交付 answer_ready");
+  assert.equal(recoverOutcome.result?.answer, "恢复生成的最终回答正文。", "最终正文必须是恢复生成的内容，而非草稿");
+  assert.equal(
+    (recoverOutcome.result?.answer ?? "").includes("草稿：两项查询均已完成"),
+    false,
+    "Agent 草稿不得进入最终 answer",
+  );
+  assert.equal(
+    recoverEvents.filter((e) => e.type === "done" && (e as { status?: string }).status === "answer_ready").length,
+    1,
+    "answer_ready 必须恰好交付一次",
+  );
+  assert.equal(composerStreamCalls, 1);
+  assert.equal(composerCallCalls, 1, "必须恰好一次非流式 Composer 恢复");
+  assert.equal(recoverEvents.filter((e) => e.type === "tool_result").length, 2, "业务工具总调用数必须仍为 2，零重放");
+}
+
+// 共享观测：以下直接用例证明恢复边界本身
+const composerObservations = [
+  { id: 1, timestamp: 0, kind: "tool_executed" as const, toolName: "lookup_widget", summary: "查询完成 A", content: "{}" },
+  { id: 2, timestamp: 0, kind: "tool_executed" as const, toolName: "lookup_extra", summary: "查询完成 B", content: "{}" },
+];
+
+// 16.2 连续空流：非流式恢复抛结构化 empty_stream（真实 callLlm 合同，message 已改写）-> 稳定 final_answer_composer_empty
+{
+  let doubleEmptyStreams = 0;
+  let doubleEmptyCalls = 0;
+  const doubleEmptyIo: FinalAnswerComposerIo = {
+    stream: async () => { doubleEmptyStreams += 1; throw new AgentProviderError("模型流式返回空内容", { code: "empty_stream", retryable: false }); },
+    call: async () => { doubleEmptyCalls += 1; throw new AgentProviderError("任意改写的空响应消息", { code: "empty_stream", retryable: false }); },
+  };
+  await assert.rejects(
+    () => streamFinalAnswerFromDraft({ question: "q", draftBody: "d", observations: composerObservations, thinkingMode: "off" as ThinkingMode, finalComposeMode: "auto" }, doubleEmptyIo),
+    (error: unknown) => {
+      assert.equal((error as { code?: string }).code, "final_answer_composer_empty");
+      assert.equal(error instanceof AgentProviderError, true, "终态必须是结构化 final_answer_composer_empty，不是 unexpected");
+      return true;
+    },
+    "连续空流必须稳定返回 final_answer_composer_empty",
+  );
+  assert.equal(doubleEmptyStreams, 1);
+  assert.equal(doubleEmptyCalls, 1);
+}
+
+// 16.2b 非流式恢复返回空字符串：同样归一为 final_answer_composer_empty
+{
+  let emptyReturnCalls = 0;
+  const emptyReturnIo: FinalAnswerComposerIo = {
+    stream: async () => { throw new AgentProviderError("模型流式返回空内容", { code: "empty_stream", retryable: false }); },
+    call: async () => { emptyReturnCalls += 1; return ""; },
+  };
+  await assert.rejects(
+    () => streamFinalAnswerFromDraft({ question: "q", draftBody: "d", observations: composerObservations, thinkingMode: "off" as ThinkingMode, finalComposeMode: "auto" }, emptyReturnIo),
+    (error: unknown) => (error as { code?: string }).code === "final_answer_composer_empty",
+  );
+  assert.equal(emptyReturnCalls, 1);
+}
+
+// 16.2c stream 正常 resolve 但零 chunk/零正文（textStream 形态）-> 走同一恢复入口恰好一次
+{
+  let silentResolveStreams = 0;
+  let recoveryCalls = 0;
+  const silentResolveIo: FinalAnswerComposerIo = {
+    stream: async () => { silentResolveStreams += 1; },
+    call: async () => { recoveryCalls += 1; return "零正文流恢复的正文"; },
+  };
+  const answer = await streamFinalAnswerFromDraft(
+    { question: "q", draftBody: "d", observations: composerObservations, thinkingMode: "off" as ThinkingMode, finalComposeMode: "auto" },
+    silentResolveIo,
+  );
+  assert.equal(answer, "零正文流恢复的正文");
+  assert.equal(silentResolveStreams, 1);
+  assert.equal(recoveryCalls, 1);
+}
+
+// 16.2d non_stream 模式首次请求即空流 -> 精确 final_answer_composer_empty 且只请求一次
+{
+  let nonStreamCalls = 0;
+  const nonStreamIo: FinalAnswerComposerIo = {
+    stream: async () => { throw new Error("non_stream 模式不应进入流式路径"); },
+    call: async () => { nonStreamCalls += 1; throw new AgentProviderError("模型返回空内容", { code: "empty_stream", retryable: false }); },
+  };
+  await assert.rejects(
+    () => streamFinalAnswerFromDraft({ question: "q", draftBody: "d", observations: composerObservations, thinkingMode: "off" as ThinkingMode, finalComposeMode: "non_stream" }, nonStreamIo),
+    (error: unknown) => (error as { code?: string }).code === "final_answer_composer_empty",
+  );
+  assert.equal(nonStreamCalls, 1, "non_stream 首次为空不得额外再请求一次");
+}
+
+// 16.3 已输出部分正文后失败：不恢复、不重复 chunk、原错误保留
+{
+  let callInvocations = 0;
+  const receivedChunks: string[] = [];
+  const partialIo: FinalAnswerComposerIo = {
+    stream: async (_prompt: string, _mode: ThinkingMode, callbacks: StreamModelTextCallbacks) => {
+      callbacks.onChunk({ chunk: "部分正文", fullContent: "部分正文" });
+      throw new AgentProviderError("改写后的空流消息", { code: "empty_stream", retryable: false });
+    },
+    call: async () => { callInvocations += 1; return "不应出现"; },
+  };
+  await assert.rejects(
+    () => streamFinalAnswerFromDraft(
+      { question: "q", draftBody: "d", observations: composerObservations, thinkingMode: "off" as ThinkingMode, finalComposeMode: "auto", onChunk: (e) => receivedChunks.push(e.chunk) },
+      partialIo,
+    ),
+    (error: unknown) => (error as { code?: string }).code === "empty_stream",
+    "已输出正文后必须保留原错误并停止",
+  );
+  assert.equal(callInvocations, 0, "部分正文后不得发起恢复");
+  assert.deepEqual(receivedChunks, ["部分正文"], "不得重复输出 chunk");
+}
+
+// 16.4 正常流式终稿：行为与调用次数不变
+{
+  let streamInvocations = 0;
+  let callInvocations = 0;
+  const receivedChunks: string[] = [];
+  const normalIo: FinalAnswerComposerIo = {
+    stream: async (_prompt: string, _mode: ThinkingMode, callbacks: StreamModelTextCallbacks) => {
+      streamInvocations += 1;
+      callbacks.onChunk({ chunk: "第一段。", fullContent: "第一段。" });
+      callbacks.onChunk({ chunk: "第二段。", fullContent: "第一段。第二段。" });
+    },
+    call: async () => { callInvocations += 1; return ""; },
+  };
+  const answer = await streamFinalAnswerFromDraft(
+    { question: "q", draftBody: "d", observations: composerObservations, thinkingMode: "off" as ThinkingMode, finalComposeMode: "auto", onChunk: (e) => receivedChunks.push(e.chunk) },
+    normalIo,
+  );
+  assert.equal(answer, "第一段。第二段。");
+  assert.deepEqual(receivedChunks, ["第一段。", "第二段。"]);
+  assert.equal(streamInvocations, 1);
+  assert.equal(callInvocations, 0, "正常流式不得触发非流式调用");
+}
+
+// 16.5 分类只由稳定 code 决定；中止与普通 Error 不进入恢复
+{
+  assert.equal(isEmptyStreamError(new AgentProviderError("任意改写的消息", { code: "empty_stream" })), true, "改写 message 后仍按 code 命中");
+  assert.equal(isEmptyStreamError(new Error("模型流式返回空内容")), false, "普通未知 Error 不得因措辞命中");
+
+  let plainCallInvocations = 0;
+  const plainIo: FinalAnswerComposerIo = {
+    stream: async () => { throw new Error("模型流式返回空内容"); },
+    call: async () => { plainCallInvocations += 1; return ""; },
+  };
+  await assert.rejects(
+    () => streamFinalAnswerFromDraft({ question: "q", draftBody: "d", observations: composerObservations, thinkingMode: "off" as ThinkingMode, finalComposeMode: "auto" }, plainIo),
+    (error: unknown) => {
+      assert.equal(error instanceof AgentProviderError, false, "普通未知 Error 必须保持原样");
+      assert.equal((error as Error).message, "模型流式返回空内容");
+      return true;
+    },
+    "普通未知 Error 不进入空流恢复",
+  );
+  assert.equal(plainCallInvocations, 0);
+
+  const abortController = new AbortController();
+  abortController.abort();
+  let abortedCallInvocations = 0;
+  const abortedIo: FinalAnswerComposerIo = {
+    stream: async () => { throw new AgentProviderError("空流", { code: "empty_stream", retryable: false }); },
+    call: async () => { abortedCallInvocations += 1; return ""; },
+  };
+  await assert.rejects(
+    () => streamFinalAnswerFromDraft({ question: "q", draftBody: "d", observations: composerObservations, thinkingMode: "off" as ThinkingMode, finalComposeMode: "auto", abortSignal: abortController.signal }, abortedIo),
+    (error: unknown) => (error as { code?: string }).code === "empty_stream",
+    "已中止时不得发起恢复",
+  );
+  assert.equal(abortedCallInvocations, 0);
+
+  const composerEmptyUserFacing = mapAgentErrorToUserFacing({ agentErrorCode: "final_answer_composer_empty" });
+  assert.equal(composerEmptyUserFacing.title, "最终回答生成失败");
+  assert.match(composerEmptyUserFacing.message, /工具步骤已经完成/);
+  assert.match(composerEmptyUserFacing.suggestion ?? "", /不要据此重复执行/);
+}
 
 console.log("Agent continuation guard & language-agnostic verification passed.");
