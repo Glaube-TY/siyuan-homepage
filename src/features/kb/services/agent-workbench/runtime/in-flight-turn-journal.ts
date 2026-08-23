@@ -9,7 +9,7 @@
  *
  * Storage strategy:
  *   - Dual-write: localStorage (sync fast-path) + plugin data file via saveData/loadData.
- *   - readTurnJournal reads plugin data file first, falls back to localStorage.
+ *   - readTurnJournalAsync reads both plugin and localStorage, picks newer by updatedAt.
  *   - checkpointTurnJournal writes localStorage synchronously; key events also
  *     trigger an async best-effort saveData flush.
  *   - asyncFlushJournal can be called explicitly before critical moments
@@ -21,6 +21,8 @@
  *   - `outputSummary` is stored; full `result.content` is NOT.
  *   - Provider raw message text is NOT stored.
  *   - Write failures are silently swallowed — journal must never block Agent flow.
+ *   - Exception: flushApprovalStrict/processApprovalTransition propagate errors
+ *     for approval persistence; a failed durable write must prevent allow resolution.
  *
  * Lifecycle:
  *   setPluginStorage   → called once during plugin onload with saveData/loadData/removeData
@@ -295,10 +297,13 @@ export function checkpointTurnJournal(params: {
   if (params.permissionState !== undefined) journal.lastPermissionState = params.permissionState;
   if (params.agentRunCheckpoint) journal.agentRunCheckpoint = structuredClone(params.agentRunCheckpoint);
   if (
-    params.eventType === "permission_resolved"
+    (params.eventType === "permission_resolved"
+      || params.eventType === "permission_confirm_clicked")
     && params.permissionState === "allowed"
     && journal.agentRunCheckpoint
   ) {
+    // 用户批准后立即标记写入结果未知，不等工具实际执行。
+    // 若在批准与 tool_result 之间发生重载，恢复层据此判定 side_effect_unknown。
     journal.agentRunCheckpoint.sideEffectState = "unknown";
   }
   if (params.answerPreview !== undefined) {
@@ -331,6 +336,106 @@ export async function asyncFlushJournal(): Promise<void> {
     await enqueueJournalStorage(() => writePluginData(structuredClone(journal)));
   } catch {
     // Silently ignore.
+  }
+}
+
+/**
+ * Strict approval persistence: bypasses silent-catch layers and throws on any
+ * failure. Readback is bound to this exact approval snapshot via structured
+ * identity fields — an old unknown snapshot from the same conversation cannot pass.
+ *
+ * Throws (with stable reason codes):
+ *   APPROVAL_FLUSH_NO_JOURNAL               – no current turn journal in localStorage
+ *   APPROVAL_FLUSH_CONVERSATION_MISMATCH    – journal belongs to a different conversation
+ *   APPROVAL_FLUSH_CHECKPOINT_NOT_UNKNOWN   – checkpoint sideEffectState is not "unknown"
+ *   APPROVAL_FLUSH_NO_PLUGIN_STORAGE        – plugin storage not configured
+ *   APPROVAL_FLUSH_SAVE_FAILED              – plugin saveData threw or returned unexpectedly
+ *   APPROVAL_FLUSH_READBACK_MISSING         – post-save readback returned null or invalid
+ *   APPROVAL_FLUSH_READBACK_IDENTITY_MISMATCH – persisted data differs from this approval snapshot
+ *   APPROVAL_FLUSH_LOCAL_STALE              – localStorage does not reflect this approval
+ */
+export async function flushApprovalStrict(conversationId: string): Promise<void> {
+  const journal = readLocalStorage();
+  if (!journal) throw new Error("APPROVAL_FLUSH_NO_JOURNAL");
+  if (journal.conversationId !== conversationId) throw new Error("APPROVAL_FLUSH_CONVERSATION_MISMATCH");
+  if (!journal.agentRunCheckpoint || journal.agentRunCheckpoint.sideEffectState !== "unknown") {
+    throw new Error("APPROVAL_FLUSH_CHECKPOINT_NOT_UNKNOWN");
+  }
+  if (!pluginSaveData || !pluginLoadData) throw new Error("APPROVAL_FLUSH_NO_PLUGIN_STORAGE");
+
+  // Capture immutable snapshot of this specific approval for post-save identity binding.
+  const snapshot = structuredClone(journal);
+
+  await enqueueJournalStorage(async () => {
+    try {
+      await pluginSaveData!(PLUGIN_DATA_KEY, structuredClone(snapshot));
+    } catch (cause) {
+      const wrapped = new Error("APPROVAL_FLUSH_SAVE_FAILED");
+      (wrapped as any).cause = cause instanceof Error ? cause : undefined;
+      throw wrapped;
+    }
+  });
+
+  // Post-save readback bound to this approval snapshot via structured identity fields.
+  const readback = await pluginLoadData(PLUGIN_DATA_KEY) as InFlightTurnJournal | null;
+  if (!readback || typeof readback !== "object") throw new Error("APPROVAL_FLUSH_READBACK_MISSING");
+
+  const snapCp = snapshot.agentRunCheckpoint;
+  const rbCp = readback.agentRunCheckpoint;
+  if (
+    readback.conversationId !== snapshot.conversationId
+    || readback.assistantMessageId !== snapshot.assistantMessageId
+    || readback.updatedAt !== snapshot.updatedAt
+    || readback.lastEventType !== snapshot.lastEventType
+    || readback.lastPermissionState !== snapshot.lastPermissionState
+    || readback.lastConfirmationId !== snapshot.lastConfirmationId
+    || !rbCp
+    || !snapCp
+    || rbCp.sideEffectState !== "unknown"
+    || rbCp.identity.runId !== snapCp.identity.runId
+    || rbCp.phase !== snapCp.phase
+    || rbCp.stepIndex !== snapCp.stepIndex
+  ) {
+    throw new Error("APPROVAL_FLUSH_READBACK_IDENTITY_MISMATCH");
+  }
+
+  // localStorage must also reflect this approval (not stale)
+  const localCheck = readLocalStorage();
+  if (!localCheck || localCheck.updatedAt !== snapshot.updatedAt || localCheck.lastEventType !== "permission_confirm_clicked") {
+    throw new Error("APPROVAL_FLUSH_LOCAL_STALE");
+  }
+}
+
+/**
+ * 共享生产批准转换：从 waiting_confirmation 写入 permission_confirm_clicked/allowed、
+ * 形成 unknown、严格保存并返回可放行(true)/拒绝(false)。摘要确认与块差异确认共用。
+ */
+export async function processApprovalTransition(params: {
+  conversationId: string;
+  toolName: string;
+  action?: string;
+  innerAction?: string;
+  argsDigest?: string;
+  confirmationId?: string;
+  agentRunCheckpoint?: AgentRunCheckpoint;
+}): Promise<boolean> {
+  checkpointTurnJournal({
+    eventType: "permission_confirm_clicked",
+    stepIndex: 0,
+    toolName: params.toolName,
+    action: params.action,
+    innerAction: params.innerAction,
+    argsDigest: params.argsDigest,
+    confirmationId: params.confirmationId,
+    permissionState: "allowed",
+    ...(params.agentRunCheckpoint ? { agentRunCheckpoint: structuredClone(params.agentRunCheckpoint) } : {}),
+  });
+
+  try {
+    await flushApprovalStrict(params.conversationId);
+    return true;
+  } catch {
+    return false;
   }
 }
 
@@ -377,21 +482,30 @@ export function readTurnJournal(): InFlightTurnJournal | null {
 }
 
 /**
- * Async read: tries plugin data file first, falls back to localStorage.
- * Used during hydration for durable recovery across front-end reloads.
+ * Async read: reads both plugin data file and localStorage, picks the copy with
+ * the newer updatedAt. Used during hydration for durable recovery across reloads.
+ * Invalid or structurally incomplete copies are ignored.
  */
 export async function readTurnJournalAsync(): Promise<InFlightTurnJournal | null> {
+  let pluginCopy: InFlightTurnJournal | null = null;
   if (pluginLoadData) {
     try {
       const data = await pluginLoadData(PLUGIN_DATA_KEY) as InFlightTurnJournal | null;
-      if (data && typeof data.conversationId === "string" && typeof data.assistantMessageId === "string") {
-        return data;
+      if (data && typeof data.conversationId === "string" && typeof data.assistantMessageId === "string" && typeof data.updatedAt === "number") {
+        pluginCopy = data;
       }
     } catch {
       // Silently ignore.
     }
   }
-  return readLocalStorage();
+
+  const localCopy = readLocalStorage();
+
+  // Pick the copy with newer updatedAt; ties prefer localStorage (fresher writes).
+  if (pluginCopy && localCopy) {
+    return localCopy.updatedAt >= pluginCopy.updatedAt ? localCopy : pluginCopy;
+  }
+  return pluginCopy ?? localCopy;
 }
 
 // ─── Last-known-state (beforeunload / permission confirm) ────────────────────

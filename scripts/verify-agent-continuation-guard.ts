@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { NativeToolAgentLoop } from "../src/features/kb/services/agent-core/loop/native-tool-agent-loop";
 import { inspectUnfinishedAgentOutput } from "../src/features/kb/services/agent-core/loop/unfinished-agent-output";
 import type { AgentStreamEvent } from "../src/features/kb/services/agent-core/loop/stream-event";
+import type { AgentToolMessage } from "../src/features/kb/services/agent-core/messages/agent-message";
 import type {
   AgentChatRequest,
   AgentProviderEvent,
@@ -35,8 +36,16 @@ import { buildAgentTurnMemory } from "../src/features/kb/services/agent-workbenc
 import { mergeWorkbenchEvents } from "../src/features/kb/services/orchestration/agent-workbench-mode-flow";
 import type { AgentRunCheckpoint as AgentRunCheckpointType } from "../src/features/kb/services/agent-core/session/agent-run-checkpoint";
 import type { ToolResultEntry as ToolResultEntryLite } from "../src/features/kb/services/agent-workbench/runtime/tool-result-log";
+import {
+  flushApprovalStrict,
+  processApprovalTransition,
+  createTurnJournal,
+  checkpointTurnJournal,
+  setPluginStorage,
+} from "../src/features/kb/services/agent-workbench/runtime/in-flight-turn-journal";
+import { inspectAgentRunResume } from "../src/features/kb/services/agent-core/session/agent-run-checkpoint";
 import { extractActionTraceSummary } from "../src/features/kb/services/agent-workbench/memory/agent-turn-memory";
-import type { AgentWorkbenchEvent } from "../src/features/kb/services/agent-workbench/events/agent-workbench-events";
+import type { AgentWorkbenchEvent } from "../src/features/kb/services/agent-workbench/contracts/turn-event";
 import { getAgentProfile, KNOWLEDGE_CHAT_AGENT_PROFILE_ID } from "../src/features/agent-platform/agent-profile";
 import { setNotebrainPlugin } from "../src/features/kb/services/agent-workbench/storage/notebrain-plugin-storage";
 import {
@@ -180,11 +189,11 @@ assert.equal(requestBodies[0]?.tool_choice, "required");
 const presentationEvents: AgentStreamEvent[] = [
   { type: "assistant_reasoning_delta", delta: "让我先核对一下组件目录。", fullReasoning: "让我先核对一下组件目录。" },
   { type: "tool_start", stepIndex: 0, toolCallId: "call-1", toolName: "lookup_widget", argsPreview: {}, readOnly: true, startedAt: Date.now() },
-  { type: "tool_result", stepIndex: 0, toolCallId: "call-1", toolName: "lookup_widget", result: { ok: true, content: "{}" }, durationMs: 10 },
+  { type: "tool_result", stepIndex: 0, toolCallId: "call-1", toolName: "lookup_widget", result: { ok: true, content: "{}", summary: "ok" }, durationMs: 10 },
   { type: "assistant_text_delta", delta: "根据核对结果，focus 属于工具分类。", fullContent: "根据核对结果，focus 属于工具分类。" },
   { type: "assistant_reasoning_delta", delta: "继续检查是否有更多字段。", fullReasoning: "让我先核对一下组件目录。继续检查是否有更多字段。" },
   { type: "tool_start", stepIndex: 1, toolCallId: "call-2", toolName: "lookup_widget", argsPreview: {}, readOnly: true, startedAt: Date.now() },
-  { type: "tool_result", stepIndex: 1, toolCallId: "call-2", toolName: "lookup_widget", result: { ok: true, content: "{}" }, durationMs: 10 },
+  { type: "tool_result", stepIndex: 1, toolCallId: "call-2", toolName: "lookup_widget", result: { ok: true, content: "{}", summary: "ok" }, durationMs: 10 },
 ];
 
 let processReasoning = "";
@@ -715,7 +724,7 @@ assert.ok(updatePlanTool, "update_plan action tool must exist");
 
 // Mock siyuan kernel runtime port to return before attrs with updatedAt "2026-08-21T10:00:00.000Z"
 setSiyuanRuntimePort({
-  async post(url: string, data: unknown) {
+  async post(url: string, _data: unknown) {
     if (url === "/api/query/sql") {
       return {
         code: 0,
@@ -765,6 +774,9 @@ const listTimeTool = createListItemsByTimeTool({
 
 const listTimeInvalidResult = await listTimeTool.execute({} as never, {
   itemType: "doc",
+  sortBy: "updated",
+  order: "desc",
+  limit: 10,
   startTime: "not-a-valid-time-format",
 });
 assert.equal(listTimeInvalidResult.ok, false);
@@ -1105,8 +1117,8 @@ const composerObservations = [
     return { outcome, composerObservations, finalizeEvents, finalizeObservations };
   }
 
-  function toolMessagesOf(checkpoint: AgentRunCheckpointType): AgentRunCheckpointType["messages"] {
-    return checkpoint.messages.filter((message) => message.role === "tool");
+  function toolMessagesOf(checkpoint: AgentRunCheckpointType): AgentToolMessage[] {
+    return checkpoint.messages.filter((message): message is AgentToolMessage => message.role === "tool");
   }
 
   // ── 场景 1：两个只读工具成功 -> after_tool checkpoint -> 续跑零重放并恢复两条 Observation ──
@@ -1136,7 +1148,7 @@ const composerObservations = [
     label: string,
     checkpoint: AgentRunCheckpointType,
     expectedComposerLength: number,
-  ): Promise<{ resumeEvents: AgentWorkbenchEvent[]; finalizeEvents: AgentWorkbenchEvent[]; composerObservations: readonly ToolResultEntryLite[] }> {
+  ) {
     const resumeEvents: AgentWorkbenchEvent[] = [];
     const resume = await runProfile({
       resumeCheckpoint: checkpoint,
@@ -1251,6 +1263,191 @@ const composerObservations = [
     ) } as never,
   });
   assert.equal(writeMemory.actionTraceSummary.lastWriteStatus, "success", "恢复证据必须支撑 lastWriteStatus=success");
+}
+
+// === 18. Production Approval Transition & Recovery Classification ===
+{
+  const mockLS = new Map<string, string>();
+  const prevLS = (globalThis as any).localStorage;
+  (globalThis as any).localStorage = {
+    getItem: (key: string) => mockLS.get(key) ?? null,
+    setItem: (key: string, value: string) => { mockLS.set(key, value); },
+    removeItem: (key: string) => { mockLS.delete(key); },
+  };
+
+  try {
+  const CONV = "conv-appr-tx";
+  const CP_BASE = {
+    schemaVersion: 2 as const,
+    identity: { sessionId: CONV, runId: "run-appr", correlationId: "corr-appr", startedAt: Date.now() },
+    phase: "waiting_confirmation" as const,
+    stepIndex: 1,
+    messages: [],
+    sideEffectState: "not_started" as const,
+    createdAt: Date.now(),
+  } satisfies AgentRunCheckpointType;
+
+  let pluginSaveShouldThrow = false;
+  let saveCallCount = 0;
+  let pluginStoredSnapshot: Record<string, unknown> | null = null;
+  let toolExecutionCount = 0;
+
+  function resetApprovalTx(): void {
+    mockLS.clear();
+    pluginStoredSnapshot = null;
+    pluginSaveShouldThrow = false;
+    saveCallCount = 0;
+    toolExecutionCount = 0;
+
+    createTurnJournal({ conversationId: CONV, userMessageId: "m1", assistantMessageId: "a1", questionPreview: "" });
+    checkpointTurnJournal({
+      eventType: "permission_required",
+      permissionState: "required",
+      agentRunCheckpoint: structuredClone(CP_BASE),
+    });
+    setPluginStorage({
+      saveData: async (_key: string, data: unknown): Promise<void> => {
+        saveCallCount += 1;
+        if (pluginSaveShouldThrow) throw new Error("EACCES");
+        pluginStoredSnapshot = JSON.parse(JSON.stringify(data)) as Record<string, unknown>;
+      },
+      loadData: (async () => pluginStoredSnapshot) as never,
+      removeData: async (): Promise<void> => { pluginStoredSnapshot = null; },
+    });
+  }
+
+  async function approve(confId?: string): Promise<boolean> {
+    return processApprovalTransition({
+      conversationId: CONV,
+      toolName: "diary_task",
+      action: "manage_diary_review",
+      argsDigest: "action:manage_diary_review",
+      confirmationId: confId,
+      agentRunCheckpoint: structuredClone(CP_BASE),
+    }).then((approved) => {
+      if (approved) toolExecutionCount += 1;
+      return approved;
+    });
+  }
+
+  function readCp(): AgentRunCheckpointType {
+    const j = JSON.parse(mockLS.get("kbAgent.inFlightTurn.v1") ?? "{}");
+    return j.agentRunCheckpoint;
+  }
+
+  // ── 18.1 未确认：恢复仍为 confirmation_pending，工具执行 0 次 ──
+  {
+    resetApprovalTx();
+    const decision = inspectAgentRunResume(readCp());
+    assert.equal(decision.resumable, false);
+    assert.equal(decision.reason, "confirmation_pending");
+    assert.equal(toolExecutionCount, 0);
+  }
+
+  // ── 18.2 正常成功：批准后 unknown、恢复 side_effect_unknown、工具执行恰 1 次 ──
+  {
+    resetApprovalTx();
+    const approved = await approve();
+    assert.equal(approved, true);
+    assert.equal(toolExecutionCount, 1);
+    assert.equal(readCp().sideEffectState, "unknown");
+    assert.equal(inspectAgentRunResume(readCp()).reason, "side_effect_unknown");
+  }
+
+  // ── 18.3 保存抛错 → deny，工具执行 0 次 ──
+  {
+    resetApprovalTx();
+    pluginSaveShouldThrow = true;
+    assert.equal(await approve(), false);
+    assert.equal(toolExecutionCount, 0);
+  }
+
+  // ── 18.4 读回旧 unknown 快照（journal updatedAt 不同）→ 经生产入口拒绝 ──
+  {
+    resetApprovalTx();
+    // 模拟另一窗口已批准的旧快照，不先执行当前工具。
+    const staleSnapshot = JSON.parse(mockLS.get("kbAgent.inFlightTurn.v1") ?? "{}") as Record<string, unknown>;
+    staleSnapshot.updatedAt = Date.now() - 999_999;
+    staleSnapshot.lastEventType = "permission_confirm_clicked";
+    staleSnapshot.lastPermissionState = "allowed";
+    staleSnapshot.lastConfirmationId = "conf-old";
+    staleSnapshot.agentRunCheckpoint = {
+      ...(staleSnapshot.agentRunCheckpoint as AgentRunCheckpointType),
+      sideEffectState: "unknown",
+    };
+    setPluginStorage({
+      saveData: async (_k: string, _d: unknown): Promise<void> => {},
+      loadData: (async () => staleSnapshot) as never,
+      removeData: async (): Promise<void> => {},
+    });
+
+    const approved = await approve("conf-current");
+    assert.equal(approved, false, "旧 updatedAt 快照不得通过生产批准入口");
+    assert.equal(toolExecutionCount, 0, "读回校验失败不得增加工具执行次数");
+  }
+
+  // ── 18.5 空 confirmationId vs 带旧 confirmationId 的读回 → 精确拒绝 ──
+  {
+    resetApprovalTx();
+    const approvedNoConfId = await processApprovalTransition({
+      conversationId: CONV, toolName: "test_tool",
+      agentRunCheckpoint: structuredClone(CP_BASE),
+    });
+    assert.equal(approvedNoConfId, true);
+
+    const staleWithConfId = JSON.parse(JSON.stringify(pluginStoredSnapshot)) as Record<string, unknown>;
+    staleWithConfId.lastConfirmationId = "stale-conf-id-from-other-tool";
+    setPluginStorage({
+      saveData: async (_k: string, _d: unknown): Promise<void> => {},
+      loadData: (async () => staleWithConfId) as never,
+      removeData: async (): Promise<void> => {},
+    });
+    await assert.rejects(
+      () => flushApprovalStrict(CONV),
+      (error: unknown) => {
+        assert.ok(error instanceof Error);
+        assert.match(error.message, /IDENTITY_MISMATCH/);
+        return true;
+      },
+      "空 confirmationId 快照与带旧 ID 的读回必须精确拒绝",
+    );
+  }
+
+  // ── 18.6 Deferred：saveStarted 明确信号证明保存已进入但未完成 ──
+  {
+    resetApprovalTx();
+    let releaseSave: (() => void) | null = null;
+    const saveGate = new Promise<void>((r) => { releaseSave = r; });
+    let saveStartedResolve: (() => void) | null = null;
+    const saveStarted = new Promise<void>((r) => { saveStartedResolve = r; });
+    let deferredSaved: Record<string, unknown> | null = null;
+
+    setPluginStorage({
+      saveData: async (_key: string, data: unknown): Promise<void> => {
+        saveStartedResolve!();
+        await saveGate;
+        deferredSaved = JSON.parse(JSON.stringify(data)) as Record<string, unknown>;
+      },
+      loadData: (async () => deferredSaved) as never,
+      removeData: async (): Promise<void> => {},
+    });
+
+    let settled = false;
+    let approvalResult = false;
+    const approvalPromise = approve().then((r) => { settled = true; approvalResult = r; });
+
+    // 确定性等待：saveData 已被调用但尚未完成
+    await saveStarted;
+    assert.equal(settled, false, "保存未完成前批准不得 settle");
+
+    releaseSave!();
+    await approvalPromise;
+    assert.equal(settled, true);
+    assert.equal(approvalResult, true, "释放后正常返回 true");
+  }
+  } finally {
+    (globalThis as any).localStorage = prevLS;
+  }
 }
 
 console.log("Agent continuation guard & language-agnostic verification passed.");

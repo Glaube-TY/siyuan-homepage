@@ -19,8 +19,9 @@
   import { getCurrentDocumentId, resolveDocMetaForAttachment } from "../../services/siyuan/current-doc-service";
   import {
     writeLastKnownState,
+    readLastKnownState,
     checkpointTurnJournal,
-    asyncFlushJournal,
+    processApprovalTransition,
     readTurnJournal,
     clearLastKnownState,
   } from "../../services/agent-workbench/runtime/in-flight-turn-journal";
@@ -381,45 +382,72 @@
     refreshContextUsageSafe("stop");
   }
 
-  function handleNativePermissionConfirm() {
-    // Checkpoint before resolving — in case crash happens right after
+  /** 批准结算共享边界：调用生产 runtime 批准转换 → 写 last-known → 返回可放行/拒绝。 */
+  async function persistApprovalCheckpoint(params: {
+    toolName: string;
+    action?: string;
+    innerAction?: string;
+    argsPreview?: Record<string, unknown>;
+    confirmationId?: string;
+  }): Promise<boolean> {
+    const activeConversationId = ($kbSessionStore as ExtendedKbSessionState).activeConversationId ?? "";
+    const digestParts: string[] = [];
+    if (params.action) digestParts.push(`action:${params.action}`);
+    if (params.innerAction) digestParts.push(`innerAction:${params.innerAction}`);
+    if (params.confirmationId) digestParts.push(`confirmationId:${params.confirmationId}`);
+    const argsDigest = digestParts.length > 0 ? digestParts.join("|") : undefined;
+
+    // 读取当前 checkpoint 传入批准转换
+    const journal = readTurnJournal();
+    const cp = journal?.agentRunCheckpoint;
+
+    const approved = await processApprovalTransition({
+      conversationId: activeConversationId,
+      toolName: params.toolName,
+      action: params.action,
+      innerAction: params.innerAction,
+      argsDigest,
+      confirmationId: params.confirmationId,
+      agentRunCheckpoint: cp,
+    });
+
+    writeLastKnownState({
+      asking: $kbSessionStore.asking,
+      activeConversationId,
+      nativePermissionModalOpen: false,
+      nativePermissionToolName: params.toolName,
+      nativePermissionTitle: undefined,
+      nativePermissionAction: params.action,
+      nativePermissionArgsPreview: params.argsPreview ?? {},
+      permissionConfirmClicked: true,
+      lastJournalEvent: "permission_confirm_clicked",
+      updatedAt: Date.now(),
+    });
+
+    return approved;
+  }
+
+  async function handleNativePermissionConfirm() {
     const toolName = nativePermissionPreview?.toolName ?? "";
     const action = nativePermissionPreview?.argsPreview?.["action"] as string | undefined;
     const innerAction = nativePermissionPreview?.argsPreview?.["innerAction"] as string | undefined;
     const argsPreview = nativePermissionPreview?.argsPreview ?? {};
     const confirmationId = nativePermissionPreview?.confirmationId;
-    // Build a stable argsDigest from the actual argsPreview
-    const digestParts: string[] = [];
-    if (action) digestParts.push(`action:${action}`);
-    if (innerAction) digestParts.push(`innerAction:${innerAction}`);
-    if (confirmationId) digestParts.push(`confirmationId:${confirmationId}`);
-    const argsDigest = digestParts.length > 0 ? digestParts.join("|") : undefined;
-    checkpointTurnJournal({
-      eventType: "permission_confirm_clicked",
-      stepIndex: 0,
+
+    const approved = await persistApprovalCheckpoint({
       toolName,
       action,
       innerAction,
-      argsDigest,
+      argsPreview,
       confirmationId,
-      permissionState: "allowed",
     });
-    void asyncFlushJournal();
-    void persistConversationCheckpoint();
-    writeLastKnownState({
-      asking: $kbSessionStore.asking,
-      activeConversationId: ($kbSessionStore as ExtendedKbSessionState).activeConversationId ?? "",
-      nativePermissionModalOpen: false,
-      nativePermissionToolName: toolName,
-      nativePermissionTitle: nativePermissionPreview?.title,
-      nativePermissionAction: action,
-      nativePermissionArgsPreview: argsPreview,
-      permissionConfirmClicked: true,
-      lastJournalEvent: "permission_confirm_clicked",
-      updatedAt: Date.now(),
-    });
+
     if (nativePermissionResolve) {
-      nativePermissionResolve({ type: "allow" });
+      nativePermissionResolve(
+        approved
+          ? { type: "allow" }
+          : { type: "deny", reason: "批准持久化失败，写入已安全阻止。请重新读取状态后再操作。" },
+      );
       nativePermissionResolve = null;
     }
     nativePermissionModalOpen = false;
@@ -1321,15 +1349,22 @@
     // 仅作 best-effort 辅助；浏览器/Electron 不保证等待该 Promise。
     void kbSessionStore.persistConversationsNow();
 
-    // Write last-known state for crash diagnosis
+    // 读取上一次 last-known 状态，保留同一会话的 permissionConfirmClicked
+    const prev = readLastKnownState();
+    const currentConversationId = ($kbSessionStore as ExtendedKbSessionState).activeConversationId ?? "";
+
     writeLastKnownState({
       asking: $kbSessionStore.asking,
-      activeConversationId: ($kbSessionStore as ExtendedKbSessionState).activeConversationId ?? "",
+      activeConversationId: currentConversationId,
       nativePermissionModalOpen,
       nativePermissionToolName: nativePermissionPreview?.toolName,
       nativePermissionTitle: nativePermissionPreview?.title,
       nativePermissionAction: nativePermissionPreview?.argsPreview?.["action"] as string | undefined,
       nativePermissionArgsPreview: nativePermissionPreview?.argsPreview,
+      // 同一会话的已批准标记不得被覆盖
+      ...(prev?.activeConversationId === currentConversationId && prev.permissionConfirmClicked === true
+        ? { permissionConfirmClicked: true as const }
+        : {}),
       lastJournalEvent: readTurnJournal()?.lastEventType,
       updatedAt: Date.now(),
     });
@@ -1413,15 +1448,26 @@
             sections: preview.sections,
           };
           nativePermissionResolve = resolve;
-          openEditDiffPreviewDialog(preview.editDiffPreview).then((result) => {
+          openEditDiffPreviewDialog(preview.editDiffPreview).then(async (result) => {
             if (nativePermissionResolve === resolve) {
               nativePermissionResolve = null;
             }
             if (result.type === "deny") {
               void cleanupNativePermissionConfirmation(preview.confirmationId);
+              nativePermissionPreview = null;
+              resolve(result);
+              return;
             }
+            // 块差异批准与摘要批准走同一耐久边界；持久化失败时安全拒绝
+            const approved = await persistApprovalCheckpoint({
+              toolName: preview.toolName,
+              action: preview.argsPreview?.["action"] as string | undefined,
+              innerAction: preview.argsPreview?.["innerAction"] as string | undefined,
+              argsPreview: preview.argsPreview,
+              confirmationId: preview.confirmationId,
+            });
             nativePermissionPreview = null;
-            resolve(result);
+            resolve(approved ? result : { type: "deny", reason: "批准持久化失败，写入已安全阻止。请重新读取状态后再操作。" });
           });
         } else {
           // Summary and arrow flow share the lightweight native permission modal.
