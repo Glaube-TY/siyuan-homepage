@@ -98,8 +98,14 @@ function isWriteCall(
 }
 
 const MAX_HOMEPAGE_LIST_OUTPUT_CHARS = 11_000;
+const MAX_DIARY_OUTPUT_CHARS = 7_000;
+const MAX_DIARY_OUTPUT_TOKENS = 2_800;
 const MAX_HOMEPAGE_DEGRADED_WIDGET_SUMMARIES = 8;
 const HOMEPAGE_WIDGET_FIELDS = ["widgetId", "type", "index", "sectionId", "configRevision", "subtool", "resolutionStatus"] as const;
+
+function isWithinDiaryBudget(text: string): boolean {
+  return text.length <= MAX_DIARY_OUTPUT_CHARS && estimateTextTokensConservative(text) <= MAX_DIARY_OUTPUT_TOKENS;
+}
 
 function safeOptionalString(value: unknown, maxChars = 120): string | null | undefined {
   if (value === null) return null;
@@ -577,6 +583,497 @@ function compactSiyuanDatabasePayload(
   return output;
 }
 
+const AGENDA_TASK_FIELDS = [
+  "taskId",
+  "blockId",
+  "taskname",
+  "completed",
+  "priority",
+  "startDate",
+  "deadline",
+  "sourceDate",
+  "sourceDocId",
+  "sourceDocTitle",
+  "isTodayTask",
+  "isOverdue",
+  "shouldMigrate",
+] as const;
+
+function compactAgendaTaskRow(taskRaw: unknown): unknown[] {
+  const t = asRecord(taskRaw);
+  return [
+    safeOptionalString(t.taskId, 64) ?? null,
+    safeOptionalString(t.blockId, 64) ?? null,
+    safeOptionalString(t.taskname, 160) ?? "",
+    typeof t.completed === "boolean" ? t.completed : false,
+    safeOptionalString(t.priority, 16) ?? "",
+    safeOptionalString(t.startDate, 32) ?? null,
+    safeOptionalString(t.deadline, 32) ?? null,
+    safeOptionalString(t.sourceDate, 32) ?? null,
+    safeOptionalString(t.sourceDocId, 64) ?? null,
+    safeOptionalString(t.sourceDocTitle, 120) ?? null,
+    typeof t.isTodayTask === "boolean" ? t.isTodayTask : false,
+    typeof t.isOverdue === "boolean" ? t.isOverdue : false,
+    typeof t.shouldMigrate === "boolean" ? t.shouldMigrate : false,
+  ];
+}
+
+const AGENDA_RECORD_FIELDS = [
+  "recordId",
+  "date",
+  "docId",
+  "docTitle",
+  "categoryTitle",
+  "headingTitle",
+  "timeText",
+  "content",
+  "headingBlockId",
+] as const;
+
+function compactAgendaRecordRow(recRaw: unknown, maxContentChars = 120): unknown[] {
+  const r = asRecord(recRaw);
+  return [
+    safeOptionalString(r.recordId, 64) ?? null,
+    safeOptionalString(r.date, 32) ?? null,
+    safeOptionalString(r.docId, 64) ?? null,
+    safeOptionalString(r.docTitle, 120) ?? null,
+    safeOptionalString(r.categoryTitle, 60) ?? "",
+    safeOptionalString(r.headingTitle, 120) ?? "",
+    safeOptionalString(r.timeText, 32) ?? "",
+    sanitizeToolResultString(String(r.content ?? ""), maxContentChars),
+    safeOptionalString(r.headingBlockId, 64) ?? null,
+  ];
+}
+
+const AGENDA_DOC_FIELDS = [
+  "period",
+  "date",
+  "docId",
+  "title",
+  "exists",
+  "status",
+  "rangeStart",
+  "rangeEnd",
+  "markdownPreview",
+  "truncated",
+] as const;
+
+function compactAgendaDocRow(docRaw: unknown, maxPreviewChars = 160): unknown[] {
+  const d = asRecord(docRaw);
+  const range = asRecord(d.range);
+  return [
+    safeOptionalString(d.period, 16) ?? "day",
+    safeOptionalString(d.date, 32) ?? "",
+    safeOptionalString(d.docId, 64) ?? null,
+    safeOptionalString(d.title, 120) ?? null,
+    typeof d.exists === "boolean" ? d.exists : false,
+    safeOptionalString(d.status, 32) ?? "not_created",
+    safeOptionalString(range.start, 32) ?? null,
+    safeOptionalString(range.end, 32) ?? null,
+    d.markdownPreview ? sanitizeToolResultString(String(d.markdownPreview), maxPreviewChars) : null,
+    typeof d.truncated === "boolean" ? d.truncated : false,
+  ];
+}
+
+function compactDiaryQueryTasks(
+  base: Record<string, unknown>,
+  payload: Record<string, any>,
+  args: Record<string, unknown>,
+): string {
+  const tasksRaw = Array.isArray(payload.tasks)
+    ? payload.tasks
+    : Array.isArray(payload.items) ? payload.items : [];
+  const totalMatched = finiteNumberOrNull(payload.totalMatched) ?? finiteNumberOrNull(payload.totalCount) ?? tasksRaw.length;
+  const returned = finiteNumberOrNull(payload.returned) ?? tasksRaw.length;
+
+  const build = (taskLimit: number) => {
+    const projectedTasks = tasksRaw.slice(0, taskLimit).map(compactAgendaTaskRow);
+    const omittedTaskCount = Math.max(0, tasksRaw.length - projectedTasks.length);
+    return JSON.stringify({
+      ...base,
+      queryScope: safeOptionalString(args.scope, 32),
+      queryDate: safeOptionalString(args.date, 32),
+      queryStartDate: safeOptionalString(args.startDate, 32),
+      queryEndDate: safeOptionalString(args.endDate, 32),
+      queryStatus: safeOptionalString(args.status, 32),
+      queryLimit: finiteNumberOrNull(args.limit),
+      ...(args.keyword ? { keywordDigest: digestSafeText(args.keyword) } : {}),
+      ...(Array.isArray(args.tags) ? { queryTags: safeStrings(args.tags, 10, 32) } : {}),
+      date: safeOptionalString(payload.date, 32),
+      totalMatched,
+      returned,
+      returnedTaskCount: projectedTasks.length,
+      omittedTaskCount,
+      truncated: omittedTaskCount > 0 || (typeof payload.truncated === "boolean" ? payload.truncated : false),
+      taskFields: [...AGENDA_TASK_FIELDS],
+      tasks: projectedTasks,
+      note: "diary_task.query_tasks result compacted for storage.",
+    });
+  };
+
+  let taskLimit = Math.min(100, tasksRaw.length);
+  let result = build(taskLimit);
+  while (!isWithinDiaryBudget(result) && taskLimit > 5) {
+    taskLimit = Math.max(5, Math.floor(taskLimit * 0.75));
+    result = build(taskLimit);
+  }
+  while (!isWithinDiaryBudget(result) && taskLimit > 1) {
+    taskLimit = Math.max(1, taskLimit - 1);
+    result = build(taskLimit);
+  }
+  return result;
+}
+
+function compactDiaryQueryRecords(
+  base: Record<string, unknown>,
+  payload: Record<string, any>,
+  args: Record<string, unknown>,
+): string {
+  const recordsRaw = Array.isArray(payload.records)
+    ? payload.records
+    : Array.isArray(payload.items) ? payload.items : [];
+  const totalMatched = finiteNumberOrNull(payload.totalMatched) ?? finiteNumberOrNull(payload.totalCount) ?? recordsRaw.length;
+  const returned = finiteNumberOrNull(payload.returned) ?? recordsRaw.length;
+
+  const build = (recordLimit: number, maxContentChars: number) => {
+    const projectedRecords = recordsRaw.slice(0, recordLimit).map((r) => compactAgendaRecordRow(r, maxContentChars));
+    const omittedRecordCount = Math.max(0, recordsRaw.length - projectedRecords.length);
+    return JSON.stringify({
+      ...base,
+      queryDate: safeOptionalString(args.date, 32),
+      queryStartDate: safeOptionalString(args.startDate, 32),
+      queryEndDate: safeOptionalString(args.endDate, 32),
+      queryCategory: safeOptionalString(args.category, 60),
+      ...(args.keyword ? { keywordDigest: digestSafeText(args.keyword) } : {}),
+      queryLimit: finiteNumberOrNull(args.limit),
+      date: safeOptionalString(payload.date, 32),
+      startDate: safeOptionalString(payload.startDate, 32),
+      endDate: safeOptionalString(payload.endDate, 32),
+      totalMatched,
+      returned,
+      returnedRecordCount: projectedRecords.length,
+      omittedRecordCount,
+      truncated: omittedRecordCount > 0 || (typeof payload.truncated === "boolean" ? payload.truncated : false),
+      recordFields: [...AGENDA_RECORD_FIELDS],
+      records: projectedRecords,
+      note: "diary_task.query_records result compacted for storage.",
+    });
+  };
+
+  let recordLimit = Math.min(60, recordsRaw.length);
+  let contentChars = 120;
+  let result = build(recordLimit, contentChars);
+  while (!isWithinDiaryBudget(result) && (recordLimit > 5 || contentChars > 40)) {
+    if (contentChars > 40) contentChars = Math.max(40, Math.floor(contentChars * 0.75));
+    else recordLimit = Math.max(5, Math.floor(recordLimit * 0.75));
+    result = build(recordLimit, contentChars);
+  }
+  while (!isWithinDiaryBudget(result) && (recordLimit > 1 || contentChars > 20)) {
+    if (contentChars > 20) contentChars = Math.max(20, Math.floor(contentChars * 0.8));
+    else recordLimit = Math.max(1, recordLimit - 1);
+    result = build(recordLimit, contentChars);
+  }
+  return result;
+}
+
+function compactDiaryFindDocs(
+  base: Record<string, unknown>,
+  payload: Record<string, any>,
+  args: Record<string, unknown>,
+): string {
+  const docsRaw = Array.isArray(payload.docs)
+    ? payload.docs
+    : Array.isArray(payload.items) ? payload.items : [];
+  const returned = finiteNumberOrNull(payload.returned) ?? docsRaw.length;
+  const totalChecked = finiteNumberOrNull(payload.totalChecked) ?? docsRaw.length;
+
+  const build = (docLimit: number, maxPreviewChars: number) => {
+    const projectedDocs = docsRaw.slice(0, docLimit).map((d) => compactAgendaDocRow(d, maxPreviewChars));
+    const omittedDocCount = Math.max(0, docsRaw.length - projectedDocs.length);
+    return JSON.stringify({
+      ...base,
+      queryPeriod: safeOptionalString(args.period, 16),
+      queryDate: safeOptionalString(args.date, 32),
+      queryStartDate: safeOptionalString(args.startDate, 32),
+      queryEndDate: safeOptionalString(args.endDate, 32),
+      queryIncludeMarkdown: typeof args.includeMarkdown === "boolean" ? args.includeMarkdown : undefined,
+      period: safeOptionalString(payload.period, 16),
+      date: safeOptionalString(payload.date, 32),
+      startDate: safeOptionalString(payload.startDate, 32),
+      endDate: safeOptionalString(payload.endDate, 32),
+      totalChecked,
+      returned,
+      returnedDocCount: projectedDocs.length,
+      omittedDocCount,
+      truncated: omittedDocCount > 0 || (typeof payload.truncated === "boolean" ? payload.truncated : false),
+      docFields: [...AGENDA_DOC_FIELDS],
+      docs: projectedDocs,
+      warnings: safeStrings(payload.warnings, 3, 100),
+      note: "diary_task.find_docs result compacted for storage.",
+    });
+  };
+
+  let docLimit = Math.min(50, docsRaw.length);
+  let previewChars = 160;
+  let result = build(docLimit, previewChars);
+  while (!isWithinDiaryBudget(result) && (docLimit > 5 || previewChars > 40)) {
+    if (previewChars > 40) previewChars = Math.max(40, Math.floor(previewChars * 0.75));
+    else docLimit = Math.max(5, Math.floor(docLimit * 0.75));
+    result = build(docLimit, previewChars);
+  }
+  while (!isWithinDiaryBudget(result) && (docLimit > 1 || previewChars > 20)) {
+    if (previewChars > 20) previewChars = Math.max(20, Math.floor(previewChars * 0.8));
+    else docLimit = Math.max(1, docLimit - 1);
+    result = build(docLimit, previewChars);
+  }
+  return result;
+}
+
+interface OverviewCompactionLevel {
+  itemLimit: number;
+  recordContentChars: number;
+  notifDescChars: number;
+  carryoverContentChars: number;
+  carryoverLinesCount: number;
+  carryoverLineChars: number;
+}
+
+const OVERVIEW_COMPACTION_LEVELS: readonly OverviewCompactionLevel[] = [
+  { itemLimit: 20, recordContentChars: 80, notifDescChars: 120, carryoverContentChars: 100, carryoverLinesCount: 5, carryoverLineChars: 60 },
+  { itemLimit: 10, recordContentChars: 60, notifDescChars: 100, carryoverContentChars: 80, carryoverLinesCount: 4, carryoverLineChars: 50 },
+  { itemLimit: 5, recordContentChars: 50, notifDescChars: 80, carryoverContentChars: 60, carryoverLinesCount: 3, carryoverLineChars: 40 },
+  { itemLimit: 3, recordContentChars: 40, notifDescChars: 60, carryoverContentChars: 40, carryoverLinesCount: 2, carryoverLineChars: 30 },
+  { itemLimit: 2, recordContentChars: 30, notifDescChars: 40, carryoverContentChars: 30, carryoverLinesCount: 1, carryoverLineChars: 30 },
+  { itemLimit: 1, recordContentChars: 30, notifDescChars: 30, carryoverContentChars: 30, carryoverLinesCount: 1, carryoverLineChars: 30 },
+  { itemLimit: 1, recordContentChars: 20, notifDescChars: 20, carryoverContentChars: 20, carryoverLinesCount: 0, carryoverLineChars: 0 },
+];
+
+function compactDiaryOverview(
+  base: Record<string, unknown>,
+  payload: Record<string, any>,
+  args: Record<string, unknown>,
+): string {
+  const summary = asRecord(payload.summary);
+  const todayDiary = asRecord(payload.todayDiary);
+  const limitsRaw = asRecord(payload.limits);
+  const countsRaw = asRecord(payload.counts);
+  const tasksRaw = Array.isArray(payload.tasks) ? payload.tasks : undefined;
+  const recordsRaw = Array.isArray(payload.records) ? payload.records : undefined;
+  const projectsRaw = Array.isArray(payload.projects) ? payload.projects : undefined;
+  const notificationsRaw = Array.isArray(payload.notifications) ? payload.notifications : undefined;
+  const reviewsRaw = Array.isArray(payload.reviews) ? payload.reviews : undefined;
+  const carryoverRaw = Array.isArray(payload.carryoverPlans) ? payload.carryoverPlans : undefined;
+
+  const limits = Object.keys(limitsRaw).length > 0 ? {
+    tasks: finiteNumberOrNull(limitsRaw.tasks),
+    records: finiteNumberOrNull(limitsRaw.records),
+    projects: finiteNumberOrNull(limitsRaw.projects),
+    notifications: finiteNumberOrNull(limitsRaw.notifications),
+    reviews: finiteNumberOrNull(limitsRaw.reviews),
+    carryoverPlans: finiteNumberOrNull(limitsRaw.carryoverPlans),
+  } : undefined;
+
+  const counts = Object.keys(countsRaw).length > 0 ? {
+    tasksTotal: finiteNumberOrNull(countsRaw.tasksTotal),
+    tasksReturned: finiteNumberOrNull(countsRaw.tasksReturned),
+    tasksTruncated: typeof countsRaw.tasksTruncated === "boolean" ? countsRaw.tasksTruncated : undefined,
+    recordsTotal: finiteNumberOrNull(countsRaw.recordsTotal),
+    recordsReturned: finiteNumberOrNull(countsRaw.recordsReturned),
+    recordsTruncated: typeof countsRaw.recordsTruncated === "boolean" ? countsRaw.recordsTruncated : undefined,
+    projectsTotal: finiteNumberOrNull(countsRaw.projectsTotal),
+    projectsReturned: finiteNumberOrNull(countsRaw.projectsReturned),
+    projectsTruncated: typeof countsRaw.projectsTruncated === "boolean" ? countsRaw.projectsTruncated : undefined,
+    notificationsTotal: finiteNumberOrNull(countsRaw.notificationsTotal),
+    notificationsReturned: finiteNumberOrNull(countsRaw.notificationsReturned),
+    notificationsTruncated: typeof countsRaw.notificationsTruncated === "boolean" ? countsRaw.notificationsTruncated : undefined,
+    reviewsTotal: finiteNumberOrNull(countsRaw.reviewsTotal),
+    reviewsReturned: finiteNumberOrNull(countsRaw.reviewsReturned),
+    reviewsTruncated: typeof countsRaw.reviewsTruncated === "boolean" ? countsRaw.reviewsTruncated : undefined,
+    carryoverPlansTotal: finiteNumberOrNull(countsRaw.carryoverPlansTotal),
+    carryoverPlansReturned: finiteNumberOrNull(countsRaw.carryoverPlansReturned),
+    carryoverPlansTruncated: typeof countsRaw.carryoverPlansTruncated === "boolean" ? countsRaw.carryoverPlansTruncated : undefined,
+  } : undefined;
+
+  const build = (level: OverviewCompactionLevel) => {
+    const record: Record<string, unknown> = {
+      ...base,
+      queryDate: safeOptionalString(args.date, 32),
+      queryInclude: Array.isArray(args.include) ? safeStrings(args.include, 10, 32) : undefined,
+      date: safeOptionalString(payload.date, 32),
+      todayDiaryExists: typeof payload.todayDiaryExists === "boolean" ? payload.todayDiaryExists : undefined,
+      ...(payload.todayDiary ? {
+        todayDiary: {
+          docId: safeOptionalString(todayDiary.docId, 64),
+          title: safeOptionalString(todayDiary.title, 120),
+          date: safeOptionalString(todayDiary.date, 32),
+        },
+      } : {}),
+      templateValid: typeof payload.templateValid === "boolean" ? payload.templateValid : undefined,
+      missingSections: safeStrings(payload.missingSections, 10, 60),
+      summary: {
+        templateValid: typeof summary.templateValid === "boolean" ? summary.templateValid : payload.templateValid,
+        missing: safeStrings(summary.missing ?? payload.missingSections, 10, 60),
+        newTaskCount: finiteNumberOrNull(summary.newTaskCount),
+        migratedTaskCount: finiteNumberOrNull(summary.migratedTaskCount),
+        quickRecordCount: finiteNumberOrNull(summary.quickRecordCount),
+        projectCount: finiteNumberOrNull(summary.projectCount),
+      },
+      limits,
+      counts,
+      note: sanitizeToolResultString(payload.note ? String(payload.note) : "diary_task.overview result compacted for storage.", 200),
+    };
+
+    if (tasksRaw) {
+      const slice = tasksRaw.slice(0, level.itemLimit);
+      record.taskFields = [...AGENDA_TASK_FIELDS];
+      record.tasks = slice.map(compactAgendaTaskRow);
+      record.retainedTaskCount = slice.length;
+      if (tasksRaw.length > slice.length) {
+        record.omittedTaskCount = tasksRaw.length - slice.length;
+        record.compactionTasksTruncated = true;
+      }
+    }
+    if (recordsRaw) {
+      const slice = recordsRaw.slice(0, level.itemLimit);
+      record.recordFields = [...AGENDA_RECORD_FIELDS];
+      record.records = slice.map((r) => compactAgendaRecordRow(r, level.recordContentChars));
+      record.retainedRecordCount = slice.length;
+      if (recordsRaw.length > slice.length) {
+        record.omittedRecordCount = recordsRaw.length - slice.length;
+        record.compactionRecordsTruncated = true;
+      }
+    }
+    if (projectsRaw) {
+      const slice = projectsRaw.slice(0, level.itemLimit);
+      record.projects = slice.map((p: any) => ({
+        name: safeOptionalString(p.name, 60),
+        taskCount: finiteNumberOrNull(p.taskCount),
+        openTaskCount: finiteNumberOrNull(p.openTaskCount),
+        todayTaskCount: finiteNumberOrNull(p.todayTaskCount),
+        overdueTaskCount: finiteNumberOrNull(p.overdueTaskCount),
+        healthStatus: safeOptionalString(p.healthStatus, 32),
+        healthLabel: safeOptionalString(p.healthLabel, 32),
+      }));
+      record.retainedProjectCount = slice.length;
+      if (projectsRaw.length > slice.length) {
+        record.omittedProjectCount = projectsRaw.length - slice.length;
+        record.compactionProjectsTruncated = true;
+      }
+    }
+    if (notificationsRaw) {
+      const slice = notificationsRaw.slice(0, level.itemLimit);
+      record.notifications = slice.map((n: any) => ({
+        id: safeOptionalString(n.id, 64),
+        type: safeOptionalString(n.type, 32),
+        level: safeOptionalString(n.level, 16),
+        title: safeOptionalString(n.title, 120),
+        description: safeOptionalString(n.description, level.notifDescChars),
+      }));
+      record.retainedNotificationCount = slice.length;
+      if (notificationsRaw.length > slice.length) {
+        record.omittedNotificationCount = notificationsRaw.length - slice.length;
+        record.compactionNotificationsTruncated = true;
+      }
+    }
+    if (reviewsRaw) {
+      const slice = reviewsRaw.slice(0, level.itemLimit);
+      record.reviews = slice.map((rv: any) => ({
+        period: safeOptionalString(rv.period, 16),
+        title: safeOptionalString(rv.title, 60),
+        status: safeOptionalString(rv.status, 32),
+        statusLabel: safeOptionalString(rv.statusLabel, 32),
+        targetDate: safeOptionalString(rv.targetDate, 32),
+      }));
+      record.retainedReviewCount = slice.length;
+      if (reviewsRaw.length > slice.length) {
+        record.omittedReviewCount = reviewsRaw.length - slice.length;
+        record.compactionReviewsTruncated = true;
+      }
+    }
+    if (carryoverRaw) {
+      const slice = carryoverRaw.slice(0, level.itemLimit);
+      record.carryoverPlans = slice.map((cp: any) => {
+        const rawLines = Array.isArray(cp.lines) ? cp.lines : [];
+        const lines = level.carryoverLinesCount > 0
+          ? safeStrings(rawLines.slice(0, level.carryoverLinesCount), level.carryoverLinesCount, level.carryoverLineChars)
+          : undefined;
+        return {
+          period: safeOptionalString(cp.period, 16),
+          periodLabel: safeOptionalString(cp.periodLabel, 32),
+          sourceLabel: safeOptionalString(cp.sourceLabel, 60),
+          sourceDateOrRange: safeOptionalString(cp.sourceDateOrRange, 32),
+          fieldLabel: safeOptionalString(cp.fieldLabel, 60),
+          content: sanitizeToolResultString(String(cp.content ?? ""), level.carryoverContentChars),
+          lines,
+          docId: safeOptionalString(cp.docId, 64),
+        };
+      });
+      record.retainedCarryoverCount = slice.length;
+      if (carryoverRaw.length > slice.length) {
+        record.omittedCarryoverCount = carryoverRaw.length - slice.length;
+        record.compactionCarryoverTruncated = true;
+      }
+    }
+
+    return JSON.stringify(record);
+  };
+
+  let result = build(OVERVIEW_COMPACTION_LEVELS[0]);
+  for (let i = 1; i < OVERVIEW_COMPACTION_LEVELS.length && !isWithinDiaryBudget(result); i++) {
+    result = build(OVERVIEW_COMPACTION_LEVELS[i]);
+  }
+  return result;
+}
+
+function isDiaryReadOnlyTool(message: AgentToolMessage, operation: ResolvedToolOperation): boolean {
+  const toolName = message.name;
+  const action = operation.innerAction || operation.action;
+  if (toolName === "diary_task") {
+    return ["overview", "query_tasks", "query_records", "find_docs"].includes(action);
+  }
+  return (
+    toolName === "query_tasks"
+    || toolName === "query_diary_records"
+    || toolName === "find_diary_docs"
+    || toolName === "get_daily_workspace_overview"
+  );
+}
+
+function resolveDiaryReadOnlyAction(message: AgentToolMessage, operation: ResolvedToolOperation): string {
+  const toolName = message.name;
+  if (toolName === "query_tasks") return "query_tasks";
+  if (toolName === "query_diary_records") return "query_records";
+  if (toolName === "find_diary_docs") return "find_docs";
+  if (toolName === "get_daily_workspace_overview") return "overview";
+  return operation.innerAction || operation.action;
+}
+
+function compactDiaryReadOnlyPayload(
+  base: Record<string, unknown>,
+  payload: Record<string, any>,
+  action: string,
+  args: Record<string, unknown>,
+): string {
+  if (action === "query_tasks") {
+    return compactDiaryQueryTasks(base, payload, args);
+  }
+  if (action === "query_records") {
+    return compactDiaryQueryRecords(base, payload, args);
+  }
+  if (action === "find_docs") {
+    return compactDiaryFindDocs(base, payload, args);
+  }
+  if (action === "overview") {
+    return compactDiaryOverview(base, payload, args);
+  }
+  return JSON.stringify({
+    ...base,
+    status: "compacted_unknown_action",
+    action: sanitizeToolResultString(action, 60),
+    note: "Unrecognized diary read action compacted.",
+  });
+}
+
 function actionAwareStorageContent(
   message: AgentToolMessage,
   rawArgs?: Record<string, unknown>,
@@ -643,6 +1140,11 @@ function actionAwareStorageContent(
 
   if (message.name === "siyuan_database") {
     return compactSiyuanDatabasePayload(base, payload);
+  }
+
+  if (isDiaryReadOnlyTool(message, operation)) {
+    const diaryAction = resolveDiaryReadOnlyAction(message, operation);
+    return compactDiaryReadOnlyPayload(base, payload, diaryAction, operation.args);
   }
 
   const items = Array.isArray(payload.items)

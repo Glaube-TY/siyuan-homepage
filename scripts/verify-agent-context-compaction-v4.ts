@@ -36,6 +36,22 @@ import type { NativeTool } from "../src/features/kb/services/agent-core/tools/na
 import { NativeToolRegistry, resolveNativeToolReadOnly } from "../src/features/kb/services/agent-core/tools/native-tool-registry";
 import { HOMEPAGE_COMPONENT_ROUTE_DEFINITIONS } from "../src/features/kb/services/agent-workbench/tools/homepage/homepage-agent-business-capabilities";
 import { sanitizeWidgetConfigForAgent, isSecurityRedactedValue } from "../src/features/kb/services/agent-workbench/tools/homepage/homepage-agent-widget-sanitizer";
+import {
+  queryTasksInputSchema,
+  queryTasksOutputSchema,
+} from "../src/features/kb/services/agent-workbench/tools/siyuan/contracts/query-tasks.contract";
+import {
+  queryDiaryRecordsInputSchema,
+  queryDiaryRecordsOutputSchema,
+} from "../src/features/kb/services/agent-workbench/tools/siyuan/contracts/query-diary-records.contract";
+import {
+  findDiaryDocsInputSchema,
+  findDiaryDocsOutputSchema,
+} from "../src/features/kb/services/agent-workbench/tools/siyuan/contracts/find-diary-docs.contract";
+import {
+  getDailyWorkspaceOverviewInputSchema,
+  getDailyWorkspaceOverviewOutputSchema,
+} from "../src/features/kb/services/agent-workbench/tools/siyuan/contracts/get-daily-workspace-overview.contract";
 
 function makeMessages(turnCount: number): ChatMessage[] {
   const messages: ChatMessage[] = [];
@@ -145,12 +161,22 @@ registerSafetyTool(safetyRegistry, "siyuan_database", false, (args) => {
     || (action === "extra_read" && typeof nested.action === "string" && readOnlySubActions.includes(nested.action))
     || (rawAction.startsWith("extra_read.") && readOnlySubActions.includes(rawAction.slice("extra_read.".length)));
 });
+registerSafetyTool(safetyRegistry, "diary_task", false, (args) => {
+  const nested = args.args && typeof args.args === "object" ? args.args as Record<string, unknown> : args;
+  const action = typeof args.action === "string" ? args.action : typeof nested.action === "string" ? nested.action : "";
+  return ["overview", "query_tasks", "query_records", "find_docs"].includes(action);
+});
+for (const name of ["query_tasks", "query_diary_records", "find_diary_docs", "get_daily_workspace_overview"]) {
+  registerSafetyTool(safetyRegistry, name, true);
+}
 const safetyResolver = (toolName: string, args?: Record<string, unknown>) =>
   resolveNativeToolReadOnly(safetyRegistry, toolName, args);
 assert.equal(safetyResolver("notebrain_file", { action: "write_file" }), false);
 assert.equal(safetyResolver("notebrain_file", { action: "read_file" }), true);
 assert.equal(safetyResolver("siyuan_asset", { action: "workspace_file", args: { action: "read_dir" } }), true);
 assert.equal(safetyResolver("homepage_components", { action: "weather.instance.get" }), true);
+assert.equal(safetyResolver("diary_task", { action: "unrecognized_subaction" }), false, "未识别 Action 不得被判定为只读");
+assert.equal(safetyResolver("diary_task", { action: "overview" }), true);
 for (const name of ["homepage_components", "notification_manage", "automation_manage", "skill_manage", "mcp_manage"]) {
   assert.equal(safetyResolver(name, { action: "write" }), false);
 }
@@ -1078,6 +1104,579 @@ assert.equal(corruptedLegacy.ignoredInternalCount, 1);
         assert.equal(serializedPayload.includes(secret), false, `${label} 不得泄漏原始敏感值：${secret}`);
       }
     }
+  }
+}
+
+// ── diary_task 只读投影与 Checkpoint 恢复验证 ──
+{
+  const SECRET_USERINFO_URL = "https://admin:secretUserPass999@internal.siyuan.local/api/tasks";
+  const SECRET_API_KEY = "api_key=sk-live-confidentialToken888";
+  const SECRET_DIARY_WIN_PATH = "D:\\Confidential\\DailyNotes\\secret_plan.md";
+  const SECRET_DIARY_UNIX_PATH = "/Users/developer/secret_vault/diary.md";
+  const ALL_DIARY_SECRETS = [
+    "secretUserPass999",
+    "sk-live-confidentialToken888",
+    "Confidential\\DailyNotes",
+    "/secret_vault",
+  ];
+
+  const diaryEnvelope = (action: string, resultData: unknown) => JSON.stringify({
+    ok: true,
+    toolName: "diary_task",
+    data: { action, result: resultData },
+  });
+  const diaryMessages = (
+    toolCallId: string,
+    action: string,
+    resultData: unknown,
+    args: Record<string, unknown> = {},
+  ) => normalizeToolCallMessages([
+    {
+      role: "assistant",
+      content: "",
+      toolCalls: [{
+        id: toolCallId,
+        name: "diary_task",
+        arguments: JSON.stringify({ action, args }),
+      }],
+    },
+    {
+      role: "tool",
+      toolCallId,
+      name: "diary_task",
+      content: diaryEnvelope(action, resultData),
+    },
+  ]);
+
+  // 1. query_tasks：39 条真实任务（含 2026-08-22 与 2026-08-23、同名不同 ID、敏感信息脱敏）
+  const tasks39 = Array.from({ length: 39 }, (_, index) => {
+    const isToday = index < 20;
+    const deadline = isToday ? "2026-08-22" : "2026-08-23";
+    return {
+      taskId: `task-${index + 1}`,
+      blockId: `block-${index + 1}`,
+      rootId: `doc-${(index % 5) + 1}`,
+      box: "box-main",
+      hpath: `/daily note/2026/08/${deadline}`,
+      markdown: `* [ ] 任务 ${index + 1}`,
+      taskname: index === 0
+        ? `重构日记压缩 ${SECRET_USERINFO_URL}`
+        : index === 1
+          ? `清理凭据 ${SECRET_API_KEY}`
+          : index % 3 === 0
+            ? "重构数据库视图与行合并"
+            : `任务项 ${index + 1}`,
+      completed: false,
+      priority: index % 2 === 0 ? "1" : "2",
+      startDate: "2026-08-20",
+      deadline,
+      recurrence: "",
+      reminder: "",
+      location: index === 0 ? SECRET_DIARY_WIN_PATH : "",
+      tags: ["dev", "review"],
+      sourceKind: "normal" as const,
+      sourceDate: "2026-08-20",
+      sourceDocId: `doc-${(index % 5) + 1}`,
+      sourceDocTitle: `2026-08-20 日记 ${index === 0 ? SECRET_DIARY_UNIX_PATH : ""}`,
+      isTodayTask: isToday,
+      isOverdue: false,
+      shouldMigrate: false,
+    };
+  });
+
+  const queryTasksPayloadRaw = {
+    date: "2026-08-22",
+    tasks: tasks39,
+    totalMatched: 39,
+    returned: 39,
+    note: `查询到 39 条未完成任务 ${SECRET_API_KEY}，包含详细任务描述与上下文信息。`.repeat(60),
+  };
+
+  const qtArgsRaw = { scope: "all" as const, date: "2026-08-22", status: "not_done" as const, limit: 50 };
+  const qtArgs = queryTasksInputSchema.parse(qtArgsRaw);
+  const queryTasksPayload = queryTasksOutputSchema.parse(queryTasksPayloadRaw);
+  const qtMessages = diaryMessages("qt-39", "query_tasks", queryTasksPayload, qtArgs);
+  const qtStorageCompacted = compactAgentSessionMessagesForStorage(qtMessages, homepageReadCompactionOptions);
+  const qtRuntimeCompacted = compactAgentMessages(qtMessages, homepageReadCompactionOptions);
+
+  for (const [label, compacted] of [["storage", qtStorageCompacted], ["runtime", qtRuntimeCompacted]] as const) {
+    const payload = compactedToolPayload(compacted, "qt-39", 12_000);
+    assert.equal(payload.ok, true, `${label} 必须成功`);
+    assert.equal(payload.action, "query_tasks", `${label} 必须保留 action`);
+    assert.equal(payload.queryScope, "all", `${label} 必须保留 queryScope`);
+    assert.equal(payload.queryDate, "2026-08-22", `${label} 必须保留 queryDate`);
+    assert.equal(payload.queryStatus, "not_done", `${label} 必须保留 queryStatus`);
+    assert.equal(payload.queryLimit, 50, `${label} 必须保留 queryLimit`);
+    assert.equal(payload.totalMatched, 39, `${label} 必须保留 totalMatched=39`);
+    assert.equal(payload.returned, 39, `${label} 必须保留 returned=39`);
+    assert.equal(payload.returnedTaskCount, 39, `${label} 必须保留 returnedTaskCount=39`);
+    assert.equal(payload.omittedTaskCount, 0, `${label} omittedTaskCount 必须为 0`);
+    assert.equal(payload.truncated, false, `${label} truncated 必须为 false`);
+    assert.ok(Array.isArray(payload.taskFields), `${label} 必须包含 taskFields`);
+    assert.equal((payload.tasks as unknown[]).length, 39, `${label} 必须保留全部 39 条任务行`);
+
+    // 检查第 1 条（2026-08-22 截止，isTodayTask: true）与第 25 条（2026-08-23 截止，isTodayTask: false）
+    const taskRows = payload.tasks as unknown[][];
+    const task1 = taskRows[0];
+    const task25 = taskRows[24];
+    assert.equal(task1[0], "task-1");
+    assert.equal(task1[6], "2026-08-22", "第 1 条截止日期必须是 2026-08-22");
+    assert.equal(task1[10], true, "第 1 条 isTodayTask 必须是 true");
+    assert.equal(task25[0], "task-25");
+    assert.equal(task25[6], "2026-08-23", "第 25 条截止日期必须是 2026-08-23");
+    assert.equal(task25[10], false, "第 25 条 isTodayTask 必须是 false");
+
+    // 敏感凭据/路径脱敏检查
+    const serialized = JSON.stringify(payload);
+    for (const secret of ALL_DIARY_SECRETS) {
+      assert.equal(serialized.includes(secret), false, `${label} 不得泄露敏感值：${secret}`);
+    }
+  }
+
+  // 2. query_tasks 合法极限用例（limit: 50 契约上限，totalMatched: 85，50 条长任务触发压缩收缩）
+  const tasks50 = Array.from({ length: 50 }, (_, index) => ({
+    taskId: `legal-limit-task-${index + 1}`,
+    blockId: `legal-limit-block-${index + 1}`,
+    markdown: `* [ ] 合法契约极限任务 ${index + 1} - 详细描述信息与上下文 `.repeat(3),
+    taskname: `合法契约极限任务 ${index + 1} 包含了较为详细的长业务标题用于验证行式压缩边界 `.repeat(2),
+    completed: false,
+    priority: "1",
+    startDate: "2026-08-20",
+    deadline: "2026-08-25",
+    recurrence: "",
+    reminder: "",
+    location: "",
+    tags: ["contract-limit", "perf"],
+    sourceKind: "normal" as const,
+    sourceDate: "2026-08-20",
+    sourceDocId: `doc-legal-${index + 1}`,
+    sourceDocTitle: `2026-08-20 日记文档详细长标题用于增加负载 ${index + 1}`,
+    isTodayTask: false,
+    isOverdue: false,
+    shouldMigrate: false,
+  }));
+  const legalLimitPayloadRaw = {
+    date: "2026-08-22",
+    tasks: tasks50,
+    totalMatched: 85,
+    returned: 50,
+    note: "查询到 85 条任务，按契约上限 limit=50 返回前 50 条",
+  };
+  const legalLimitArgs = queryTasksInputSchema.parse({ scope: "all", limit: 50 });
+  const legalLimitPayload = queryTasksOutputSchema.parse(legalLimitPayloadRaw);
+  const llMessages = diaryMessages("qt-50-limit", "query_tasks", legalLimitPayload, legalLimitArgs);
+  const llStorage = compactAgentSessionMessagesForStorage(llMessages, homepageReadCompactionOptions);
+  const llRuntime = compactAgentMessages(llMessages, homepageReadCompactionOptions);
+
+  for (const [label, compacted] of [["storage", llStorage], ["runtime", llRuntime]] as const) {
+    const payload = compactedToolPayload(compacted, "qt-50-limit", 12_000);
+    assert.equal(payload.totalMatched, 85, `${label} 服务端匹配总数必须为 85`);
+    assert.equal(payload.returned, 50, `${label} 服务端返回数必须为 50`);
+    assert.equal(payload.truncated, true, `${label} 触发压缩收缩后 truncated 必须为 true`);
+    assert.ok((payload.returnedTaskCount as number) < 50, `${label} 压缩层保留行数必须收缩小于 50`);
+    assert.ok((payload.omittedTaskCount as number) > 0, `${label} 压缩层省略行数必须大于 0`);
+    assert.equal((payload.returnedTaskCount as number) + (payload.omittedTaskCount as number), 50, `${label} 保留数与省略数之和必须等于服务端返回的 50 条`);
+    assert.ok(Array.isArray(payload.taskFields), `${label} 必须包含 taskFields`);
+  }
+
+  // 3. query_records：5 条记录（覆盖 storage 与 runtime 双路径）
+  const records5 = Array.from({ length: 5 }, (_, index) => ({
+    recordId: `record-${index + 1}`,
+    date: `2026-08-2${index}`,
+    docId: `doc-rec-${index + 1}`,
+    docTitle: `2026-08-2${index} 日记`,
+    categoryTitle: "工作记录",
+    headingTitle: `### 上午进展 ${index === 0 ? SECRET_USERINFO_URL : ""}`,
+    timeText: "10:30",
+    content: `完成模块 ${index + 1} 重构。凭据 ${SECRET_API_KEY} 路径 ${SECRET_DIARY_WIN_PATH}，详细开发进展与测试用例验证说明。`.repeat(40),
+    headingBlockId: `heading-block-${index + 1}`,
+  }));
+  const qrArgsRaw = { startDate: "2026-08-20", endDate: "2026-08-24" };
+  const qrPayloadRaw = {
+    startDate: "2026-08-20",
+    endDate: "2026-08-24",
+    records: records5,
+    totalMatched: 5,
+    returned: 5,
+    note: `Found 5 records with note info ${SECRET_USERINFO_URL} 详细记录查询结果摘要，包含多个文档的日记内容索引与分类总结。`.repeat(50),
+  };
+  const qrArgs = queryDiaryRecordsInputSchema.parse(qrArgsRaw);
+  const qrPayload = queryDiaryRecordsOutputSchema.parse(qrPayloadRaw);
+  const qrMessages = diaryMessages("qr-5", "query_records", qrPayload, qrArgs);
+  const qrStorage = compactAgentSessionMessagesForStorage(qrMessages, homepageReadCompactionOptions);
+  const qrRuntime = compactAgentMessages(qrMessages, homepageReadCompactionOptions);
+
+  for (const [label, compacted] of [["storage", qrStorage], ["runtime", qrRuntime]] as const) {
+    const payload = compactedToolPayload(compacted, "qr-5", 12_000);
+    assert.equal(payload.totalMatched, 5, `${label} totalMatched 必须为 5`);
+    assert.equal(payload.returnedRecordCount, 5, `${label} returnedRecordCount 必须为 5`);
+    assert.ok(Array.isArray(payload.recordFields), `${label} 必须包含 recordFields`);
+    assert.equal((payload.records as unknown[]).length, 5, `${label} 必须保留全部 5 条记录`);
+    const serialized = JSON.stringify(payload);
+    for (const secret of ALL_DIARY_SECRETS) {
+      assert.equal(serialized.includes(secret), false, `${label} query_records 不得泄漏：${secret}`);
+    }
+  }
+
+  // 4. find_docs：3 篇日记文档（覆盖 storage 与 runtime 双路径）
+  const docs3 = Array.from({ length: 3 }, (_, index) => ({
+    period: "day" as const,
+    date: `2026-08-2${index}`,
+    docId: `doc-diary-${index + 1}`,
+    title: `2026-08-2${index}`,
+    exists: true,
+    range: { start: `2026-08-2${index}`, end: `2026-08-2${index}` },
+    status: "completed" as const,
+    markdownPreview: `# 2026-08-2${index} 日记\n路径 ${SECRET_DIARY_UNIX_PATH} 包含凭据 ${SECRET_API_KEY}，详细 Markdown 正文内容与各段落记录。`.repeat(40),
+    truncated: false,
+  }));
+  const fdArgsRaw = { period: "day" as const, startDate: "2026-08-20", endDate: "2026-08-22" };
+  const fdPayloadRaw = {
+    period: "day" as const,
+    startDate: "2026-08-20",
+    endDate: "2026-08-22",
+    docs: docs3,
+    returned: 3,
+    totalChecked: 3,
+    note: `Found 3 docs ${SECRET_USERINFO_URL} 详细文档检索结果摘要，包含全部有效周期范围内的日记文档元数据。`.repeat(50),
+  };
+  const fdArgs = findDiaryDocsInputSchema.parse(fdArgsRaw);
+  const fdPayload = findDiaryDocsOutputSchema.parse(fdPayloadRaw);
+  const fdMessages = diaryMessages("fd-3", "find_docs", fdPayload, fdArgs);
+  const fdStorage = compactAgentSessionMessagesForStorage(fdMessages, homepageReadCompactionOptions);
+  const fdRuntime = compactAgentMessages(fdMessages, homepageReadCompactionOptions);
+
+  for (const [label, compacted] of [["storage", fdStorage], ["runtime", fdRuntime]] as const) {
+    const payload = compactedToolPayload(compacted, "fd-3", 12_000);
+    assert.equal(payload.totalChecked, 3, `${label} totalChecked 必须为 3`);
+    assert.equal(payload.returnedDocCount, 3, `${label} returnedDocCount 必须为 3`);
+    assert.ok(Array.isArray(payload.docFields), `${label} 必须包含 docFields`);
+    assert.equal((payload.docs as unknown[]).length, 3, `${label} 必须保留全部 3 篇文档`);
+    const serialized = JSON.stringify(payload);
+    for (const secret of ALL_DIARY_SECRETS) {
+      assert.equal(serialized.includes(secret), false, `${label} find_docs 不得泄漏：${secret}`);
+    }
+  }
+
+  // 5. overview：增强日记工作区总览（严格符合 GetDailyWorkspaceOverviewOutput 契约，覆盖 limits, counts, carryoverPlans 及双路径）
+  const overviewLimits = {
+    tasks: 50,
+    records: 50,
+    projects: 20,
+    notifications: 30,
+    reviews: 10,
+    carryoverPlans: 10,
+  };
+  const overviewCounts = {
+    tasksTotal: 39,
+    tasksReturned: 2,
+    tasksTruncated: true,
+    recordsTotal: 8,
+    recordsReturned: 1,
+    recordsTruncated: true,
+    projectsTotal: 3,
+    projectsReturned: 1,
+    projectsTruncated: false,
+    notificationsTotal: 2,
+    notificationsReturned: 1,
+    notificationsTruncated: false,
+    reviewsTotal: 1,
+    reviewsReturned: 1,
+    reviewsTruncated: false,
+    carryoverPlansTotal: 2,
+    carryoverPlansReturned: 1,
+    carryoverPlansTruncated: true,
+  };
+  const overviewCarryoverPlans = [
+    {
+      period: "week" as const,
+      periodLabel: "本周计划",
+      sourceLabel: "2026-W34",
+      sourceDateOrRange: "2026-08-18~2026-08-24",
+      fieldLabel: "下周待办",
+      content: `推进日记压缩与回归 ${SECRET_API_KEY}`,
+      lines: ["完成 limits 与 counts 契约投影", `清理路径 ${SECRET_DIARY_WIN_PATH}`],
+      docId: "carryover-doc-1",
+    },
+  ];
+  const overviewDataRaw = {
+    date: "2026-08-22",
+    todayDiaryExists: true,
+    todayDiary: { docId: "today-doc-id", title: "2026-08-22", date: "2026-08-22" },
+    templateValid: true,
+    missingSections: [],
+    summary: {
+      templateValid: true,
+      missing: [],
+      newTaskCount: 5,
+      migratedTaskCount: 2,
+      quickRecordCount: 8,
+      projectCount: 3,
+    },
+    tasks: tasks39.slice(0, 2),
+    records: records5.slice(0, 1),
+    projects: [
+      {
+        name: "主页项目",
+        taskCount: 10,
+        openTaskCount: 5,
+        todayTaskCount: 2,
+        overdueTaskCount: 0,
+        lastActivityDate: "2026-08-22",
+        inactiveDays: 0,
+        healthStatus: "healthy" as const,
+        healthLabel: "健康",
+        healthTone: "success" as const,
+        hasTodayProgress: true,
+      },
+    ],
+    notifications: [
+      {
+        id: "notif-1",
+        type: "overdue_task" as const,
+        level: "warning" as const,
+        title: "任务提醒",
+        description: `有待办任务凭据 ${SECRET_USERINFO_URL}`,
+      },
+    ],
+    reviews: [
+      {
+        period: "day" as const,
+        title: "今日复盘",
+        status: "pending" as const,
+        statusLabel: "待复盘",
+        dateOrRange: "2026-08-22",
+        targetDate: "2026-08-22",
+      },
+    ],
+    carryoverPlans: overviewCarryoverPlans,
+    limits: overviewLimits,
+    counts: overviewCounts,
+    note: `工作区日记总览已生成，包含凭据 ${SECRET_USERINFO_URL}，完整上下文信息与聚合统计。`.repeat(60),
+  };
+  const ovArgs = getDailyWorkspaceOverviewInputSchema.parse({ date: "2026-08-22" });
+  const overviewData = getDailyWorkspaceOverviewOutputSchema.parse(overviewDataRaw);
+  const ovMessages = diaryMessages("ov-1", "overview", overviewData, ovArgs);
+  const ovStorage = compactAgentSessionMessagesForStorage(ovMessages, homepageReadCompactionOptions);
+  const ovRuntime = compactAgentMessages(ovMessages, homepageReadCompactionOptions);
+
+  for (const [label, compacted] of [["storage", ovStorage], ["runtime", ovRuntime]] as const) {
+    const payload = compactedToolPayload(compacted, "ov-1", 12_000);
+    assert.equal(payload.date, "2026-08-22", `${label} date 必须保留`);
+    assert.equal(payload.todayDiaryExists, true, `${label} todayDiaryExists 必须保留`);
+    assert.equal((payload.summary as any).newTaskCount, 5, `${label} summary 必须保留`);
+
+    // 权威 limits 契约字段验证
+    assert.deepEqual(payload.limits, overviewLimits, `${label} 必须完整保留权威 limits 契约字段`);
+
+    // 权威 counts 契约字段验证
+    assert.deepEqual(payload.counts, overviewCounts, `${label} 必须完整保留权威 counts 契约字段`);
+
+    // 集合与 carryoverPlans 验证
+    assert.equal((payload.tasks as unknown[]).length, 2, `${label} tasks 必须保留`);
+    assert.equal((payload.records as unknown[]).length, 1, `${label} records 必须保留`);
+    assert.equal((payload.projects as unknown[]).length, 1, `${label} projects 必须保留`);
+    assert.equal((payload.notifications as unknown[]).length, 1, `${label} notifications 必须保留`);
+    assert.equal((payload.reviews as unknown[]).length, 1, `${label} reviews 必须保留`);
+    assert.equal(Array.isArray(payload.carryoverPlans), true, `${label} carryoverPlans 必须保留为数组`);
+    assert.equal((payload.carryoverPlans as unknown[]).length, 1, `${label} carryoverPlans 必须保留 1 项`);
+    assert.equal(payload.retainedCarryoverCount, 1, `${label} retainedCarryoverCount 必须为 1`);
+
+    const carryoverItem = (payload.carryoverPlans as any[])[0];
+    assert.equal(carryoverItem.period, "week");
+    assert.equal(carryoverItem.periodLabel, "本周计划");
+    assert.equal(carryoverItem.sourceLabel, "2026-W34");
+    assert.equal(carryoverItem.sourceDateOrRange, "2026-08-18~2026-08-24");
+    assert.equal(carryoverItem.fieldLabel, "下周待办");
+    assert.equal(carryoverItem.docId, "carryover-doc-1");
+
+    // 敏感凭据/路径脱敏检查
+    const serialized = JSON.stringify(payload);
+    for (const secret of ALL_DIARY_SECRETS) {
+      assert.equal(serialized.includes(secret), false, `${label} overview 不得泄漏：${secret}`);
+    }
+  }
+
+  // 6. overview 最大合法多集合 + 多字节长文本极限 Probe
+  const maxTasks = Array.from({ length: 50 }, (_, i) => ({
+    taskId: `probe-task-${i + 1}`,
+    blockId: `probe-block-${i + 1}`,
+    markdown: `* [ ] 最大合法任务项 ${i + 1} 详细说明与阶段性目标 `.repeat(3),
+    taskname: `最大合法任务 ${i + 1} 包含了详细长文本多字节字符以验证压缩上限 `.repeat(2),
+    completed: false,
+    priority: "1",
+    startDate: "2026-08-20",
+    deadline: "2026-08-22",
+    recurrence: "",
+    reminder: "",
+    location: i === 0 ? SECRET_DIARY_WIN_PATH : "",
+    tags: ["probe", "multibyte"],
+    sourceKind: "normal" as const,
+    sourceDate: "2026-08-20",
+    sourceDocId: `doc-probe-${i + 1}`,
+    sourceDocTitle: `2026-08-20 日记 ${i === 0 ? SECRET_DIARY_UNIX_PATH : ""}`,
+    isTodayTask: true,
+    isOverdue: false,
+    shouldMigrate: false,
+  }));
+  const maxRecords = Array.from({ length: 50 }, (_, i) => ({
+    recordId: `probe-record-${i + 1}`,
+    date: "2026-08-22",
+    docId: `doc-probe-rec-${i + 1}`,
+    docTitle: "2026-08-22 工作日记",
+    categoryTitle: "核心开发",
+    headingTitle: `### 阶段 ${i + 1} 详细记录与执行情况总结 ${i === 0 ? SECRET_USERINFO_URL : ""}`,
+    timeText: "14:00",
+    content: `完成模块 ${i + 1} 重构开发，凭据 ${SECRET_API_KEY}，长多字节文本用于极限探针压力验证。`.repeat(4),
+    headingBlockId: `probe-heading-${i + 1}`,
+  }));
+  const maxProjects = Array.from({ length: 20 }, (_, i) => ({
+    name: `核心业务项目与多语言视图架构设计 ${i + 1}`,
+    taskCount: 20,
+    openTaskCount: 10,
+    todayTaskCount: 5,
+    overdueTaskCount: 0,
+    lastActivityDate: "2026-08-22",
+    inactiveDays: 0,
+    healthStatus: "healthy" as const,
+    healthLabel: "健康稳定",
+    healthTone: "success" as const,
+    hasTodayProgress: true,
+  }));
+  const maxNotifications = Array.from({ length: 30 }, (_, i) => ({
+    id: `probe-notif-${i + 1}`,
+    type: "overdue_task" as const,
+    level: "warning" as const,
+    title: `多语言工作区长文本任务提醒通知 ${i + 1}`,
+    description: `存在待办任务凭据 ${SECRET_USERINFO_URL} 需要在工作区内尽快跟进并完成复盘总结。`.repeat(3),
+  }));
+  const maxReviews = Array.from({ length: 10 }, (_, i) => ({
+    period: "day" as const,
+    title: `周期复盘与目标对齐总结计划 ${i + 1}`,
+    status: "pending" as const,
+    statusLabel: "待复盘",
+    dateOrRange: "2026-08-22",
+    targetDate: "2026-08-22",
+  }));
+  const maxCarryoverPlans = Array.from({ length: 10 }, (_, i) => ({
+    period: "week" as const,
+    periodLabel: "本周计划",
+    sourceLabel: `2026-W${30 + i}`,
+    sourceDateOrRange: "2026-08-18~2026-08-24",
+    fieldLabel: "跨周期结转事项",
+    content: `结转计划事项 ${i + 1} 包含凭据 ${SECRET_API_KEY} 与详细推进步骤。`.repeat(4),
+    lines: Array.from({ length: 8 }, (_, l) => `详细结转条目 ${l + 1}：推进代码重构与全量测试验证覆盖。`),
+    docId: `carryover-probe-doc-${i + 1}`,
+  }));
+
+  const maxOverviewLimits = {
+    tasks: 50,
+    records: 50,
+    projects: 20,
+    notifications: 30,
+    reviews: 10,
+    carryoverPlans: 10,
+  };
+  const maxOverviewCounts = {
+    tasksTotal: 120,
+    tasksReturned: 50,
+    tasksTruncated: true,
+    recordsTotal: 80,
+    recordsReturned: 50,
+    recordsTruncated: true,
+    projectsTotal: 25,
+    projectsReturned: 20,
+    projectsTruncated: true,
+    notificationsTotal: 45,
+    notificationsReturned: 30,
+    notificationsTruncated: true,
+    reviewsTotal: 10,
+    reviewsReturned: 10,
+    reviewsTruncated: false,
+    carryoverPlansTotal: 15,
+    carryoverPlansReturned: 10,
+    carryoverPlansTruncated: true,
+  };
+  const maxOverviewDataRaw = {
+    date: "2026-08-22",
+    todayDiaryExists: true,
+    todayDiary: { docId: "probe-today-doc-id", title: "2026-08-22", date: "2026-08-22" },
+    templateValid: true,
+    missingSections: [],
+    summary: {
+      templateValid: true,
+      missing: [],
+      newTaskCount: 50,
+      migratedTaskCount: 20,
+      quickRecordCount: 50,
+      projectCount: 20,
+    },
+    tasks: maxTasks,
+    records: maxRecords,
+    projects: maxProjects,
+    notifications: maxNotifications,
+    reviews: maxReviews,
+    carryoverPlans: maxCarryoverPlans,
+    limits: maxOverviewLimits,
+    counts: maxOverviewCounts,
+    note: `最大合法多集合多字节工作区日记总览探针，包含凭据 ${SECRET_USERINFO_URL}。`.repeat(50),
+  };
+
+  const maxOvArgs = getDailyWorkspaceOverviewInputSchema.parse({ date: "2026-08-22" });
+  const maxOverviewData = getDailyWorkspaceOverviewOutputSchema.parse(maxOverviewDataRaw);
+  const maxOvMessages = diaryMessages("ov-max-probe", "overview", maxOverviewData, maxOvArgs);
+  const maxOvStorage = compactAgentSessionMessagesForStorage(maxOvMessages, homepageReadCompactionOptions);
+  const maxOvRuntime = compactAgentMessages(maxOvMessages, homepageReadCompactionOptions);
+
+  for (const [label, compacted] of [["storage", maxOvStorage], ["runtime", maxOvRuntime]] as const) {
+    const rawToolMessage = compacted.find((m) => m.role === "tool" && m.toolCallId === "ov-max-probe");
+    assert.ok(rawToolMessage, `${label} 必须包含 ov-max-probe 工具返回消息`);
+
+    // 核心断言 1：输出直接可 JSON.parse，严禁出现 [compact: token budget] 切割
+    assert.equal(rawToolMessage.content.includes("[compact: token budget]"), false, `${label} 严禁出现 [compact: token budget] 文本硬截断`);
+    const payload = compactedToolPayload(compacted, "ov-max-probe", 12_000);
+
+    // 核心断言 2：权威 limits & counts 完整保留
+    assert.deepEqual(payload.limits, maxOverviewLimits, `${label} 必须完整保留权威 limits 契约字段`);
+    assert.deepEqual(payload.counts, maxOverviewCounts, `${label} 必须完整保留权威 counts 契约字段`);
+
+    // 核心断言 3：六大集合各保留代表性条目（>= 1）
+    assert.ok((payload.tasks as unknown[]).length >= 1, `${label} tasks 必须保留至少 1 项代表性条目`);
+    assert.ok((payload.records as unknown[]).length >= 1, `${label} records 必须保留至少 1 项代表性条目`);
+    assert.ok((payload.projects as unknown[]).length >= 1, `${label} projects 必须保留至少 1 项代表性条目`);
+    assert.ok((payload.notifications as unknown[]).length >= 1, `${label} notifications 必须保留至少 1 项代表性条目`);
+    assert.ok((payload.reviews as unknown[]).length >= 1, `${label} reviews 必须保留至少 1 项代表性条目`);
+    assert.ok((payload.carryoverPlans as unknown[]).length >= 1, `${label} carryoverPlans 必须保留至少 1 项代表性条目`);
+
+    // 核心断言 4：各集合保留数与省略数之和严格等于服务端返回数
+    assert.equal((payload.retainedTaskCount as number) + (payload.omittedTaskCount as number), 50, `${label} tasks 保留+省略必须为 50`);
+    assert.equal((payload.retainedRecordCount as number) + (payload.omittedRecordCount as number), 50, `${label} records 保留+省略必须为 50`);
+    assert.equal((payload.retainedProjectCount as number) + (payload.omittedProjectCount as number), 20, `${label} projects 保留+省略必须为 20`);
+    assert.equal((payload.retainedNotificationCount as number) + (payload.omittedNotificationCount as number), 30, `${label} notifications 保留+省略必须为 30`);
+    assert.equal((payload.retainedReviewCount as number) + (payload.omittedReviewCount as number), 10, `${label} reviews 保留+省略必须为 10`);
+    assert.equal((payload.retainedCarryoverCount as number) + (payload.omittedCarryoverCount as number), 10, `${label} carryoverPlans 保留+省略必须为 10`);
+
+    // 核心断言 5：敏感凭据脱敏
+    const serialized = JSON.stringify(payload);
+    for (const secret of ALL_DIARY_SECRETS) {
+      assert.equal(serialized.includes(secret), false, `${label} max overview probe 不得泄漏：${secret}`);
+    }
+  }
+
+  // 7. 未知 Action：由于 safetyResolver 和 isDiaryReadOnlyTool 严格限制 4 个只读 action，未知 subaction 默认走安全写路径保留，不伪造任务数组
+  const unknownDiaryMessages = diaryMessages(
+    "unknown-act",
+    "unrecognized_subaction",
+    { some: "data", details: "未知子操作返回的较长原始负载信息用于验证运行时压缩触发路径。".repeat(200) },
+  );
+  for (const [label, compacted] of [
+    ["storage", compactAgentSessionMessagesForStorage(unknownDiaryMessages, homepageReadCompactionOptions)],
+    ["runtime", compactAgentMessages(unknownDiaryMessages, { ...homepageReadCompactionOptions, resolveCallReadOnly: safetyResolver })],
+  ] as const) {
+    const payload = compactedToolPayload(compacted, "unknown-act");
+    assert.equal(payload.status, "success", `${label} 未识别 Action 默认走安全写路径保留`);
+    assert.equal(payload.action, "unrecognized_subaction", `${label} 必须记录原始 Action 名称`);
+    assert.equal("tasks" in payload, false, `${label} 未识别 Action 不得伪造 tasks 数组`);
   }
 }
 
