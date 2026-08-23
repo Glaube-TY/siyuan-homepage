@@ -54,6 +54,7 @@
     "verify:agent-ui": "cross-env TS_NODE_TRANSPILE_ONLY=true node --loader ts-node/esm --loader ./scripts/ts-node-alias-loader.mjs --experimental-specifier-resolution=node scripts/verify-agent-execution-ui.ts",
     "verify:automation-storage": "node --loader ts-node/esm --experimental-specifier-resolution=node scripts/verify-automation-job-storage.ts",
     "verify:automation-scheduler": "node --loader ts-node/esm --experimental-specifier-resolution=node scripts/verify-automation-scheduler.ts",
+    "verify:automation-permissions": "cross-env TS_NODE_TRANSPILE_ONLY=true node --loader ts-node/esm --loader ./scripts/ts-node-alias-loader.mjs --experimental-specifier-resolution=node scripts/verify-automation-unattended-permissions.ts",
     "verify:global-calendar": "node --loader ts-node/esm --experimental-specifier-resolution=node scripts/verify-global-calendar.ts",
     "verify:habit-tracker": "node --loader ts-node/esm --experimental-specifier-resolution=node scripts/verify-habit-tracker.ts",
     "verify:visual-chart": "node --loader ts-node/esm --experimental-specifier-resolution=node scripts/verify-visual-chart.ts",

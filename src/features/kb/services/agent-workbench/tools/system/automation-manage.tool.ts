@@ -145,7 +145,7 @@ export function createAutomationManageTool(
   const create = action(
     "automation_create",
     "创建 Agent 自动任务",
-    "创建定时 Agent 或心跳任务。",
+    "创建定时 Agent 或心跳任务；execution.goal 必须包含可独立执行的完整目标，结果投递对话不会作为运行上下文。",
     createSchema,
     false,
     async (_ctx, args) => {

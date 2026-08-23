@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { getNotificationDeviceId } from "@/features/notification-center";
-  import { createAutomationJobId, type AutomationJobDefinition, type AutomationReplyTarget } from "@/features/agent-platform/automation/automation-job-contract";
+  import { createAutomationJobId, AUTOMATION_DEFAULT_BUDGET, type AutomationJobDefinition, type AutomationReplyTarget } from "@/features/agent-platform/automation/automation-job-contract";
   import { automationJobStore } from "@/features/agent-platform/automation/automation-job-store";
   import { encodeAutomationRobotRoute } from "@/features/agent-platform/automation/automation-robot-route";
   import { listAutomationSensors } from "@/features/agent-platform/automation/automation-sensor-registry";
@@ -170,8 +170,8 @@
         : { kind: "once" as const, at: new Date(onceAt).getTime(), timeZone };
       const execution = {
         goal: content.trim(), profileId: targetChannel === "robot" ? "remote-robot" : "knowledge-chat",
-        allowedToolNames: [], allowedActionNames: [], memoryAccess: "read" as const, unattendedWritePolicy: "safe" as const,
-        budget: source?.task.execution.budget ?? { maxTokens: 30_000, maxToolCalls: 12, maxDurationMs: 300_000 },
+        allowedToolNames: [], allowedActionNames: [], memoryAccess: "none" as const, unattendedWritePolicy: "deny" as const,
+        budget: source?.task.execution.budget ?? { ...AUTOMATION_DEFAULT_BUDGET },
       };
       const replyTarget = buildReplyTarget();
       const next: AutomationJobDefinition = {

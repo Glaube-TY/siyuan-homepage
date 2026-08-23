@@ -233,34 +233,27 @@ export function createBackgroundJobAgentProfile(input: {
   maxToolCalls: number;
   conversationAccess?: boolean;
 }): AgentProfile {
-  if (input.profileId && input.profileId !== BACKGROUND_JOB_AGENT_PROFILE_ID) {
-    const source = getAgentProfile(input.profileId);
-    const requestedNames = new Set(input.allowedToolNames);
-    const names = requestedNames.size === 0 || source.permissions.tools.names === "*"
-      ? source.permissions.tools.names
-      : source.permissions.tools.names.filter((name) => requestedNames.has(name));
-    return Object.freeze({
-      ...source,
-      id: BACKGROUND_JOB_AGENT_PROFILE_ID,
-      label: "后台自动化任务",
-      permissions: Object.freeze({
-        ...source.permissions,
-        tools: Object.freeze({ names, actions: source.permissions.tools.actions }),
-        memory: Object.freeze({ ...source.permissions.memory, write: source.permissions.memory.write }),
-      }),
-      execution: Object.freeze({ defaultMaxToolCalls: Math.max(0, input.maxToolCalls) }),
-    });
-  }
-  const names = [...new Set(input.allowedToolNames)].filter((name) => BACKGROUND_SAFE_ACTIONS[name]);
+  const source = input.profileId && input.profileId !== BACKGROUND_JOB_AGENT_PROFILE_ID
+    ? getAgentProfile(input.profileId)
+    : undefined;
+  const names = [...new Set(input.allowedToolNames)].filter((name) =>
+    BACKGROUND_SAFE_ACTIONS[name] && (!source || agentProfileAllowsTool(source, name)));
   const requestedActions = new Set(input.allowedActionNames);
   const actions = Object.fromEntries(names.map((name) => [name,
-    BACKGROUND_SAFE_ACTIONS[name].filter((action) => requestedActions.has(`${name}:${action}`)),
+    BACKGROUND_SAFE_ACTIONS[name].filter((action) =>
+      requestedActions.has(`${name}:${action}`)
+      && (!source || agentProfileAllowsToolAction(source, name, action))),
   ]));
-  const memoryRead = input.memoryAccess === "read";
-  if (names.some((name) => actions[name].length === 0)) throw new Error("后台 Agent 工具必须明确授权至少一个只读 action。");
-  const capabilities: AgentCapabilityId[] = ["tools", "siyuan"];
-  const contextSources: AgentContextSourceId[] = ["knowledge"];
-  if (input.conversationAccess) { capabilities.push("conversation"); contextSources.push("conversation"); }
+  const activeNames = names.filter((name) => actions[name].length > 0);
+  const memoryRead = input.memoryAccess === "read" && (!source || agentProfileAllowsMemory(source, "read"));
+  const capabilities: AgentCapabilityId[] = ["siyuan"];
+  const contextSources: AgentContextSourceId[] = [];
+  if (activeNames.length > 0) capabilities.push("tools");
+  if (!source || agentProfileAllowsContext(source, "knowledge")) contextSources.push("knowledge");
+  if (input.conversationAccess && (!source || agentProfileAllowsContext(source, "conversation"))) {
+    capabilities.push("conversation");
+    contextSources.push("conversation");
+  }
   if (memoryRead) { capabilities.push("global-memory"); contextSources.push("global-memory"); }
   return Object.freeze({
     schemaVersion: AGENT_PROFILE_SCHEMA_VERSION,
@@ -269,11 +262,11 @@ export function createBackgroundJobAgentProfile(input: {
     capabilities: Object.freeze(capabilities),
     permissions: Object.freeze({
       contextSources: Object.freeze(contextSources),
-      tools: Object.freeze({ names: Object.freeze(names), actions: Object.freeze(actions) }),
+      tools: Object.freeze({ names: Object.freeze(activeNames), actions: Object.freeze(actions) }),
       memory: Object.freeze({ read: memoryRead, write: false }),
       externalSkillIds: Object.freeze([]), mcpServerIds: Object.freeze([]), mcpToolNames: Object.freeze([]),
     }),
-    execution: Object.freeze({ defaultMaxToolCalls: Math.max(0, input.maxToolCalls) }),
+    execution: Object.freeze({ defaultMaxToolCalls: activeNames.length > 0 ? Math.max(0, input.maxToolCalls) : 0 }),
   });
 }
 

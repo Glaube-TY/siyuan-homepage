@@ -21,7 +21,7 @@ const job: AutomationJobDefinition = {
   schemaVersion: 1, jobId: "job-scheduler-demo", revision: 1, name: "调度自检", enabled: true,
   source: { surface: "internal" },
   trigger: { kind: "interval", intervalMinutes: 60, anchorAt: createdAt, timeZone: shanghai },
-  task: { kind: "agent", execution: { goal: "自检", profileId: "background-job", allowedToolNames: ["siyuan_kb"], allowedActionNames: ["siyuan_kb:search"], memoryAccess: "none", budget: { maxTokens: 1000, maxToolCalls: 1, maxDurationMs: 10_000 } } },
+  task: { kind: "agent", execution: { goal: "自检", profileId: "background-job", allowedToolNames: ["siyuan_kb"], allowedActionNames: ["siyuan_kb:search"], memoryAccess: "none", unattendedWritePolicy: "deny", budget: { maxTokens: 1000, maxToolCalls: 1, maxDurationMs: 10_000 } } },
   runner: { deviceId: "device-demo", runtime: "frontend", requiredCapabilities: [] },
   policy: { catchUp: "latest", overlap: "skip", maxRetries: 0, maxConsecutiveFailures: 3 },
   output: {},

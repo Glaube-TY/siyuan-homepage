@@ -55,6 +55,7 @@ const reminder: AutomationJobDefinition = {
       allowedToolNames: ["siyuan_kb"],
       allowedActionNames: ["siyuan_kb:search"],
       memoryAccess: "none",
+      unattendedWritePolicy: "deny",
       budget: { maxTokens: 1000, maxToolCalls: 1, maxDurationMs: 10_000 },
     },
   },

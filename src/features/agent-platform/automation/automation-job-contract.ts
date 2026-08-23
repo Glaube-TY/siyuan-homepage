@@ -15,21 +15,33 @@ const uniqueShortIdsSchema = z
   );
 export const automationTriggerSchema = backgroundTriggerSchema;
 
+/** 统一安全默认预算：设置界面与 Agent 工具共用。 */
+export const AUTOMATION_DEFAULT_BUDGET = {
+  maxTokens: 30_000,
+  maxToolCalls: 12,
+  maxDurationMs: 300_000,
+} as const;
+
 const agentExecutionSchema = z
   .object({
     goal: z.string().trim().min(1).max(8_000),
-    profileId: shortIdSchema,
-    allowedToolNames: uniqueShortIdsSchema,
-    allowedActionNames: uniqueShortIdsSchema,
-    memoryAccess: z.enum(["none", "read"]),
-    unattendedWritePolicy: z.enum(["deny", "safe"]).optional(),
+    profileId: shortIdSchema.default("background-job"),
+    allowedToolNames: uniqueShortIdsSchema.default([]),
+    allowedActionNames: uniqueShortIdsSchema.default([]),
+    memoryAccess: z.enum(["none", "read"]).default("none"),
+    unattendedWritePolicy: z.enum(["deny", "safe"]).default("deny"),
     budget: z
       .object({
-        maxTokens: z.number().int().min(1).max(1_000_000),
-        maxToolCalls: z.number().int().min(0).max(200),
-        maxDurationMs: z.number().int().min(1_000).max(3_600_000),
+        maxTokens: z.number().int().min(1).max(1_000_000).default(AUTOMATION_DEFAULT_BUDGET.maxTokens),
+        maxToolCalls: z.number().int().min(0).max(200).default(AUTOMATION_DEFAULT_BUDGET.maxToolCalls),
+        maxDurationMs: z.number().int().min(1_000).max(3_600_000).default(AUTOMATION_DEFAULT_BUDGET.maxDurationMs),
       })
-      .strict(),
+      .strict()
+      .default({
+        maxTokens: AUTOMATION_DEFAULT_BUDGET.maxTokens,
+        maxToolCalls: AUTOMATION_DEFAULT_BUDGET.maxToolCalls,
+        maxDurationMs: AUTOMATION_DEFAULT_BUDGET.maxDurationMs,
+      }),
   })
   .strict();
 

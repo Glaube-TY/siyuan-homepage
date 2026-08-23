@@ -4,8 +4,6 @@ import {
   withNotificationLock,
 } from "@/features/notification-center/notification-center-locks";
 import {
-  buildConversationContext,
-  buildUncoveredVerbatimAgentMessages,
   runAgentProfile,
 } from "@/features/kb/services/agent-workbench";
 import type { AgentWorkbenchEvent } from "@/features/kb/services/agent-workbench/contracts/turn-event";
@@ -40,8 +38,6 @@ import {
 import { inspectAgentRunResume } from "@/features/kb/services/agent-core/session/agent-run-checkpoint";
 import { kbSessionStore } from "@/features/kb/stores/kb-session-store";
 import { ROBOT_OUTBOUND_RESULT_EVENT } from "@/features/robot-assistant/contracts/robot-message";
-import { restoreKbChatSessions } from "@/features/kb/services/agent-workbench/storage/chat-session-facade";
-import type { ChatMessage } from "@/features/kb/types/chat";
 import { RobotSettingsClient } from "@/features/robot-assistant/settings/robot-settings-client";
 
 export const AUTOMATION_RUNTIME_CHANGED_EVENT = "automation-runtime-changed";
@@ -125,9 +121,8 @@ async function deliver(
           if (event.detail?.deliveryId !== runId) return;
           window.clearTimeout(timer);
           abort.abort();
-          event.detail.ok
-            ? resolve()
-            : reject(new Error(event.detail.error || "机器人客户端发送失败。"));
+          if (event.detail.ok) resolve();
+          else reject(new Error(event.detail.error || "机器人客户端发送失败。"));
         }) as EventListener,
         { signal: abort.signal },
       );
@@ -167,88 +162,6 @@ async function deliver(
   }
 }
 
-async function loadConversationContext(
-  job: AutomationJobDefinition,
-  goal: string,
-) {
-  const target = job.output.replyTarget;
-  if (!target || target.conversationMode !== "existing") return undefined;
-  if (target.kind === "kb-conversation" && target.conversationId) {
-    const snapshot = await restoreKbChatSessions();
-    const conversation = snapshot?.conversations.find(
-      (item) => item.id === target.conversationId,
-    );
-    if (!conversation) throw new Error("绑定的本地 AI 会话不存在或已被删除。");
-    if (conversation.kind === "legacy") {
-      throw new Error("LEGACY_CONVERSATION_READ_ONLY");
-    }
-    const conversationContext = buildConversationContext({
-      messages: conversation.messages,
-      currentQuestion: goal,
-      compactionSnapshot: conversation.latestCompactionSnapshot,
-    });
-    return {
-      conversationContext,
-      historicalMessages: buildUncoveredVerbatimAgentMessages({
-        messages: conversation.messages,
-        compactionSnapshot: conversation.latestCompactionSnapshot,
-      }),
-    };
-  }
-  if (target.kind === "robot") {
-    const client = new RobotKernelClient(
-      getPluginKernelPort(getNotebrainPlugin()),
-    );
-    if (!client.available) throw new Error("机器人运行设备当前不可用。");
-    const sessions = await client.call<unknown[]>("robot.getSessions");
-    const route = decodeAutomationRobotRoute(target.routeRef);
-    const session = (Array.isArray(sessions) ? sessions : []).find((item) => {
-      if (!item || typeof item !== "object") return false;
-      const value = item as Record<string, unknown>;
-      if (target.conversationId)
-        return value.conversationId === target.conversationId;
-      const key =
-        value.key && typeof value.key === "object"
-          ? (value.key as Record<string, unknown>)
-          : {};
-      return (
-        key.provider === route.provider &&
-        key.accountId === route.accountId &&
-        key.chatId === route.chatId &&
-        (!route.senderId || key.senderId === route.senderId) &&
-        value.active === true
-      );
-    }) as Record<string, unknown> | undefined;
-    if (!session) throw new Error("绑定的机器人会话不存在或已被删除。");
-    const messages = (
-      Array.isArray(session.messages) ? session.messages : []
-    ).flatMap((item, index): ChatMessage[] => {
-      if (!item || typeof item !== "object") return [];
-      const value = item as Record<string, unknown>;
-      if (
-        (value.role !== "user" && value.role !== "assistant") ||
-        typeof value.content !== "string"
-      )
-        return [];
-      const createdAt =
-        typeof value.createdAt === "number" ? value.createdAt : Date.now();
-      return [
-        {
-          id: `robot-${String(session.conversationId)}-${index}`,
-          role: value.role,
-          content: value.content,
-          createdAt,
-          ...(value.role === "assistant" ? { isComplete: true } : {}),
-        } as ChatMessage,
-      ];
-    });
-    return {
-      conversationContext: buildConversationContext({ messages, currentQuestion: goal }),
-      historicalMessages: buildUncoveredVerbatimAgentMessages({ messages }),
-    };
-  }
-}
-
 function shouldDeliver(
   job: AutomationJobDefinition,
   status: AutomationRunRecord["status"],
@@ -280,14 +193,13 @@ async function executeAgent(
   );
   const events: AgentWorkbenchEvent[] = [];
   let checkpointWrite = Promise.resolve();
-  const loadedConversationContext = await loadConversationContext(job, goal);
-  const conversationContext = loadedConversationContext?.conversationContext;
   let allowedToolNames = execution.allowedToolNames;
   if (job.output.replyTarget?.kind === "robot") {
     const client = new RobotSettingsClient(new RobotKernelClient(getPluginKernelPort(getNotebrainPlugin())));
     const settings = await client.getSettings();
+    const requestedTools = new Set(allowedToolNames);
     allowedToolNames = Object.entries(settings.robotToolPolicy.tools)
-      .filter(([, policy]) => policy.remoteAllowed)
+      .filter(([name, policy]) => policy.remoteAllowed && requestedTools.has(name))
       .map(([name]) => name);
   }
   const profile = createBackgroundJobAgentProfile({
@@ -298,14 +210,12 @@ async function executeAgent(
         : KNOWLEDGE_CHAT_AGENT_PROFILE_ID,
     allowedToolNames,
     maxToolCalls: execution.budget.maxToolCalls,
-    conversationAccess: Boolean(conversationContext),
+    conversationAccess: false,
   });
   try {
     const outcome = await runAgentProfile({
       profile,
       question: goal,
-      conversationContext,
-      historicalMessages: loadedConversationContext?.historicalMessages,
       mode: "whole_kb",
       conversationId:
         job.output.replyTarget?.conversationMode === "existing"
@@ -314,7 +224,7 @@ async function executeAgent(
       turnId: runId,
       abortSignal: controller.signal,
       maxToolCalls: execution.budget.maxToolCalls,
-      unattendedWritePolicy: execution.unattendedWritePolicy ?? "safe",
+      unattendedWritePolicy: execution.unattendedWritePolicy ?? "deny",
       onWorkbenchEvent(event) {
         events.push(event);
         if (
@@ -695,7 +605,7 @@ async function runOccurrence(
 
 async function scanJobs(): Promise<void> {
   for (const job of await automationJobStore.listJobs()) {
-    if (!job.enabled || job.runner.deviceId !== getNotificationDeviceId())
+    if (job.runner.deviceId !== getNotificationDeviceId())
       continue;
     let state = await automationJobStore.getState(job.jobId);
     if (state?.activeRunId) {
@@ -710,6 +620,7 @@ async function scanJobs(): Promise<void> {
       );
     }
     if (state?.status === "blocked" || state?.status === "paused") continue;
+    // 手动运行优先于 enabled 检查：停用任务也可被手动触发一次
     if (state?.manualRunRequestedAt) {
       const scheduledAt = state.manualRunRequestedAt;
       await runOccurrence(
@@ -719,6 +630,7 @@ async function scanJobs(): Promise<void> {
       );
       continue;
     }
+    if (!job.enabled) continue;
     const due = resolveDueOccurrence(job, state);
     if (due.skipped && due.nextRunAt !== state?.nextRunAt) {
       await saveState(job, state, {
