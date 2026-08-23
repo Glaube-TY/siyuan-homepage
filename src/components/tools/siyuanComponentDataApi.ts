@@ -1090,15 +1090,22 @@ export async function removeTaskIndexItem(id: string): Promise<void> {
 
 export async function ensureTaskBlockExists(id: string): Promise<boolean> {
     const indexed = (await readTaskIndexItems()).find((item) => item.id === id);
-    if (indexed && isWithinTaskIndexProtection(indexed)) return true;
-    const status = indexed
-        ? await verifyIndexedTaskBlock(indexed)
-        : (await isExistingBlock(id) ? "exists" : "unknown");
+    let status: "exists" | "inactive" | "missing" | "unknown";
+    if (indexed) {
+        status = await verifyIndexedTaskBlock(indexed);
+    } else {
+        try {
+            await getBlockInfo(id);
+            status = "exists";
+        } catch {
+            status = "unknown";
+        }
+    }
     if (status === "missing" || status === "inactive") {
         await removeTaskIndexItem(id);
         return false;
     }
-    return true;
+    return status === "exists";
 }
 
 function normalizeRecentDoc(block: any): ComponentRecentDocSnapshotDoc | null {
