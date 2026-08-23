@@ -1074,6 +1074,29 @@ function compactDiaryReadOnlyPayload(
   });
 }
 
+function compactAgentToolHelpPayload(
+  payload: Record<string, any>,
+  helpAction: string,
+): string {
+  const fieldsByAction: Record<string, readonly string[]> = {
+    list_tools: ["tools"],
+    describe_tool: ["name", "title", "description", "readOnly", "requiresConfirmation", "actionCount", "boundary", "argsSchema", "inputHint", "examples", "notes", "note", "actions", "activation"],
+    list_actions: ["toolName", "actions", "note", "activation"],
+    describe_action: ["toolName", "toolTitle", "action", "title", "description", "readOnly", "requiresConfirmation", "required", "boundary", "argsUsage", "argsSchema", "outputSchema", "resultEnvelope", "inputHint", "examples", "notes", "hasActions", "activation", "requestedToolName", "requestedActionName", "publicRoute", "note"],
+    list_custom_skills: ["total", "skills"],
+    describe_custom_skill: ["id", "title", "description", "sourceType", "source", "trusted", "riskLevel", "tags", "triggers", "requiredEnvVars", "entryFile", "content", "truncated", "chars"],
+  };
+  const projected: Record<string, unknown> = {
+    ok: true,
+    helpAction,
+    compactionNote: "agent_tool_help result compacted for storage.",
+  };
+  for (const field of fieldsByAction[helpAction] ?? []) {
+    if (payload[field] !== undefined) projected[field] = deepSanitizeToolValue(payload[field], field);
+  }
+  return JSON.stringify(projected);
+}
+
 function actionAwareStorageContent(
   message: AgentToolMessage,
   rawArgs?: Record<string, unknown>,
@@ -1147,6 +1170,10 @@ function actionAwareStorageContent(
     return compactDiaryReadOnlyPayload(base, payload, diaryAction, operation.args);
   }
 
+  if (message.name === "agent_tool_help") {
+    return compactAgentToolHelpPayload(payload, operation.action);
+  }
+
   const items = Array.isArray(payload.items)
     ? payload.items
     : Array.isArray(payload.results)
@@ -1155,16 +1182,25 @@ function actionAwareStorageContent(
         ? payload.candidates
         : Array.isArray(payload.tasks)
           ? payload.tasks
-          : Array.isArray(payload.records)
-            ? payload.records
-            : [];
+        : Array.isArray(payload.records)
+          ? payload.records
+            : undefined;
+  const itemCount = payload.totalCount ?? payload.returnedCandidateCount ?? payload.itemCount;
+  if (!items && itemCount === undefined) {
+    return JSON.stringify({
+      ...base,
+      status: "compacted_shape_unknown",
+      preview: boundedJsonValue(payload, 600),
+      note: "Read result structure not recognized; raw projection withheld to avoid fake empty counts.",
+    });
+  }
   return JSON.stringify({
     ...base,
     queryDigest: digestSafeText(operation.args.query),
-    itemCount: payload.totalCount ?? payload.returnedCandidateCount ?? items.length,
-    docIds: safeStrings(items.map((item: any) => item?.docId ?? item?.sourceDocId ?? item?.rootId)),
-    blockIds: safeStrings(items.map((item: any) => item?.blockId ?? item?.headingBlockId)),
-    titles: safeStrings(items.map((item: any) => item?.title ?? item?.taskname ?? item?.docTitle)),
+    itemCount: itemCount ?? items?.length ?? 0,
+    docIds: safeStrings(items?.map((item: any) => item?.docId ?? item?.sourceDocId ?? item?.rootId)),
+    blockIds: safeStrings(items?.map((item: any) => item?.blockId ?? item?.headingBlockId)),
+    titles: safeStrings(items?.map((item: any) => item?.title ?? item?.taskname ?? item?.docTitle)),
     note: "Read result compacted for storage.",
   });
 }

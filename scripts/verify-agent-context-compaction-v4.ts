@@ -169,6 +169,7 @@ registerSafetyTool(safetyRegistry, "diary_task", false, (args) => {
 for (const name of ["query_tasks", "query_diary_records", "find_diary_docs", "get_daily_workspace_overview"]) {
   registerSafetyTool(safetyRegistry, name, true);
 }
+registerSafetyTool(safetyRegistry, "agent_tool_help", true);
 const safetyResolver = (toolName: string, args?: Record<string, unknown>) =>
   resolveNativeToolReadOnly(safetyRegistry, toolName, args);
 assert.equal(safetyResolver("notebrain_file", { action: "write_file" }), false);
@@ -295,6 +296,26 @@ function compactedToolPayload(messagesToRead: AgentMessage[], toolCallId: string
   return payload;
 }
 
+function helpToolMessages(
+  toolCallId: string,
+  args: Record<string, unknown>,
+  data: Record<string, unknown>,
+): AgentMessage[] {
+  return normalizeToolCallMessages([
+    {
+      role: "assistant",
+      content: "",
+      toolCalls: [{ id: toolCallId, name: "agent_tool_help", arguments: JSON.stringify(args) }],
+    },
+    {
+      role: "tool",
+      toolCallId,
+      name: "agent_tool_help",
+      content: JSON.stringify({ ok: true, toolName: "agent_tool_help", data }),
+    },
+  ]);
+}
+
 function homepageProjectedWidgets(payload: Record<string, any>): Record<string, any>[] {
   assert.ok(Array.isArray(payload.widgets), "homepage compacted result must expose a widgets array");
   if (!Array.isArray(payload.widgetFields)) return payload.widgets as Record<string, any>[];
@@ -335,6 +356,81 @@ const homepageReadCompactionOptions = {
   maxToolResultTokens: 4_000,
   maxObservationTokens: 12_000,
 };
+
+// agent_tool_help 的结构化契约必须跨运行时与存储压缩保留，不能伪装成 itemCount=0 空壳。
+{
+  const listMessages = helpToolMessages("help-list", { action: "list_tools" }, {
+    tools: [
+      { name: "siyuan_kb", title: "思源知识库", description: "读取和编辑知识库。", readOnly: false, requiresConfirmation: true, actionCount: 8 },
+      { name: "homepage_components", title: "主页组件", description: "管理主页组件。", readOnly: false, requiresConfirmation: true, actionCount: 36 },
+    ],
+    padding: "x".repeat(40_000),
+  });
+  const describeMessages = helpToolMessages("help-describe", {
+    action: "describe_action",
+    toolName: "diary_task",
+    actionName: "query_tasks",
+  }, {
+    toolName: "diary_task",
+    toolTitle: "日记任务",
+    action: "query_tasks",
+    title: "查询任务",
+    description: "按范围读取任务。",
+    readOnly: true,
+    requiresConfirmation: false,
+    required: ["scope"],
+    argsSchema: { type: "object", properties: { scope: { type: "string" } }, required: ["scope"] },
+    resultEnvelope: "执行成功时返回结构化任务列表。",
+    padding: "x".repeat(40_000),
+  });
+  const describeToolMessages = helpToolMessages("help-describe-tool", {
+    action: "describe_tool",
+    toolName: "diary_task",
+  }, {
+    name: "diary_task",
+    title: "日记任务",
+    description: "读取和管理日记任务。",
+    actionCount: 8,
+    actions: [{ name: "query_tasks", title: "查询任务", readOnly: true, required: ["scope"] }],
+    padding: "x".repeat(40_000),
+  });
+
+  for (const [label, compact] of [
+    ["storage", compactAgentSessionMessagesForStorage] as const,
+    ["runtime", compactAgentMessages] as const,
+  ]) {
+    const listPayload = compactedToolPayload(compact(listMessages, homepageReadCompactionOptions), "help-list");
+    assert.equal(listPayload.helpAction, "list_tools", `${label} 必须保留帮助 action`);
+    assert.equal(listPayload.tools.length, 2, `${label} 必须保留真实工具列表`);
+    assert.equal(listPayload.tools[0].name, "siyuan_kb", `${label} 必须保留精确工具名`);
+    assert.equal("itemCount" in listPayload, false, `${label} 不得把工具列表伪装成空集合`);
+    assert.equal("padding" in listPayload, false, `${label} 不得保留无关大字段`);
+
+    const describeToolPayload = compactedToolPayload(compact(describeToolMessages, homepageReadCompactionOptions), "help-describe-tool");
+    assert.equal(describeToolPayload.helpAction, "describe_tool", `${label} 必须保留 describe_tool`);
+    assert.equal(describeToolPayload.name, "diary_task", `${label} 必须保留工具身份`);
+    assert.equal(describeToolPayload.actions[0].name, "query_tasks", `${label} 必须保留工具 Action 列表`);
+
+    const describePayload = compactedToolPayload(compact(describeMessages, homepageReadCompactionOptions), "help-describe");
+    assert.equal(describePayload.helpAction, "describe_action", `${label} 必须保留帮助 action`);
+    assert.equal(describePayload.action, "query_tasks", `${label} 必须保留被描述的 action`);
+    assert.equal(describePayload.argsSchema.properties.scope.type, "string", `${label} 必须保留参数 Schema`);
+    assert.deepEqual(describePayload.required, ["scope"], `${label} 必须保留必填参数`);
+  }
+
+  const unknownReadMessages = normalizeToolCallMessages([
+    { role: "assistant", content: "", toolCalls: [{ id: "unknown-read", name: "notebrain_file", arguments: JSON.stringify({ action: "read_file" }) }] },
+    { role: "tool", toolCallId: "unknown-read", name: "notebrain_file", content: JSON.stringify({ ok: true, data: { configuration: { mode: "custom" }, padding: "x".repeat(40_000) } }) },
+  ]);
+  const unknownPayload = compactedToolPayload(
+    compactAgentSessionMessagesForStorage(unknownReadMessages, homepageReadCompactionOptions),
+    "unknown-read",
+  );
+  assert.equal(unknownPayload.status, "compacted_shape_unknown");
+  assert.equal("itemCount" in unknownPayload, false, "未知只读结构不得伪报 itemCount=0");
+  assert.equal(typeof unknownPayload.preview, "string", "未知只读结构必须保留安全预览");
+}
+
 const homepageListResult = {
   status: "ok",
   surface: "desktop-homepage",
