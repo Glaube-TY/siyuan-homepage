@@ -13,6 +13,7 @@ import type { SiyuanToolDeps } from "../tools/siyuan/siyuan-tool-deps";
 import { registerSystemTools } from "../composition/register-system-tools";
 import { createSiyuanSharedActionBindings, registerSiyuanTools } from "../composition/register-siyuan-tools";
 import { registerWebTools } from "../composition/register-web-tools";
+import type { WebSearchToolDeps } from "../tools/web-search/web-search.tool";
 import { registerLocalTools } from "../composition/register-local-tools";
 import { registerExternalSkillTools } from "../composition/register-external-skill-tools";
 import { registerMcpManagementTools } from "../composition/register-mcp-tools";
@@ -91,14 +92,21 @@ export interface AgentWorkbenchRuntimeOptions {
     readProxyEndpoint?: string;
     readPageMaxChars: number;
     timeoutMs: number;
+    getConfig?: () => {
+      readProxyEndpoint?: string;
+      readPageMaxChars: number;
+      timeoutMs: number;
+    };
   };
   /** Built-in capability visibility from settings. Not a business controller — just composition-root gate. */
   builtinCapabilityAccess?: BuiltinCapabilityAccess;
   /** Global tool visibility from settings. Controls aggregate and system tool registration. */
   globalToolAccess?: {
     webFetch: boolean;
+    webSearch?: boolean;
     agentToolHelp: boolean;
   };
+  webSearchToolDeps?: WebSearchToolDeps;
   /** 本轮 provider schema 的延迟激活控制器；Registry 本身仍保留全部工具。 */
   providerToolsetController?: ProviderToolsetController;
   /** 当前对话标识，用于 confirmation store 等需要关联 conversation 的场景。 */
@@ -195,6 +203,7 @@ export function createAgentWorkbenchRuntime(
     registerWebTools(toolRegistry, {
       webReadPageToolDeps: options.webReadPageToolDeps,
       globalToolAccess: options.globalToolAccess,
+      webSearchToolDeps: options.webSearchToolDeps,
     });
   }
 

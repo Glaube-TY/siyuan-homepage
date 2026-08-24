@@ -21,6 +21,7 @@
     import TemporaryWorkbenchSettingsPanel from "./TemporaryWorkbenchSettingsPanel.svelte";
     import MemoryCenterSettingsPanel from "./MemoryCenterSettingsPanel.svelte";
     import AutomationCenterSettingsPanel from "./AutomationCenterSettingsPanel.svelte";
+    import WebSearchCenterSettingsPanel from "./WebSearchCenterSettingsPanel.svelte";
 
     interface Props {
         activeSubTab: AiKnowledgeBaseSubTab;
@@ -58,6 +59,7 @@
     let selectedStatusAiModelKey = $state("");
     let statusAiModelInvalid = $state(false);
     let modelOptionsLoading = $state(false);
+    let modelOptionsLoadError = $state(false);
     const statusAiVipFeatures = [
         "可使用已配置的大模型生成主页状态语",
         "可单独选择状态语使用的模型",
@@ -95,11 +97,10 @@
             const settings = await getKbSettings();
             const options = buildChatModelOptions(settings);
             modelOptions = options;
+            modelOptionsLoadError = false;
             syncSelectedModelState(options);
         } catch {
-            modelOptions = [];
-            selectedStatusAiModelKey = "";
-            statusAiModelInvalid = false;
+            modelOptionsLoadError = true;
         } finally {
             modelOptionsLoading = false;
         }
@@ -400,6 +401,8 @@
         <SettingRow title="状态语 AI 模型" description="独立选择主页状态语使用的大模型，不影响聊天问答当前模型">
             {#if modelOptionsLoading}
                 <span class="model-loading">正在加载模型...</span>
+            {:else if modelOptionsLoadError}
+                <span class="model-empty">设置读取失败，模型列表暂不可用</span>
             {:else if modelOptions.length === 0}
                 <span class="model-empty">尚未配置可用大模型</span>
             {:else}
@@ -416,7 +419,12 @@
             {/if}
         </SettingRow>
 
-        {#if modelOptions.length === 0 && !modelOptionsLoading}
+        {#if modelOptionsLoadError}
+            <div class="status-ai-panel warning">
+                <SiyuanIcon name="warning" size={14} />
+                <span>设置读取失败，暂时无法确认可用大模型，请检查设置存储后重试。</span>
+            </div>
+        {:else if modelOptions.length === 0 && !modelOptionsLoading}
             <div class="status-ai-panel warning">
                 <SiyuanIcon name="warning" size={14} />
                 <span>尚未配置可用大模型，请先打开「AI 中心 → 模型与服务」添加提供商和模型。</span>
@@ -650,6 +658,8 @@
     </div>
     {/if}
 </SettingSection>
+{:else if activeSubTab === "webSearch"}
+    <WebSearchCenterSettingsPanel />
 {:else if activeSubTab === "workbenches"}
     <TemporaryWorkbenchSettingsPanel />
 {:else if activeSubTab === "memory"}

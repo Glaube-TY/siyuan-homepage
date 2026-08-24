@@ -7,6 +7,7 @@ import { WeChatKernelProvider } from "../features/robot-assistant/providers/wech
 import { buildRobotKernelToolRegistry } from "../features/robot-assistant/agent/build-robot-kernel-tool-registry";
 import { KernelEntitlementService } from "./kernel-entitlement";
 import { setSiyuanRuntimePort } from "../runtime/siyuan-runtime-port";
+import { createWebSearchSettingsBinding } from "../features/kb/services/agent-workbench/tools/web-search/web-search-router";
 
 /**
  * Kernel entry：只负责组装，不写业务逻辑。
@@ -29,8 +30,10 @@ export async function createRobotKernel(host: RobotKernelHost, options: RobotKer
     putFile: (path, isDir, file) => host.siyuanPutFile(path, isDir, file),
   });
   const entitlement = new KernelEntitlementService(host);
+  const webSearchSettingsBinding = createWebSearchSettingsBinding();
   const runtime = new RobotKernelRuntime(host, {
-    toolRegistry: options.toolRegistry ?? await buildRobotKernelToolRegistry({ host }),
+    toolRegistry: options.toolRegistry ?? await buildRobotKernelToolRegistry({ host, webSearchSettingsBinding }),
+    webSearchSettingsBinding,
     ...(options.getModelApiKey ? { getModelApiKey: options.getModelApiKey } : {}),
     isEntitlementAvailable: options.isEntitlementAvailable ?? (() => entitlement.isAvailable()),
   });

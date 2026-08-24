@@ -63,6 +63,7 @@
     let templateError = $state(false);
     let modelOptions = $state<ChatModelOption[]>([]);
     let modelOptionsLoading = $state(true);
+    let modelOptionsLoadError = $state(false);
 
     // AI 问答技能不显示模型与生成参数配置
     const isAskSkill = $derived(skill?.builtInAction === "ask");
@@ -91,6 +92,9 @@
         try {
             const settings = await getKbSettings();
             modelOptions = buildChatModelOptions(settings);
+            modelOptionsLoadError = false;
+        } catch {
+            modelOptionsLoadError = true;
         } finally {
             modelOptionsLoading = false;
         }
@@ -241,6 +245,8 @@
                     <span class="shp-skill-editor-label">使用模型</span>
                     {#if modelOptionsLoading}
                         <span class="shp-skill-editor-hint">正在加载模型...</span>
+                    {:else if modelOptionsLoadError}
+                        <span class="shp-skill-editor-hint">设置读取失败，模型列表暂不可用</span>
                     {:else if modelOptions.length === 0}
                         <span class="shp-skill-editor-hint">尚未配置可用大模型</span>
                     {:else}

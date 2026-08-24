@@ -2,15 +2,15 @@
   import SiyuanIcon from "@/components/utils/shared/SiyuanIcon.svelte";
   import type { KbSettings } from "../../../types/settings";
   import type { WebSearchResult } from "../../../services/agent-workbench/tools/web-search/web-search-provider";
-  import { createAnySearchProvider } from "../../../services/agent-workbench/tools/web-search/providers/anysearch.provider";
-  import { createCustomJsonProvider } from "../../../services/agent-workbench/tools/web-search/providers/custom-json.provider";
-  import { createTavilyProvider } from "../../../services/agent-workbench/tools/web-search/providers/tavily.provider";
+  import { executeWebSearch } from "../../../services/agent-workbench/tools/web-search/web-search-router";
   import { cleanHtmlToMarkdown } from "../../../services/agent-workbench/tools/web-search/impl/html-to-markdown";
   import { requestViaSiyuanProxy } from "../../../services/agent-workbench/tools/web-search/impl/siyuan-proxy-request";
   import { buildReadProxyUrl } from "../../../services/agent-workbench/tools/web-search/impl/proxy-url-utils";
+  import { resolveSelectedChatConfig } from "../../../services/settings/chat-provider-config";
   import { getLastSecretDiagnostics, markWebSearchApiKeyCleared } from "../../../services/settings/kb-settings-service";
 
   export let settings: KbSettings;
+  export let onSettingsChange: (() => void) | undefined = undefined;
 
   // ── Local editable copy of webSearch settings ──
   $: ws = settings.webSearch;
@@ -22,14 +22,21 @@
   let testSearchLoading = false;
   let testSearchResult = "";
   let testSearchError = "";
+  let testSearchFreshness: "realtime" | "day" | "week" | "month" | "year" | "any" = "any";
+  let testSearchTopic: "general" | "news" | "software" | "academic" | "finance" = "general";
   let showAnySearchApiKey = false;
   let showTavilyApiKey = false;
   let webSearchClearRequested = false;
+
+  function notifySettingsChanged(): void {
+    onSettingsChange?.();
+  }
 
   function handleClearWebSearchApiKey() {
     markWebSearchApiKeyCleared();
     ws.apiKey = "";
     webSearchClearRequested = true;
+    notifySettingsChanged();
   }
 
   let testReadUrl = "";
@@ -45,26 +52,66 @@
   ] as const;
 
   // ── Test: search ──
-  async function handleTestSearch() {
+  async function runTestSearch(nativeFirst: boolean) {
     if (!testSearchQuery.trim()) return;
     testSearchLoading = true;
     testSearchResult = "";
     testSearchError = "";
     try {
-      const provider = createProvider();
-      const results = await provider.search({ query: testSearchQuery.trim(), maxResults: ws.maxResults, timeoutMs: ws.timeoutMs });
-      if (results.length === 0) {
-        testSearchResult = "搜索未返回结果。";
-      } else {
-        testSearchResult = results
-          .map((r: WebSearchResult, i: number) => `${i + 1}. ${r.title}\n   URL: ${r.url}\n   摘要: ${r.snippet ?? "(无)"}`)
-          .join("\n\n");
-      }
+      const response = await executeWebSearch({
+        settings: nativeFirst ? ws : { ...ws, nativeSearchEnabled: false },
+        options: {
+          query: testSearchQuery.trim(),
+          maxResults: ws.maxResults,
+          timeoutMs: ws.timeoutMs,
+          freshness: testSearchFreshness,
+          topic: testSearchTopic,
+        },
+        activeModel: (() => {
+          const selected = resolveSelectedChatConfig(
+            settings.chatProviders,
+            settings.selectedChatProviderId,
+            settings.selectedChatModelId,
+          );
+          return selected.provider && selected.model
+            ? { provider: selected.provider, model: selected.model }
+            : undefined;
+        })(),
+      });
+      const lines = [
+        `路由: ${response.route} / ${response.provider}`,
+        `时间范围: ${response.freshness}；主题: ${response.topic}`,
+        `检索时间: ${response.searchedAt}`,
+        ...(response.originalQuery && response.executedQuery && response.originalQuery !== response.executedQuery
+          ? [`原始查询: ${response.originalQuery}`, `实际查询: ${response.executedQuery}`]
+          : []),
+        `警告: ${response.warnings.length > 0 ? response.warnings.join(", ") : "无"}`,
+        `fallbackReason: ${response.fallbackReason ?? "无"}`,
+        "",
+        ...(response.results.length > 0
+          ? response.results.map((r: WebSearchResult, i: number) => [
+              `${i + 1}. ${r.title}`,
+              `   URL: ${r.url}`,
+              `   摘要: ${r.snippet ?? "(无)"}`,
+              ...(r.publishedAt ? [`   发布时间: ${r.publishedAt}`] : []),
+              ...(r.score !== undefined ? [`   score: ${r.score}`] : []),
+            ].join("\n"))
+          : ["搜索未返回可用来源。"]),
+      ];
+      testSearchResult = lines.join("\n");
     } catch (e: unknown) {
       testSearchError = e instanceof Error ? e.message : String(e);
     } finally {
       testSearchLoading = false;
     }
+  }
+
+  function handleTestSearch() {
+    return runTestSearch(true);
+  }
+
+  function handleTestFallbackSearch() {
+    return runTestSearch(false);
   }
 
   // ── Test: read page ──
@@ -100,19 +147,9 @@
     }
   }
 
-  function createProvider() {
-    switch (ws.provider) {
-      case "anysearch":
-        return createAnySearchProvider({ apiKey: ws.apiKey, anySearchZone: ws.anySearchZone, anySearchLanguage: ws.anySearchLanguage, timeoutMs: ws.timeoutMs });
-      case "custom_json":
-        return createCustomJsonProvider({ searchEndpoint: ws.searchEndpoint, timeoutMs: ws.timeoutMs });
-      case "tavily":
-        return createTavilyProvider({ apiKey: ws.apiKey, timeoutMs: ws.timeoutMs });
-    }
-  }
 </script>
 
-<div class="web-search-settings-tab">
+<div class="web-search-settings-tab" on:input={notifySettingsChanged} on:change={notifySettingsChanged}>
   <!-- 基础配置 -->
   <section class="settings-group">
     <h3 class="group-title">基础配置</h3>
@@ -120,7 +157,7 @@
     <div class="setting-row">
       <div class="setting-copy">
         <div class="setting-title">启用联网搜索</div>
-        <div class="setting-desc">开启后输入框显示联网搜索按钮</div>
+        <div class="setting-desc">开启后 AI 知识库、机器人助手及支持 Web Capability 的 Agent 可使用联网搜索。</div>
       </div>
       <div class="setting-control setting-control--switch">
         <input type="checkbox" class="b3-switch fn__flex-center" bind:checked={ws.enabled} />
@@ -129,8 +166,18 @@
 
     <div class="setting-row">
       <div class="setting-copy">
-        <div class="setting-title">搜索提供商</div>
-        <div class="setting-desc">选择搜索服务提供商</div>
+        <div class="setting-title">优先使用官方原生搜索</div>
+        <div class="setting-desc">当前模型和官方端点支持时优先走原生搜索；OpenRouter、DeepSeek 和自定义代理自动使用 fallback。</div>
+      </div>
+      <div class="setting-control setting-control--switch">
+        <input type="checkbox" class="b3-switch fn__flex-center" bind:checked={ws.nativeSearchEnabled} />
+      </div>
+    </div>
+
+    <div class="setting-row">
+      <div class="setting-copy">
+        <div class="setting-title">备用搜索提供商</div>
+        <div class="setting-desc">当前模型的原生联网搜索不可用或失败时使用。</div>
       </div>
       <div class="setting-control">
         <select class="b3-select fn__block" bind:value={ws.provider}>
@@ -172,11 +219,11 @@
           </div>
           <div class="secret-storage-hint">联网搜索 API Key 会在本地加密保存。</div>
           {#if webSearchDecryptFailed}
-            <span class="input-hint decrypt-warning">已保存的密钥无法解密，请重新填写。保存前不会自动删除旧密文。</span>
+            <span class="input-hint decrypt-warning">已保存的密钥无法解密，请重新填写。自动保存前不会自动删除旧密文。</span>
             <button
               type="button"
               class="clear-secret-btn"
-              title="清空已保存的密钥（保存后生效）"
+              title="清空已保存的密钥（自动保存后生效）"
               on:click={handleClearWebSearchApiKey}
             >
               <SiyuanIcon name="iconTrashcan" size={12} />
@@ -184,7 +231,7 @@
             </button>
           {/if}
           {#if webSearchClearRequested}
-            <span class="input-hint clear-success">已标记清空，保存设置后生效。</span>
+            <span class="input-hint clear-success">已标记清空，自动保存后生效。</span>
           {/if}
           <a href="https://anysearch.com" target="_blank" rel="noopener noreferrer" class="link">打开 AnySearch / 申请 API Key</a>
         </div>
@@ -195,6 +242,7 @@
         </div>
         <div class="setting-control">
           <select class="b3-select fn__block" bind:value={ws.anySearchZone}>
+            <option value="auto">自动（推荐）</option>
             <option value="cn">cn</option>
             <option value="intl">intl</option>
           </select>
@@ -202,10 +250,11 @@
       </div>
       <div class="setting-row">
         <div class="setting-copy">
-          <div class="setting-title">搜索语言</div>
+          <div class="setting-title">搜索语言（可选）</div>
+          <div class="setting-desc">留空时不限制首选语言，由搜索服务根据查询处理。</div>
         </div>
         <div class="setting-control">
-          <input type="text" class="b3-text-field fn__block" bind:value={ws.anySearchLanguage} placeholder="zh-CN" />
+          <input type="text" class="b3-text-field fn__block" bind:value={ws.anySearchLanguage} placeholder="留空自动，例如 zh-CN / en / ja" />
         </div>
       </div>
     {:else if ws.provider === "custom_json"}
@@ -244,11 +293,11 @@
           </div>
           <div class="secret-storage-hint">联网搜索 API Key 会在本地加密保存。</div>
           {#if webSearchDecryptFailed}
-            <span class="input-hint decrypt-warning">已保存的密钥无法解密，请重新填写。保存前不会自动删除旧密文。</span>
+            <span class="input-hint decrypt-warning">已保存的密钥无法解密，请重新填写。自动保存前不会自动删除旧密文。</span>
             <button
               type="button"
               class="clear-secret-btn"
-              title="清空已保存的密钥（保存后生效）"
+              title="清空已保存的密钥（自动保存后生效）"
               on:click={handleClearWebSearchApiKey}
             >
               <SiyuanIcon name="iconTrashcan" size={12} />
@@ -256,7 +305,7 @@
             </button>
           {/if}
           {#if webSearchClearRequested}
-            <span class="input-hint clear-success">已标记清空，保存设置后生效。</span>
+            <span class="input-hint clear-success">已标记清空，自动保存后生效。</span>
           {/if}
           <a href="https://tavily.com" target="_blank" rel="noopener noreferrer" class="link">申请 Tavily API Key</a>
         </div>
@@ -318,9 +367,37 @@
       </div>
       <div class="setting-control">
         <input type="text" class="b3-text-field fn__block" bind:value={testSearchQuery} placeholder="输入搜索关键词..." />
-        <button class="b3-button b3-button--outline" on:click={handleTestSearch} disabled={testSearchLoading}>
-          {testSearchLoading ? "搜索中..." : "测试搜索"}
-        </button>
+        <div class="test-search-buttons">
+          <button class="b3-button b3-button--outline" on:click={handleTestSearch} disabled={testSearchLoading}>
+            {testSearchLoading ? "搜索中..." : "自动路由测试"}
+          </button>
+          <button class="b3-button b3-button--outline" on:click={handleTestFallbackSearch} disabled={testSearchLoading}>
+            {testSearchLoading ? "搜索中..." : "仅测试备用搜索"}
+          </button>
+        </div>
+      </div>
+    </div>
+    <div class="setting-row">
+      <div class="setting-copy">
+        <div class="setting-title">测试范围与主题</div>
+        <div class="setting-desc">按同一份 web_search 契约自动选择当前模型的 native 或 fallback 路由；未配置模型时直接测试 fallback。</div>
+      </div>
+      <div class="setting-control setting-control--test-options">
+        <select class="b3-select fn__block" bind:value={testSearchFreshness}>
+          <option value="any">不限时间</option>
+          <option value="realtime">实时</option>
+          <option value="day">最近一天</option>
+          <option value="week">最近一周</option>
+          <option value="month">最近一月</option>
+          <option value="year">最近一年</option>
+        </select>
+        <select class="b3-select fn__block" bind:value={testSearchTopic}>
+          <option value="general">通用</option>
+          <option value="news">新闻</option>
+          <option value="software">软件</option>
+          <option value="academic">学术</option>
+          <option value="finance">金融</option>
+        </select>
       </div>
     </div>
     {#if testSearchResult}
@@ -441,6 +518,26 @@
         text-decoration: underline;
       }
     }
+
+    select.b3-select {
+      box-sizing: border-box;
+      min-width: 0;
+      min-height: 38px;
+      margin: 0;
+      padding: 0.55rem 2.5rem 0.55rem 0.75rem;
+      color: var(--b3-theme-on-surface) !important;
+      background-color: var(--b3-theme-background);
+      font-size: 13px;
+      line-height: 1.25;
+      text-indent: 0;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    select.b3-select option {
+      color: var(--b3-theme-on-background, var(--b3-theme-on-surface));
+      background-color: var(--b3-theme-background);
+    }
   }
 
   .setting-control--switch {
@@ -539,6 +636,12 @@
     border-radius: 6px;
     padding: 12px;
     background: var(--b3-theme-surface);
+  }
+
+  .test-search-buttons {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
   }
 
   .test-result {

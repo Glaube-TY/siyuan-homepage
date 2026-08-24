@@ -60,6 +60,7 @@
   export let onOpenSettings: (() => void) | undefined = undefined;
   export let onClose: (() => void) | undefined = undefined;
   let sessionHydrationReady = false;
+  let kbSettingsReady = false;
 
   /** 当前面板实例的稳定路由 ID；不会在会话切换时变化。 */
   const panelInstanceId = `kb-panel-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
@@ -240,7 +241,7 @@
   }
 
   async function handleSend(e: CustomEvent<{ question: string; mode?: ChatMode; thinkingMode?: import("../../types/session").ThinkingMode; attachedDocIds?: string[]; attachedDocs?: import("../../types/chat").AttachedKbDoc[]; webAccessMode?: "off" | "smart" | "required" }>) {
-    if (!sessionHydrationReady) return;
+    if (!sessionHydrationReady || !kbSettingsReady) return;
     if (asking) return;
     const payload = normalizeSendPayload(e.detail);
     const { question, mode: effectiveMode, thinkingMode: submittedThinkingMode, attachedDocIds, attachedDocs, webAccessMode: submittedWebAccessMode } = payload;
@@ -1092,6 +1093,10 @@
    * 统一提问入口：调用 orchestration 层
    */
   async function handleAskByMode(mode: ChatMode, question: string, submittedThinkingMode?: import("../../types/session").ThinkingMode, customDocIds?: string[], attachedDocs?: import("../../types/chat").AttachedKbDoc[], submittedWebAccessMode?: "off" | "smart" | "required", prevalidatedChatModelSelection?: ChatModelSelection) {
+    if (!kbSettingsReady) {
+      appendKbErrorMessage("知识库设置读取失败，当前无法启动 Agent，请检查设置存储后重试。");
+      return;
+    }
     if (legacyReadOnly) {
       appendKbErrorMessage("旧版会话只能作为归档查看，不能继续运行 Agent。");
       return;
@@ -1216,6 +1221,10 @@
     submittedWebAccessMode?: "off" | "smart" | "required",
     recovery?: import("../../types/chat").AgentRecoveryState,
   ) {
+    if (!kbSettingsReady) {
+      appendKbErrorMessage("知识库设置读取失败，当前无法启动 Agent，请检查设置存储后重试。");
+      return;
+    }
     if (legacyReadOnly) {
       appendKbErrorMessage("旧版会话只能作为归档查看，不能继续运行 Agent。");
       return;
@@ -1321,6 +1330,9 @@
   function handleKbSettingsChanged(event: Event) {
     const detail = (event as CustomEvent).detail;
     const nextSettings = detail?.settings ?? detail;
+    if (nextSettings && typeof nextSettings === "object") {
+      kbSettingsReady = true;
+    }
     if (nextSettings?.assistantActionAlignment) {
       assistantActionAlignment = nextSettings.assistantActionAlignment;
     }
@@ -1403,7 +1415,12 @@
         workbenchDisplayMode = settings.workbenchProcessDisplayMode ?? "collapsed";
         reasoningDisplayMode = settings.reasoningProcessDisplayMode ?? "collapsed";
         chatAppearance = settings.chatAppearance ?? DEFAULT_CHAT_APPEARANCE_SETTINGS;
-      } catch { /* ignore */ }
+        kbSettingsReady = true;
+      } catch (error) {
+        kbSettingsReady = false;
+        showMessage("知识库设置读取失败，当前无法启动 Agent，请检查设置存储后重试。", 5000, "error");
+        console.warn("[KbMainPanel] 知识库设置读取失败，已禁用发送：", error);
+      }
       refreshContextUsageSafe("hydrate");
     })();
     window.addEventListener(KB_SETTINGS_CHANGED_EVENT, handleKbSettingsChanged as EventListener);
@@ -1644,8 +1661,8 @@
           bind:this={chatInputBarRef}
           selectedMode={selectedMode}
           value={draftQuestion ?? ""}
-          disabled={asking || !sessionHydrationReady || legacyReadOnly}
-          placeholder={legacyReadOnly ? "旧版会话为只读归档" : "输入问题，按 Enter 发送"}
+          disabled={asking || !sessionHydrationReady || !kbSettingsReady || legacyReadOnly}
+          placeholder={legacyReadOnly ? "旧版会话为只读归档" : kbSettingsReady ? "输入问题，按 Enter 发送" : "设置读取失败，暂不可用"}
           asking={asking}
           modelOptions={chatModelOptions}
           selectedModelKey={selectedChatModelKey}

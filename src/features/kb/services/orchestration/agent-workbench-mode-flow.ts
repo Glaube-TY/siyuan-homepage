@@ -746,20 +746,14 @@ export async function runAgentWorkbenchModeFlow(
     const stateAfterCompression = getState();
     const usageSnapshotForContext = usageSnapshot;
 
-    // Fetch web search settings for conversation context. Global memory is injected by the Agent profile.
-    let webSearchSettings: BuildConversationContextParams["webSearchSettings"];
-    let kbSettings: Awaited<ReturnType<typeof getKbSettings>> | undefined;
-    try {
-      kbSettings = await getKbSettings();
-      if (kbSettings?.webSearch) {
-        webSearchSettings = {
-          enabled: kbSettings.webSearch.enabled,
-          provider: kbSettings.webSearch.provider,
-          maxResults: kbSettings.webSearch.maxResults,
-          readPageMaxChars: kbSettings.webSearch.readPageMaxChars,
-        };
-      }
-    } catch { /* ignore */ }
+    // Fetch one settings snapshot for both conversation context and Agent runtime.
+    const kbSettings = await getKbSettings();
+    const webSearchSettings: BuildConversationContextParams["webSearchSettings"] = {
+      enabled: kbSettings.webSearch.enabled,
+      provider: kbSettings.webSearch.provider,
+      maxResults: kbSettings.webSearch.maxResults,
+      readPageMaxChars: kbSettings.webSearch.readPageMaxChars,
+    };
 
     // Determine effective webAccessMode for this turn.
     // Priority: params.webAccessMode (from UI) > user message requestContext > "off"

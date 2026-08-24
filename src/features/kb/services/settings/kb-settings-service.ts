@@ -525,8 +525,8 @@ function normalizeRuntimeToolsSettings(raw: unknown): RuntimeToolsSettings {
  * - 数值 clamp 到有效范围
  * - 空字符串的可选字段 → undefined
  * - 无效 provider → "anysearch"
- * - 无效 zone → "cn"
- * - 空 language → "zh-CN"
+ * - 无效 zone → "auto"
+ * - 空 language → ""
  */
 function normalizeWebSearchSettings(raw: unknown): WebSearchSettings {
   if (!raw || typeof raw !== "object") {
@@ -537,6 +537,9 @@ function normalizeWebSearchSettings(raw: unknown): WebSearchSettings {
 
   // enabled
   const enabled = typeof s.enabled === "boolean" ? s.enabled : DEFAULT_WEB_SEARCH_SETTINGS.enabled;
+  const nativeSearchEnabled = typeof s.nativeSearchEnabled === "boolean"
+    ? s.nativeSearchEnabled
+    : DEFAULT_WEB_SEARCH_SETTINGS.nativeSearchEnabled;
 
   // provider
   const providerRaw = s.provider;
@@ -573,17 +576,20 @@ function normalizeWebSearchSettings(raw: unknown): WebSearchSettings {
   // anySearchZone
   const zoneRaw = s.anySearchZone;
   const anySearchZone: WebSearchSettings["anySearchZone"] =
-    zoneRaw === "cn" || zoneRaw === "intl" ? zoneRaw : DEFAULT_WEB_SEARCH_SETTINGS.anySearchZone;
+    zoneRaw === "auto" || zoneRaw === "cn" || zoneRaw === "intl"
+      ? zoneRaw
+      : DEFAULT_WEB_SEARCH_SETTINGS.anySearchZone;
 
   // anySearchLanguage
   const langRaw = s.anySearchLanguage;
   const anySearchLanguage =
-    typeof langRaw === "string" && langRaw.length > 0
+    typeof langRaw === "string"
       ? langRaw
       : DEFAULT_WEB_SEARCH_SETTINGS.anySearchLanguage;
 
   return {
     enabled,
+    nativeSearchEnabled,
     provider,
     searchEndpoint: optionalString("searchEndpoint"),
     readProxyEndpoint: optionalString("readProxyEndpoint"),
@@ -606,6 +612,11 @@ export const KB_SETTINGS_CHANGED_EVENT = "kb-settings-changed";
 
 // 插件实例引用，由外部注入
 let pluginInstance: any = null;
+let kbSettingsSaveQueue: Promise<void> = Promise.resolve();
+
+async function awaitPendingKbSettingsSaves(): Promise<void> {
+  await kbSettingsSaveQueue.catch(() => undefined);
+}
 
 // ── Internal explicit-clear state (never persisted) ──
 // Tracks user's explicit intent to clear secrets, so saveKbSettings can
@@ -623,7 +634,7 @@ export function markWebSearchApiKeyCleared(): void {
   explicitClearedLocations.add("webSearchApiKey");
 }
 
-/** Clear all explicit-clear markers (called after save to reset state). */
+/** Clear all explicit-clear markers for initialization or controlled test cleanup. */
 export function clearExplicitClearedSecrets(): void {
   explicitClearedProviderIds.clear();
   explicitClearedLocations.clear();
@@ -643,7 +654,7 @@ export function setKbSettingsPlugin(plugin: any) {
  */
 function getPlugin(): any {
   if (!pluginInstance) {
-    console.warn("[KB Settings] Plugin instance not set, using default settings");
+    console.warn("[KB Settings] Plugin instance not set");
   }
   return pluginInstance;
 }
@@ -655,53 +666,99 @@ export function getKbPlugin(): any {
   return pluginInstance;
 }
 
-/**
- * 获取当前 KB 设置（已合并默认值）
- * 从插件 storage 读取，如不存在则返回默认值
- */
-export async function getKbSettings(): Promise<KbSettings> {
+function normalizeKbSettingsStorageRoot(value: unknown): Record<string, unknown> {
+  if (value == null) return {};
+  if (typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("KB settings storage format invalid");
+  }
+  return value as Record<string, unknown>;
+}
+
+async function loadKbSettingsInternal(): Promise<KbSettings> {
   const plugin = getPlugin();
   if (!plugin) {
-    return mergeKbSettings({});
+    throw new Error("Plugin instance not set");
   }
 
-  try {
-    const savedSettings = await plugin.loadData(SETTINGS_KEY);
-    const { settings: runtimeSettings, diagnostics } = await decryptSensitiveSecretsFromStorage(
-      (savedSettings || {}) as Record<string, unknown>,
-    );
-    // Store diagnostics for __kbAgentDebug access without leaking key material
-    setLastSecretDiagnostics(diagnostics);
-    if (diagnostics.hasDecryptFailure) {
-      pushAgentDebugEvent("SECRET_DECRYPT_FAILURE", {
-        failedChatProviderIds: diagnostics.failedChatProviderIds,
-        failedLocations: diagnostics.failedLocations,
-        encryptedSecretCount: diagnostics.encryptedSecretCount,
-        secretStoragePresent: diagnostics.secretStoragePresent,
-        secretStorageValidLength: diagnostics.secretStorageValidLength,
-      }, "warn");
-    }
-    return mergeKbSettings(runtimeSettings as Partial<KbSettings>);
-  } catch {
-    setLastSecretDiagnostics({ ...createEmptySecretDecryptDiagnostics(), hasDecryptFailure: true });
-    return mergeKbSettings({});
+  const savedSettings = await plugin.loadData(SETTINGS_KEY);
+  const rawSettings = normalizeKbSettingsStorageRoot(savedSettings);
+  const { settings: runtimeSettings, diagnostics } = await decryptSensitiveSecretsFromStorage(
+    rawSettings,
+  );
+  // Store diagnostics for __kbAgentDebug access without leaking key material
+  setLastSecretDiagnostics(diagnostics);
+  if (diagnostics.hasDecryptFailure) {
+    pushAgentDebugEvent("SECRET_DECRYPT_FAILURE", {
+      failedChatProviderIds: diagnostics.failedChatProviderIds,
+      failedLocations: diagnostics.failedLocations,
+      encryptedSecretCount: diagnostics.encryptedSecretCount,
+      secretStoragePresent: diagnostics.secretStoragePresent,
+      secretStorageValidLength: diagnostics.secretStorageValidLength,
+    }, "warn");
   }
+  return mergeKbSettings(runtimeSettings as Partial<KbSettings>);
+}
+
+/**
+ * 获取当前 KB 设置（已合并默认值）
+ * 读取失败必须抛错，避免把未知状态误当成默认设置。
+ */
+export async function getKbSettings(): Promise<KbSettings> {
+  await awaitPendingKbSettingsSaves();
+  try {
+    return await loadKbSettingsInternal();
+  } catch (error) {
+    setLastSecretDiagnostics({ ...createEmptySecretDecryptDiagnostics(), hasDecryptFailure: true });
+    throw error;
+  }
+}
+
+/**
+ * 读取可编辑设置。读取失败必须抛错，且先等待已入队的保存完成。
+ */
+export async function getKbSettingsForEdit(): Promise<KbSettings> {
+  await awaitPendingKbSettingsSaves();
+  return loadKbSettingsInternal();
 }
 
 /**
  * 保存 KB 设置
  * 返回最终 mergedSettings，方便调用方同步更新 UI
  */
-export async function saveKbSettings(settings: Partial<KbSettings>): Promise<KbSettings> {
+export function saveKbSettings(settings: Partial<KbSettings>): Promise<KbSettings> {
+  const snapshot = structuredClone(settings);
+  const run = kbSettingsSaveQueue
+    .catch(() => undefined)
+    .then(() => saveKbSettingsUnlocked(snapshot));
+  kbSettingsSaveQueue = run.then(() => undefined, () => undefined);
+  return run;
+}
+
+async function saveKbSettingsUnlocked(settings: Partial<KbSettings>): Promise<KbSettings> {
   const plugin = getPlugin();
   if (!plugin) {
     throw new Error("Plugin instance not set");
   }
 
+  const ownsChatProviderSettings = Object.prototype.hasOwnProperty.call(settings, "chatProviders");
+  const ownsWebSearchSettings = Object.prototype.hasOwnProperty.call(settings, "webSearch");
+  const clearedProviderIds = new Set<string>();
+  if (ownsChatProviderSettings) {
+    for (const providerId of explicitClearedProviderIds) {
+      clearedProviderIds.add(providerId);
+      explicitClearedProviderIds.delete(providerId);
+    }
+  }
+  const webSearchCleared = ownsWebSearchSettings
+    && explicitClearedLocations.delete("webSearchApiKey");
+  let saveCommitted = false;
+
+  try {
+
   // Read raw existing settings BEFORE decryption — used to protect enc:v1
   // ciphertext from being accidentally overwritten when decryption fails.
   const existingRaw = await plugin.loadData(SETTINGS_KEY);
-    const existingRawObj = (existingRaw || {}) as Record<string, unknown>;
+    const existingRawObj = normalizeKbSettingsStorageRoot(existingRaw);
 
     // Build map of raw enc:v1 apiKey values per provider id
     const rawEncryptedApiKeys = new Map<string, string>();
@@ -749,7 +806,6 @@ export async function saveKbSettings(settings: Partial<KbSettings>): Promise<KbS
     // a decrypt failure. But if the user explicitly marked this provider for clearing,
     // we allow the overwrite regardless of decrypt failure.
     let didPreserveCipher = false;
-    const clearedProviderIds = new Set(explicitClearedProviderIds);
     const decryptFailedIds = new Set(diagnostics.failedChatProviderIds ?? []);
     if (Array.isArray(merged.chatProviders)) {
       merged.chatProviders = merged.chatProviders.map((p) => {
@@ -767,7 +823,6 @@ export async function saveKbSettings(settings: Partial<KbSettings>): Promise<KbS
     // Only preserve the old enc:v1 ciphertext when the decryption actually
     // failed for webSearch (runtime value became empty due to decrypt failure).
     // If the user explicitly cleared the key, allow saving empty.
-    const webSearchCleared = explicitClearedLocations.has("webSearchApiKey");
     const webSearchDecryptFailed = diagnostics.failedLocations.includes("webSearchApiKey");
     if (merged.webSearch && !(merged.webSearch.apiKey) && rawWebSearchEncKey && webSearchDecryptFailed && !webSearchCleared) {
       didPreserveCipher = true;
@@ -778,6 +833,7 @@ export async function saveKbSettings(settings: Partial<KbSettings>): Promise<KbS
       merged as unknown as Record<string, unknown>,
     );
     await plugin.saveData(SETTINGS_KEY, encryptedSettings);
+    saveCommitted = true;
     if (typeof window !== "undefined") {
       window.dispatchEvent(
         new CustomEvent(KB_SETTINGS_CHANGED_EVENT, { detail: merged })
@@ -806,17 +862,25 @@ export async function saveKbSettings(settings: Partial<KbSettings>): Promise<KbS
         }, "info");
       }
     }
-    if (explicitClearedLocations.has("webSearchApiKey")) {
+    if (webSearchCleared) {
       pushAgentDebugEvent("SECRET_CLEAR_REQUESTED", {
         location: "webSearchApiKey",
         action: "secret_cleared",
       }, "info");
     }
 
-    // Reset explicit-clear markers after save (they are one-shot)
-    clearExplicitClearedSecrets();
-
     return merged;
+  } catch (error) {
+    if (!saveCommitted) {
+      for (const providerId of clearedProviderIds) {
+        explicitClearedProviderIds.add(providerId);
+      }
+      if (webSearchCleared) {
+        explicitClearedLocations.add("webSearchApiKey");
+      }
+    }
+    throw error;
+  }
 }
 
 /**

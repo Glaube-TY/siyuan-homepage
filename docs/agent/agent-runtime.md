@@ -8,7 +8,7 @@
 
 - 所有入口通过 Profile 和共享 Agent runtime 组装能力；不得为主页、机器人、后台任务或其他入口重写模型请求、tool loop、上下文压缩、确认、恢复、trace 或会话存储。
 - Provider 原生 tool call 是控制平面。Runtime 负责消息组装、schema、流式解析、工具派发、匹配 ID 的 `role=tool` 结果、取消、权限、循环上限、重复写保护和合法历史配对；模型负责工具选择、参数和普通 assistant 最终文本。
-- Agent 控制流必须语言无关。不得根据用户问题或模型正文的关键词、正则、词表、前后缀判断意图、工具需求、澄清、完成、重试或终态；正式 ID/URL/JSON/XML/SQL/Shell 解析、注入防护、脱敏和用户明确搜索/过滤除外。
+- Agent 控制流必须语言无关。不得根据用户问题或模型正文的关键词、正则、词表、前后缀判断意图、工具需求、澄清、完成、重试或终态；正式 ID/URL/JSON/XML/SQL/Shell 解析、注入防护、脱敏，以及对已经结构化提供的搜索/过滤条件做解析除外。
 - 模型误用工具时先修系统提示、工具描述和 Schema，不添加问题专用自然语言分支；传输、状态恢复、上下文、超时、重试、去重和终态问题修共享边界。
 
 ## 运行身份与能力层
@@ -22,6 +22,14 @@
 - Provider-visible 工具使用小而稳定的聚合列表，由模型在工具内选择 `action`。每个工具必须声明 name/title/description、输入 JSON Schema、安全元数据（`readOnly`、`canWrite`、`requiresConfirmation`）、执行函数和结构化结果（`ok`、`content`、`summary`、`errorCode`）。
 - 参数必须实际影响执行、范围、输出或安全；工具不拥有对话流程，不能用 `reason/comment/note` 参数承载说明，使用指导放在 description/inputHint/boundary。
 - Skills 是边界、术语、证据规则和使用建议的指令包；不拥有工具、不执行代码、不替模型选择工具或规定固定顺序，也不替代 Runtime 权限检查。没有关键词 Skill router、JSON Planner、`final_answer` 工具或额外 JSON 控制协议。
+
+### 联网搜索
+
+- `web_search` 是普通的 provider-visible Agent Tool；Knowledge Chat、Robot 和其他 Web Capability 入口共享同一 Tool/Router，不复制 Provider 实现。
+- `smart` 模式由模型自主决定是否调用；`required` 只有在用户选择的结构化状态下，Runtime 才能要求本轮成功调用并获得有效候选；`off` 不向模型暴露 `web_search`。
+- Runtime 不根据用户自然语言关键词、正则或词表判断联网需求；模型通过 Tool Call 结构化填写 `query`、`freshness`、`topic`、日期和域名过滤参数。
+- Router 只消费结构化 Tool 参数及 Provider/Model capability，不重新理解或改写用户自然语言 query。
+- 搜索结果是候选来源；重要事实需读取网页内容后才作为证据。Native-first → fallback 是搜索执行策略，不属于自然语言 Tool Selection。
 
 ## 权限、终态和上下文
 

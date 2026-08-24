@@ -17,6 +17,7 @@ export async function syncRobotAgentRuntimeConfig(kernel: RobotKernelClient): Pr
   if (!kernel.available) return;
   try {
     const kb = await getKbSettings();
+    await kernel.call("robot.syncAgentWebSearchSettings", { settings: kb.webSearch });
     const rawRobotSettings = await kernel.call("robot.getSettings");
     const wrapped = rawRobotSettings && typeof rawRobotSettings === "object"
       ? rawRobotSettings as Record<string, unknown>

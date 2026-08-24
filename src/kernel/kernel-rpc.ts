@@ -393,6 +393,14 @@ export async function registerRobotKernelRpc(
     return { ok: true };
   });
 
+  rpc("robot.syncAgentWebSearchSettings", (payload) => {
+    const settings = payload && typeof payload === "object"
+      ? (payload as Record<string, unknown>).settings
+      : undefined;
+    runtime.syncAgentWebSearchSettings(settings);
+    return { ok: true };
+  });
+
   // Agent 模型 API Key 同步：明文只经本地 RPC 进入 Kernel Secret Vault（加密落盘）。
   rpc("robot.syncAgentApiKey", async (payload) => {
     const apiKey =

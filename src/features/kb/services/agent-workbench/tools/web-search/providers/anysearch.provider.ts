@@ -4,13 +4,15 @@
  * Pure factory function. No side effects at module level.
  */
 
-import type { WebSearchProvider, WebSearchResult, WebSearchOptions } from "../web-search-provider";
+import type { WebSearchProvider, WebSearchResult, WebSearchOptions, WebSearchHttpTransport } from "../web-search-provider";
 import { requestViaSiyuanProxy } from "../impl/siyuan-proxy-request";
 
 interface AnySearchSettings {
   apiKey?: string;
-  anySearchZone?: "cn" | "intl";
+  anySearchZone?: "auto" | "cn" | "intl";
   anySearchLanguage?: string;
+  searchEndpoint?: string;
+  transport?: WebSearchHttpTransport;
   timeoutMs: number;
 }
 
@@ -25,6 +27,8 @@ interface AnySearchResponse {
     snippet?: string;
     content?: string;
     sourceName?: string;
+    publishedAt?: string;
+    updatedAt?: string;
   }>;
   data?: {
     results?: Array<{
@@ -33,6 +37,8 @@ interface AnySearchResponse {
       snippet?: string;
       content?: string;
       sourceName?: string;
+      publishedAt?: string;
+      updatedAt?: string;
     }>;
   };
 }
@@ -62,8 +68,7 @@ export function createAnySearchProvider(settings: AnySearchSettings): WebSearchP
       }
 
       const maxResults = Math.min(clampInt(opts.maxResults, 5, 1, 100), 10);
-      const zone = settings.anySearchZone === "intl" ? "intl" : "cn";
-      const language = (settings.anySearchLanguage ?? "zh-CN").trim() || "zh-CN";
+      const language = settings.anySearchLanguage?.trim();
 
       const headers: Array<Record<string, string>> = [];
       const apiKey = settings.apiKey?.trim();
@@ -71,20 +76,32 @@ export function createAnySearchProvider(settings: AnySearchSettings): WebSearchP
         headers.push({ Authorization: `Bearer ${apiKey}` });
       }
 
+      const route = resolveAnySearchRoute(opts);
       const body = JSON.stringify({
         query,
         max_results: maxResults,
-        zone,
-        language,
+        ...(settings.anySearchZone === "cn" || settings.anySearchZone === "intl"
+          ? { zone: settings.anySearchZone }
+          : {}),
+        ...(language ? { language } : {}),
+        ...(route ? { tag: route.tag, ...(route.params ? { params: route.params } : {}) } : {}),
       });
 
-      const response = await requestViaSiyuanProxy(DEFAULT_ENDPOINT, {
+      const endpoint = settings.searchEndpoint?.trim() || DEFAULT_ENDPOINT;
+      const response = await (settings.transport?.request({
+        url: endpoint,
         method: "POST",
         headers,
         body,
         contentType: "application/json",
         timeout: settings.timeoutMs,
-      });
+      }) ?? requestViaSiyuanProxy(endpoint, {
+        method: "POST",
+        headers,
+        body,
+        contentType: "application/json",
+        timeout: settings.timeoutMs,
+      }));
 
       const data: AnySearchResponse = typeof response === "string"
         ? JSON.parse(response)
@@ -116,6 +133,8 @@ export function createAnySearchProvider(settings: AnySearchSettings): WebSearchP
           snippet: r.snippet,
           sourceName: r.sourceName,
           provider: "anysearch" as const,
+          publishedAt: r.publishedAt,
+          updatedAt: r.updatedAt,
           contentPreview,
           contentChars: hasContent ? content.length : undefined,
           contentTruncated: hasContent ? content.length > MAX_CONTENT_PREVIEW_CHARS : undefined,
@@ -123,4 +142,11 @@ export function createAnySearchProvider(settings: AnySearchSettings): WebSearchP
       }).filter((r) => r.title.length > 0 && r.url.length > 0 && /^https?:\/\//i.test(r.url));
     },
   };
+}
+
+function resolveAnySearchRoute(opts: WebSearchOptions): { tag: string; params?: Record<string, string> } | undefined {
+  if (opts.topic === "academic") return { tag: "academic.search" };
+  return opts.topic === "general" || opts.topic === "news" || opts.topic === "software"
+    ? { tag: "general.general" }
+    : undefined;
 }

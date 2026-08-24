@@ -2,7 +2,8 @@
   import { onDestroy, onMount } from "svelte";
   import type { KbSettings } from "../../types/settings";
   import { DEFAULT_KB_SETTINGS } from "../../constants/default-settings";
-  import { getKbSettings, saveKbSettings } from "../../services/settings/kb-settings-service";
+  import { getKbSettingsForEdit, saveKbSettings } from "../../services/settings/kb-settings-service";
+  import { buildLocalKbSettingsPatch, buildModelSettingsPatch } from "../../services/settings/kb-settings-patch";
   import BasicSettingsTab from "./settings-tabs/basic-settings-tab.svelte";
   import ChatStyleSettingsTab from "./settings-tabs/chat-style-settings-tab.svelte";
   import ModelSettingsTab from "./settings-tabs/model-settings-tab.svelte";
@@ -11,7 +12,6 @@
   import ToolsSettingsTab from "./settings-tabs/tools-settings-tab.svelte";
   import AgentWorkspaceSettingsTab from "./settings-tabs/agent-workspace-settings-tab.svelte";
   import McpSettingsTab from "./settings-tabs/mcp-settings-tab.svelte";
-  import WebSearchSettingsTab from "./settings-tabs/web-search-settings-tab.svelte";
   import QuickPromptsSettingsTab from "./settings-tabs/quick-prompts-settings-tab.svelte";
   import SiyuanIcon from "@/components/utils/shared/SiyuanIcon.svelte";
 
@@ -29,7 +29,6 @@
     { id: "tools", label: "工具", icon: "iconKey" },
     { id: "agentWorkspace", label: "沙箱环境", icon: "iconFolder" },
     { id: "mcp", label: "MCP", icon: "iconCloud" },
-    { id: "webSearch", label: "联网搜索", icon: "iconLanguage" },
     { id: "quickPrompts", label: "快捷提示语", icon: "iconQuote" },
   ] as const;
 
@@ -60,8 +59,8 @@
 
   onMount(async () => {
     try {
-      settings = await getKbSettings();
-      lastSavedSignature = JSON.stringify(settings);
+      settings = await getKbSettingsForEdit();
+      lastSavedSignature = JSON.stringify(buildModelSettingsPatch(settings));
       settingsLoaded = true;
     } catch (e: any) {
       saveMessage = `加载设置失败: ${e.message}`;
@@ -78,23 +77,26 @@
 
   onDestroy(() => {
     if (autoSaveTimer) clearTimeout(autoSaveTimer);
-    if (modelOnly && settingsLoaded && JSON.stringify(settings) !== lastSavedSignature) {
-      void queueAutoSave(structuredClone(settings), JSON.stringify(settings));
+    const patch = buildModelSettingsPatch(settings);
+    const signature = JSON.stringify(patch);
+    if (modelOnly && settingsLoaded && signature !== lastSavedSignature) {
+      void queueAutoSave(structuredClone(patch), signature);
     }
   });
 
   function scheduleAutoSave(): void {
-    const signature = JSON.stringify(settings);
+    const patch = buildModelSettingsPatch(settings);
+    const signature = JSON.stringify(patch);
     if (signature === lastSavedSignature) return;
     if (autoSaveTimer) clearTimeout(autoSaveTimer);
-    const draft = structuredClone(settings);
+    const draft = structuredClone(patch);
     autoSaveTimer = setTimeout(() => {
       autoSaveTimer = null;
       void queueAutoSave(draft, signature);
     }, AUTO_SAVE_DELAY_MS);
   }
 
-  function queueAutoSave(draft: KbSettings, signature: string): Promise<void> {
+  function queueAutoSave(draft: Partial<KbSettings>, signature: string): Promise<void> {
     autoSaveTask = autoSaveTask
       .catch(() => undefined)
       .then(async () => {
@@ -104,8 +106,11 @@
         saveMessageType = "success";
         try {
           const mergedSettings = await saveKbSettings(draft);
-          lastSavedSignature = JSON.stringify(mergedSettings);
-          if (JSON.stringify(settings) === signature) settings = mergedSettings;
+          const mergedPatch = buildModelSettingsPatch(mergedSettings);
+          lastSavedSignature = JSON.stringify(mergedPatch);
+          if (JSON.stringify(buildModelSettingsPatch(settings)) === signature) {
+            settings = { ...settings, ...mergedPatch };
+          }
           saveMessage = "已自动保存";
         } catch (e: any) {
           saveMessage = `自动保存失败: ${e.message}`;
@@ -118,11 +123,12 @@
   }
 
   async function handleSave() {
+    if (!settingsLoaded) return;
     saving = true;
     saveMessage = "";
     try {
-      const mergedSettings = await saveKbSettings(settings);
-      settings = mergedSettings;
+      const mergedSettings = await saveKbSettings(buildLocalKbSettingsPatch(settings));
+      settings = { ...settings, ...buildLocalKbSettingsPatch(mergedSettings) };
       saveMessage = "保存成功";
       saveMessageType = "success";
     } catch (e: any) {
@@ -162,8 +168,6 @@
         return "控制 AI 可用工具和写入确认。";
       case "mcp":
         return "移动端支持 HTTP/SSE，stdio 仅桌面端可用。";
-      case "webSearch":
-        return "联网搜索供应商和搜索策略。";
       case "quickPrompts":
         return "快捷提示语文档和输入栏入口。";
       default:
@@ -235,7 +239,7 @@
               <button
                 type="button"
                 class="save-btn"
-                disabled={saving}
+                disabled={saving || !settingsLoaded}
                 on:click={handleSave}
               >
                 {saving ? "保存中..." : "保存设置"}
@@ -270,8 +274,6 @@
               <AgentWorkspaceSettingsTab bind:settings />
             {:else if activeTab === "mcp"}
               <McpSettingsTab bind:settings mobile={mobile} />
-            {:else if activeTab === "webSearch"}
-              <WebSearchSettingsTab bind:settings />
             {:else if activeTab === "quickPrompts"}
               <QuickPromptsSettingsTab bind:settings />
             {/if}

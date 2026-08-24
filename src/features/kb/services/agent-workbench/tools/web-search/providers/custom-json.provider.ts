@@ -4,11 +4,12 @@
  * Pure factory function. No side effects at module level.
  */
 
-import type { WebSearchProvider, WebSearchResult, WebSearchOptions } from "../web-search-provider";
+import type { WebSearchProvider, WebSearchResult, WebSearchOptions, WebSearchHttpTransport } from "../web-search-provider";
 import { requestViaSiyuanProxy } from "../impl/siyuan-proxy-request";
 
 interface CustomJsonSettings {
   searchEndpoint?: string;
+  transport?: WebSearchHttpTransport;
   timeoutMs: number;
 }
 
@@ -47,13 +48,20 @@ export function createCustomJsonProvider(settings: CustomJsonSettings): WebSearc
         limit: opts.maxResults,
       });
 
-      const response = await requestViaSiyuanProxy(endpoint, {
+      const response = await (settings.transport?.request({
+        url: endpoint,
         method: "POST",
         headers: [],
         body,
         contentType: "application/json",
         timeout: settings.timeoutMs,
-      });
+      }) ?? requestViaSiyuanProxy(endpoint, {
+        method: "POST",
+        headers: [],
+        body,
+        contentType: "application/json",
+        timeout: settings.timeoutMs,
+      }));
 
       const data: CustomJsonResponse = typeof response === "string"
         ? JSON.parse(response)

@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { RobotCore } from "../src/features/robot-assistant/core/robot-core";
 import { RobotDedupCache } from "../src/features/robot-assistant/core/robot-dedup";
 import { createDefaultRobotAssistantSettings } from "../src/features/robot-assistant/settings/robot-settings-types";
@@ -25,6 +26,32 @@ function clone<T>(value: T): T {
   return structuredClone(value);
 }
 
+function verifyRobotModelSettingsErrorIsolation(): void {
+  const source = readFileSync(
+    new URL("../src/homepage/homepageSetting/tabs/RobotAssistantSettingsTab.svelte", import.meta.url),
+    "utf8",
+  );
+  const loadAllStart = source.indexOf("async function loadAll(): Promise<void> {");
+  const refreshStart = source.indexOf("async function refreshAgentModelOptions(): Promise<void> {");
+  const nextFunctionStart = source.indexOf("\n    function selectedAgentModelKey(): string {", refreshStart);
+  assert.ok(loadAllStart >= 0, "Robot settings must retain a complete loadAll function");
+  assert.ok(refreshStart > loadAllStart, "Model refresh must remain inside the settings loading flow");
+  assert.ok(nextFunctionStart > refreshStart, "Model refresh function boundary must remain discoverable");
+  const loadAllSource = source.slice(loadAllStart, refreshStart);
+  const refreshSource = source.slice(refreshStart, nextFunctionStart);
+  const bootstrapIndex = loadAllSource.indexOf('bootstrapState = bootstrap?.state ?? "idle";');
+  const clearErrorIndex = loadAllSource.indexOf("errorText = null", bootstrapIndex);
+  assert.ok(bootstrapIndex >= 0, "loadAll must finish bootstrap loading before clearing page errors");
+  assert.ok(clearErrorIndex > bootstrapIndex, "loadAll must clear page errors only after full success");
+  assert.match(source, /let agentModelOptionsLoadError = \$state\(false\)/);
+  assert.match(source, /agentModelOptionsLoadError = false/);
+  assert.match(source, /agentModelOptionsLoadError = true/);
+  assert.doesNotMatch(refreshSource, /errorText\s*=\s*null/);
+  assert.doesNotMatch(source, /errorText\s*=\s*["`]知识库设置读取失败/);
+  assert.match(source, /disabled=\{disabled \|\| agentModelOptionsLoadError\}/);
+  assert.match(source, /agent-model-load-warning/);
+}
+
 const conversations = new Map<string, RobotSessionState>();
 const active = new Map<string, string>();
 const histories: RobotHistoryItem[] = [];
@@ -43,6 +70,8 @@ settings.activeProvider = "feishu";
 settings.maxConcurrentTurns = 2;
 settings.feishu.admission.allowedSenderIds = ["user"];
 settings.feishu.admission.allowedChatIds = ["chat-main", "chat-burst", "chat-confirm", "chat-cancel", "chat-busy", "chat-dedup"];
+
+verifyRobotModelSettingsErrorIsolation();
 
 const sessionStore = {
   async get(key: RobotSessionKey) {

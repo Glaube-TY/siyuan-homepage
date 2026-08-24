@@ -73,12 +73,13 @@ export const DEFAULT_CHAT_APPEARANCE_SETTINGS: KbChatAppearanceSettings = {
 /** 默认网页搜索设置 */
 export const DEFAULT_WEB_SEARCH_SETTINGS: WebSearchSettings = {
   enabled: false,
+  nativeSearchEnabled: true,
   provider: "anysearch",
   maxResults: 5,
   readPageMaxChars: 12000,
   timeoutMs: 15000,
-  anySearchZone: "cn",
-  anySearchLanguage: "zh-CN",
+  anySearchZone: "auto",
+  anySearchLanguage: "",
 };
 
 export const DEFAULT_KB_SETTINGS: KbSettings = {

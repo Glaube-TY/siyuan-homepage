@@ -115,6 +115,22 @@ export function mapAgentErrorToUserFacing(input: {
     };
   }
 
+  if (code === "required_web_search_failed") {
+    return {
+      title: "联网搜索未获得结果",
+      message: "联网搜索未获得可用结果，请稍后重试或调整查询。",
+      suggestion: "可以换一种查询表达，或检查备用搜索提供商配置。",
+    };
+  }
+
+  if (code === "required_web_not_used") {
+    return {
+      title: "本轮未完成联网搜索",
+      message: "本轮问题需要联网搜索，但模型没有完成联网搜索。",
+      suggestion: "请重试，或更换支持 Agent 工具调用的模型。",
+    };
+  }
+
   // 终稿 Composer 连续空流（已自动恢复一次仍失败）
   if (code === "final_answer_composer_empty") {
     return {

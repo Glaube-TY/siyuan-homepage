@@ -52,6 +52,11 @@ import {
 } from "../../agent-core/session/agent-run-checkpoint";
 import type { AgentContextManifest } from "./agent-context-ledger";
 import type { NativeTool } from "../../agent-core/tools/native-tool";
+import { executeWebSearch, type WebSearchActiveModel } from "../tools/web-search/web-search-router";
+import { SiyuanProxyAgentHttpTransport } from "../tools/web-search/impl/siyuan-proxy-agent-transport";
+import type { WebSearchToolDeps } from "../tools/web-search/web-search.tool";
+import type { WebSearchTurnTracker } from "../tools/web-search/web-search-provider";
+import { evaluateWebSearchUsageRequirement } from "../tools/web-search/web-search-requirement";
 import {
   resolveNativeToolReadOnly,
   ProviderToolsetController,
@@ -557,6 +562,11 @@ export async function runAgentProfile<TResult>(
     const deps = new SiyuanToolRuntimeState({ scope, loadPluginData, savePluginData });
     const settings = params.kbSettings ?? await getKbSettings();
     const ws = settings.webSearch;
+    const webSearchTransport = new SiyuanProxyAgentHttpTransport(ws.timeoutMs);
+    const webAccess = params.conversationContext?.currentTurn?.webAccess;
+    const webSearchTracker: WebSearchTurnTracker = { attempted: false, succeeded: false };
+    const webSearchRequired = webAccess?.enabled === true && webAccess.mode === "required";
+    let activeWebSearchModel: WebSearchActiveModel | undefined;
     const externalSkillSettings = {
       ...settings.externalSkills,
       allowedSkillIds: agentProfileResourceAllowList(agentProfile.permissions.externalSkillIds),
@@ -588,7 +598,21 @@ export async function runAgentProfile<TResult>(
       // agent_tool_help 是系统必需工具，不受用户 disabledGlobalToolNames 影响，始终启用。
       agentToolHelp: true,
       webFetch: !disabledGlobalTools.has("web_fetch"),
+      webSearch: !disabledGlobalTools.has("web_search") && Boolean(webAccess?.enabled),
     };
+
+    const webSearchToolDeps: WebSearchToolDeps | undefined = globalToolAccess.webSearch
+      ? {
+          tracker: webSearchTracker,
+          search: (input) => executeWebSearch({
+            settings: ws,
+            options: { ...input, timeoutMs: ws.timeoutMs },
+            activeModel: activeWebSearchModel,
+            transport: webSearchTransport,
+            tracker: webSearchTracker,
+          }),
+        }
+      : undefined;
 
     const webReadAccess = params.conversationContext?.currentTurn?.webReadAccess;
     if (webReadAccess?.enabled && globalToolAccess.webFetch) {
@@ -639,6 +663,7 @@ export async function runAgentProfile<TResult>(
       webReadPageToolDeps,
       builtinCapabilityAccess,
       globalToolAccess,
+      webSearchToolDeps,
       conversationId,
       turnId: params.turnId,
       memoryProfile,
@@ -662,6 +687,8 @@ export async function runAgentProfile<TResult>(
       webReadPageRegistered: !!webReadPageToolDeps,
       settingsEnabled: ws.enabled,
       webFetchRegistered: globalToolAccess.webFetch,
+      webSearchRegistered: globalToolAccess.webSearch,
+      webSearchRequired,
       webFetchDisabledReason: !globalToolAccess.webFetch ? "web_fetch_disabled"
         : !webReadPageToolDeps ? "web_read_access_off"
         : undefined,
@@ -768,7 +795,14 @@ export async function runAgentProfile<TResult>(
       thinkingMode: params.thinkingMode ?? "off",
       agentThinkingEnabled: settings.agentThinkingEnabled,
     });
+    if (selected.provider && selected.model) {
+      activeWebSearchModel = { provider: selected.provider, model: selected.model };
+    }
     activeProviderId = provider.id;
+
+    if (globalToolAccess.webSearch) {
+      providerToolsetController.requestActivation("web_search");
+    }
 
     if (!provider.capabilities.nativeToolCalls) {
       const code = "provider_tool_call_not_supported";
@@ -1081,10 +1115,36 @@ export async function runAgentProfile<TResult>(
       resumeStepIndex: params.resumeCheckpoint?.stepIndex,
       resumeContext: params.resumeCheckpoint?.recoveryContext,
       successfulWriteGuards: params.resumeCheckpoint?.successfulWriteGuards,
-      validateFinalAnswer: params.validateFinalAnswer
-        ? (answer) => params.validateFinalAnswer?.(answer, {
-            observations: wb.observationLog.all(),
-          })
+      validateFinalAnswer: params.validateFinalAnswer || webSearchRequired
+        ? (answer) => {
+            const existing = params.validateFinalAnswer?.(answer, {
+              observations: wb.observationLog.all(),
+            });
+            if (existing) return existing;
+            const webSearchUsage = evaluateWebSearchUsageRequirement({
+              required: webSearchRequired,
+              tracker: webSearchTracker,
+            });
+            if (webSearchUsage === "not_attempted") {
+              return {
+                valid: false,
+                errorCode: "required_web_not_used",
+                errorMessage: "本轮要求联网，但模型没有调用联网搜索。",
+                retryInstruction: "请先调用 web_search 获取当前网页候选，再继续回答；不要把未检索内容当作当前事实。",
+                forceToolCall: true,
+              } satisfies FinalAnswerValidationResult;
+            }
+            if (webSearchUsage === "failed") {
+              return {
+                valid: false,
+                errorCode: "required_web_search_failed",
+                errorMessage: "本轮联网搜索没有获得可用网页来源。",
+                retryInstruction: "上一轮联网搜索没有获得可用网页来源，请重新组织 search query、freshness 或 topic 后再次调用 web_search；不要直接使用模型记忆回答当前事实。",
+                forceToolCall: true,
+              } satisfies FinalAnswerValidationResult;
+            }
+            return undefined;
+          }
         : undefined,
       onCheckpoint: handleCheckpoint,
       onEvent: (event) => {

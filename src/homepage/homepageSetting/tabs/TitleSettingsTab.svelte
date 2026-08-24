@@ -48,6 +48,7 @@
         tempBannerGlassBlur: number;
         statusAiAvailableModelCount?: number;
         statusAiSelectedModelLabel?: string;
+        statusAiModelLoadError?: boolean;
         advancedEnabled?: boolean;
         onTempShowTitleIconChange: (value: boolean) => void;
         onTempTitleIconTypeChange: (value: string) => void;
@@ -97,6 +98,7 @@
         tempBannerGlassBlur,
         statusAiAvailableModelCount = 0,
         statusAiSelectedModelLabel = "",
+        statusAiModelLoadError = false,
         advancedEnabled = false,
         onTempShowTitleIconChange,
         onTempTitleIconTypeChange,
@@ -516,7 +518,12 @@
         </SettingRow>
 
         <div class="status-ai-notes">
-            {#if statusAiAvailableModelCount <= 0}
+            {#if statusAiModelLoadError}
+                <div class="status-ai-note warning">
+                    <SiyuanIcon name="warning" size={14} />
+                    <span>设置读取失败，暂时无法确认可用大模型，请检查设置存储后重试。</span>
+                </div>
+            {:else if statusAiAvailableModelCount <= 0}
                 <div class="status-ai-note warning">
                     <SiyuanIcon name="warning" size={14} />
                     <span>尚未配置可用大模型。请先到「AI 中心 → 模型与服务」添加模型，再到「状态语 AI」标签选择状态语模型。</span>

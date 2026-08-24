@@ -283,6 +283,8 @@ export const ROBOT_AGENT_TOOL_NAMES = [
   "memory_manage",
   "automation_manage",
   "notification_manage",
+  "web_search",
+  "web_fetch",
 ] as const;
 
 registerAgentProfile({
@@ -307,7 +309,7 @@ registerAgentProfile({
   schemaVersion: AGENT_PROFILE_SCHEMA_VERSION,
   id: ROBOT_AGENT_PROFILE_ID,
   label: "远程机器人对话",
-  capabilities: ["conversation", "tools", "siyuan", "homepage", "global-memory"],
+  capabilities: ["conversation", "tools", "siyuan", "homepage", "web", "global-memory"],
   permissions: {
     contextSources: ["conversation", "runtime-tools", "global-memory"],
     tools: {

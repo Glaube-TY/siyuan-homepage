@@ -37,6 +37,7 @@
     let isElectron = $state(false);
     let errorText = $state<string | null>(null);
     let agentModelOptions = $state<ChatModelOption[]>([]);
+    let agentModelOptionsLoadError = $state(false);
 
     // 飞书 / QQ 凭证草稿（仅新输入时加密保存）
     let feishuSecretDraft = $state("");
@@ -186,13 +187,15 @@
         await refreshWechatLoginState();
         const bootstrap = await client.getBootstrapStatus();
         bootstrapState = bootstrap?.state ?? "idle";
+        errorText = null;
     }
 
     async function refreshAgentModelOptions(): Promise<void> {
         try {
             agentModelOptions = buildChatModelOptions(await getKbSettings());
+            agentModelOptionsLoadError = false;
         } catch {
-            agentModelOptions = [];
+            agentModelOptionsLoadError = true;
         }
     }
 
@@ -998,10 +1001,15 @@
 
         {:else if activeSubTab === "agent"}
         <SettingSection title="Agent 模型">
+            {#if agentModelOptionsLoadError}
+                <div class="robot-notice robot-notice--error agent-model-load-warning">
+                    知识库设置读取失败，模型列表暂不可用；已保留上一次成功加载的模型信息。
+                </div>
+            {/if}
             <SettingRow title="执行模型" description="选择 AI 知识库中已经配置并启用的模型。">
                 <select class="b3-select robot-model-select" value={selectedAgentModelKey()}
                     onchange={(event) => selectAgentModel((event.currentTarget as HTMLSelectElement).value)}
-                    disabled={disabled} aria-label="机器人 Agent 执行模型">
+                    disabled={disabled || agentModelOptionsLoadError} aria-label="机器人 Agent 执行模型">
                     <option value="">跟随全局默认模型</option>
                     {#if selectedAgentModelKey() && !agentModelOptions.some((option) => option.key === selectedAgentModelKey())}
                         <option value={selectedAgentModelKey()} disabled>
@@ -1119,6 +1127,11 @@
         min-height: 32px;
         text-align: center;
         text-align-last: center;
+    }
+
+    .agent-model-load-warning {
+        margin-bottom: 8px;
+        padding: 8px 12px;
     }
 
     .robot-runtime-owner {

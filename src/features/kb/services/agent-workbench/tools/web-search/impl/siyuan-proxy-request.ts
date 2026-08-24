@@ -21,6 +21,24 @@ const SENSITIVE_HEADER_KEYS = new Set([
   "api-key", "apikey", "token", "secret", "x-secret",
 ]);
 
+function redactSensitiveText(value: string): string {
+  return value
+    .replace(/("?(?:api[_-]?key|authorization|token|secret|password)"?\s*[:=]\s*")([^"\r\n]*)/gi, "$1[REDACTED]")
+    .replace(/(Bearer\s+|Basic\s+)[^\s,;]+/gi, "$1[REDACTED]");
+}
+
+function redactUrlForLog(value: string): string {
+  try {
+    const parsed = new URL(value);
+    for (const key of [...parsed.searchParams.keys()]) {
+      if (/key|token|secret|auth|password|signature/i.test(key)) parsed.searchParams.set(key, "[REDACTED]");
+    }
+    return parsed.toString();
+  } catch {
+    return redactSensitiveText(value);
+  }
+}
+
 /**
  * Redact sensitive header values for safe display in logs/errors.
  */
@@ -69,7 +87,7 @@ export async function requestViaSiyuanProxy(
   try {
     const parsed = new URL(url);
     urlHost = parsed.hostname;
-    urlPath = parsed.pathname + parsed.search;
+    urlPath = redactUrlForLog(url).replace(`${parsed.origin}`, "");
   } catch { /* best-effort */ }
 
   const startedAt = Date.now();
@@ -95,7 +113,7 @@ export async function requestViaSiyuanProxy(
       status: 0,
       durationMs: Date.now() - startedAt,
       errorCode: code,
-      bodyPreview: message.slice(0, 200),
+      bodyPreview: redactSensitiveText(message).slice(0, 200),
     });
     throw err;
   }
@@ -113,14 +131,14 @@ export async function requestViaSiyuanProxy(
       errorCode: "proxy_empty_response",
       responseMode: proxyResult?.contentType?.includes("json") ? "json" : "text",
     });
-    throw Object.assign(new Error(`Proxy request to ${url} returned empty response.`), {
+    throw Object.assign(new Error(`Proxy request to ${redactUrlForLog(url)} returned empty response.`), {
       code: "proxy_empty_response",
     });
   }
 
   if (proxyResult.status === 401) {
     let bodyPreview = "";
-    try { bodyPreview = String(proxyResult.body ?? "").slice(0, 200); } catch { /* ignore */ }
+    try { bodyPreview = redactSensitiveText(String(proxyResult.body ?? "")).slice(0, 200); } catch { /* ignore */ }
     pushWebApiDebugEvent({
       method: opts.method,
       urlHost,
@@ -132,7 +150,7 @@ export async function requestViaSiyuanProxy(
       responseMode: proxyResult.contentType?.includes("json") ? "json" : "text",
     });
     throw Object.assign(
-      new Error(`HTTP 401 认证失败：${url}。请检查 API Key 或认证 header 是否正确。`),
+      new Error(`HTTP 401 认证失败：${redactUrlForLog(url)}。请检查 API Key 或认证 header 是否正确。`),
       { code: "http_401", status: 401, bodyPreview, contentType: proxyResult.contentType },
     );
   }
@@ -145,9 +163,9 @@ export async function requestViaSiyuanProxy(
       if (parsed.message) detail += `: ${parsed.message}`;
       else if (parsed.msg) detail += `: ${parsed.msg}`;
       else if (parsed.error) detail += `: ${typeof parsed.error === "string" ? parsed.error : JSON.stringify(parsed.error)}`;
-      bodyPreview = JSON.stringify(parsed).slice(0, 200);
+      bodyPreview = redactSensitiveText(JSON.stringify(parsed)).slice(0, 200);
     } catch {
-      bodyPreview = proxyResult.body.slice(0, 200);
+      bodyPreview = redactSensitiveText(proxyResult.body).slice(0, 200);
     }
     pushWebApiDebugEvent({
       method: opts.method,
@@ -176,7 +194,7 @@ export async function requestViaSiyuanProxy(
     status: proxyResult.status,
     durationMs,
     responseMode: proxyResult.contentType?.includes("json") ? "json" : "text",
-    bodyPreview: String(proxyResult.body ?? "").slice(0, 200),
+    bodyPreview: redactSensitiveText(String(proxyResult.body ?? "")).slice(0, 200),
   });
 
   const body = proxyResult.body;

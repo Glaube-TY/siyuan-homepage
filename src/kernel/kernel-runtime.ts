@@ -48,6 +48,7 @@ import { normalizeRobotAgentRuntimeConfig } from "../features/robot-assistant/ru
 import { RobotSessionService } from "../features/robot-assistant/session/robot-session-service";
 import type { WeChatKernelProvider } from "../features/robot-assistant/providers/wechat/wechat-kernel-provider";
 import { createRobotId } from "../features/robot-assistant/contracts/robot-id";
+import type { WebSearchSettingsBinding } from "../features/kb/services/agent-workbench/tools/web-search/web-search-router";
 
 export const ROBOT_MODEL_API_KEY_SECRET = "model-api-key";
 
@@ -57,6 +58,7 @@ export interface RobotKernelRuntimeOptions {
   getModelApiKey?(): Promise<string | null>;
   providerManager?: RobotProviderManager;
   isEntitlementAvailable?(): Promise<boolean>;
+  webSearchSettingsBinding?: WebSearchSettingsBinding;
 }
 
 export class RobotKernelRuntime {
@@ -70,6 +72,7 @@ export class RobotKernelRuntime {
   private readonly pairingStore: KernelRobotPairingStore;
   private readonly providerManager: RobotProviderManager;
   private readonly toolRegistry: NativeToolRegistry;
+  private readonly webSearchSettingsBinding?: WebSearchSettingsBinding;
   private readonly isEntitlementAvailable: () => Promise<boolean>;
   /** Electron Provider（飞书 / QQ）状态注册表：由前端 RPC 上报，Kernel 只记录状态不运行。 */
   private readonly electronProviderStatuses = new Map<
@@ -90,6 +93,7 @@ export class RobotKernelRuntime {
     options: RobotKernelRuntimeOptions,
   ) {
     this.toolRegistry = options.toolRegistry;
+    this.webSearchSettingsBinding = options.webSearchSettingsBinding;
     const secretStorage = createKernelSecretStoragePort(host);
     this.secretVault = new RobotSecretVaultStore(secretStorage);
     this.settingsStore = createRobotSettingsKernelStore(host);
@@ -115,6 +119,7 @@ export class RobotKernelRuntime {
       requestConfirmation: (confirmation, promptText) =>
         this.core.requestConfirmation(confirmation, promptText),
       timeout: (fn, ms) => host.timeout(fn, ms),
+      webSearchSettingsBinding: options.webSearchSettingsBinding,
     });
 
     this.core = new RobotCore({
@@ -452,6 +457,10 @@ export class RobotKernelRuntime {
     if (normalized) await this.modelConfigStore.set(normalized);
   }
 
+  syncAgentWebSearchSettings(raw: unknown): void {
+    this.webSearchSettingsBinding?.set(raw);
+  }
+
   async getAgentModelStatus(): Promise<{
     configured: boolean;
     providerId?: string;
@@ -469,9 +478,13 @@ export class RobotKernelRuntime {
   }
 
   getToolCapabilities(): Array<{ name: string; readOnly: boolean }> {
-    return this.toolRegistry
+    const tools = this.toolRegistry
       .list()
       .map((tool) => ({ name: tool.name, readOnly: tool.readOnly }));
+    if (this.webSearchSettingsBinding?.get().enabled && !tools.some((tool) => tool.name === "web_search")) {
+      tools.push({ name: "web_search", readOnly: true });
+    }
+    return tools;
   }
 
   /** 同步 Agent 模型 API Key 到 Robot Secret Vault（Kernel 不保存明文）。 */

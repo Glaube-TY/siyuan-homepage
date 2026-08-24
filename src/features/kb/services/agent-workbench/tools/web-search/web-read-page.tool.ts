@@ -20,6 +20,11 @@ export interface WebReadPageDeps {
   readProxyEndpoint?: string;
   readPageMaxChars: number;
   timeoutMs: number;
+  getConfig?: () => {
+    readProxyEndpoint?: string;
+    readPageMaxChars: number;
+    timeoutMs: number;
+  };
 }
 
 const DEFAULT_CHUNK_CHARS = 12000;
@@ -139,6 +144,7 @@ export function createReadPageActionTool(deps: WebReadPageDeps): ToolContract<We
     },
 
     async execute(_ctx: ToolRuntimeContext, args: WebReadPageInput): Promise<ToolResult<WebReadPageOutput>> {
+      const runtimeDeps = deps.getConfig?.() ?? deps;
       // 1. URL safety validation — must pass before any network request
       const safety = validatePublicHttpUrl(args.url);
       if (safety.ok === false) {
@@ -179,7 +185,7 @@ export function createReadPageActionTool(deps: WebReadPageDeps): ToolContract<We
         effectiveChunkCount = args.chunkCount;
         // chunkSize will be computed after we know full length
       } else {
-        chunkSize = args.chunkChars ?? args.maxChars ?? deps.readPageMaxChars ?? DEFAULT_CHUNK_CHARS;
+        chunkSize = args.chunkChars ?? args.maxChars ?? runtimeDeps.readPageMaxChars ?? DEFAULT_CHUNK_CHARS;
         chunkSize = Math.max(2000, Math.min(30000, chunkSize));
       }
 
@@ -188,13 +194,13 @@ export function createReadPageActionTool(deps: WebReadPageDeps): ToolContract<We
         let cached = pageCache.get(targetUrl);
         if (!cached) {
           let html: string;
-          if (deps.readProxyEndpoint) {
-            const proxyUrl = buildReadProxyUrl(deps.readProxyEndpoint, targetUrl);
+          if (runtimeDeps.readProxyEndpoint) {
+            const proxyUrl = buildReadProxyUrl(runtimeDeps.readProxyEndpoint, targetUrl);
             const resp = await requestViaSiyuanProxy(proxyUrl, {
               method: "GET",
               headers: [],
               contentType: "text/html",
-              timeout: deps.timeoutMs,
+              timeout: runtimeDeps.timeoutMs,
             });
             html = typeof resp === "string" ? resp : JSON.stringify(resp);
           } else {
@@ -202,7 +208,7 @@ export function createReadPageActionTool(deps: WebReadPageDeps): ToolContract<We
               method: "GET",
               headers: [],
               contentType: "text/html",
-              timeout: deps.timeoutMs,
+              timeout: runtimeDeps.timeoutMs,
             });
             html = typeof resp === "string" ? resp : JSON.stringify(resp);
           }

@@ -18,6 +18,7 @@ const AGGREGATE_TOOL_DISPLAY_NAMES: Record<string, string> = {
   skill_manage: "管理能力包",
   mcp_manage: "管理扩展工具",
   notebrain_file: "处理工作文件",
+  web_search: "联网搜索",
   web_fetch: "访问网页",
   memory_manage: "记忆中枢",
   agent_tool_help: "查看工具说明",

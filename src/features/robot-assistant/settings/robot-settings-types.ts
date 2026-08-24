@@ -161,6 +161,8 @@ export const DEFAULT_ROBOT_REMOTE_TOOLS: RobotToolPolicy["tools"] = {
   memory_manage: { remoteAllowed: true, writeAction: "ask" },
   automation_manage: { remoteAllowed: true, writeAction: "ask" },
   notification_manage: { remoteAllowed: true, writeAction: "ask" },
+  web_search: { remoteAllowed: true },
+  web_fetch: { remoteAllowed: true },
 };
 
 export function createDefaultRobotAdmission(): RobotAdmissionSettings {

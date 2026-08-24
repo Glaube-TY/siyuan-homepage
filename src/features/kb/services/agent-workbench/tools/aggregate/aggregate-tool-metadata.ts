@@ -13,6 +13,7 @@ export type AggregateToolName =
   | "skill_manage"
   | "mcp_manage"
   | "notebrain_file"
+  | "web_search"
   | "web_fetch"
   | "memory_manage"
   | "automation_manage"
@@ -1915,6 +1916,14 @@ export const AGGREGATE_TOOL_CATALOG: AggregateToolMeta[] = [
         ],
       },
     ],
+  },
+  {
+    name: "web_search",
+    title: "联网搜索",
+    description: "使用当前模型的官方原生搜索或配置的 fallback 搜索服务获取网页候选；调用时填写 query、freshness、topic 及可选过滤条件。",
+    readOnly: true,
+    boundary: "只返回搜索候选；重要事实仍需使用 web_fetch.read_page 读取正文核验。",
+    actions: [],
   },
   {
     name: "web_fetch",

@@ -62,3 +62,15 @@ export function resolveOpenAICompatibleBaseUrlForProvider(provider: KbChatProvid
   }
   return normalizeOpenAICompatibleBaseUrl(raw);
 }
+
+export type AgentProviderFamily = "openai-compatible" | "gemini" | "anthropic";
+
+/** Shared family detection for the main adapter and native web-search router. */
+export function resolveProviderFamily(provider: Pick<KbChatProviderConfig, "baseUrl">): AgentProviderFamily {
+  const baseUrl = normalizeText(provider.baseUrl).toLowerCase();
+  if (baseUrl.includes("gemini.googleapis") || baseUrl.includes("generativelanguage.googleapis")) {
+    return "gemini";
+  }
+  if (baseUrl.includes("anthropic")) return "anthropic";
+  return "openai-compatible";
+}

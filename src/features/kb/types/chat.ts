@@ -51,6 +51,11 @@ export type ReferenceItem = {
   sourceName?: string;
   /** 搜索/读取 provider */
   provider?: string;
+  /** 搜索路由 */
+  route?: "native" | "fallback";
+  /** 来源实际返回的时间字段；没有则不填充 */
+  publishedAt?: string;
+  updatedAt?: string;
 };
 
 /** 用户手动附加的文档（轻量元信息，不存正文） */

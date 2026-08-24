@@ -287,6 +287,12 @@ const SETTINGS_SEARCH_REGISTRY: readonly SettingSearchEntry[] = [
         ],
     ),
     ...defineSettings(
+        { mainTab: "aiKnowledgeBase", subTab: "webSearch", section: "全局联网搜索", scope: "all-devices" },
+        [
+            { id: "ai.web-search.settings", title: "联网搜索设置", description: "配置原生搜索优先级、fallback 服务、域名和网页读取策略", keywords: ["联网", "搜索", "web search", "fallback"], target: "section" },
+        ],
+    ),
+    ...defineSettings(
         { mainTab: "aiKnowledgeBase", subTab: "workbenches", section: "临时工作台", scope: "all-devices" },
         [
             { id: "ai.workbenches.manage", title: "临时工作台管理", description: "查看、打开和删除所有 Agent 入口生成的临时工作台", keywords: ["工作台", "AI 卡片", "空间占用"], target: "section" },

@@ -27,6 +27,9 @@ export interface CollectedReference {
   sourceName?: string;
   title?: string;
   provider?: string;
+  route?: "native" | "fallback";
+  publishedAt?: string;
+  updatedAt?: string;
   priority?: number;
   reason?: ReferenceReason;
   readLevel?: ReadLevel;
@@ -568,6 +571,9 @@ export function toReferenceItem(
       url: ref.url,
       sourceName: ref.sourceName,
       provider: ref.provider,
+      route: ref.route,
+      publishedAt: ref.publishedAt,
+      updatedAt: ref.updatedAt,
       readLevel: ref.readLevel ?? "content" as const,
       referenceReason: ref.reason,
       grounded: true,
@@ -858,6 +864,9 @@ function collectWebSearchReferences(content: unknown, refs: CollectedReference[]
       title,
       sourceName: readString(item.sourceName) ?? readString(item.provider),
       provider: readString(item.provider),
+      route: item.route === "native" || item.route === "fallback" ? item.route : undefined,
+      publishedAt: readString(item.publishedAt),
+      updatedAt: readString(item.updatedAt),
       priority: REASON_PRIORITY.search_candidate,
       reason: "search_candidate",
       readLevel: "candidate",

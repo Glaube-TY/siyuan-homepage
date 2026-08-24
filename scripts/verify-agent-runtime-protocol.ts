@@ -117,6 +117,23 @@ function verifyRepeatedInvalidActionState(): void {
   assert.match(dispatchSource, /repeatedInvalidArgsBeforeThisBatch\s*&&\s*stormBreaker\.shouldFatalAfterRepeatedInvalidActionArgs\(\)/);
 }
 
+function verifyKnowledgeChatSettingsSnapshotBoundary(): void {
+  const source = readFileSync(
+    new URL("../src/features/kb/services/orchestration/agent-workbench-mode-flow.ts", import.meta.url),
+    "utf8",
+  );
+  const snapshotMarker = "const kbSettings = await getKbSettings();";
+  const snapshotIndex = source.indexOf(snapshotMarker);
+  const contextIndex = source.indexOf("const conversationContext = buildConversationContext({", snapshotIndex);
+  const runIndex = source.indexOf("const agentTurnOutcome: AgentTurnOutcome = await runAgentTurn({", contextIndex);
+  assert.ok(snapshotIndex >= 0, "Knowledge Chat must load one KB settings snapshot");
+  assert.ok(contextIndex > snapshotIndex, "KB settings must load before conversation context");
+  assert.ok(runIndex > contextIndex, "KB settings must load before Agent runtime");
+  assert.doesNotMatch(source.slice(snapshotIndex, contextIndex), /catch\s*\{[\s\S]*ignore/);
+  assert.match(source.slice(snapshotIndex, runIndex), /webSearchSettings/);
+  assert.match(source.slice(runIndex, runIndex + 1500), /\bkbSettings,\s*/);
+}
+
 async function verifyTerminalSemantics(): Promise<void> {
   const empty = await runTerminalProvider("", "stop");
   assert.equal(empty.status, "failed");
@@ -232,6 +249,7 @@ async function verifyProviderTimeoutRecovery(): Promise<void> {
 await verifyRunIdentityAndUsage();
 verifyProviderUsageNormalization();
 verifyRepeatedInvalidActionState();
+verifyKnowledgeChatSettingsSnapshotBoundary();
 await verifyTerminalSemantics();
 await verifySharedTimeout();
 await verifyProviderTimeoutRecovery();

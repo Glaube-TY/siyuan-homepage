@@ -8,6 +8,8 @@ import { NativeToolRegistry, resolveNativeToolReadOnly } from "../../../features
 import type { NativeTool } from "../../../features/kb/services/agent-core/tools/native-tool";
 import type { AgentHttpTransport } from "../../../features/kb/services/agent-core/providers/agent-http-transport";
 import type { KbChatModelConfig, KbChatProviderConfig, KbChatProviderType } from "../../../features/kb/types/settings";
+import { executeWebSearch, type WebSearchSettingsBinding } from "../../../features/kb/services/agent-workbench/tools/web-search/web-search-router";
+import { createWebSearchNativeTool } from "../../../features/kb/services/agent-workbench/tools/web-search/web-search.tool";
 import type { RobotModelConfigStore } from "../runtime/robot-model-config";
 import type { RobotConfirmation } from "../contracts/robot-confirmation";
 import { RobotConfirmationBridge } from "./robot-confirmation-bridge";
@@ -23,6 +25,7 @@ import { buildGlobalMemoryContext } from "../../../features/kb/services/agent-wo
 import { bindAutomationRobotResult, encodeAutomationRobotRoute } from "../../../features/agent-platform/automation/automation-robot-route";
 import { resolveRobotAllowance } from "../settings/robot-settings-types";
 import type { RobotToolPolicy } from "../settings/robot-settings-types";
+import { buildRobotWebSearchInstructions } from "./robot-prompt-builder";
 
 export interface KernelRobotAgentRuntimeDeps {
   /** Kernel HTTP transport（siyuan.client.fetch → forwardProxy），stream:false。 */
@@ -36,6 +39,7 @@ export interface KernelRobotAgentRuntimeDeps {
   /** 调度/取消定时器；不传则用 globalThis.setTimeout。 */
   timeout?(fn: () => void, ms: number): () => void;
   maxToolCalls?: number;
+  webSearchSettingsBinding?: WebSearchSettingsBinding;
 }
 
 /**
@@ -85,7 +89,11 @@ export class KernelRobotAgentRuntime implements RobotAgentRuntime {
       toolPolicy: input.toolPolicy,
     });
 
-    const turnRegistry = this.createTurnRegistry(input, profile);
+    const turnRegistry = this.createTurnRegistry(input, profile, { provider, model });
+    const webSearchAvailable = Boolean(turnRegistry.get("web_search"));
+    const webSearchInstructions = buildRobotWebSearchInstructions({
+      available: webSearchAvailable,
+    });
     const memoryContext = agentProfileAllowsMemory(profile, "read")
       ? await buildGlobalMemoryContext(input.userText, { limit: 8, maxChars: 4000 })
       : undefined;
@@ -103,9 +111,12 @@ export class KernelRobotAgentRuntime implements RobotAgentRuntime {
       session,
       conversationId: input.conversationId,
       systemPrompt: input.systemPrompt,
-      contextInstructions: memoryContext
-        ? `# User Long-term Memory\nUse these user facts silently. Current user input wins on conflicts. Never expose memory IDs or storage implementation.\n${memoryContext}`
-        : undefined,
+      contextInstructions: [
+        webSearchInstructions,
+        memoryContext
+          ? `# User Long-term Memory\nUse these user facts silently. Current user input wins on conflicts. Never expose memory IDs or storage implementation.\n${memoryContext}`
+          : "",
+      ].filter(Boolean).join("\n\n"),
       bridge,
       maxToolCalls: this.deps.maxToolCalls ?? profile.execution.defaultMaxToolCalls,
       abortSignal: abort.signal,
@@ -159,7 +170,11 @@ export class KernelRobotAgentRuntime implements RobotAgentRuntime {
     }
   }
 
-  private createTurnRegistry(input: RobotAgentTurnInput, profile: AgentProfile): NativeToolRegistry {
+  private createTurnRegistry(
+    input: RobotAgentTurnInput,
+    profile: AgentProfile,
+    activeModel: { provider: KbChatProviderConfig; model: KbChatModelConfig },
+  ): NativeToolRegistry {
     const registry = new NativeToolRegistry();
     for (const tool of this.deps.toolRegistry.list()) {
       // 先检查 Agent Profile：Robot 只能使用其 Profile 白名单内的工具。
@@ -186,6 +201,24 @@ export class KernelRobotAgentRuntime implements RobotAgentRuntime {
         : tool.readOnly && input.toolPolicy.readOnlyDefaultAllowed;
       if (!allowed) continue;
       registry.register(tool.name === "automation_manage" ? this.bindAutomationRoute(tool, input) : tool);
+    }
+    const webSettings = this.deps.webSearchSettingsBinding?.get();
+    const webPolicy = input.toolPolicy.tools.web_search;
+    if (
+      !registry.get("web_search")
+      &&
+      webSettings?.enabled === true
+      && agentProfileAllowsTool(profile, "web_search")
+      && (webPolicy ? webPolicy.remoteAllowed : input.toolPolicy.readOnlyDefaultAllowed)
+    ) {
+      registry.register(createWebSearchNativeTool({
+        search: (options) => executeWebSearch({
+          settings: webSettings,
+          options: { ...options, timeoutMs: webSettings.timeoutMs },
+          activeModel,
+          transport: this.deps.transport,
+        }),
+      }));
     }
     return registry;
   }

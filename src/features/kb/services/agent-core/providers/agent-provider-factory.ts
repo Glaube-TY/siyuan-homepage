@@ -1,6 +1,6 @@
 ﻿import type { KbChatModelConfig, KbChatProviderConfig } from "../../../types/settings";
 import type { ThinkingMode } from "../../../types/session";
-import { resolveOpenAICompatibleBaseUrlForProvider } from "./provider-url-resolver";
+import { resolveOpenAICompatibleBaseUrlForProvider, resolveProviderFamily } from "./provider-url-resolver";
 import { resolveModelTemperatureForRequest, resolveProviderProfile } from "../../qa/provider-profile";
 import { normalizeOpenAICompatibleEndpoint } from "./provider-url-normalizer";
 import { pushAgentDebugEvent } from "../../agent-workbench/debug/workbench-debug";
@@ -91,9 +91,9 @@ export function createProviderAdapterForKbModel(params: {
     requestTimeoutMs,
   );
 
-  // Detect Gemini by baseUrl pattern (gemini.googleapis.com or generativelanguage.googleapis.com)
   const baseUrl = params.provider.baseUrl?.trim() || "";
-  if (baseUrl.includes("gemini.googleapis") || baseUrl.includes("generativelanguage.googleapis")) {
+  const providerFamily = resolveProviderFamily(params.provider);
+  if (providerFamily === "gemini") {
     return new GeminiAdapter({
       id: adapterId,
       model: modelId,
@@ -105,8 +105,7 @@ export function createProviderAdapterForKbModel(params: {
     });
   }
 
-  // Detect Anthropic by baseUrl pattern (api.anthropic.com)
-  if (baseUrl.includes("api.anthropic.com") || baseUrl.includes("anthropic")) {
+  if (providerFamily === "anthropic") {
     return new AnthropicAdapter({
       id: adapterId,
       model: modelId,

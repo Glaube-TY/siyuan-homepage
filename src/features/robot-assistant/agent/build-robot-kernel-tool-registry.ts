@@ -18,8 +18,10 @@ import {
 } from "../../../features/quick-note/quick-note-write-service";
 import { registerDocContentEditConfirmationHandler } from "../../../features/kb/services/doc-content-edit/doc-content-edit-confirmation-bridge";
 import { registerSystemTools } from "../../../features/kb/services/agent-workbench/composition/register-system-tools";
+import { registerWebTools } from "../../../features/kb/services/agent-workbench/composition/register-web-tools";
 import { getGlobalMemoryProfile } from "../../../features/kb/services/agent-workbench/memory/global-memory-store";
 import { setNotificationCenterPlugin } from "../../../features/notification-center/notification-center-plugin";
+import type { WebSearchSettingsBinding } from "../../../features/kb/services/agent-workbench/tools/web-search/web-search-router";
 
 /**
  * 构建 Kernel-safe 工具注册表。
@@ -34,19 +36,24 @@ import { setNotificationCenterPlugin } from "../../../features/notification-cent
 export async function buildRobotKernelToolRegistry(options: {
   host?: RobotKernelHost;
   kernelSafeTools?: readonly NativeTool[];
+  webSearchSettingsBinding?: WebSearchSettingsBinding;
 } = {}): Promise<NativeToolRegistry> {
   const registry = new NativeToolRegistry();
   for (const tool of options.kernelSafeTools ?? []) {
     if (tool.name) registry.register(tool);
   }
   if (options.host) {
-    await registerKernelDataTools(registry, options.host);
+    await registerKernelDataTools(registry, options.host, options.webSearchSettingsBinding);
   }
   return registry;
 }
 
 /** 注册基于 PluginDataStore 的 Kernel-safe 主页业务工具。 */
-async function registerKernelDataTools(registry: NativeToolRegistry, host: RobotKernelHost): Promise<void> {
+async function registerKernelDataTools(
+  registry: NativeToolRegistry,
+  host: RobotKernelHost,
+  webSearchSettingsBinding?: WebSearchSettingsBinding,
+): Promise<void> {
   const storage = createKernelPluginLikeStorage(host);
   // Existing homepage and Agent services all receive the same plugin-scoped
   // data adapter. No Robot-only business JSON or duplicated service exists.
@@ -127,6 +134,24 @@ async function registerKernelDataTools(registry: NativeToolRegistry, host: Robot
     },
     notification: true,
   });
+  if (webSearchSettingsBinding) {
+    registerWebTools(toolRegistry, {
+      globalToolAccess: { webFetch: true, webSearch: false },
+      webReadPageToolDeps: {
+        readPageMaxChars: 12000,
+        timeoutMs: 15000,
+        getConfig: () => {
+          const settings = webSearchSettingsBinding.get();
+          return {
+            readProxyEndpoint: settings.readProxyEndpoint,
+            readPageMaxChars: settings.readPageMaxChars,
+            timeoutMs: settings.timeoutMs,
+          };
+        },
+      },
+      webFetchReadPageOnly: true,
+    });
+  }
 
   const native = createNativeToolRegistryFromWorkbench({
     toolRegistry,

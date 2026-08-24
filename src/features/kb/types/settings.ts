@@ -108,12 +108,14 @@ export type KbChatAppearanceSettings = {
 export type WebSearchProvider = "anysearch" | "custom_json" | "tavily";
 
 /** AnySearch 区域 */
-export type AnySearchZone = "cn" | "intl";
+export type AnySearchZone = "auto" | "cn" | "intl";
 
 /** 网页搜索设置 */
 export type WebSearchSettings = {
   /** 是否启用网页搜索 */
   enabled: boolean;
+  /** 是否优先尝试当前模型的官方原生搜索能力 */
+  nativeSearchEnabled: boolean;
   /** 搜索提供商 */
   provider: WebSearchProvider;
   /** 自定义搜索 API 端点 */
@@ -150,6 +152,7 @@ export type KbGlobalToolName =
   | "skill_manage"
   | "mcp_manage"
   | "notebrain_file"
+  | "web_search"
   | "web_fetch"
   | "memory_manage"
   | "agent_tool_help";

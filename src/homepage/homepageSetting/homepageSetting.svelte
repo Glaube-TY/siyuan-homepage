@@ -220,6 +220,7 @@
     let statusAiModelOptions: ChatModelOption[] = $state([]);
     let statusAiAvailableModelCount = $state(0);
     let statusAiSelectedModelLabel = $state("");
+    let statusAiModelLoadError = $state(false);
 
     let buttonsList: ButtonItem[] = $state(createDefaultButtons());
 
@@ -849,10 +850,10 @@
             const settings = await getKbSettings();
             const options = buildChatModelOptions(settings);
             statusAiModelOptions = options;
+            statusAiModelLoadError = false;
             syncStatusAiModelSummary(options);
         } catch {
-            statusAiModelOptions = [];
-            syncStatusAiModelSummary([]);
+            statusAiModelLoadError = true;
         }
     }
 
@@ -1705,6 +1706,7 @@
                             tempBannerGlassBlur={tempBannerGlassBlur}
                             statusAiAvailableModelCount={statusAiAvailableModelCount}
                             statusAiSelectedModelLabel={statusAiSelectedModelLabel}
+                            statusAiModelLoadError={statusAiModelLoadError}
                             advancedEnabled={advancedEnabled}
                             onTempShowTitleIconChange={(value) => showIcon = value}
                             onTempTitleIconTypeChange={(value) => titleIconType = value}

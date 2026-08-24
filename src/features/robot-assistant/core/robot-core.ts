@@ -721,6 +721,8 @@ export class RobotCore {
       const errorCode = result.errorCode ?? "";
       const reply = errorCode === "provider_timeout"
         ? "AI 模型响应超时，请稍后再试。"
+        : ["required_web_not_used", "required_web_search_failed"].includes(errorCode)
+          ? "本轮需要联网搜索，但没有获得可用网页来源；请稍后重试或调整查询。"
         : ["user_rejected", "rejected", "confirmation_already_resolved"].includes(errorCode)
           ? "操作已取消，未执行写入。"
           : ["expired", "confirmation_expired"].includes(errorCode)
@@ -805,5 +807,4 @@ export class RobotCore {
 }
 
 type RobotHistoryItemStatus = "received" | "ignored" | "rejected" | "executed" | "failed" | "sent";
-
 
