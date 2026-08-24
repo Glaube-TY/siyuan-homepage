@@ -33,3 +33,14 @@
 - 规划/审查 Agent 负责只读检查、写入明确的 `NEXT_TASK.md` 和复核回执；只有首次初始化或用户明确维护协议时才改本文件、`.gitignore` 或交接文件，不能改业务代码。`LESSONS.md` 只保存已验证的可复用经验。
 - 执行 Agent 开始前必须重读本文件、`LESSONS.md` 和 `NEXT_TASK.md`，只有明确编号且 `status: ready` 才能执行；严格限于任务范围，不改计划正文或 `LESSONS.md`，完成写 `done` 回执，受阻写 `blocked` 证据。
 - 双方必须使用同一项目根目录；交接文件用 UTF-8，不写密码、Token、隐私、机器秘密、大段源码或完整 diff。同一时间只允许一个执行 Agent；角色不明确或执行交接文件缺失时先报告。
+
+## 每轮项目验收
+
+每次完成代码、配置、依赖、构建脚本或生成物修改后，先验收再报告完成；纯文档修改执行 `git diff --check`。
+
+- 范围：`git status --short`、`git diff --stat`、`git diff --check`。
+- Svelte：按影响范围执行 `pnpm build:app`、`pnpm build:kernel`。
+- TypeScript：`pnpm typecheck`；需要时可用 `pnpm exec tsc --noEmit` 或 `npx tsc --noEmit`。
+- 语法与静态检查：`pnpm lint`。
+- 功能回归：执行相关的 `verify:*` 脚本和已有测试。
+- 最终打包：代码、依赖或构建改动执行 `pnpm build`；发布任务检查实际产物。
