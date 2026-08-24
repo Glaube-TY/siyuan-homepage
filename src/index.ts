@@ -85,6 +85,7 @@ import { enhancedDiaryMobileNotificationPlanProvider } from "@/features/enhanced
 import { reviewMobileNotificationPlanProvider } from "@/features/review-notify/review-notify-mobile-plans";
 import { destroyAutomationRuntime, startAutomationRuntime } from "@/features/agent-platform/automation/automation-runtime";
 import { destroyTaskNotifyScheduler, setTaskNotifyPlugin, startTaskNotifyScheduler } from "@/features/task-notify";
+import { destroyTaskDataRuntime, startTaskDataRuntime } from "@/features/task-data/task-data-runtime";
 import { destroyCountdownNotifyScheduler, setCountdownNotifyPlugin, startCountdownNotifyScheduler } from "@/features/countdown-notify";
 import { destroyEnhancedDiaryNotifyScheduler, setEnhancedDiaryNotifyPlugin, setEnhancedDiaryNotifyRulesPlugin, startEnhancedDiaryNotifyScheduler } from "@/features/enhanced-diary-notify";
 import { destroyReviewNotifyScheduler, setReviewNotifyPlugin, startReviewNotifyScheduler } from "@/features/review-notify";
@@ -455,6 +456,7 @@ export default class PluginHomepage extends Plugin {
         setEnhancedDiaryNotifyPlugin(this);
         setEnhancedDiaryNotifyRulesPlugin(this);
         setReviewNotifyPlugin(this);
+        startTaskDataRuntime(this);
 
         notificationPlanUnregisters.forEach((unregister) => unregister());
         notificationPlanUnregisters = [
@@ -695,6 +697,7 @@ export default class PluginHomepage extends Plugin {
                 console.warn("[Homepage] 卸载时保存移动快捷操作位置失败，已保留待保存位置:", error);
             }
         }
+        destroyTaskDataRuntime();
         destroyTaskNotifyScheduler();
         destroyCountdownNotifyScheduler();
         destroyEnhancedDiaryNotifyScheduler();

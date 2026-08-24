@@ -686,7 +686,9 @@ export async function deleteBlockChecked(id: BlockId): Promise<IResdoOperations[
 
 export async function moveBlockChecked(id: BlockId, previousID?: PreviousID, parentID?: ParentID): Promise<IResdoOperations[]> {
     return requestChecked('/api/block/moveBlock', { id, previousID, parentID }, 'moveBlock');
-}export async function foldBlock(id: BlockId) {
+}
+
+export async function foldBlock(id: BlockId) {
     let data = {
         id: id
     }
@@ -2091,7 +2093,18 @@ export async function getBlockRelevantIDs(id: string): Promise<any> {
     return requestChecked('/api/block/getBlockRelevantIDs', { id }, 'getBlockRelevantIDs');
 }
 
-export async function getBlockTreeInfos(ids: string[]): Promise<any> {
+export interface SiyuanBlockTreeInfo {
+    id: string;
+    type?: string;
+    parentID?: string;
+    parentType?: string;
+    previousID?: string;
+    previousType?: string;
+    nextID?: string;
+    nextType?: string;
+}
+
+export async function getBlockTreeInfos(ids: string[]): Promise<Partial<Record<string, SiyuanBlockTreeInfo>>> {
     return requestChecked('/api/block/getBlockTreeInfos', { ids }, 'getBlockTreeInfos');
 }
 

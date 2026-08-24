@@ -4,7 +4,7 @@
  * 不注册 Tool，不放进 Agent Workbench
  */
 
-import { getChildBlocks, appendBlock, updateBlock, deleteBlock, moveBlock, sql } from "@/api";
+import { getChildBlocks, appendBlock, updateBlock, deleteBlock, moveBlockChecked, sql } from "@/api";
 
 export interface QuickPromptItem {
   /** 块 ID */
@@ -165,7 +165,7 @@ export async function moveQuickPromptItem(
 
   try {
     if (position === "top") {
-      await moveBlock(itemId, undefined, docId);
+      await moveBlockChecked(itemId, undefined, docId);
       return true;
     }
 
@@ -173,17 +173,17 @@ export async function moveQuickPromptItem(
       const otherItems = items.filter((i) => i.id !== itemId);
       if (otherItems.length === 0) return true;
       const lastId = otherItems[otherItems.length - 1].id;
-      await moveBlock(itemId, lastId);
+      await moveBlockChecked(itemId, lastId);
       return true;
     }
 
     if (position === "before" && targetId) {
       const targetIndex = items.findIndex((i) => i.id === targetId);
       if (targetIndex <= 0) {
-        await moveBlock(itemId, undefined, docId);
+        await moveBlockChecked(itemId, undefined, docId);
       } else {
         const prevId = items[targetIndex - 1].id;
-        await moveBlock(itemId, prevId);
+        await moveBlockChecked(itemId, prevId);
       }
       return true;
     }

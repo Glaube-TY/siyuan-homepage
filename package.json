@@ -56,6 +56,8 @@
     "verify:automation-scheduler": "node --loader ts-node/esm --experimental-specifier-resolution=node scripts/verify-automation-scheduler.ts",
     "verify:automation-permissions": "cross-env TS_NODE_TRANSPILE_ONLY=true node --loader ts-node/esm --loader ./scripts/ts-node-alias-loader.mjs --experimental-specifier-resolution=node scripts/verify-automation-unattended-permissions.ts",
     "verify:global-calendar": "node --loader ts-node/esm --experimental-specifier-resolution=node scripts/verify-global-calendar.ts",
+    "verify:task-index-live-sync": "cross-env TS_NODE_TRANSPILE_ONLY=true node --loader ts-node/esm --loader ./scripts/ts-node-alias-loader.mjs --experimental-specifier-resolution=node scripts/verify-task-index-live-sync.ts",
+    "verify:enhanced-diary-task-migration": "cross-env TS_NODE_TRANSPILE_ONLY=true node --loader ts-node/esm --loader ./scripts/ts-node-alias-loader.mjs --experimental-specifier-resolution=node scripts/verify-enhanced-diary-task-migration.ts",
     "verify:habit-tracker": "node --loader ts-node/esm --experimental-specifier-resolution=node scripts/verify-habit-tracker.ts",
     "verify:visual-chart": "node --loader ts-node/esm --experimental-specifier-resolution=node scripts/verify-visual-chart.ts",
     "verify:mobile-homepage": "node --loader ts-node/esm --experimental-specifier-resolution=node scripts/verify-mobile-homepage.ts",

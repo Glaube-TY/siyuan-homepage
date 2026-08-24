@@ -72,6 +72,7 @@
     import { formatDiaryDate } from "../enhancedDiaryUtils";
     import { saveEnhancedDiaryConfig } from "../enhancedDiaryConfig";
     import { ENHANCED_DIARY_INDEXES_UPDATED_EVENT } from "../enhancedDiaryIndex";
+    import { TASK_DATA_UPDATED_EVENT } from "@/features/task-data/task-data-runtime";
     import type { GenerateTasksPlusTaskInput } from "@/features/task-data/task-parser";
     import {
         addNewTaskToDiary,
@@ -488,16 +489,21 @@
     });
 
     let refreshFlight: Promise<void> | null = null;
+    let refreshFlightForce = false;
 
-    function refresh(): Promise<void> {
-        if (refreshFlight) return refreshFlight;
+    function refresh(options: { forceTaskIndexRefresh?: boolean } = {}): Promise<void> {
+        const forceTaskIndexRefresh = options.forceTaskIndexRefresh === true;
+        if (refreshFlight) {
+            if (!forceTaskIndexRefresh || refreshFlightForce) return refreshFlight;
+            return refreshFlight.then(() => refresh({ forceTaskIndexRefresh: true }));
+        }
         const run = (async () => {
             loading = true;
             let loadSucceeded = false;
             try {
                 calendarMonthCache = new Map();
                 dayDetailCache = new Map();
-                state = await loadEnhancedDiaryWorkspaceState(plugin);
+                state = await loadEnhancedDiaryWorkspaceState(plugin, { forceTaskIndexRefresh });
                 historyRecordsLoaded = false;
                 reviewHistoryLoaded = false;
                 await loadCalendar();
@@ -515,27 +521,63 @@
                 showMessage("强化日记工作台加载失败，请查看控制台日志", 4000);
             } finally {
                 loading = false;
-                refreshFlight = null;
+                if (refreshFlight === run) {
+                    refreshFlight = null;
+                    refreshFlightForce = false;
+                }
                 if (loadSucceeded) runPendingStartupAction();
             }
         })();
         refreshFlight = run;
+        refreshFlightForce = forceTaskIndexRefresh;
         return run;
     }
 
     let refreshTimer: number | null = null;
     let indexRefreshTimer: number | null = null;
     let refreshMutationTail: Promise<void> = Promise.resolve();
+    let externalWorkspaceRefreshPending = false;
 
-    function handleEnhancedDiaryIndexesUpdated(): void {
+    function scheduleExternalWorkspaceRefresh(): void {
         if (!advancedEnabled) return;
+        if (actionBusy) {
+            externalWorkspaceRefreshPending = true;
+            return;
+        }
+        if (refreshTimer) {
+            window.clearTimeout(refreshTimer);
+            refreshTimer = null;
+        }
         if (indexRefreshTimer) window.clearTimeout(indexRefreshTimer);
         indexRefreshTimer = window.setTimeout(async () => {
             indexRefreshTimer = null;
+            if (actionBusy) {
+                externalWorkspaceRefreshPending = true;
+                return;
+            }
             const running = refreshFlight;
             if (running) await running;
+            if (actionBusy) {
+                externalWorkspaceRefreshPending = true;
+                return;
+            }
             if (advancedEnabled) await refresh();
         }, 120);
+    }
+
+    function finishWorkspaceAction(): void {
+        actionBusy = false;
+        if (!externalWorkspaceRefreshPending) return;
+        externalWorkspaceRefreshPending = false;
+        scheduleExternalWorkspaceRefresh();
+    }
+
+    function handleEnhancedDiaryIndexesUpdated(): void {
+        scheduleExternalWorkspaceRefresh();
+    }
+
+    function handleTaskDataUpdated(): void {
+        scheduleExternalWorkspaceRefresh();
     }
 
     async function refreshAfterWorkspaceMutation(notifyProjectData = false): Promise<void> {
@@ -545,6 +587,11 @@
                 refreshTimer = null;
             }
             await refresh();
+            externalWorkspaceRefreshPending = false;
+            if (indexRefreshTimer) {
+                window.clearTimeout(indexRefreshTimer);
+                indexRefreshTimer = null;
+            }
             if (notifyProjectData) workspaceMutationVersion += 1;
             refreshTimer = window.setTimeout(() => {
                 refreshTimer = null;
@@ -846,7 +893,7 @@
                 return false;
             }
         } finally {
-            actionBusy = false;
+            finishWorkspaceAction();
         }
     }
 
@@ -944,7 +991,7 @@
                 showMessage(result.message || "任务更新失败", 4000);
             }
         } finally {
-            actionBusy = false;
+            finishWorkspaceAction();
         }
     }
 
@@ -960,7 +1007,7 @@
                 showMessage(result.message || "任务状态更新失败", 3000);
             }
         } finally {
-            actionBusy = false;
+            finishWorkspaceAction();
         }
     }
 
@@ -979,7 +1026,7 @@
                 return false;
             }
         } finally {
-            actionBusy = false;
+            finishWorkspaceAction();
         }
     }
 
@@ -1007,7 +1054,7 @@
                 return false;
             }
         } finally {
-            actionBusy = false;
+            finishWorkspaceAction();
         }
     }
 
@@ -1026,7 +1073,7 @@
                 showMessage(result.message || "推迟任务失败", 4000);
             }
         } finally {
-            actionBusy = false;
+            finishWorkspaceAction();
         }
     }
 
@@ -1041,7 +1088,7 @@
             showMessage(message, result.partialCount > 0 ? 5000 : 3000);
             await refreshAfterWorkspaceMutation(result.successCount > 0);
         } finally {
-            actionBusy = false;
+            finishWorkspaceAction();
         }
     }
 
@@ -1076,7 +1123,7 @@
             showMessage(message, hasChange ? 5000 : 3000);
             await refreshAfterWorkspaceMutation(hasChange);
         } finally {
-            actionBusy = false;
+            finishWorkspaceAction();
         }
     }
 
@@ -1096,7 +1143,7 @@
                 return false;
             }
         } finally {
-            actionBusy = false;
+            finishWorkspaceAction();
         }
     }
 
@@ -1243,7 +1290,7 @@
                         showMessage(reason instanceof Error ? reason.message : "项目归档失败", 4500);
                         return { accepted: false };
                     } finally {
-                        actionBusy = false;
+                        finishWorkspaceAction();
                     }
                 },
                 onClose: () => {
@@ -1281,7 +1328,7 @@
         } catch (reason) {
             showMessage(reason instanceof Error ? reason.message : "恢复项目失败", 4500);
         } finally {
-            actionBusy = false;
+            finishWorkspaceAction();
         }
     }
 
@@ -1328,7 +1375,6 @@
             const expectedDate = record.date ? record.date.replace(/-/g, "") : "";
             if (!expectedDate || expectedDate.length !== 8) {
                 showMessage("记录日期无效，请刷新工作台后重试。", 4000);
-                actionBusy = false;
                 return false;
             }
             const result = await deleteQuickRecord(record, {
@@ -1345,7 +1391,7 @@
                 return false;
             }
         } finally {
-            actionBusy = false;
+            finishWorkspaceAction();
         }
     }
 
@@ -1418,7 +1464,6 @@
             const expectedDate = editingRecord.date ? editingRecord.date.replace(/-/g, "") : "";
             if (!expectedDate || expectedDate.length !== 8) {
                 showMessage("记录日期无效，请刷新工作台后重试。", 4000);
-                actionBusy = false;
                 return false;
             }
             const result = await updateQuickRecord(editingRecord, input.content, {
@@ -1436,7 +1481,7 @@
                 return false;
             }
         } finally {
-            actionBusy = false;
+            finishWorkspaceAction();
         }
     }
 
@@ -1731,6 +1776,7 @@
         window.addEventListener("keydown", handleWorkspaceKeydown);
         window.addEventListener("siyuan-homepage:enhanced-diary-workspace-tab", handleWorkspaceTabRequest);
         window.addEventListener(ENHANCED_DIARY_INDEXES_UPDATED_EVENT, handleEnhancedDiaryIndexesUpdated);
+        window.addEventListener(TASK_DATA_UPDATED_EVENT, handleTaskDataUpdated);
 
         const onReady = () => {
             advancedEnabled = true;
@@ -1764,9 +1810,14 @@
             window.removeEventListener("keydown", handleWorkspaceKeydown);
             window.removeEventListener("siyuan-homepage:enhanced-diary-workspace-tab", handleWorkspaceTabRequest);
             window.removeEventListener(ENHANCED_DIARY_INDEXES_UPDATED_EVENT, handleEnhancedDiaryIndexesUpdated);
+            window.removeEventListener(TASK_DATA_UPDATED_EVENT, handleTaskDataUpdated);
             window.removeEventListener("homepage-advanced-ready", onReady);
             window.removeEventListener("homepage-advanced-unavailable", onUnavailable);
             if (indexRefreshTimer) window.clearTimeout(indexRefreshTimer);
+            if (refreshTimer) window.clearTimeout(refreshTimer);
+            indexRefreshTimer = null;
+            refreshTimer = null;
+            externalWorkspaceRefreshPending = false;
         };
     });
 </script>
@@ -1776,7 +1827,7 @@
         <WorkspaceHeader
             today={state?.today || ""}
             {loading}
-            onRefresh={refresh}
+            onRefresh={() => refresh({ forceTaskIndexRefresh: true })}
             onOpenAndAppendTemplate={openTodayAndAppendTemplate}
             onOpenCommandPalette={() => (commandPaletteOpen = true)}
             todayTaskCount={todayTaskCount}

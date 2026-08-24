@@ -1,5 +1,7 @@
 import {
     appendBlockChecked,
+    checkBlockExist,
+    deleteBlockChecked,
     getBlockBreadcrumb,
     getBlockInfo,
     getBlockKramdowns,
@@ -54,9 +56,10 @@ export interface EnhancedDiaryInsertResult {
 
 export function extractOperationBlockIds(operations: unknown): string[] {
     const ids: string[] = [];
+    const insertActions = new Set(["insert", "appendInsert", "prependInsert"]);
     for (const transaction of Array.isArray(operations) ? operations : []) {
         for (const operation of Array.isArray(transaction?.doOperations) ? transaction.doOperations : []) {
-            if (operation?.action === "insert" && typeof operation.id === "string" &&
+            if (insertActions.has(operation?.action) && typeof operation.id === "string" &&
                 /^[0-9]{14}-[a-z0-9]{7}$/i.test(operation.id)) ids.push(operation.id);
         }
     }
@@ -65,6 +68,16 @@ export function extractOperationBlockIds(operations: unknown): string[] {
 
 function delay(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function getExistingBlockInfo(id: string): Promise<any | undefined> {
+    if (!id) return undefined;
+    try {
+        if (!await checkBlockExist(id)) return undefined;
+        return await getBlockInfo(id);
+    } catch {
+        return undefined;
+    }
 }
 
 export function isEnhancedDiaryTaskListItemType(type: unknown): boolean {
@@ -77,6 +90,95 @@ export function isEnhancedDiaryRecordHeadingType(type: unknown): boolean {
 
 export function isEnhancedDiaryListContainerType(type: unknown): boolean {
     return type === "l" || type === "NodeList";
+}
+
+export function isEnhancedDiaryDocumentType(type: unknown): boolean {
+    return type === "d" || type === "NodeDocument";
+}
+
+export interface EnhancedDiaryTaskMoveTarget {
+    ok: boolean;
+    targetListId?: string;
+    previousTaskItemId?: string;
+    placeholderTaskItemId?: string;
+    headingId?: string;
+    reason?: string;
+    error?: unknown;
+    path?: string[];
+}
+
+export interface EnhancedDiaryTaskListBlock {
+    id: string;
+    type?: unknown;
+    subtype?: unknown;
+    subType?: unknown;
+    markdown?: string;
+    content?: string;
+}
+
+export type EnhancedDiaryTaskListTailCandidate =
+    | { kind: "existing"; targetListId: string; previousTaskItemId: string }
+    | { kind: "bootstrap"; reason: string };
+
+export function validateTaskListTreeShape(params: {
+    docId: string;
+    targetListId: string;
+    targetListType: unknown;
+    targetListParentId?: string;
+    targetListParentType: unknown;
+    previousTaskItemId: string;
+    previousType: unknown;
+    previousParentId?: string;
+    previousParentType: unknown;
+}): { ok: true } | { ok: false; reason: string } {
+    if (!params.docId || !params.targetListId || !params.previousTaskItemId ||
+        !isEnhancedDiaryListContainerType(params.targetListType) ||
+        params.targetListParentId !== params.docId ||
+        !isEnhancedDiaryDocumentType(params.targetListParentType)) {
+        return { ok: false, reason: "target_structure_invalid" };
+    }
+    if (!isEnhancedDiaryTaskListItemType(params.previousType) ||
+        params.previousParentId !== params.targetListId ||
+        !isEnhancedDiaryListContainerType(params.previousParentType)) {
+        return { ok: false, reason: "previous_task_structure_invalid" };
+    }
+    return { ok: true };
+}
+
+function isTaskMarkdownCandidate(markdown: unknown): boolean {
+    const firstLine = String(markdown || "").split("\n")[0]
+        .replace(/^([-*]\s*)\{:[^}]*\}\s*/, "$1")
+        .trim();
+    return /^[-*]\s+\[( |x|X)\]/.test(firstLine);
+}
+
+function isTaskListItemCandidate(block: EnhancedDiaryTaskListBlock): boolean {
+    if (!isEnhancedDiaryTaskListItemType(block.type)) return false;
+    const subtype = String(block.subtype || block.subType || "").trim().toLowerCase();
+    if (subtype) return subtype === "t" || subtype === "task" || /^t[12]$/.test(subtype);
+    return isTaskMarkdownCandidate(block.markdown || block.content);
+}
+
+export function resolveTaskListTailCandidate(
+    sectionTopLevelBlocks: EnhancedDiaryTaskListBlock[],
+    candidateListChildren: EnhancedDiaryTaskListBlock[],
+): EnhancedDiaryTaskListTailCandidate {
+    const lastBlock = sectionTopLevelBlocks[sectionTopLevelBlocks.length - 1];
+    if (!lastBlock) return { kind: "bootstrap", reason: "section_empty" };
+    if (!isEnhancedDiaryListContainerType(lastBlock.type)) {
+        return { kind: "bootstrap", reason: "section_tail_not_list" };
+    }
+    if (!candidateListChildren.length) return { kind: "bootstrap", reason: "list_empty" };
+    if (!candidateListChildren.every(isTaskListItemCandidate)) {
+        return { kind: "bootstrap", reason: "list_not_task_list" };
+    }
+    const previousTaskItemId = candidateListChildren[candidateListChildren.length - 1]?.id;
+    if (!lastBlock.id || !previousTaskItemId) return { kind: "bootstrap", reason: "list_identity_missing" };
+    return {
+        kind: "existing",
+        targetListId: lastBlock.id,
+        previousTaskItemId,
+    };
 }
 
 function matchesLocatedBlockType(
@@ -110,9 +212,9 @@ async function collectInsertedBlockCandidates(operationIds: string[]): Promise<{
     const roots = operationIds.slice(0, INSERT_OPERATION_LIMIT);
     roots.forEach((id) => addCandidate(id));
 
-    // getBlockInfo 会加载并重新索引目标块树；先触发它，再读取树类型和有限子块。
+    // 先确认候选存在，再触发详情读取以加载目标块树。
     await Promise.all(roots.map(async (id) => {
-        try { await getBlockInfo(id); } catch { /* 仅用于预热块树，后续仍会保守验证。 */ }
+        await getExistingBlockInfo(id);
     }));
 
     const childSources = new Set(roots);
@@ -123,7 +225,9 @@ async function collectInsertedBlockCandidates(operationIds: string[]): Promise<{
             const type = treeInfo?.type;
             if (type) typeHints.set(id, type);
             addCandidate(treeInfo?.parentID, treeInfo?.parentType);
-            if (isEnhancedDiaryListContainerType(treeInfo?.parentType)) childSources.add(treeInfo.parentID);
+            if (isEnhancedDiaryListContainerType(treeInfo?.parentType) && treeInfo?.parentID) {
+                childSources.add(treeInfo.parentID);
+            }
         });
     } catch {
         // 新块树尚未就绪时仍尝试官方直接子块 API。
@@ -226,12 +330,8 @@ export async function locateInsertedBlock(params: {
             ));
             const scopedCandidates: string[] = [];
             for (const id of typedCandidates) {
-                try {
-                    const info = await getBlockInfo(id);
-                    if (info?.rootID === params.rootId) scopedCandidates.push(id);
-                } catch {
-                    // 单个候选尚未可读时不影响其他候选，本轮无法确定则继续重试。
-                }
+                const info = await getExistingBlockInfo(id);
+                if (info?.rootID === params.rootId) scopedCandidates.push(id);
             }
 
             if (params.nodeType === "NodeHeading" && params.expectedMarkdown) {
@@ -261,15 +361,6 @@ export async function locateInsertedBlock(params: {
         }
     }
     return undefined;
-}
-
-export interface EnhancedDiaryInsertionAnchorResult {
-    ok: boolean;
-    previousID?: string;
-    parentID?: string;
-    reason?: string;
-    missingTitle?: string;
-    path?: string[];
 }
 
 function getHeadingLevelFromSubtype(subtype?: string): EnhancedDiaryHeadingLevel | null {
@@ -515,6 +606,252 @@ export async function appendMarkdownToDaySection(params: {
     return insertMarkdownAtHeadingEnd(params.docId, lookup, params.markdown);
 }
 
+function createTaskMovePlaceholderMarkdown(): string {
+    const nonce = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+    return `- [ ] siyuan-homepage migration anchor ${nonce}`;
+}
+
+export async function deleteTaskMovePlaceholder(id: string): Promise<boolean> {
+    if (!id) return true;
+    try {
+        await deleteBlockChecked(id);
+        return true;
+    } catch (error) {
+        console.warn("[enhancedDiary:migrateTask] placeholder cleanup failed", { placeholderTaskItemId: id, error });
+        return false;
+    }
+}
+
+async function cleanupUnlocatedTaskMovePlaceholder(
+    operationIds: string[],
+    rootId: string,
+    expectedMarkdown: string,
+): Promise<void> {
+    if (!operationIds.length) return;
+    try {
+        const treeInfos = await getBlockTreeInfos(operationIds);
+        const treeCandidates = operationIds.filter((id) => {
+            const info = treeInfos?.[id];
+            return isEnhancedDiaryTaskListItemType(info?.type) &&
+                isEnhancedDiaryListContainerType(info?.parentType);
+        });
+        const candidates: string[] = [];
+        for (const candidateId of treeCandidates) {
+            const info = await getExistingBlockInfo(candidateId);
+            if (info?.rootID === rootId) candidates.push(candidateId);
+        }
+        if (candidates.length !== 1) return;
+        const kramdowns = await getBlockKramdowns(candidates);
+        if (taskSemanticKey(kramdowns?.[candidates[0]]) === taskSemanticKey(expectedMarkdown)) {
+            await deleteTaskMovePlaceholder(candidates[0]);
+        }
+    } catch {
+        // 无法安全定位时不删除未知块，避免误删用户内容。
+    }
+}
+
+async function validateResolvedTaskListTarget(params: {
+    docId: string;
+    targetListId: string;
+    previousTaskItemId: string;
+}): Promise<{ ok: true } | { ok: false; reason: string; error?: unknown }> {
+    try {
+        const treeInfos = await getBlockTreeInfos([params.targetListId, params.previousTaskItemId]);
+        const targetListInfo = treeInfos?.[params.targetListId];
+        const previousInfo = treeInfos?.[params.previousTaskItemId];
+        return validateTaskListTreeShape({
+            docId: params.docId,
+            targetListId: params.targetListId,
+            targetListType: targetListInfo?.type,
+            targetListParentId: targetListInfo?.parentID,
+            targetListParentType: targetListInfo?.parentType,
+            previousTaskItemId: params.previousTaskItemId,
+            previousType: previousInfo?.type,
+            previousParentId: previousInfo?.parentID,
+            previousParentType: previousInfo?.parentType,
+        });
+    } catch (error) {
+        return { ok: false, reason: "target_structure_read_failed", error };
+    }
+}
+
+export async function resolveDayWorkspaceTaskMoveTarget(params: {
+    docId: string;
+    headingStructure?: EnhancedDiaryHeadingStructureConfig;
+    mapping?: EnhancedDiaryTemplateFieldMapping | null;
+}): Promise<EnhancedDiaryTaskMoveTarget> {
+    let lookup: EnhancedDiaryHeadingBlockLookup;
+    try {
+        lookup = await findDayWorkspaceHeadingBlock(params.docId, "migratedTasks", params.headingStructure, params.mapping);
+    } catch {
+        return { ok: false, reason: "structure_read_failed" };
+    }
+    if (!lookup.found || !lookup.heading) {
+        return {
+            ok: false,
+            reason: "missing_heading",
+            path: lookup.path,
+        };
+    }
+
+    let children: IResGetChildBlock[];
+    try {
+        children = await getChildBlocksChecked(params.docId);
+    } catch {
+        return { ok: false, reason: "structure_read_failed", headingId: lookup.heading.id, path: lookup.path };
+    }
+    const headingIndex = children.findIndex((block) => block.id === lookup.heading?.id);
+    if (headingIndex < 0) {
+        return { ok: false, reason: "heading_block_not_found", headingId: lookup.heading.id, path: lookup.path };
+    }
+
+    let boundaryIndex = children.length;
+    for (let index = headingIndex + 1; index < children.length; index += 1) {
+        const heading = blockToHeadingBlock(children[index], index);
+        if (heading && heading.level <= lookup.heading.level) {
+            boundaryIndex = index;
+            break;
+        }
+    }
+    const sectionTopLevelBlocks = children.slice(headingIndex + 1, boundaryIndex);
+    const lastBlock = sectionTopLevelBlocks[sectionTopLevelBlocks.length - 1];
+    let candidateListChildren: IResGetChildBlock[] = [];
+    if (lastBlock && isEnhancedDiaryListContainerType(lastBlock.type)) {
+        try {
+            candidateListChildren = await getChildBlocksChecked(lastBlock.id);
+        } catch {
+            return { ok: false, reason: "target_structure_read_failed", headingId: lookup.heading.id, path: lookup.path };
+        }
+        const needsMarkdownFallback = candidateListChildren.some((child) =>
+            isEnhancedDiaryTaskListItemType(child.type) &&
+            !String(child.subtype || child.subType || "").trim() &&
+            !child.markdown && !child.content
+        );
+        if (needsMarkdownFallback) {
+            try {
+                const kramdowns = await getBlockKramdowns(candidateListChildren.map((child) => child.id));
+                candidateListChildren = candidateListChildren.map((child) => ({
+                    ...child,
+                    markdown: child.markdown || child.content || kramdowns?.[child.id],
+                }));
+            } catch {
+                return { ok: false, reason: "target_structure_read_failed", headingId: lookup.heading.id, path: lookup.path };
+            }
+        }
+    }
+
+    const candidate = resolveTaskListTailCandidate(sectionTopLevelBlocks, candidateListChildren);
+    if (candidate.kind === "existing") {
+        const targetValidation = await validateResolvedTaskListTarget({
+            docId: params.docId,
+            targetListId: candidate.targetListId,
+            previousTaskItemId: candidate.previousTaskItemId,
+        });
+        if (targetValidation.ok === false) {
+            return {
+                ok: false,
+                reason: targetValidation.reason,
+                error: targetValidation.error,
+                headingId: lookup.heading.id,
+                path: lookup.path,
+            };
+        }
+        return {
+            ok: true,
+            targetListId: candidate.targetListId,
+            previousTaskItemId: candidate.previousTaskItemId,
+            headingId: lookup.heading.id,
+            path: lookup.path,
+        };
+    }
+
+    const placeholderMarkdown = createTaskMovePlaceholderMarkdown();
+    let inserted: EnhancedDiaryInsertResult;
+    try {
+        inserted = await appendMarkdownToDaySection({
+            docId: params.docId,
+            sectionKey: "migratedTasks",
+            markdown: placeholderMarkdown,
+            headingStructure: params.headingStructure,
+            mapping: params.mapping,
+        });
+    } catch {
+        return { ok: false, reason: "placeholder_insert_failed", headingId: lookup.heading.id, path: lookup.path };
+    }
+    if (!inserted.ok) {
+        return {
+            ok: false,
+            reason: inserted.reason || "placeholder_insert_failed",
+            headingId: lookup.heading.id,
+            path: lookup.path,
+        };
+    }
+
+    const operationIds = Array.from(new Set([
+        ...(inserted.blockIds || []),
+        ...(inserted.blockId ? [inserted.blockId] : []),
+    ].filter(Boolean)));
+    const placeholderTaskItemId = await locateInsertedBlock({
+        operationIds,
+        rootId: params.docId,
+        nodeType: "NodeListItem",
+        expectedMarkdown: placeholderMarkdown,
+    });
+    if (!placeholderTaskItemId) {
+        await cleanupUnlocatedTaskMovePlaceholder(operationIds, params.docId, placeholderMarkdown);
+        return { ok: false, reason: "placeholder_not_found", headingId: lookup.heading.id, path: lookup.path };
+    }
+
+    try {
+        const treeInfos = await getBlockTreeInfos([placeholderTaskItemId]);
+        const placeholderInfo = treeInfos?.[placeholderTaskItemId];
+        const parentID = placeholderInfo?.parentID;
+        if (!isEnhancedDiaryTaskListItemType(placeholderInfo?.type) ||
+            !parentID || !isEnhancedDiaryListContainerType(placeholderInfo?.parentType)) {
+            return {
+                ok: false,
+                reason: "target_structure_invalid",
+                targetListId: parentID,
+                placeholderTaskItemId,
+                headingId: lookup.heading.id,
+                path: lookup.path,
+            };
+        }
+        const targetValidation = await validateResolvedTaskListTarget({
+            docId: params.docId,
+            targetListId: parentID,
+            previousTaskItemId: placeholderTaskItemId,
+        });
+        if (targetValidation.ok === false) {
+            return {
+                ok: false,
+                reason: targetValidation.reason,
+                error: targetValidation.error,
+                targetListId: parentID,
+                placeholderTaskItemId,
+                headingId: lookup.heading.id,
+                path: lookup.path,
+            };
+        }
+        return {
+            ok: true,
+            targetListId: parentID,
+            previousTaskItemId: placeholderTaskItemId,
+            placeholderTaskItemId,
+            headingId: lookup.heading.id,
+            path: lookup.path,
+        };
+    } catch {
+        return {
+            ok: false,
+            reason: "target_structure_invalid",
+            placeholderTaskItemId,
+            headingId: lookup.heading.id,
+            path: lookup.path,
+        };
+    }
+}
+
 export async function appendMarkdownToRecordCategory(params: {
     docId: string;
     categoryKey: EnhancedDiaryRecordCategoryKey;
@@ -582,51 +919,4 @@ export async function appendMarkdownToRecordCategoryByTitle(params: {
         headings: quickRecords.headings,
         path: [...quickRecords.path, normalizedTitle],
     }, recordMarkdown);
-}
-
-export async function getDayWorkspaceSectionEndAnchor(params: {
-    docId: string;
-    sectionKey: EnhancedDiaryDayWorkspaceSectionKey;
-    headingStructure?: EnhancedDiaryHeadingStructureConfig;
-    mapping?: EnhancedDiaryTemplateFieldMapping | null;
-}): Promise<EnhancedDiaryInsertionAnchorResult> {
-    const lookup = await findDayWorkspaceHeadingBlock(params.docId, params.sectionKey, params.headingStructure, params.mapping);
-    if (lookup.readFailed) {
-        return { ok: false, reason: "structure_read_failed" };
-    }
-    if (!lookup.found || !lookup.heading) {
-        return {
-            ok: false,
-            reason: "missing_heading",
-            missingTitle: lookup.missingTitle,
-            path: lookup.path,
-        };
-    }
-
-    const children = await getChildBlocksChecked(params.docId);
-    const headingIndex = children.findIndex((block) => block.id === lookup.heading?.id);
-    if (headingIndex < 0) {
-        return {
-            ok: false,
-            reason: "heading_block_not_found",
-            path: lookup.path,
-        };
-    }
-
-    let boundaryIndex = children.length;
-    for (let i = headingIndex + 1; i < children.length; i++) {
-        const heading = blockToHeadingBlock(children[i], i);
-        if (heading && heading.level <= lookup.heading.level) {
-            boundaryIndex = i;
-            break;
-        }
-    }
-
-    const previousBlock = children[boundaryIndex - 1] || children[headingIndex];
-    return {
-        ok: true,
-        previousID: previousBlock.id,
-        parentID: params.docId,
-        path: lookup.path,
-    };
 }

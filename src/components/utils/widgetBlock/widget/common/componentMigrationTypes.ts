@@ -6,6 +6,8 @@ export interface NotebookOption {
 export type ComponentMigrationStatusValue = "idle" | "success" | "error";
 
 export interface ComponentMigrationStatus {
+    source?: string;
+    changed?: boolean;
     lastRunAt?: string;
     lastStatus?: ComponentMigrationStatusValue;
     lastMessage?: string;

@@ -1,11 +1,15 @@
 import {
     appendBlockChecked,
     batchGetBlockAttrs,
+    checkBlockExist,
     deleteBlockChecked,
+    getBlockInfo,
     getBlockKramdown,
+    getBlockTreeInfos,
     moveBlockChecked,
     setBlockAttrsChecked,
     updateBlockChecked,
+    type SiyuanBlockTreeInfo,
 } from "@/api";
 import {
     extractTaskTags,
@@ -17,7 +21,13 @@ import {
 import type { EnhancedDiaryConfig, EnhancedDiaryProjectStorageConfig } from "../enhancedDiaryTypes";
 import {
     appendMarkdownToDaySection,
-    getDayWorkspaceSectionEndAnchor,
+    deleteTaskMovePlaceholder,
+    isEnhancedDiaryDocumentType,
+    isEnhancedDiaryListContainerType,
+    isEnhancedDiaryTaskListItemType,
+    resolveDayWorkspaceTaskMoveTarget,
+    validateTaskListTreeShape,
+    type EnhancedDiaryTaskMoveTarget,
 } from "../enhancedDiaryBlockLocator";
 import { getOrCreateTodayDiaryDocument } from "../enhancedDiaryActions";
 import { readDiaryMarkdownResult } from "../enhancedDiaryDoc";
@@ -29,6 +39,7 @@ import { selectByIdsBatched } from "@/components/tools/siyuanSqlPaging";
 import {
     ensureTaskBlockExists,
     removeTaskIndexItem,
+    refreshTaskIndexByRootIds,
     updateTaskIndexItem,
 } from "@/components/tools/siyuanComponentDataApi";
 import { loadTaskData } from "@/features/task-data/task-data-service";
@@ -221,7 +232,8 @@ export async function queryWorkspaceTasks(
     options: QueryWorkspaceTasksOptions = {},
 ): Promise<EnhancedDiaryWorkspaceTask[]> {
     const todayStr = formatDiaryDate(today);
-    const taskResult = await loadTaskData(plugin, { forceRefresh: options.forceIndexRefresh });
+    const forceIndexRefresh = options.forceIndexRefresh === true || options.requireFreshIndex === true;
+    const taskResult = await loadTaskData(plugin, { forceRefresh: forceIndexRefresh });
     if (options.requireFreshIndex && (taskResult.status === "error" || taskResult.status === "limited")) {
         throw new Error(taskResult.message || "任务索引刷新失败。");
     }
@@ -715,12 +727,241 @@ function formatNowTime(date = new Date()): string {
     return `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
 }
 
+async function resolveTaskSourceRootId(task: EnhancedDiaryWorkspaceTask): Promise<string | undefined> {
+    try {
+        const info = await getBlockInfo(task.blockId);
+        const rootId = info?.rootID;
+        return typeof rootId === "string" && rootId ? rootId : undefined;
+    } catch {
+        return task.rootId || task.sourceDocId || undefined;
+    }
+}
+
+interface TaskMovePlacementObservation {
+    moved: boolean;
+    observedRootId?: string;
+    observedParentId?: string;
+    observedType?: string;
+    observedParentType?: string;
+    targetListParentId?: string;
+    targetListParentType?: string;
+    previousParentId?: string;
+    previousParentType?: string;
+}
+
+interface TaskMigrationDiagnostics {
+    taskBlockId: string;
+    sourceRootId?: string;
+    sourceParentId?: string;
+    sourceParentType?: string;
+    todayDocId?: string;
+    migratedTasksHeadingId?: string;
+    targetListId?: string;
+    targetListParentId?: string;
+    targetListParentType?: string;
+    previousTaskItemId?: string;
+    previousParentId?: string;
+    previousParentType?: string;
+    placeholderTaskItemId?: string;
+    placeholderParentId?: string;
+    observedRootId?: string;
+    observedParentId?: string;
+    stage: string;
+    error?: unknown;
+}
+
+function describeTaskMigrationError(error: unknown): string {
+    return error instanceof Error ? error.message : String(error || "unknown error");
+}
+
+function logTaskMigrationFailure(diagnostics: TaskMigrationDiagnostics): void {
+    console.warn("[enhancedDiary:migrateTask]", {
+        ...diagnostics,
+        error: diagnostics.error === undefined ? undefined : describeTaskMigrationError(diagnostics.error),
+    });
+}
+
+function treeInfoParentId(info?: SiyuanBlockTreeInfo): string | undefined {
+    const parentId = info?.parentID;
+    return typeof parentId === "string" && parentId ? parentId : undefined;
+}
+
+function treeInfoParentType(info?: SiyuanBlockTreeInfo): string | undefined {
+    const parentType = info?.parentType;
+    return typeof parentType === "string" && parentType ? parentType : undefined;
+}
+
+export function validateTaskMoveTargetShape(params: {
+    sourceType: unknown;
+    sourceRootId?: string;
+    expectedSourceRootId: string;
+    todayDocId: string;
+    targetListId: string;
+    targetListType: unknown;
+    targetListParentId?: string;
+    targetListParentType: unknown;
+    previousTaskItemId: string;
+    previousType: unknown;
+    previousParentId?: string;
+    previousParentType: unknown;
+}): { ok: true } | { ok: false; reason: string } {
+    if (!params.expectedSourceRootId || params.expectedSourceRootId === params.todayDocId) {
+        return { ok: false, reason: "already_today" };
+    }
+    if (!params.targetListId || !params.previousTaskItemId) return { ok: false, reason: "target_structure_invalid" };
+    if (!isEnhancedDiaryTaskListItemType(params.sourceType) || params.sourceRootId !== params.expectedSourceRootId) {
+        return { ok: false, reason: "source_structure_invalid" };
+    }
+    return validateTaskListTreeShape({
+        docId: params.todayDocId,
+        targetListId: params.targetListId,
+        targetListType: params.targetListType,
+        targetListParentId: params.targetListParentId,
+        targetListParentType: params.targetListParentType,
+        previousTaskItemId: params.previousTaskItemId,
+        previousType: params.previousType,
+        previousParentId: params.previousParentId,
+        previousParentType: params.previousParentType,
+    });
+}
+
+type TaskMigrationStructureDetails = Pick<
+    TaskMigrationDiagnostics,
+    | "sourceParentId"
+    | "sourceParentType"
+    | "targetListParentId"
+    | "targetListParentType"
+    | "previousParentId"
+    | "previousParentType"
+    | "placeholderParentId"
+>;
+
+type TaskMoveTargetValidationResult = TaskMigrationStructureDetails & (
+    { ok: true } | { ok: false; reason: string; error?: unknown }
+);
+
+async function validateTaskMoveTarget(params: {
+    taskBlockId: string;
+    sourceRootId: string;
+    todayDocId: string;
+    target: EnhancedDiaryTaskMoveTarget;
+}): Promise<TaskMoveTargetValidationResult> {
+    const { taskBlockId, sourceRootId, todayDocId, target } = params;
+    if (!target.targetListId || !target.previousTaskItemId) {
+        return { ok: false, reason: "target_structure_invalid" };
+    }
+    if (sourceRootId === todayDocId) return { ok: false, reason: "already_today" };
+    try {
+        const treeInfos = await getBlockTreeInfos(Array.from(new Set([
+            taskBlockId,
+            target.targetListId,
+            target.previousTaskItemId,
+        ])));
+        const sourceInfo = treeInfos?.[taskBlockId];
+        const targetListInfo = treeInfos?.[target.targetListId];
+        const previousInfo = treeInfos?.[target.previousTaskItemId];
+        const details: TaskMigrationStructureDetails = {
+            sourceParentId: treeInfoParentId(sourceInfo),
+            sourceParentType: treeInfoParentType(sourceInfo),
+            targetListParentId: treeInfoParentId(targetListInfo),
+            targetListParentType: treeInfoParentType(targetListInfo),
+            previousParentId: treeInfoParentId(previousInfo),
+            previousParentType: treeInfoParentType(previousInfo),
+            placeholderParentId: target.placeholderTaskItemId ? target.targetListId : undefined,
+        };
+        let sourceBlockInfo: any;
+        try {
+            sourceBlockInfo = await getBlockInfo(taskBlockId);
+        } catch (error) {
+            return { ...details, ok: false, reason: "target_structure_read_failed", error };
+        }
+        const validation = validateTaskMoveTargetShape({
+            sourceType: sourceInfo?.type,
+            sourceRootId: sourceBlockInfo?.rootID,
+            expectedSourceRootId: sourceRootId,
+            todayDocId,
+            targetListId: target.targetListId,
+            targetListType: targetListInfo?.type,
+            targetListParentId: treeInfoParentId(targetListInfo),
+            targetListParentType: treeInfoParentType(targetListInfo),
+            previousTaskItemId: target.previousTaskItemId,
+            previousType: previousInfo?.type,
+            previousParentId: treeInfoParentId(previousInfo),
+            previousParentType: treeInfoParentType(previousInfo),
+        });
+        return { ...details, ...validation };
+    } catch (error) {
+        return { ok: false, reason: "target_structure_read_failed", error };
+    }
+}
+
+async function verifyTaskMovePlacement(params: {
+    blockId: string;
+    todayDocId: string;
+    targetListId: string;
+    previousTaskItemId: string;
+}): Promise<TaskMovePlacementObservation> {
+    let observation: TaskMovePlacementObservation = { moved: false };
+    for (const waitMs of [0, 100, 300] as const) {
+        if (waitMs > 0) await new Promise((resolve) => setTimeout(resolve, waitMs));
+        try {
+            if (!await checkBlockExist(params.blockId)) continue;
+            const treeInfos = await getBlockTreeInfos(Array.from(new Set([
+                params.blockId,
+                params.targetListId,
+                params.previousTaskItemId,
+            ])));
+            const taskInfo = treeInfos?.[params.blockId];
+            const targetListInfo = treeInfos?.[params.targetListId];
+            const previousInfo = treeInfos?.[params.previousTaskItemId];
+            const taskBlockInfo = await getBlockInfo(params.blockId);
+            const observedRootId = typeof taskBlockInfo?.rootID === "string" ? taskBlockInfo.rootID : undefined;
+            const observedParentId = treeInfoParentId(taskInfo);
+            observation = {
+                moved: false,
+                observedRootId,
+                observedParentId,
+                observedType: taskInfo?.type,
+                observedParentType: treeInfoParentType(taskInfo),
+                targetListParentId: treeInfoParentId(targetListInfo),
+                targetListParentType: treeInfoParentType(targetListInfo),
+                previousParentId: treeInfoParentId(previousInfo),
+                previousParentType: treeInfoParentType(previousInfo),
+            };
+            if (isEnhancedDiaryTaskListItemType(taskInfo?.type) &&
+                observedRootId === params.todayDocId &&
+                observedParentId === params.targetListId &&
+                isEnhancedDiaryListContainerType(targetListInfo?.type) &&
+                treeInfoParentId(targetListInfo) === params.todayDocId &&
+                isEnhancedDiaryDocumentType(treeInfoParentType(targetListInfo)) &&
+                isEnhancedDiaryTaskListItemType(previousInfo?.type) &&
+                treeInfoParentId(previousInfo) === params.targetListId &&
+                isEnhancedDiaryListContainerType(treeInfoParentType(previousInfo))) {
+                return { ...observation, moved: true };
+            }
+        } catch {
+            // 移动后块树可能短暂不可读，只在有限窗口内继续确认。
+        }
+    }
+    return observation;
+}
+
+export function normalizeMigrationRootIds(sourceRootId: string, targetRootId: string): string[] {
+    return Array.from(new Set([sourceRootId, targetRootId].map((id) => id.trim()).filter(Boolean)));
+}
+
 export async function migrateWorkspaceTaskToToday(
     plugin: any,
     config: EnhancedDiaryConfig,
     task: EnhancedDiaryWorkspaceTask
 ): Promise<WorkspaceTaskActionResult> {
     if (!(await ensureTaskBlockExists(task.blockId))) {
+        logTaskMigrationFailure({
+            taskBlockId: task.blockId,
+            sourceRootId: task.rootId || task.sourceDocId,
+            stage: "ensure_task",
+            error: "missing_task",
+        });
         return {
             ok: false,
             changed: false,
@@ -729,16 +970,38 @@ export async function migrateWorkspaceTaskToToday(
         };
     }
     if (task.isTodayTask || task.sourceKind === "migrated") {
-        return { 
-            ok: false, 
-            changed: false, 
-            reason: "already_today", 
-            message: "该任务已经在今日日记中，无需迁移。" 
+        return {
+            ok: false,
+            changed: false,
+            reason: "already_today",
+            message: "该任务已经在今日日记中，无需迁移。"
+        };
+    }
+
+    const sourceRootId = await resolveTaskSourceRootId(task);
+
+    if (!sourceRootId) {
+        logTaskMigrationFailure({
+            taskBlockId: task.blockId,
+            stage: "resolve_source_root",
+            error: "source root unavailable",
+        });
+        return {
+            ok: false,
+            changed: false,
+            reason: "source_root_missing",
+            message: "无法确认任务所在的原日记，迁移已取消。",
         };
     }
 
     const todayDoc = await getOrCreateTodayDiaryDocument(plugin, config);
     if (!todayDoc.ok || !todayDoc.docId) {
+        logTaskMigrationFailure({
+            taskBlockId: task.blockId,
+            sourceRootId,
+            stage: "resolve_today_doc",
+            error: todayDoc.reason || "today document unavailable",
+        });
         return {
             ok: false,
             changed: false,
@@ -746,79 +1009,210 @@ export async function migrateWorkspaceTaskToToday(
             message: "未能打开或创建今日日记，迁移已取消。",
         };
     }
-
-    const anchor = await getDayWorkspaceSectionEndAnchor({
-        docId: todayDoc.docId,
-        sectionKey: "migratedTasks",
-        headingStructure: config.headingStructure,
-        mapping: config.templateFieldMapping,
-    });
-    if (!anchor.ok || !anchor.previousID) {
+    if (sourceRootId === todayDoc.docId) {
         return {
             ok: false,
             changed: false,
-            reason: anchor.reason || "missing_anchor",
-            message: "当前日记缺少「任务管理 > 迁移任务」区块，请补充模板或恢复标题。",
+            reason: "already_today",
+            message: "该任务已经在今日日记中，无需迁移。",
         };
     }
 
+    let sourceParentId: string | undefined;
+    let sourceParentType: string | undefined;
     try {
-        await moveBlockChecked(task.blockId, anchor.previousID, anchor.parentID);
+        const sourceTreeInfo = (await getBlockTreeInfos([task.blockId]))?.[task.blockId];
+        sourceParentId = treeInfoParentId(sourceTreeInfo);
+        sourceParentType = treeInfoParentType(sourceTreeInfo);
     } catch {
-        return {
-            ok: false,
-            changed: false,
-            reason: "move_failed",
-            message: "移动任务失败，原任务已保留。",
-        };
+        // 仅用于失败诊断，不能让一次只读诊断失败阻止迁移保护继续工作。
     }
-    try {
-        await updateTaskIndexItem({
-            id: task.blockId,
-            rootID: todayDoc.docId,
-            root_id: todayDoc.docId,
-            box: task.box,
-            hpath: task.hpath,
-            markdown: task.markdown,
-            content: task.taskname,
-            checked: task.completed,
-            updated: new Date().toISOString(),
-            source: "plugin",
+
+    let target: EnhancedDiaryTaskMoveTarget | undefined;
+    let targetDetails: TaskMigrationStructureDetails = {};
+    let coreMoveSucceeded = false;
+    let placeholderCleanupFailed = false;
+    let placement: TaskMovePlacementObservation = { moved: false };
+    const logMigrationFailure = (stage: string, error: unknown): void => {
+        logTaskMigrationFailure({
+            taskBlockId: task.blockId,
+            sourceRootId,
+            sourceParentId: sourceParentId || targetDetails.sourceParentId,
+            sourceParentType: sourceParentType || targetDetails.sourceParentType,
+            todayDocId: todayDoc.docId,
+            migratedTasksHeadingId: target?.headingId,
+            targetListId: target?.targetListId,
+            targetListParentId: targetDetails.targetListParentId,
+            targetListParentType: targetDetails.targetListParentType,
+            previousTaskItemId: target?.previousTaskItemId,
+            previousParentId: targetDetails.previousParentId,
+            previousParentType: targetDetails.previousParentType,
+            placeholderTaskItemId: target?.placeholderTaskItemId,
+            placeholderParentId: targetDetails.placeholderParentId ||
+                (target?.placeholderTaskItemId ? target.targetListId : undefined),
+            observedRootId: placement.observedRootId,
+            observedParentId: placement.observedParentId,
+            stage,
+            error,
         });
-    } catch {
-        // 索引同步失败不影响已完成的块移动。
+    };
+
+    try {
+        target = await resolveDayWorkspaceTaskMoveTarget({
+            docId: todayDoc.docId,
+            headingStructure: config.headingStructure,
+            mapping: config.templateFieldMapping,
+        });
+        if (!target.ok) {
+            logMigrationFailure("resolve_target", target.error || target.reason);
+            return {
+                ok: false,
+                changed: false,
+                reason: target.reason || "target_structure_invalid",
+                message: target.reason === "missing_heading"
+                    ? "当前日记缺少「任务管理 > 迁移任务」区块，请补充模板或恢复标题。"
+                    : "迁移任务区域结构异常，已取消迁移。",
+            };
+        }
+
+        const preflight = await validateTaskMoveTarget({
+            taskBlockId: task.blockId,
+            sourceRootId,
+            todayDocId: todayDoc.docId,
+            target,
+        });
+        targetDetails = {
+            sourceParentId: preflight.sourceParentId ?? targetDetails.sourceParentId,
+            sourceParentType: preflight.sourceParentType ?? targetDetails.sourceParentType,
+            targetListParentId: preflight.targetListParentId ?? targetDetails.targetListParentId,
+            targetListParentType: preflight.targetListParentType ?? targetDetails.targetListParentType,
+            previousParentId: preflight.previousParentId ?? targetDetails.previousParentId,
+            previousParentType: preflight.previousParentType ?? targetDetails.previousParentType,
+            placeholderParentId: preflight.placeholderParentId ?? targetDetails.placeholderParentId,
+        };
+        if (preflight.ok === false) {
+            logMigrationFailure("preflight", preflight.error || preflight.reason);
+            return {
+                ok: false,
+                changed: false,
+                reason: preflight.reason,
+                message: "迁移任务区域结构异常，已取消迁移。",
+            };
+        }
+
+        try {
+            await moveBlockChecked(task.blockId, target.previousTaskItemId, target.targetListId);
+        } catch (error) {
+            logMigrationFailure("move", error);
+            return {
+                ok: false,
+                changed: false,
+                reason: "move_failed",
+                message: "移动任务失败，原任务已保留。",
+            };
+        }
+
+        placement = await verifyTaskMovePlacement({
+            blockId: task.blockId,
+            todayDocId: todayDoc.docId,
+            targetListId: target.targetListId,
+            previousTaskItemId: target.previousTaskItemId,
+        });
+        if (!placement.moved) {
+            targetDetails = {
+                ...targetDetails,
+                targetListParentId: placement.targetListParentId ?? targetDetails.targetListParentId,
+                targetListParentType: placement.targetListParentType ?? targetDetails.targetListParentType,
+                previousParentId: placement.previousParentId ?? targetDetails.previousParentId,
+                previousParentType: placement.previousParentType ?? targetDetails.previousParentType,
+            };
+            logMigrationFailure("move_verify", "task placement verification failed");
+            return {
+                ok: false,
+                changed: Boolean(placement.observedRootId && placement.observedRootId !== sourceRootId),
+                reason: "move_verify_failed",
+                message: "任务移动后未能确认其位于今日日记的任务列表中，未继续写入迁移记录。",
+            };
+        }
+        coreMoveSucceeded = true;
+    } catch (error) {
+        logMigrationFailure("migration_core", error);
+        return {
+            ok: false,
+            changed: false,
+            reason: "migration_core_failed",
+            message: "任务迁移核心步骤失败，原任务已保留。",
+        };
+    } finally {
+        if (target?.placeholderTaskItemId) {
+            placeholderCleanupFailed = !await deleteTaskMovePlaceholder(target.placeholderTaskItemId);
+            if (placeholderCleanupFailed) {
+                logMigrationFailure("placeholder_cleanup", "placeholder deletion failed");
+            }
+        }
     }
 
+    if (!coreMoveSucceeded || !target?.targetListId || !target.previousTaskItemId) {
+        return {
+            ok: false,
+            changed: false,
+            reason: "migration_core_failed",
+            message: "任务迁移核心步骤失败，原任务已保留。",
+        };
+    }
+
+    const partialMessages: string[] = [];
+    if (placeholderCleanupFailed) partialMessages.push("临时迁移锚点清理失败，请检查今日日记");
     try {
         await appendBlockChecked(
             "markdown",
             `- 迁移来源：${buildSourceLink(task)}\n- 迁移时间：${formatNowTime()}`,
             task.blockId
         );
-    } catch {
-        return {
-            ok: false,
-            changed: true,
-            reason: "append_source_failed",
-            message: "任务已移动，但迁移来源追加失败，请在日记中检查。",
-        };
+    } catch (error) {
+        partialMessages.push("迁移来源记录写入失败");
+        logMigrationFailure("append_provenance", error);
     }
 
     try {
-        await appendMarkdownToDaySection({
+        const logResult = await appendMarkdownToDaySection({
             docId: todayDoc.docId,
             sectionKey: "taskLog",
             markdown: `- 迁移任务：${task.taskname}，从 ${task.sourceDate || task.sourceDocTitle || "旧日记"} 迁移到今天`,
             headingStructure: config.headingStructure,
             mapping: config.templateFieldMapping,
         });
-    } catch {
+        if (!logResult.ok) {
+            partialMessages.push("任务日志写入失败");
+            logMigrationFailure("append_task_log", logResult.reason || "task log insert failed");
+        }
+    } catch (error) {
+        partialMessages.push("任务日志写入失败");
+        logMigrationFailure("append_task_log", error);
+    }
+
+    try {
+        const indexResult = await refreshTaskIndexByRootIds(
+            normalizeMigrationRootIds(sourceRootId, todayDoc.docId),
+            plugin,
+        );
+        if (indexResult.lastStatus !== "success") {
+            partialMessages.push("任务索引同步失败，请刷新后检查");
+            logMigrationFailure("refresh_task_index", indexResult.lastMessage || indexResult.lastStatus);
+        }
+    } catch (error) {
+        partialMessages.push("任务索引同步失败，请刷新后检查");
+        logMigrationFailure("refresh_task_index", error);
+    }
+
+    if (partialMessages.length > 0) {
         return {
             ok: true,
             changed: true,
-            message: "任务已迁移，但迁移日志追加失败。",
+            partial: true,
+            reason: "post_move_partial",
+            message: `任务已迁移，但${partialMessages.join("；")}。`,
         };
     }
-
     return { ok: true, changed: true };
 }

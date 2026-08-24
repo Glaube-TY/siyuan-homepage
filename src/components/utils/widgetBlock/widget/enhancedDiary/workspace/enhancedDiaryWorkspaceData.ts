@@ -163,7 +163,7 @@ export function buildEnhancedDiaryWorkspaceProjectSummary(
 
 export async function loadEnhancedDiaryWorkspaceState(
     plugin: any,
-    options: { date?: Date } = {}
+    options: { date?: Date; forceTaskIndexRefresh?: boolean } = {}
 ): Promise<EnhancedDiaryWorkspaceState> {
     const date = options.date || new Date();
     const today = formatDiaryDate(date);
@@ -180,7 +180,11 @@ export async function loadEnhancedDiaryWorkspaceState(
               taskManagementEnabled,
           )
         : EMPTY_SUMMARY;
-    const tasks = taskManagementEnabled ? await queryWorkspaceTasks(config, date, plugin) : [];
+    const tasks = taskManagementEnabled
+        ? await queryWorkspaceTasks(config, date, plugin, {
+            forceIndexRefresh: options.forceTaskIndexRefresh === true,
+        })
+        : [];
     const records = todayDiary
         ? await queryTodayQuickRecords(
             todayDiary.id,

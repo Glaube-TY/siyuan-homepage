@@ -24,6 +24,7 @@ const indexProvider: TaskDataProvider = {
 };
 
 let preparationFlight: Promise<{ ok: boolean; message?: string }> | null = null;
+let preparationFlightForce = false;
 
 export function registerTaskDataProvider(provider: TaskDataProvider): () => void {
   if (!/^[a-z][a-z0-9_-]{1,47}$/.test(provider.id)) throw new Error(`非法任务数据源 ID: ${provider.id}`);
@@ -32,8 +33,13 @@ export function registerTaskDataProvider(provider: TaskDataProvider): () => void
 }
 
 async function prepareTaskData(plugin: any, forceRefresh: boolean): Promise<{ ok: boolean; message?: string }> {
-  if (preparationFlight) return preparationFlight;
-  preparationFlight = (async () => {
+  const running = preparationFlight;
+  if (running) {
+    if (!forceRefresh || preparationFlightForce) return running;
+    await running.catch(() => undefined);
+    return prepareTaskData(plugin, true);
+  }
+  const flight = (async () => {
     const initialization = await ensureTaskIndexInitialized(plugin);
     if (initialization.status.lastStatus === "error") {
       return { ok: false, message: initialization.status.lastMessage || "任务索引初始化失败。" };
@@ -43,10 +49,15 @@ async function prepareTaskData(plugin: any, forceRefresh: boolean): Promise<{ ok
       ? { ok: false, message: refresh.lastMessage || "任务索引增量刷新失败。" }
       : { ok: true };
   })();
+  preparationFlight = flight;
+  preparationFlightForce = forceRefresh;
   try {
-    return await preparationFlight;
+    return await flight;
   } finally {
-    preparationFlight = null;
+    if (preparationFlight === flight) {
+      preparationFlight = null;
+      preparationFlightForce = false;
+    }
   }
 }
 

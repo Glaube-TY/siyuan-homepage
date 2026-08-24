@@ -137,7 +137,9 @@ function copyFileWithRetry(sourcePath, targetPath, maxRetries = 6, initialDelayM
             if (isLockError && attempt < maxRetries) {
                 const delay = initialDelayMs * Math.pow(1.5, attempt);
                 const start = Date.now();
-                while (Date.now() - start < delay) {}
+                while (Date.now() - start < delay) {
+                    // Intentional synchronous backoff while the target file is locked.
+                }
                 continue;
             }
             throw error;
