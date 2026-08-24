@@ -28,7 +28,10 @@ try {
             $gitFiles | ForEach-Object {
                 $relativePath = ([string]$_).Trim()
                 if ($relativePath -and $relativePath -notin $excludedPaths -and $relativePath -notlike "*.zip") {
-                    $relativePath
+                    $fullPath = Join-Path $root ($relativePath -replace '/', [IO.Path]::DirectorySeparatorChar)
+                    if (Test-Path -LiteralPath $fullPath -PathType Leaf) {
+                        $relativePath
+                    }
                 }
             }
         )
@@ -54,7 +57,7 @@ try {
             foreach ($relativePath in $relativeFiles) {
                 $fullPath = Join-Path $root ($relativePath -replace '/', [IO.Path]::DirectorySeparatorChar)
                 if (-not (Test-Path -LiteralPath $fullPath -PathType Leaf)) {
-                    throw "Git 文件不存在：$relativePath"
+                    throw "文件在打包过程中消失：$relativePath"
                 }
                 $null = [System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile(
                     $archive,
