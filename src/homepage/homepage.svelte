@@ -25,7 +25,7 @@
         resolveEffectiveWidgetLayoutSettings,
         type RestoreLayoutResult,
     } from "../components/utils/widgetBlock/utils/layout-shared";
-    import { handleLoad } from "./topBanner/drag";
+    import { handleLoad, type DragController } from "./topBanner/drag";
     import {
         loadStatsDataResult,
         parseDurationExpression,
@@ -364,7 +364,7 @@
             advanced,
         ),
     );
-    let destroyBannerDrag: (() => void) | null = null;
+    let destroyBannerDrag: DragController | null = null;
 
     // 普通组件区不是分栏，使用空字符串作为内部运行时标识，不写入也不显示为导航项。
     const ROOT_COMPONENT_SECTION_ID = "";
@@ -2676,7 +2676,7 @@
 
     // 初始化横幅拖拽（带清理闭环）
     function initBannerDrag() {
-        destroyBannerDrag?.();
+        destroyBannerDrag?.destroy();
         destroyBannerDrag = handleLoad(plugin, bannerImage, bannerDragOptions) ?? null;
     }
 
@@ -3149,7 +3149,7 @@
         sectionInfrastructureContainers.clear();
 
         if (destroyBannerDrag) {
-            destroyBannerDrag();
+            destroyBannerDrag.destroy();
             destroyBannerDrag = null;
         }
         cleanupFallingEffects();
@@ -3880,13 +3880,13 @@
         if (element) {
             requestAnimationFrame(() => initBannerDrag());
         } else {
-            destroyBannerDrag?.();
+            destroyBannerDrag?.destroy();
             destroyBannerDrag = null;
         }
     }
 
     async function resetThemeBannerPosition(): Promise<void> {
-        if (bannerImage) bannerImage.style.transform = "translateY(0)";
+        destroyBannerDrag?.setPosition(0);
         await saveBannerDisplaySettings(plugin, { scrollTop: 0 });
     }
 

@@ -55,6 +55,11 @@
 </section>
 
 <style>
+    .hp-banner.hp-banner--dragging .hp-banner__image {
+        transition: none !important;
+        cursor: grabbing !important;
+    }
+
     .hp-banner__glass {
         position: absolute;
         inset: 0;

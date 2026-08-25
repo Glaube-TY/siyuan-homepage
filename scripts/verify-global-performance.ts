@@ -21,7 +21,7 @@ async function verifyBoundedConcurrency(): Promise<void> {
 }
 
 async function verifySourceContracts(): Promise<void> {
-    const [homepage, entry, overlay, clock, cybmok, chartRuntime, carousel, musicPlayer] = await Promise.all([
+    const [homepage, entry, overlay, clock, cybmok, chartRuntime, carousel, musicPlayer, bannerDrag] = await Promise.all([
         read("src/homepage/homepage.svelte"),
         read("src/index.ts"),
         read("src/homepage/theme/components/HomepageInitialLoadOverlay.svelte"),
@@ -30,11 +30,13 @@ async function verifySourceContracts(): Promise<void> {
         read("src/utils/charts/echarts.ts"),
         read("src/components/utils/widgetBlock/widget/PicCaro/PicCaro.svelte"),
         read("src/components/utils/widgetBlock/widget/musicPlayer/musicPlayer.svelte"),
+        read("src/homepage/topBanner/drag.ts"),
     ]);
 
     assert.match(homepage, /mapWithConcurrency\(widgetIdsNeedingRead, 4/);
     assert.match(homepage, /Promise\.all\(\[/);
     assert.match(homepage, /scheduleIdleTask\(\(\) =>/);
+    assert.match(homepage, /destroyBannerDrag\?\.setPosition\(0\)/);
     assert.match(entry, /void loadSelectionAiToolbarSettingsSnapshot\(this\)/);
     assert.match(entry, /cancelDeferredBackgroundStartup/);
     assert.match(overlay, /aria-valuenow=\{normalizedProgress\}/);
@@ -50,8 +52,58 @@ async function verifySourceContracts(): Promise<void> {
     assert.match(musicPlayer, /const provider = sourceProvider/);
     assert.match(musicPlayer, /provider !== sourceProvider/);
     assert.match(musicPlayer, /runMetadataQueue\(token\)[\s\S]*\.catch\(/);
+
+    const handleMoveSource = bannerDrag.match(
+        /function handleMove\(e: MouseEvent \| TouchEvent\)[\s\S]*?async function initImagePosition/,
+    )?.[0] ?? "";
+    assert.match(handleMoveSource, /requestAnimationFrame/);
+    assert.doesNotMatch(
+        handleMoveSource,
+        /clientHeight|offsetHeight|getBoundingClientRect|getComputedStyle|DOMMatrix|await|saveData|onSavePosition/,
+        "Banner drag move must stay a layout-free, synchronous RAF scheduler",
+    );
+    const startDragSource = bannerDrag.match(
+        /function startDrag\(e: MouseEvent \| TouchEvent\)[\s\S]*?function persistPosition/,
+    )?.[0] ?? "";
+    assert.doesNotMatch(
+        startDragSource,
+        /syncImagePositionBounds|fitImageToSurface|clientWidth|clientHeight|offsetHeight|getBoundingClientRect|getComputedStyle|DOMMatrix|willChange/,
+        "Banner drag start must not force layout or toggle compositor hints",
+    );
+    assert.match(bannerDrag, /let moveRaf: number \| null = null/);
+    assert.match(bannerDrag, /pendingTranslateY/);
+    assert.match(bannerDrag, /touchcancel/);
+    assert.doesNotMatch(bannerDrag, /getComputedStyle|DOMMatrixReadOnly/);
+    assert.match(bannerDrag, /renderedImageHeight/);
+    assert.match(bannerDrag, /translate3d\(0, \$\{clampedY\}px, 0\)/);
+    assert.doesNotMatch(bannerDrag, /offsetHeight/);
+    assert.match(bannerDrag, /entry\.contentRect\.width/);
+    assert.match(bannerDrag, /entry\.contentRect\.height/);
+    assert.match(bannerDrag, /geometryRaf/);
+    assert.match(bannerDrag, /cancelGeometryRaf\(\)/);
+    assert.match(bannerDrag, /imageElement\.style\.willChange = "transform"/);
+    const endDragSource = bannerDrag.match(
+        /function endDrag\(\)[\s\S]*?function setPosition/,
+    )?.[0] ?? "";
+    assert.doesNotMatch(
+        endDragSource,
+        /async function|await|clientHeight|clientWidth|offsetHeight|getBoundingClientRect|getComputedStyle|DOMMatrix|loadData|saveData|readDeviceView|updateDeviceView|putFile|scheduleIdleTask|requestIdleCallback|setTimeout/,
+        "Banner drag end must only finalize UI state and invoke the persistence callback",
+    );
+    assert.doesNotMatch(endDragSource, /willChange/);
+    assert.match(endDragSource, /Math\.abs\(finalY - dragStartTranslateY\) > BANNER_POSITION_EPSILON/);
+    assert.ok(
+        endDragSource.indexOf("detachDragWindowListeners()") < endDragSource.indexOf("persistPosition(finalY)"),
+        "Banner drag listeners must be detached before async persistence starts",
+    );
+    const destroySource = bannerDrag.slice(bannerDrag.indexOf("destroy: () =>"));
+    assert.match(destroySource, /cancelMoveRaf\(\)/);
+    assert.match(destroySource, /cancelGeometryRaf\(\)/);
+    assert.match(destroySource, /resizeObserver\?\.disconnect\(\)/);
+    assert.match(destroySource, /imageElement\.style\.willChange = originalWillChange/);
     const automationPanel = await read("src/homepage/homepageSetting/tabs/AutomationCenterSettingsPanel.svelte");
-    assert.match(automationPanel, /refreshRobotRoutes\(true\)/);
+    assert.match(automationPanel, /automationJobStore\.listJobs\(\)/);
+    assert.match(automationPanel, /requestAutomationRunNow/);
     assert.match(automationPanel, /trigger\.kind === "once" && state\.lastCompletedAt/);
 
     const timedateFiles = [

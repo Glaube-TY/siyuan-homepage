@@ -1,4 +1,5 @@
 import { getImage } from "@/components/tools/getImage";
+import { scheduleIdleTask } from "@/utils/runtime/idleTask";
 import { getCurrentDeviceViewContext } from "./deviceView/deviceViewContext";
 import { ensureCurrentDeviceViewReady } from "./deviceView/deviceViewReadiness";
 import { deriveDesktopHomepageConfig } from "./deviceView/desktopHomepageSectionModel";
@@ -52,6 +53,7 @@ import {
     type HomepageStatusTextMode,
 } from "./status-text-config";
 import { mergeHomepageSharedSettings } from "./sharedSettings/homepageSharedSettings";
+import { createLatestWinsAsyncQueue, type LatestWinsAsyncQueue } from "@/utils/async/latestWinsAsyncQueue";
 import {
     normalizeHomepageAppearanceConfig,
     type HomepageAppearanceConfig,
@@ -61,6 +63,9 @@ import {
     normalizeHomepageTopLayout,
     type HomepageTopLayoutModel,
 } from "./theme/runtime/topLayout";
+
+const bannerDisplaySaveCoalescers = new Map<string, LatestWinsAsyncQueue<BannerDisplaySettingsPartial>>();
+
 export type { HomepageButtonItem } from "./buttonRegistry";
 export type { HomepageStatusTextMode } from "./status-text-config";
 
@@ -412,14 +417,26 @@ export interface BannerDisplaySettingsPartial {
     scrollTop?: number;
 }
 
-export async function saveBannerDisplaySettings(
-    plugin: any,
-    partialSettings: BannerDisplaySettingsPartial
+function mergeBannerDisplaySettings(
+    current: BannerDisplaySettingsPartial,
+    next: BannerDisplaySettingsPartial,
+): BannerDisplaySettingsPartial {
+    return { ...current, ...next };
+}
+
+function scheduleBannerDisplaySaveDrain(task: () => void): void {
+    requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+            scheduleIdleTask(task, { timeout: 300 });
+        });
+    });
+}
+
+async function persistBannerDisplaySettings(
+    context: ReturnType<typeof getCurrentDeviceViewContext>,
+    partialSettings: BannerDisplaySettingsPartial,
 ): Promise<void> {
-    await loadHomepageConfigDataStrict(plugin);
-    const context = getCurrentDeviceViewContext(plugin, "desktop-homepage");
-    const current = await readDeviceViewSettings(context);
-    if (!current) throw new Error("当前设备 desktop-homepage 的 view.json 缺失");
+    await ensureCurrentDeviceViewReady(context);
     await updateDeviceViewSettings(context, (config) => ({
         ...config,
         ...(partialSettings.bannerHeight !== undefined ? {
@@ -428,7 +445,25 @@ export async function saveBannerDisplaySettings(
         ...(partialSettings.scrollTop !== undefined ? {
             bannerScrollTop: normalizeNumber(partialSettings.scrollTop, 0, MIN_BANNER_SCROLL_TOP, MAX_BANNER_SCROLL_TOP),
         } : {}),
-    }), { expectedRevision: current.revision });
+    }));
+}
+
+export async function saveBannerDisplaySettings(
+    plugin: any,
+    partialSettings: BannerDisplaySettingsPartial
+): Promise<void> {
+    const context = getCurrentDeviceViewContext(plugin, "desktop-homepage");
+    const queueKey = [context.physicalDeviceId, context.scopeId, context.surface].join("\u0000");
+    let queue = bannerDisplaySaveCoalescers.get(queueKey);
+    if (!queue) {
+        queue = createLatestWinsAsyncQueue(
+            (latestSettings) => persistBannerDisplaySettings(context, latestSettings),
+            mergeBannerDisplaySettings,
+            { scheduleDrain: scheduleBannerDisplaySaveDrain },
+        );
+        bannerDisplaySaveCoalescers.set(queueKey, queue);
+    }
+    await queue.enqueue(partialSettings);
 }
 
 export async function resolveBannerImage(

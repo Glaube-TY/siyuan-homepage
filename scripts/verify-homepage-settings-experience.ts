@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { createLatestWinsAsyncQueue } from "../src/utils/async/latestWinsAsyncQueue";
 import { AI_KNOWLEDGE_BASE_SUB_TABS } from "../src/homepage/homepageSetting/aiKnowledgeBaseTabs";
 import { NOTIFICATION_CENTER_SUB_TABS } from "../src/homepage/homepageSetting/notificationCenterTabs";
 import { ROBOT_ASSISTANT_SUB_TABS } from "../src/homepage/homepageSetting/robotAssistantTabs";
@@ -54,6 +55,26 @@ const homepageSettingSource = readFileSync(
     "src/homepage/homepageSetting/homepageSetting.svelte",
     "utf8",
 );
+const homepageConfigLoaderSource = readFileSync("src/homepage/configLoader.ts", "utf8");
+const bannerSaveStart = homepageConfigLoaderSource.indexOf("export async function saveBannerDisplaySettings");
+const bannerSaveEnd = homepageConfigLoaderSource.indexOf("\nexport ", bannerSaveStart + 1);
+const bannerSaveSource = homepageConfigLoaderSource.slice(
+    bannerSaveStart,
+    bannerSaveEnd === -1 ? undefined : bannerSaveEnd,
+);
+const bannerPersistStart = homepageConfigLoaderSource.indexOf("async function persistBannerDisplaySettings");
+const bannerPersistEnd = homepageConfigLoaderSource.indexOf("\nexport ", bannerPersistStart + 1);
+const bannerPersistSource = homepageConfigLoaderSource.slice(
+    bannerPersistStart,
+    bannerPersistEnd === -1 ? undefined : bannerPersistEnd,
+);
+assert.match(homepageConfigLoaderSource, /bannerDisplaySaveCoalescers/);
+assert.match(homepageConfigLoaderSource, /createLatestWinsAsyncQueue/);
+assert.match(homepageConfigLoaderSource, /scheduleBannerDisplaySaveDrain/);
+assert.match(homepageConfigLoaderSource, /scheduleBannerDisplaySaveDrain[\s\S]*requestAnimationFrame[\s\S]*requestAnimationFrame[\s\S]*scheduleIdleTask/);
+assert.match(bannerPersistSource, /ensureCurrentDeviceViewReady[\s\S]*updateDeviceViewSettings/);
+assert.match(bannerSaveSource, /scheduleDrain:\s*scheduleBannerDisplaySaveDrain/);
+assert.doesNotMatch(bannerSaveSource, /loadHomepageConfigDataStrict|readDeviceViewSettings|expectedRevision|putFile|saveData/);
 assert.doesNotMatch(homepageSettingSource, /syncDesktopDraftFromPersistedConfig/);
 assert.equal(
     homepageSettingSource.match(/\bapplyDesktopDraftFromPersistedConfig\(/g)?.length,
@@ -76,5 +97,131 @@ assert.match(
     /\{#if !modelOnly\}[\s\S]*?<div class="settings-header">[\s\S]*?保存设置[\s\S]*?\{\/if\}/,
     "主页模型设置不应显示重复标题栏和手动保存按钮",
 );
+
+async function verifyLatestWinsSaveQueue(): Promise<void> {
+    const scheduledDrains: Array<() => void> = [];
+    const persisted: number[] = [];
+    const queue = createLatestWinsAsyncQueue(
+        async (value: number) => {
+            persisted.push(value);
+        },
+        (_current, next) => next,
+        { scheduleDrain: (drain) => scheduledDrains.push(drain) },
+    );
+    const scheduledRequests = [-20, -40, -80, -120].map((value) => queue.enqueue(value));
+    assert.equal(scheduledDrains.length, 1, "调度中的 queue 只能登记一次 drain");
+    assert.deepEqual(persisted, [], "scheduled drain 释放前不能启动持久化");
+    const scheduledDrain = scheduledDrains.shift();
+    assert.ok(scheduledDrain);
+    scheduledDrain();
+    await Promise.all(scheduledRequests);
+    assert.deepEqual(persisted, [-120], "真正 drain 前的连续位置必须只保存最终值");
+
+    let releaseFirst!: () => void;
+    const firstGate = new Promise<void>((resolve) => {
+        releaseFirst = resolve;
+    });
+    const inFlightDrains: Array<() => void> = [];
+    const inFlightPersisted: number[] = [];
+    const inFlightQueue = createLatestWinsAsyncQueue(
+        async (value: number) => {
+            inFlightPersisted.push(value);
+            if (value === -20) await firstGate;
+        },
+        (_current, next) => next,
+        { scheduleDrain: (drain) => inFlightDrains.push(drain) },
+    );
+    const first = inFlightQueue.enqueue(-20);
+    const firstDrain = inFlightDrains.shift();
+    assert.ok(firstDrain);
+    firstDrain();
+    assert.deepEqual(inFlightPersisted, [-20]);
+    const pendingRequests = [-40, -80, -120].map((value) => inFlightQueue.enqueue(value));
+    assert.equal(inFlightDrains.length, 0, "in-flight persist 期间不能直接启动下一笔");
+    releaseFirst();
+    await first;
+    assert.deepEqual(inFlightPersisted, [-20]);
+    const secondDrain = inFlightDrains.shift();
+    assert.ok(secondDrain);
+    secondDrain();
+    await Promise.all(pendingRequests);
+    assert.deepEqual(inFlightPersisted, [-20, -120], "in-flight 期间只应再保存最新 pending");
+
+    const resetBeforeDrain: Array<() => void> = [];
+    const resetBeforePersisted: number[] = [];
+    const resetBeforeQueue = createLatestWinsAsyncQueue(
+        async (value: number) => {
+            resetBeforePersisted.push(value);
+        },
+        (_current, next) => next,
+        { scheduleDrain: (drain) => resetBeforeDrain.push(drain) },
+    );
+    const oldDrag = resetBeforeQueue.enqueue(-120);
+    const reset = resetBeforeQueue.enqueue(0);
+    assert.deepEqual(resetBeforePersisted, []);
+    const resetDrain = resetBeforeDrain.shift();
+    assert.ok(resetDrain);
+    resetDrain();
+    await Promise.all([oldDrag, reset]);
+    assert.deepEqual(resetBeforePersisted, [0], "scheduled drag 被重置时只能写入 0");
+
+    const resetInFlightDrains: Array<() => void> = [];
+    const resetInFlightPersisted: number[] = [];
+    const resetInFlightQueue = createLatestWinsAsyncQueue(
+        async (value: number) => {
+            resetInFlightPersisted.push(value);
+        },
+        (_current, next) => next,
+        { scheduleDrain: (drain) => resetInFlightDrains.push(drain) },
+    );
+    const activeReset = resetInFlightQueue.enqueue(0);
+    const newDrag = resetInFlightQueue.enqueue(-100);
+    const resetInFlightDrain = resetInFlightDrains.shift();
+    assert.ok(resetInFlightDrain);
+    resetInFlightDrain();
+    await Promise.all([activeReset, newDrag]);
+    assert.deepEqual(resetInFlightPersisted, [-100], "重置 pending 前的新拖动必须成为最终写入");
+
+    const failureDrains: Array<() => void> = [];
+    const failedPersisted: number[] = [];
+    const failureQueue = createLatestWinsAsyncQueue(
+        async (value: number) => {
+            failedPersisted.push(value);
+            if (value === 1) throw new Error("synthetic failure");
+        },
+        (_current, next) => next,
+        { scheduleDrain: (drain) => failureDrains.push(drain) },
+    );
+    const failed = failureQueue.enqueue(1);
+    const failedDrain = failureDrains.shift();
+    assert.ok(failedDrain);
+    failedDrain();
+    const afterFailure = failureQueue.enqueue(2);
+    await assert.rejects(failed, /synthetic failure/);
+    assert.deepEqual(failedPersisted, [1]);
+    const recoveryDrain = failureDrains.shift();
+    assert.ok(recoveryDrain);
+    recoveryDrain();
+    await afterFailure;
+    const later = failureQueue.enqueue(3);
+    const laterDrain = failureDrains.shift();
+    assert.ok(laterDrain);
+    laterDrain();
+    await later;
+    assert.deepEqual(failedPersisted, [1, 2, 3], "失败批次不能阻塞后续重新调度");
+
+    const immediatePersisted: number[] = [];
+    const immediateQueue = createLatestWinsAsyncQueue(
+        async (value: number) => {
+            immediatePersisted.push(value);
+        },
+        (_current, next) => next,
+    );
+    const immediate = immediateQueue.enqueue(1);
+    assert.deepEqual(immediatePersisted, [1], "默认 queue 仍应保持立即 drain 语义");
+    await immediate;
+}
+
+await verifyLatestWinsSaveQueue();
 
 console.log(`Homepage settings experience verified: ${registry.length} searchable entries.`);

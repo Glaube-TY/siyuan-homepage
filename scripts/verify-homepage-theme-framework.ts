@@ -319,6 +319,11 @@ for (const primitive of ["HomepageThemeRegion", "HomepageIdentity", "HomepageBan
 const sharedBannerSource = readFileSync("src/homepage/theme/components/shared/HomepageBanner.svelte", "utf8");
 assert.match(sharedBannerSource, /banner\.integrated && banner\.glassEnabled/, "Integrated banner glass must live in the shared banner primitive");
 assert.match(sharedBannerSource, /hp-banner__glass/, "Shared banner primitive must render the glass layer for every banner theme");
+assert.match(sharedBannerSource, /hp-banner--dragging/, "Shared banner primitive must expose the drag state hook");
+assert.match(sharedBannerSource, /\.hp-banner\.hp-banner--dragging \.hp-banner__image[\s\S]*transition:\s*none\s*!important/, "Dragging must disable banner image transition in the shared primitive");
+assert.match(sharedBannerSource, /\.hp-banner\.hp-banner--dragging \.hp-banner__image[\s\S]*cursor:\s*grabbing\s*!important/, "Dragging must expose the grabbing cursor in the shared primitive");
+assert.doesNotMatch(sharedBannerSource, /\.hp-banner\.hp-banner--dragging\s+\.hp-banner__glass/, "Dragging must not toggle the shared banner glass layer");
+assert.doesNotMatch(sharedBannerSource, /hp-banner--dragging[\s\S]{0,300}(?:-webkit-)?backdrop-filter:\s*none/i, "Dragging must not disable backdrop-filter during the drag lifecycle");
 
 const homepageStyleSource = readFileSync("src/homepage/style/homepage.scss", "utf8");
 assert.doesNotMatch(homepageStyleSource, /_workspace-header|_plugin-footer|_top-banner/, "Core stylesheet still imports Classic presentation partials");
