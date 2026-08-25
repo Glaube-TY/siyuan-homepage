@@ -508,6 +508,18 @@ function isAgentWorkbenchDebugLogEnabled(): boolean {
   return env?.DEV === true || env?.MODE === "development";
 }
 
+const AGENT_STREAM_PRESENTATION_INTERVAL_MS = 80;
+const JOURNAL_CHECKPOINT_EVENT_TYPES = new Set([
+  "tool_start",
+  "permission_required",
+  "permission_resolved",
+  "tool_result",
+  "assistant_final",
+  "done",
+  "error",
+  "notice",
+]);
+
 /**
  * dev-only Agent Workbench strict runtime test 开关。
  * - 仅在开发环境生效。
@@ -813,92 +825,105 @@ export async function runAgentWorkbenchModeFlow(
       }, "debug");
     }
 
-    let latestFullContent = "";
-    let answerFlushTimer: ReturnType<typeof setTimeout> | undefined;
+    let latestRawAnswerContent = "";
+    let latestDisplayedAnswerContent = "";
+    let lastCitationScanRawContent: string | undefined;
+    let presentationFlushTimer: ReturnType<typeof setTimeout> | undefined;
     let liveWorkbenchEvents: AgentWorkbenchEvent[] = [...recoveredWorkbenchEvents];
+    let presentationWorkbenchEvents: AgentWorkbenchEvent[] = [...recoveredWorkbenchEvents];
+    let committedPresentationWorkbenchEventCount = recoveredWorkbenchEvents.length;
     let latestRunCheckpoint: AgentRunCheckpoint | undefined = params.resumeCheckpoint;
     let reasoningContent = "";
     let reasoningPartCount = 0;
-    let reasoningFlushTimer: ReturnType<typeof setTimeout> | undefined;
+    let reasoningStatus: "streaming" | "done" | undefined;
+    let latestAgentStatus: string | undefined = isResume ? "正在从安全检查点继续..." : "正在分析问题...";
+    let lastCommittedAnswerContent = "";
+    let lastCommittedReasoningContent = "";
+    let lastCommittedReasoningStatus: "streaming" | "done" | undefined;
+    let lastCommittedReasoningPartCount = 0;
+    let lastCommittedAgentStatus = latestAgentStatus;
     let lastCheckpointAt = Date.now();
     let lastCheckpointChars = 0;
     const userThinkingMode = thinkingMode ?? "off";
-    const cancelAnswerFlush = (): void => {
-      if (answerFlushTimer !== undefined) {
-        clearTimeout(answerFlushTimer);
-        answerFlushTimer = undefined;
+
+    const cancelPresentationFlush = (): void => {
+      if (presentationFlushTimer !== undefined) {
+        clearTimeout(presentationFlushTimer);
+        presentationFlushTimer = undefined;
       }
     };
 
-    const flushAnswerContent = (): void => {
-      cancelAnswerFlush();
-      if (!setMessages) return;
-      const nextContent = latestFullContent;
-      setMessages((messages) =>
-        messages.map((m) => {
-          if (m.id !== assistantMessageId || m.role !== "assistant") return m;
-          return { ...m, content: nextContent, agentStatus: undefined, isComplete: false };
-        })
-      );
-    };
-
-    const scheduleAnswerFlush = (): void => {
-      if (!setMessages || answerFlushTimer !== undefined) return;
-      answerFlushTimer = setTimeout(() => {
-        answerFlushTimer = undefined;
-        const nextContent = latestFullContent;
-        setMessages((messages) =>
-          messages.map((m) => {
-            if (m.id !== assistantMessageId || m.role !== "assistant") return m;
-            return { ...m, content: nextContent, agentStatus: undefined, isComplete: false };
-          })
-        );
-      }, 40);
-    };
-
-    const cancelReasoningFlush = (): void => {
-      if (reasoningFlushTimer !== undefined) {
-        clearTimeout(reasoningFlushTimer);
-        reasoningFlushTimer = undefined;
+    const getDisplayedAnswerContent = (): string => {
+      if (lastCitationScanRawContent === latestRawAnswerContent) {
+        return latestDisplayedAnswerContent;
       }
+      lastCitationScanRawContent = latestRawAnswerContent;
+      latestDisplayedAnswerContent = stripInlineCitationMarkersForDisplay(latestRawAnswerContent);
+      return latestDisplayedAnswerContent;
     };
 
-    const flushReasoningContent = (status: "streaming" | "done"): void => {
-      cancelReasoningFlush();
+    const flushPresentation = (): void => {
+      cancelPresentationFlush();
       if (!setMessages) return;
+
+      const nextContent = getDisplayedAnswerContent();
+      const nextReasoning = reasoningStatus === undefined
+        ? undefined
+        : reasoningStatus === "done" && reasoningContent.trim().length === 0
+          ? undefined
+          : {
+              content: reasoningContent,
+              status: reasoningStatus,
+              partCount: reasoningPartCount,
+              chars: reasoningContent.length,
+            };
+      const nextWorkbenchEvents = presentationWorkbenchEvents.length === committedPresentationWorkbenchEventCount
+        ? undefined
+        : presentationWorkbenchEvents.slice();
+      const answerChanged = nextContent !== lastCommittedAnswerContent;
+      const reasoningChanged = nextReasoning?.content !== lastCommittedReasoningContent
+        || nextReasoning?.status !== lastCommittedReasoningStatus
+        || (nextReasoning?.partCount ?? 0) !== lastCommittedReasoningPartCount;
+      const statusChanged = latestAgentStatus !== lastCommittedAgentStatus;
+      const workbenchChanged = nextWorkbenchEvents !== undefined;
+      if (!answerChanged && !reasoningChanged && !statusChanged && !workbenchChanged) return;
+
+      if (nextWorkbenchEvents) {
+        committedPresentationWorkbenchEventCount = presentationWorkbenchEvents.length;
+      }
       setMessages((messages) =>
         messages.map((m) => {
           if (m.id !== assistantMessageId || m.role !== "assistant") return m;
-          const finalReasoning = status === "done" && reasoningContent.trim().length === 0
-            ? undefined
-            : { content: reasoningContent, status, partCount: reasoningPartCount, chars: reasoningContent.length };
-          return { ...m, reasoning: finalReasoning };
+          return {
+            ...m,
+            content: answerChanged ? nextContent : m.content,
+            reasoning: reasoningChanged ? nextReasoning : m.reasoning,
+            agentStatus: statusChanged ? latestAgentStatus : m.agentStatus,
+            workbenchEvents: nextWorkbenchEvents ?? m.workbenchEvents,
+            isComplete: false,
+          };
         })
       );
+      lastCommittedAnswerContent = nextContent;
+      lastCommittedReasoningContent = nextReasoning?.content ?? "";
+      lastCommittedReasoningStatus = nextReasoning?.status;
+      lastCommittedReasoningPartCount = nextReasoning?.partCount ?? 0;
+      lastCommittedAgentStatus = latestAgentStatus;
     };
 
-    const scheduleReasoningFlush = (): void => {
-      if (!setMessages || reasoningFlushTimer !== undefined) return;
-      reasoningFlushTimer = setTimeout(() => {
-        reasoningFlushTimer = undefined;
-        setMessages((messages) =>
-          messages.map((m) => {
-            if (m.id !== assistantMessageId || m.role !== "assistant") return m;
-            return { ...m, reasoning: { content: reasoningContent, status: "streaming", partCount: reasoningPartCount, chars: reasoningContent.length } };
-          })
-        );
-      }, 40);
+    const schedulePresentationFlush = (): void => {
+      if (!setMessages || presentationFlushTimer !== undefined) return;
+      presentationFlushTimer = setTimeout(() => {
+        presentationFlushTimer = undefined;
+        flushPresentation();
+      }, AGENT_STREAM_PRESENTATION_INTERVAL_MS);
     };
 
     flushPendingAgentStreams = () => {
-      flushAnswerContent();
-      if (userThinkingMode === "on") {
-        flushReasoningContent("streaming");
-      }
+      flushPresentation();
     };
     cancelPendingAgentStreams = () => {
-      cancelAnswerFlush();
-      cancelReasoningFlush();
+      cancelPresentationFlush();
     };
 
     const enqueuePersistenceCheckpoint = (reason: string, contentChars: number): void => {
@@ -1090,58 +1115,37 @@ export async function runAgentWorkbenchModeFlow(
           if (reasoningContent.length === 0) {
             reasoningPartCount = 0;
           }
-          cancelReasoningFlush();
-          if (setMessages) {
-            setMessages((messages) =>
-              messages.map((m) => {
-                if (m.id !== assistantMessageId || m.role !== "assistant") return m;
-                return {
-                  ...m,
-                  reasoning: {
-                    content: reasoningContent,
-                    status: "streaming",
-                    partCount: reasoningPartCount,
-                    chars: reasoningContent.length,
-                  },
-                };
-              })
-            );
-          }
+          reasoningStatus = "streaming";
+          flushPresentation();
         } else if (event.type === "reasoning-delta" && event.delta) {
           reasoningContent += event.delta;
           reasoningPartCount++;
-          scheduleReasoningFlush();
+          reasoningStatus = "streaming";
+          schedulePresentationFlush();
         } else if (event.type === "reasoning-end") {
-          flushReasoningContent("done");
+          reasoningStatus = "done";
+          flushPresentation();
         } else if (event.type === "reasoning-reset") {
           reasoningContent = "";
           reasoningPartCount = 0;
-          cancelReasoningFlush();
-          if (setMessages) {
-            setMessages((messages) =>
-              messages.map((m) => {
-                if (m.id !== assistantMessageId || m.role !== "assistant") return m;
-                return { ...m, reasoning: undefined };
-              })
-            );
-          }
+          reasoningStatus = undefined;
+          flushPresentation();
         }
       },
       onAnswerChunk: ({ fullContent }) => {
-        const displayContent = stripInlineCitationMarkersForDisplay(fullContent);
-        latestFullContent = displayContent;
-        scheduleAnswerFlush();
+        latestRawAnswerContent = fullContent;
+        latestAgentStatus = undefined;
+        schedulePresentationFlush();
         const now = Date.now();
-        if (now - lastCheckpointAt >= 2500 || displayContent.length - lastCheckpointChars >= 1500) {
-          flushAnswerContent();
-          enqueuePersistenceCheckpoint("流式回答", displayContent.length);
+        if (now - lastCheckpointAt >= 2500 || fullContent.length - lastCheckpointChars >= 1500) {
+          flushPresentation();
+          enqueuePersistenceCheckpoint("流式回答", fullContent.length);
         }
       },
       onWorkbenchEvent: (event) => {
         // ── Journal checkpoint for crash survival ──
         {
-          const immEvTypes = new Set(["tool_start","permission_required","permission_resolved","tool_result","assistant_final","done","error","notice"]);
-          if (immEvTypes.has(event.type) || event.type === "assistant_text_delta") {
+          if (JOURNAL_CHECKPOINT_EVENT_TYPES.has(event.type) || event.type === "assistant_text_delta") {
             let safeEvent: import("../agent-workbench/runtime/in-flight-turn-journal").SafeWorkbenchEvent | undefined;
             if (event.type === "tool_start" || event.type === "tool_result") {
               safeEvent = {
@@ -1180,32 +1184,30 @@ export async function runAgentWorkbenchModeFlow(
           }
         }
 
-        if (event.type === "assistant_text_reset") {
-          latestFullContent = "";
-          cancelAnswerFlush();
-        } else if (event.type === "assistant_final" || event.type === "done") {
-          flushAnswerContent();
+        const isDeferredPresentationEvent =
+          event.type === "assistant_text_delta"
+          || event.type === "assistant_reasoning_delta";
+        liveWorkbenchEvents.push(event);
+        if (!isDeferredPresentationEvent && event.type !== "usage") {
+          presentationWorkbenchEvents = [...presentationWorkbenchEvents, event];
         }
-        liveWorkbenchEvents = [...liveWorkbenchEvents, event];
-        if (setMessages) {
-          setMessages((messages) =>
-            messages.map((m) => {
-              if (m.id !== assistantMessageId || m.role !== "assistant") return m;
-              if (m.isComplete === true) return m;
-              if (event.type === "assistant_text_reset") {
-                return { ...m, content: "", workbenchEvents: liveWorkbenchEvents };
-              }
-              // Clear status for a tool step; keep it through Agent completion while
-              // the separate final Composer is still running.
-              const nextAgentStatus =
-                event.type === "tool_start"
-                  ? undefined
-                  : event.type === "notice"
-                    ? event.message
-                    : m.agentStatus;
-              return { ...m, workbenchEvents: liveWorkbenchEvents, agentStatus: nextAgentStatus };
-            })
-          );
+
+        if (event.type === "assistant_text_reset") {
+          latestRawAnswerContent = "";
+          flushPresentation();
+        } else if (event.type === "tool_start") {
+          latestAgentStatus = undefined;
+          flushPresentation();
+        } else if (event.type === "notice") {
+          latestAgentStatus = event.message;
+          flushPresentation();
+        } else if (event.type === "assistant_final" || event.type === "done") {
+          latestAgentStatus = undefined;
+          flushPresentation();
+        } else if (isDeferredPresentationEvent) {
+          schedulePresentationFlush();
+        } else if (event.type !== "usage") {
+          flushPresentation();
         }
         if (
           (event.type === "tool_result"
@@ -1217,22 +1219,13 @@ export async function runAgentWorkbenchModeFlow(
             now: Date.now(),
           })
         ) {
-          enqueuePersistenceCheckpoint(`工作台事件：${event.type}`, latestFullContent.length);
+          enqueuePersistenceCheckpoint(`工作台事件：${event.type}`, latestRawAnswerContent.length);
         }
       },
       onAnswerFinish: (fullContent) => {
-        const displayContent = stripInlineCitationMarkersForDisplay(fullContent);
-        latestFullContent = displayContent;
-        flushAnswerContent();
-        if (displayContent.trim().length > 0 && setMessages) {
-          setMessages((messages) =>
-            messages.map((m) =>
-              m.id === assistantMessageId && m.role === "assistant"
-                ? { ...m, agentStatus: undefined, isComplete: false }
-                : m
-            )
-          );
-        }
+        latestRawAnswerContent = fullContent;
+        latestAgentStatus = undefined;
+        flushPresentation();
       },
     });
 

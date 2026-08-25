@@ -159,11 +159,30 @@
     }
   }
 
-  // assistant 消息转换为 HTML
-  $: assistantHtml =
-    message.role === "assistant"
-      ? renderAssistantMarkdown(message.content, message.citationSegments, message.citedReferences)
-      : "";
+  // assistant 消息转换为 HTML；只在正文或引用结构真正变化时重算。
+  let assistantHtml = "";
+  let lastRenderedAssistantRole: ChatMessage["role"] | undefined;
+  let lastRenderedAssistantContent: string | undefined;
+  let lastRenderedCitationSegmentsRef: CitationSegment[] | undefined;
+  let lastRenderedCitedReferencesRef: ReferenceItem[] | undefined;
+  $: {
+    const nextSegments = message.role === "assistant" ? message.citationSegments : undefined;
+    const nextReferences = message.role === "assistant" ? message.citedReferences : undefined;
+    if (
+      message.role !== lastRenderedAssistantRole
+      || message.content !== lastRenderedAssistantContent
+      || nextSegments !== lastRenderedCitationSegmentsRef
+      || nextReferences !== lastRenderedCitedReferencesRef
+    ) {
+      assistantHtml = message.role === "assistant"
+        ? renderAssistantMarkdown(message.content, nextSegments, nextReferences)
+        : "";
+      lastRenderedAssistantRole = message.role;
+      lastRenderedAssistantContent = message.content;
+      lastRenderedCitationSegmentsRef = nextSegments;
+      lastRenderedCitedReferencesRef = nextReferences;
+    }
+  }
   $: hasInlineCitations = message.role === "assistant"
     && !!message.citationSegments?.some((segment) => segment.citationIds.length > 0);
   $: isCopied = copiedMessageId === message.id;
@@ -231,11 +250,39 @@
     }
   }
 
-  $: workbenchEvents =
-    message.role === "assistant" ? message.workbenchEvents ?? [] : [];
+  const VISIBLE_WORKBENCH_EVENT_TYPES = new Set<AgentWorkbenchEvent["type"]>([
+    "tool_call_delta",
+    "permission_required",
+    "permission_resolved",
+    "tool_start",
+    "tool_result",
+    "notice",
+    "error",
+  ]);
+  const EMPTY_WORKBENCH_EVENTS: AgentWorkbenchEvent[] = [];
+  let workbenchEvents: AgentWorkbenchEvent[] = [];
+  let workbenchRun = getWorkbenchRunPresentation([]);
+  let visibleWorkbenchEvents: AgentWorkbenchEvent[] = [];
+  let lastWorkbenchEventsRef: AgentWorkbenchEvent[] | undefined;
+  let providerOutputTruncated = false;
+  let workbenchTerminalSettled = false;
+  $: {
+    const nextWorkbenchEvents = message.role === "assistant"
+      ? message.workbenchEvents ?? EMPTY_WORKBENCH_EVENTS
+      : EMPTY_WORKBENCH_EVENTS;
+    if (nextWorkbenchEvents !== lastWorkbenchEventsRef) {
+      lastWorkbenchEventsRef = nextWorkbenchEvents;
+      workbenchEvents = nextWorkbenchEvents;
+      workbenchRun = getWorkbenchRunPresentation(nextWorkbenchEvents);
+      visibleWorkbenchEvents = nextWorkbenchEvents.filter((event) =>
+        VISIBLE_WORKBENCH_EVENT_TYPES.has(event.type)
+      );
+      providerOutputTruncated = isProviderOutputTruncatedWorkbench(nextWorkbenchEvents);
+      workbenchTerminalSettled = hasSettledWorkbenchTerminal(nextWorkbenchEvents);
+    }
+  }
   $: temporaryWorkbenches =
     message.role === "assistant" ? message.temporaryWorkbenches ?? [] : [];
-  $: workbenchRun = getWorkbenchRunPresentation(workbenchEvents);
 
   // 标准运行事件是主状态源；asking 只覆盖首个 run_started 到达前的短暂准备期。
   $: isAssistantGenerating =
@@ -256,17 +303,13 @@
     }, "info");
   }
 
-  $: providerOutputTruncated =
-    message.role === "assistant" &&
-    isProviderOutputTruncatedWorkbench(message.workbenchEvents);
-
   // 判断是否为已停止的半截回答；已有明确终态时不再因旧 isComplete 竞态误报。
   $: isStoppedPartialAnswer =
     message.role === "assistant" &&
     message.content.trim() &&
     message.isComplete === false &&
     !asking &&
-    !hasSettledWorkbenchTerminal(message.workbenchEvents);
+    !workbenchTerminalSettled;
 
   $: partialAnswerHint = providerOutputTruncated
     ? "回答达到模型的单次输出上限，正文可能未结束；已完成的工具操作不受影响。"
@@ -287,23 +330,9 @@
     !!message.reasoning &&
     (message.reasoning.content.length > 0 ||
       message.reasoning.status === "streaming");
-  $: reasoningHtml =
-    message.role === "assistant" && message.reasoning?.content
-      ? mdToHtml(message.reasoning.content)
-      : "";
-
-  const VISIBLE_WORKBENCH_EVENT_TYPES = new Set<AgentWorkbenchEvent["type"]>([
-    "tool_call_delta",
-    "permission_required",
-    "permission_resolved",
-    "tool_start",
-    "tool_result",
-    "notice",
-    "error",
-  ]);
-  $: visibleWorkbenchEvents = workbenchEvents.filter((event) =>
-    VISIBLE_WORKBENCH_EVENT_TYPES.has(event.type)
-  );
+  let reasoningHtml = "";
+  let lastRenderedReasoningContent = "";
+  let reasoningHtmlWasRendered = false;
 
   // 判断 assistant 是否显示运行态状态（content 为空且 agentStatus 非空）
   $: isAssistantPending =
@@ -354,6 +383,24 @@
   }
   $: if (!userToggledReasoning && message.id === workbenchEventsMessageId) {
     reasoningCollapsed = computeReasoningCollapsed(getReasoning(message));
+  }
+
+  // 折叠 reasoning 时只保留文本状态；展开时再渲染最新正文。
+  $: {
+    const nextReasoningContent = message.role === "assistant"
+      ? message.reasoning?.content ?? ""
+      : "";
+    const shouldRenderReasoning = message.role === "assistant"
+      && !reasoningCollapsed
+      && nextReasoningContent.length > 0;
+    if (!shouldRenderReasoning) {
+      reasoningHtml = "";
+      reasoningHtmlWasRendered = false;
+    } else if (!reasoningHtmlWasRendered || nextReasoningContent !== lastRenderedReasoningContent) {
+      reasoningHtml = mdToHtml(nextReasoningContent);
+      reasoningHtmlWasRendered = true;
+    }
+    lastRenderedReasoningContent = nextReasoningContent;
   }
 
   function toggleWorkbench() {
@@ -572,16 +619,59 @@
     return steps;
   }
 
-  $: workbenchDisplaySteps = buildDisplaySteps(visibleWorkbenchEvents, isAssistantGenerating);
-  $: workbenchProcessSummary = recoveryPresentation
-    ? "执行已中断"
-    : workbenchRun.active
-      ? workbenchRun.label
-      : formatWorkbenchProcessStats(workbenchDisplaySteps, {
-        isGenerating: false,
-        isComplete: message.role !== "assistant" || message.isComplete !== false,
-        doneStatus: resolveWorkbenchFinalStatus(workbenchEvents),
-        });
+  let lastDisplayStepsEventsRef: AgentWorkbenchEvent[] | undefined;
+  let lastDisplayStepsActive: boolean | undefined;
+  $: if (
+    visibleWorkbenchEvents !== lastDisplayStepsEventsRef
+    || isAssistantGenerating !== lastDisplayStepsActive
+  ) {
+    lastDisplayStepsEventsRef = visibleWorkbenchEvents;
+    lastDisplayStepsActive = isAssistantGenerating;
+    workbenchDisplaySteps = buildDisplaySteps(visibleWorkbenchEvents, isAssistantGenerating);
+  }
+
+  let lastSummaryDisplayStepsRef: WorkbenchDisplayStep[] | undefined;
+  let lastSummaryEventsRef: AgentWorkbenchEvent[] | undefined;
+  let lastSummaryActive = false;
+  let lastSummaryLabel = "";
+  let lastSummaryComplete = false;
+  let lastSummaryRecoveryTitle: string | undefined;
+  let lastSummaryRecoveryText: string | undefined;
+  let lastSummaryRecoveryResumable: boolean | undefined;
+  $: {
+    const isComplete = message.role !== "assistant" || message.isComplete !== false;
+    const recoveryTitle = recoveryPresentation?.title;
+    const recoveryText = recoveryPresentation?.summary;
+    const recoveryResumable = recoveryPresentation?.resumable;
+    if (
+      workbenchDisplaySteps !== lastSummaryDisplayStepsRef
+      || workbenchEvents !== lastSummaryEventsRef
+      || workbenchRun.active !== lastSummaryActive
+      || workbenchRun.label !== lastSummaryLabel
+      || isComplete !== lastSummaryComplete
+      || recoveryTitle !== lastSummaryRecoveryTitle
+      || recoveryText !== lastSummaryRecoveryText
+      || recoveryResumable !== lastSummaryRecoveryResumable
+    ) {
+      lastSummaryDisplayStepsRef = workbenchDisplaySteps;
+      lastSummaryEventsRef = workbenchEvents;
+      lastSummaryActive = workbenchRun.active;
+      lastSummaryLabel = workbenchRun.label;
+      lastSummaryComplete = isComplete;
+      lastSummaryRecoveryTitle = recoveryTitle;
+      lastSummaryRecoveryText = recoveryText;
+      lastSummaryRecoveryResumable = recoveryResumable;
+      workbenchProcessSummary = recoveryPresentation
+        ? "执行已中断"
+        : workbenchRun.active
+          ? workbenchRun.label
+          : formatWorkbenchProcessStats(workbenchDisplaySteps, {
+            isGenerating: false,
+            isComplete,
+            doneStatus: resolveWorkbenchFinalStatus(workbenchEvents),
+          });
+    }
+  }
 
   // 选中文本追问
   let selectedText = "";

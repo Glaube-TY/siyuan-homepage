@@ -86,6 +86,8 @@
   
   // 底部阈值：距离底部多少像素内视为"在底部附近"
   const BOTTOM_THRESHOLD = 80;
+  let followStreamToBottom = true;
+  let autoScrollRaf: number | undefined;
 
   /**
    * 检查当前是否在底部附近
@@ -106,12 +108,32 @@
     }
   }
 
+  function scheduleScrollToBottom(): void {
+    if (autoScrollRaf !== undefined) return;
+    autoScrollRaf = requestAnimationFrame(() => {
+      autoScrollRaf = undefined;
+      scrollToBottom();
+    });
+  }
+
   /**
    * 处理滚动事件
    * 用于追踪用户滚动位置（预留，当前主要依赖 isNearBottom 判断）
    */
   function handleScroll() {
-    // 滚动时不需要特殊处理，自动滚动前会检查 isNearBottom
+    followStreamToBottom = isNearBottom();
+    if (!followStreamToBottom && autoScrollRaf !== undefined) {
+      cancelAnimationFrame(autoScrollRaf);
+      autoScrollRaf = undefined;
+    }
+    if (asking && followStreamToBottom) {
+      if (scrollNavRaf !== undefined) {
+        cancelAnimationFrame(scrollNavRaf);
+        scrollNavRaf = undefined;
+      }
+      setActiveTurnToLatest();
+      return;
+    }
     if (scrollNavRaf) cancelAnimationFrame(scrollNavRaf);
     scrollNavRaf = requestAnimationFrame(() => {
       updateActiveTurnFromScroll();
@@ -137,19 +159,15 @@
     if (isNewMessage) {
       lastMessageId = currentLastMessage.id;
       lastMessageContent = currentContent;
-      // 只有用户在底部附近时才自动滚动
-      if (isNearBottom()) {
-        requestAnimationFrame(() => {
-          scrollToBottom();
-        });
+      // 只有用户保持跟随底部时才自动滚动
+      if (followStreamToBottom) {
+        scheduleScrollToBottom();
       }
     } else if (isContentUpdated && currentLastMessage.role === "assistant") {
-      // 流式输出：assistant 消息内容更新且在底部附近时跟随滚动
+      // 流式输出：仅在用户保持跟随时滚动
       lastMessageContent = currentContent;
-      if (isNearBottom()) {
-        requestAnimationFrame(() => {
-          scrollToBottom();
-        });
+      if (followStreamToBottom) {
+        scheduleScrollToBottom();
       }
     }
   }
@@ -187,6 +205,13 @@
   // 当前视口正在查看的用户问题轮次
   let activeTurnMessageId: string | undefined;
   let scrollNavRaf: number | undefined;
+
+  function setActiveTurnToLatest(): void {
+    const latestTurnMessageId = turnNavItems[turnNavItems.length - 1]?.messageId;
+    if (latestTurnMessageId && latestTurnMessageId !== activeTurnMessageId) {
+      activeTurnMessageId = latestTurnMessageId;
+    }
+  }
 
   // 根据 activeTurnMessageId 截取附近最多 10 个导航项
   $: visibleTurnNavItems = ((): TurnNavItem[] => {
@@ -274,6 +299,9 @@
     }
     if (scrollNavRaf) {
       cancelAnimationFrame(scrollNavRaf);
+    }
+    if (autoScrollRaf !== undefined) {
+      cancelAnimationFrame(autoScrollRaf);
     }
   });
 
