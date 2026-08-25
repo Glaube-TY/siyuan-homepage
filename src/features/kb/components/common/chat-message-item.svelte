@@ -43,6 +43,74 @@
   export let userAvatar: KbChatAvatarSettings = { kind: "default" };
   export let assistantAvatar: KbChatAvatarSettings = { kind: "default" };
 
+  let userMessageTextEl: HTMLElement | null = null;
+  let userMessageCollapsible = false;
+  let userMessageExpanded = false;
+  let userMessageMeasureRaf: number | undefined;
+  let userMessageResizeObserver: ResizeObserver | undefined;
+  let trackedUserMessageId: string | null = null;
+  let trackedUserMessageContent = "";
+
+  function measureUserMessage(): void {
+    userMessageMeasureRaf = undefined;
+    if (message.role !== "user" || !userMessageTextEl || userMessageExpanded) return;
+    userMessageCollapsible = userMessageTextEl.scrollHeight > userMessageTextEl.clientHeight + 1;
+  }
+
+  function scheduleUserMessageMeasure(): void {
+    if (userMessageMeasureRaf !== undefined) return;
+    if (typeof requestAnimationFrame === "undefined") {
+      measureUserMessage();
+      return;
+    }
+    userMessageMeasureRaf = requestAnimationFrame(measureUserMessage);
+  }
+
+  function cleanupUserMessageMeasurement(): void {
+    if (userMessageMeasureRaf !== undefined) {
+      cancelAnimationFrame(userMessageMeasureRaf);
+      userMessageMeasureRaf = undefined;
+    }
+    userMessageResizeObserver?.disconnect();
+    userMessageResizeObserver = undefined;
+  }
+
+  function observeUserMessageText(node: HTMLElement) {
+    userMessageTextEl = node;
+    if (typeof ResizeObserver !== "undefined") {
+      const observer = new ResizeObserver(scheduleUserMessageMeasure);
+      userMessageResizeObserver = observer;
+      observer.observe(node);
+    }
+    scheduleUserMessageMeasure();
+    return {
+      destroy() {
+        cleanupUserMessageMeasurement();
+        if (userMessageTextEl === node) userMessageTextEl = null;
+      },
+    };
+  }
+
+  function toggleUserMessageExpanded(): void {
+    if (!userMessageCollapsible) return;
+    userMessageExpanded = !userMessageExpanded;
+    scheduleUserMessageMeasure();
+  }
+
+  $: if (
+    message.role === "user"
+    && (message.id !== trackedUserMessageId || message.content !== trackedUserMessageContent)
+  ) {
+    trackedUserMessageId = message.id;
+    trackedUserMessageContent = message.content;
+    userMessageExpanded = false;
+    userMessageCollapsible = false;
+    scheduleUserMessageMeasure();
+  } else if (message.role !== "user") {
+    userMessageExpanded = false;
+    userMessageCollapsible = false;
+  }
+
   $: currentAvatar =
     message.role === "user"
       ? userAvatar
@@ -747,6 +815,7 @@
   }
 
   onDestroy(() => {
+    cleanupUserMessageMeasurement();
     if (copyTimeout) {
       clearTimeout(copyTimeout);
     }
@@ -1029,7 +1098,24 @@
         {#if message.role === "loading"}
           <span class="loading-dots">思考中</span>
         {:else}
-          <div class="message-text">{message.content}</div>
+          <div
+            class="message-text user-message-text"
+            class:collapsed={!userMessageExpanded}
+            bind:this={userMessageTextEl}
+            use:observeUserMessageText
+          >{message.content}</div>
+          {#if message.role === "user" && userMessageCollapsible}
+            <button
+              type="button"
+              class="user-message-toggle"
+              aria-expanded={userMessageExpanded}
+              aria-label={userMessageExpanded ? "收起问题" : "展开问题"}
+              title={userMessageExpanded ? "收起问题" : "展开问题"}
+              on:click={toggleUserMessageExpanded}
+            >
+              {userMessageExpanded ? "收起" : "展开"}
+            </button>
+          {/if}
           {#if message.role === "user" && message.content}
             <div class="user-actions">
               <button
@@ -1042,17 +1128,18 @@
                   <SiyuanIcon name={isCopied ? "iconCheck" : "iconCopy"} size={14} />
                 </span>
               </button>
-              {#if !readOnly}<button
-              <button
-                type="button"
-                class="action-btn user-action-btn"
-                on:click={handleEditUserMessage}
-                title="编辑问题"
-              >
-                <span class="action-icon">
-                  <SiyuanIcon name="iconEdit" size={14} />
-                </span>
-              </button>{/if}
+              {#if !readOnly}
+                <button
+                  type="button"
+                  class="action-btn user-action-btn"
+                  on:click={handleEditUserMessage}
+                  title="编辑问题"
+                >
+                  <span class="action-icon">
+                    <SiyuanIcon name="iconEdit" size={14} />
+                  </span>
+                </button>
+              {/if}
             </div>
           {/if}
         {/if}
@@ -1533,6 +1620,35 @@
     white-space: pre-wrap;
     overflow-wrap: anywhere;
     word-break: break-word;
+  }
+
+  .user-message-text.collapsed {
+    max-height: 19.2em;
+    overflow: hidden;
+  }
+
+  .user-message-toggle {
+    display: inline-flex;
+    margin-top: 6px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: currentColor;
+    font: inherit;
+    font-size: 12px;
+    opacity: 0.72;
+    cursor: pointer;
+
+    &:hover,
+    &:focus-visible {
+      opacity: 1;
+      text-decoration: underline;
+    }
+
+    &:focus-visible {
+      outline: 2px solid currentColor;
+      outline-offset: 2px;
+    }
   }
 
   .user-bubble {

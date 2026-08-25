@@ -1,13 +1,13 @@
 <script lang="ts">
-  import { createEventDispatcher, onDestroy } from "svelte";
+  import { createEventDispatcher, onDestroy, tick } from "svelte";
   import ChatMessageItem from "./chat-message-item.svelte";
   import { kbSessionStore } from "../../stores/kb-session-store";
   import type { ChatMessage } from "../../types/chat";
-  import { isTextChatMessage } from "../../types/chat";
   import type { KbAssistantActionAlignment, KbChatAppearanceStyle, KbChatAvatarSettings } from "../../types/settings";
   import SiyuanIcon from "@/components/utils/shared/SiyuanIcon.svelte";
 
   export let messages: ChatMessage[] = [];
+  export let conversationId: string = "";
   export let assistantActionAlignment: KbAssistantActionAlignment = "left";
   export let workbenchDisplayMode: "collapsed" | "expanded" | "auto" = "collapsed";
   export let reasoningDisplayMode: "collapsed" | "expanded" | "auto" = "collapsed";
@@ -80,14 +80,18 @@
   }
 
   let scrollContainer: HTMLElement;
-  
+
   // 记录最后一条消息的 id，用于判断是否是新增消息
   let lastMessageId: string | null = null;
-  
+
   // 底部阈值：距离底部多少像素内视为"在底部附近"
   const BOTTOM_THRESHOLD = 80;
   let followStreamToBottom = true;
   let autoScrollRaf: number | undefined;
+  let lastConversationId: string | null = null;
+  let followRequestId = 0;
+  let previousAsking = false;
+  let destroyed = false;
 
   /**
    * 检查当前是否在底部附近
@@ -108,11 +112,18 @@
     }
   }
 
+  function cancelAutoScroll(): void {
+    if (autoScrollRaf === undefined) return;
+    cancelAnimationFrame(autoScrollRaf);
+    autoScrollRaf = undefined;
+  }
+
   function scheduleScrollToBottom(): void {
+    if (!scrollContainer || !followStreamToBottom) return;
     if (autoScrollRaf !== undefined) return;
     autoScrollRaf = requestAnimationFrame(() => {
       autoScrollRaf = undefined;
-      scrollToBottom();
+      if (followStreamToBottom) scrollToBottom();
     });
   }
 
@@ -122,9 +133,9 @@
    */
   function handleScroll() {
     followStreamToBottom = isNearBottom();
-    if (!followStreamToBottom && autoScrollRaf !== undefined) {
-      cancelAnimationFrame(autoScrollRaf);
-      autoScrollRaf = undefined;
+    if (!followStreamToBottom) {
+      followRequestId += 1;
+      cancelAutoScroll();
     }
     if (asking && followStreamToBottom) {
       if (scrollNavRaf !== undefined) {
@@ -139,37 +150,6 @@
       updateActiveTurnFromScroll();
       scrollNavRaf = undefined;
     });
-  }
-
-  // 最后一条消息的内容（用于检测流式更新）
-  let lastMessageContent: string = "";
-  
-  // 获取消息内容的辅助函数
-  function getMessageContent(message: ChatMessage): string {
-    return isTextChatMessage(message) ? message.content : "";
-  }
-  
-  // 消息变化时：只在新增消息且用户在底部附近时才自动滚动
-  $: if (messages.length > 0 && scrollContainer) {
-    const currentLastMessage = messages[messages.length - 1];
-    const isNewMessage = currentLastMessage.id !== lastMessageId;
-    const currentContent = getMessageContent(currentLastMessage);
-    const isContentUpdated = currentContent !== lastMessageContent;
-    
-    if (isNewMessage) {
-      lastMessageId = currentLastMessage.id;
-      lastMessageContent = currentContent;
-      // 只有用户保持跟随底部时才自动滚动
-      if (followStreamToBottom) {
-        scheduleScrollToBottom();
-      }
-    } else if (isContentUpdated && currentLastMessage.role === "assistant") {
-      // 流式输出：仅在用户保持跟随时滚动
-      lastMessageContent = currentContent;
-      if (followStreamToBottom) {
-        scheduleScrollToBottom();
-      }
-    }
   }
 
   // ===== 问答导航 =====
@@ -210,6 +190,65 @@
     const latestTurnMessageId = turnNavItems[turnNavItems.length - 1]?.messageId;
     if (latestTurnMessageId && latestTurnMessageId !== activeTurnMessageId) {
       activeTurnMessageId = latestTurnMessageId;
+    }
+  }
+
+  async function forceFollowToBottom(expectedConversationId = conversationId): Promise<void> {
+    followStreamToBottom = true;
+    cancelAutoScroll();
+    if (scrollNavRaf !== undefined) {
+      cancelAnimationFrame(scrollNavRaf);
+      scrollNavRaf = undefined;
+    }
+    const requestId = ++followRequestId;
+    await tick();
+    if (
+      destroyed
+      || requestId !== followRequestId
+      || expectedConversationId !== conversationId
+      || !followStreamToBottom
+    ) return;
+    setActiveTurnToLatest();
+    if (messages.length > 0) scheduleScrollToBottom();
+  }
+
+  function syncAskingFollowState(nextAsking: boolean): void {
+    const startedAsking = nextAsking && !previousAsking;
+    previousAsking = nextAsking;
+    if (startedAsking) void forceFollowToBottom();
+  }
+
+  $: syncAskingFollowState(asking);
+
+  function observeMessages(node: HTMLElement) {
+    if (typeof ResizeObserver === "undefined") return { destroy() {} };
+    const observer = new ResizeObserver(() => {
+      if (followStreamToBottom) scheduleScrollToBottom();
+    });
+    observer.observe(node);
+    return {
+      destroy() {
+        observer.disconnect();
+      },
+    };
+  }
+
+  $: if (conversationId !== lastConversationId) {
+    lastConversationId = conversationId;
+    lastMessageId = null;
+    void forceFollowToBottom(conversationId);
+  }
+
+  // 新增 user 消息代表用户开始了最新一轮，不继承此前浏览历史的位置。
+  $: if (messages.length > 0 && scrollContainer) {
+    const currentLastMessage = messages[messages.length - 1];
+    if (currentLastMessage.id !== lastMessageId) {
+      lastMessageId = currentLastMessage.id;
+      if (currentLastMessage.role === "user") {
+        void forceFollowToBottom();
+      } else if (followStreamToBottom) {
+        scheduleScrollToBottom();
+      }
     }
   }
 
@@ -261,6 +300,9 @@
    * 滚动到指定消息并短暂高亮该轮问答
    */
   function scrollToMessage(messageId: string) {
+    followStreamToBottom = false;
+    followRequestId += 1;
+    cancelAutoScroll();
     activeTurnMessageId = messageId;
     const target = scrollContainer?.querySelector(
       `.message-anchor[data-message-id="${messageId}"]`
@@ -294,15 +336,15 @@
   }
 
   onDestroy(() => {
+    destroyed = true;
+    followRequestId += 1;
     if (highlightTimer) {
       clearTimeout(highlightTimer);
     }
     if (scrollNavRaf) {
       cancelAnimationFrame(scrollNavRaf);
     }
-    if (autoScrollRaf !== undefined) {
-      cancelAnimationFrame(autoScrollRaf);
-    }
+    cancelAutoScroll();
   });
 
 </script>
@@ -333,7 +375,7 @@
         {/if}
       </div>
     {:else}
-      <div class="messages">
+      <div class="messages" use:observeMessages>
         {#each messages as message (message.id)}
           <!-- 消息项：传入消息数据和状态标识 -->
           <div

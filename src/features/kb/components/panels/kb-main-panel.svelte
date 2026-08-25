@@ -1635,6 +1635,7 @@
       <div class="chat-area">
         <ChatMessageList
           {messages}
+          conversationId={activeConversationId}
           readOnly={legacyReadOnly}
           on:regenerate={handleRegenerate}
           on:retry={handleRetry}

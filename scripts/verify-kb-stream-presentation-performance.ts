@@ -69,22 +69,68 @@ function verifyMarkdownMemoAndRendererReuse(): void {
 
 function verifyStickyScroll(): void {
   const source = read("src/features/kb/components/common/chat-message-list.svelte");
+  assert.match(source, /export let conversationId: string = ""/);
+  assert.match(source, /let lastConversationId: string \| null = null/);
+  assert.match(source, /async function forceFollowToBottom/);
+  assert.match(source, /await tick\(\)/);
+  assert.match(source, /lastMessageId = null/);
   assert.match(source, /let followStreamToBottom = true/);
   assert.match(source, /let autoScrollRaf: number \| undefined/);
   assert.match(source, /if \(autoScrollRaf !== undefined\) return/);
   assert.match(source, /autoScrollRaf = requestAnimationFrame/);
   assert.match(source, /cancelAnimationFrame\(autoScrollRaf\)/);
   assert.match(source, /followStreamToBottom = isNearBottom\(\)/);
-  assert.match(source, /if \(followStreamToBottom\) \{\s*scheduleScrollToBottom\(\)/);
+  assert.match(source, /if \(followStreamToBottom\) scheduleScrollToBottom\(\)/);
   assert.match(source, /function setActiveTurnToLatest\(\): void/);
-  const handleScroll = sliceBetween(source, "function handleScroll()", "// 最后一条消息的内容");
-  const fastPath = sliceBetween(handleScroll, "if \(asking && followStreamToBottom\)", "if \(scrollNavRaf\) cancelAnimationFrame");
+  assert.match(source, /use:observeMessages/);
+  assert.match(source, /const observer = new ResizeObserver/);
+  assert.match(source, /observer\.observe\(node\)/);
+  assert.match(source, /observer\.disconnect\(\)/);
+
+  // 普通发送可能在同一个 Svelte flush 内追加 user、启动 asking，再追加 assistant placeholder。
+  assert.match(source, /let previousAsking = false/);
+  assert.match(source, /function syncAskingFollowState\(nextAsking: boolean\): void/);
+  assert.match(source, /const startedAsking = nextAsking && !previousAsking/);
+  assert.match(source, /previousAsking = nextAsking/);
+  assert.match(source, /\$: syncAskingFollowState\(asking\)/);
+  const askingSync = sliceBetween(source, "function syncAskingFollowState", "$: syncAskingFollowState");
+  assert.match(askingSync, /if \(startedAsking\) void forceFollowToBottom\(\)/);
+  assert.doesNotMatch(askingSync, /scrollContainer\.scrollTop|setTimeout|requestAnimationFrame/);
+
+  const conversationReset = sliceBetween(source, "$: if (conversationId !== lastConversationId)", "// 新增 user 消息");
+  assert.match(conversationReset, /lastConversationId = conversationId/);
+  assert.match(conversationReset, /lastMessageId = null/);
+  assert.match(conversationReset, /forceFollowToBottom\(conversationId\)/);
+
+  const newMessageBlock = sliceBetween(source, "// 新增 user 消息", "// 根据 activeTurnMessageId");
+  assert.match(newMessageBlock, /currentLastMessage\.role === "user"\) \{\s*void forceFollowToBottom\(\)/);
+  assert.doesNotMatch(newMessageBlock, /role === "user"\) \{\s*if \(followStreamToBottom\)/);
+
+  const handleScroll = sliceBetween(source, "function handleScroll()", "// ===== 问答导航 =====");
+  const fastPath = sliceBetween(handleScroll, "if (asking && followStreamToBottom)", "if (scrollNavRaf) cancelAnimationFrame");
   assert.match(handleScroll, /if \(asking && followStreamToBottom\) \{[\s\S]*cancelAnimationFrame\(scrollNavRaf\)[\s\S]*setActiveTurnToLatest\(\)[\s\S]*return/);
   assert.doesNotMatch(fastPath, /updateActiveTurnFromScroll|requestAnimationFrame/);
   assert.match(handleScroll, /scrollNavRaf = requestAnimationFrame\(\(\) => \{\s*updateActiveTurnFromScroll\(\)/);
 
-  const streamReactiveBlock = sliceBetween(source, "// 消息变化时：", "// ===== 问答导航 =====");
-  assert.doesNotMatch(streamReactiveBlock, /isNearBottom\(\)/);
+  const scrollToMessage = sliceBetween(source, "function scrollToMessage(messageId: string)", "onDestroy");
+  assert.match(scrollToMessage, /followStreamToBottom = false/);
+  assert.match(scrollToMessage, /cancelAutoScroll\(\)/);
+  assert.doesNotMatch(source, /lastMessageContent|getMessageContent/);
+
+  const panel = read("src/features/kb/components/panels/kb-main-panel.svelte");
+  assert.match(panel, /<ChatMessageList[\s\S]*conversationId=\{activeConversationId\}/);
+
+  const item = read("src/features/kb/components/common/chat-message-item.svelte");
+  assert.match(item, /let userMessageCollapsible = false/);
+  assert.match(item, /let userMessageExpanded = false/);
+  assert.match(item, /userMessageTextEl\.scrollHeight > userMessageTextEl\.clientHeight/);
+  assert.match(item, /max-height:\s*19\.2em/);
+  assert.match(item, /overflow:\s*hidden/);
+  assert.match(item, /class="user-message-toggle"/);
+  assert.match(item, /aria-expanded=\{userMessageExpanded\}/);
+  assert.match(item, /on:click=\{toggleUserMessageExpanded\}/);
+  assert.match(item, /use:observeUserMessageText/);
+  assert.doesNotMatch(item, /message\.content\.slice/);
 }
 
 verifyPresentationScheduler();
