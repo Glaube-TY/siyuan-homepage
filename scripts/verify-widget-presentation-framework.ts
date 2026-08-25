@@ -349,11 +349,14 @@ assert.doesNotMatch(enhancedDiarySource, /scrollbar-width|scrollbar-color|scroll
 
 const reviewDocsSource = readFileSync("src/components/utils/widgetBlock/widget/reviewDocs/reviewDocs.svelte", "utf8");
 assert.doesNotMatch(reviewDocsSource, /scrollbar-width|scrollbar-color|scrollbar-gutter/, "复习文档不能私自维护滚动条外观");
+const enhancedDiaryRootStyle = enhancedDiarySource.match(/\.enhanced-diary-container\s*\{([\s\S]*?)\}/)?.[1];
+assert.ok(enhancedDiaryRootStyle, "无法提取强化日记根区域样式");
 assert.doesNotMatch(
-    enhancedDiarySource.slice(enhancedDiarySource.indexOf(".enhanced-diary-container {"), enhancedDiarySource.indexOf(".enhanced-diary-container :global")),
+    enhancedDiaryRootStyle,
     /overflow-y:\s*auto/,
     "强化日记根区域不得整体滚动",
 );
+assert.match(enhancedDiarySource, /\.enhanced-diary-body\s*\{[\s\S]*?overflow-y:\s*auto/, "强化日记 body 必须承担独立滚动");
 
 assert.match(reviewDocsSource, /review-docs-body" data-widget-part="body"/, "复习文档必须提供独立内容滚动区");
 assert.match(reviewDocsSource, /review-list" data-widget-part="list"/, "复习列表不得冒充整个内容滚动区");
@@ -468,7 +471,7 @@ for (const presentation of ["native.weather", "native.stikynot", "native.statist
     );
 }
 assert.doesNotMatch(cardWidgetThemeStyles, /data-hp-widget-shell="card\.elevated"[^}]*::before/, "纯卡片 Widget 不得添加装饰性顶部黑条");
-for (const presentation of ["recent-journals", "review-docs", "enhanced-diary", "native.weather", "native.stikynot", "native.statistical-card", "native.almanac"]) {
+for (const presentation of ["recent-journals", "review-docs", "native.weather", "native.stikynot", "native.statistical-card", "native.almanac"]) {
     assert.match(cardWidgetThemeStyles, new RegExp(`card\\.workspace\\.${presentation}`), `纯卡片主题缺少 ${presentation} 的专项适配`);
 }
 

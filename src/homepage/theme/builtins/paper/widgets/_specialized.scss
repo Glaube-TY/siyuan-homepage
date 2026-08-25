@@ -148,30 +148,6 @@
         }
     }
 
-    .widget-block[data-widget-presentation="paper.workspace.enhanced-diary"][data-widget-placement="homepage"][data-widget-presentation-scope="native"]
-        .enhanced-diary-header {
-        align-items: start;
-        margin-bottom: var(--hp-widget-space-2);
-
-        .enhanced-diary-title {
-            grid-column: 1 / -1;
-            justify-self: stretch;
-            min-width: 0;
-            margin: 0 0 var(--hp-widget-space-1);
-            padding: 0;
-            border: 0;
-            color: var(--hp-paper-ink);
-            font-family: "Songti SC", "STSong", "Noto Serif CJK SC", "Source Han Serif SC", serif;
-            font-size: 14px;
-            font-weight: 700;
-            line-height: 1.3;
-            text-align: left;
-            overflow: visible;
-            text-overflow: clip;
-            white-space: normal;
-        }
-    }
-
     :is(
         .widget-block[data-widget-presentation="paper.workspace.native.weather"],
         .widget-block[data-widget-presentation="paper.workspace.native.stikynot"],

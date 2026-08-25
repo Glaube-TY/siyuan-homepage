@@ -10,7 +10,6 @@
         type EnhancedDiaryPeriodContext,
     } from "./enhancedDiaryTypes";
     import { loadEnhancedDiaryConfig } from "./enhancedDiaryConfig";
-    import { readEnhancedDiaryProjectIndex } from "./enhancedDiaryProjectIndex";
     import type { QuickRecordDialogSubmitInput } from "./workspace/enhancedDiaryWorkspaceRecordService";
     import { initializeEnhancedDiaryIndex } from "./enhancedDiaryIndex";
     import {
@@ -43,12 +42,20 @@
     } from "./workspace/enhancedDiaryWorkspaceDialogs";
     import type { GenerateTasksPlusTaskInput } from "@/features/task-data/task-parser";
     import {
-        buildEnhancedDiaryWorkspaceSummary,
-        type EnhancedDiaryWorkspaceSummary,
-    } from "./enhancedDiaryWorkspaceSummary";
+        loadEnhancedDiaryHomepageSnapshot,
+        type EnhancedDiaryHomepageSnapshot,
+    } from "./enhancedDiaryHomepageSnapshot";
+    import {
+        toggleWorkspaceTaskComplete,
+        type EnhancedDiaryWorkspaceTask,
+    } from "./workspace/enhancedDiaryWorkspaceTaskService";
+    import { TASK_DATA_UPDATED_EVENT } from "@/features/task-data/task-data-runtime";
     import { isEnhancedDiaryTaskManagementEnabled } from "./enhancedDiaryTemplateFieldMapping";
     import AdvancedFeatureLock from "../common/AdvancedFeatureLock.svelte";
     import WidgetSemanticTitle from "@/homepage/theme/widgetPresentation/components/WidgetSemanticTitle.svelte";
+    import WorkspaceOverviewIcon, {
+        type WorkspaceOverviewIconName,
+    } from "./workspace/components/WorkspaceOverviewIcon.svelte";
 
     function cloneDate(date: Date): Date {
         return new Date(date.getTime());
@@ -76,14 +83,12 @@
         templateContext: EnhancedDiaryTemplateContext;
     }
 
-    let config = $state<EnhancedDiaryConfig | null>(null);
-    let cards = $state<CardInfo[]>([]);
-    let menuCard = $state<CardInfo | null>(null);
+    let config = $state.raw<EnhancedDiaryConfig | null>(null);
+    let cards = $state.raw<CardInfo[]>([]);
+    let menuCard = $state.raw<CardInfo | null>(null);
     let bodyMenuEl: HTMLDivElement | null = null;
     let bodyMenuKeydownHandler: ((ev: KeyboardEvent) => void) | null = null;
     let actionBusy = $state(false);
-    let todayWorkspaceSummary = $state<EnhancedDiaryWorkspaceSummary | null>(null);
-    let todayDiaryExists = $state(false);
     let advancedEnabled = $state(false);
 
     const taskManagementEnabled = $derived(config ? isEnhancedDiaryTaskManagementEnabled(config) : true);
@@ -157,6 +162,7 @@
         period: EnhancedDiaryPeriod,
         ctx: EnhancedDiaryPeriodContext,
         now: Date,
+        diaryConfig: EnhancedDiaryConfig,
     ): Promise<CardInfo> {
         const doc = await getDiaryDocumentForDate(ctx.targetDate);
         const docExists = !!doc;
@@ -167,7 +173,7 @@
             period,
             baseDate: now,
             targetDate: ctx.targetDate,
-            config: config!,
+            config: diaryConfig,
         });
 
         let dateOrRange = "";
@@ -210,14 +216,15 @@
     async function resolveDisplayCardForPeriod(
         period: EnhancedDiaryPeriod,
         now: Date,
+        diaryConfig: EnhancedDiaryConfig,
     ): Promise<CardInfo> {
         if (period === "day") {
-            const ctx = getPeriodContext(period, now, config!);
-            return buildCardForContext(period, ctx, now);
+            const ctx = getPeriodContext(period, now, diaryConfig);
+            return buildCardForContext(period, ctx, now, diaryConfig);
         }
 
-        const currentCtx = getPeriodContext(period, now, config!);
-        const currentCard = await buildCardForContext(period, currentCtx, now);
+        const currentCtx = getPeriodContext(period, now, diaryConfig);
+        const currentCard = await buildCardForContext(period, currentCtx, now, diaryConfig);
 
         const currentDue = isTargetDateDue(now, currentCtx.targetDate);
         if (currentDue) {
@@ -247,8 +254,8 @@
         let cursorBaseDate = cloneDate(now);
 
         for (let i = 0; i < limit; i++) {
-            const prevCtx = getPreviousPeriodContext(period, cursorBaseDate, config!);
-            const prevCard = await buildCardForContext(period, prevCtx, now);
+            const prevCtx = getPreviousPeriodContext(period, cursorBaseDate, diaryConfig);
+            const prevCard = await buildCardForContext(period, prevCtx, now, diaryConfig);
 
             if (UNHANDLED_STATUSES.includes(prevCard.status)) {
                 return prevCard;
@@ -264,32 +271,204 @@
         return currentCard;
     }
 
-    async function buildCards(): Promise<void> {
-        if (!config) return;
+    async function buildCards(diaryConfig: EnhancedDiaryConfig): Promise<CardInfo[]> {
         const now = new Date();
-        cards = await Promise.all(
-            ENHANCED_DIARY_PERIODS.map((period) => resolveDisplayCardForPeriod(period, now)),
+        return await Promise.all(
+            ENHANCED_DIARY_PERIODS.map((period) => resolveDisplayCardForPeriod(period, now, diaryConfig)),
         );
     }
 
+    let loadGeneration = 0;
+    let snapshotLoadGeneration = 0;
+    let snapshotLoading = $state(false);
+    let snapshotLoadError = $state<string | null>(null);
+    let homepageSnapshot = $state.raw<EnhancedDiaryHomepageSnapshot | null>(null);
+    let focusTaskBusyId = $state("");
+    let snapshotRefreshFrame: number | null = null;
+
     async function loadAndBuildCards(): Promise<void> {
+        const generation = ++loadGeneration;
+        snapshotLoading = true;
+        snapshotLoadError = null;
         const loaded = await loadEnhancedDiaryConfig(plugin);
+        if (generation !== loadGeneration) return;
         config = loaded;
         setEnhancedDiaryIndexNotebook(loaded.dailyNotebookId);
         if (loaded.dailyNotebookId) await initializeEnhancedDiaryIndex(loaded.dailyNotebookId);
-        await buildCards();
-        await loadTodayWorkspaceSummary();
+        if (generation !== loadGeneration) return;
+        const [nextCards] = await Promise.all([
+            buildCards(loaded),
+            loadHomepageSnapshot(generation),
+        ]);
+        if (generation === loadGeneration) {
+            cards = nextCards;
+        }
     }
 
-    async function loadTodayWorkspaceSummary(): Promise<void> {
-        const doc = await getDiaryDocumentForDate(new Date());
-        todayDiaryExists = !!doc;
-        todayWorkspaceSummary = doc
-            ? buildEnhancedDiaryWorkspaceSummary(doc.content, config?.headingStructure, config?.templateFieldMapping, taskManagementEnabled)
-            : null;
-        if (todayWorkspaceSummary && config) {
-            const projectIndex = await readEnhancedDiaryProjectIndex(config.projectStorage);
-            todayWorkspaceSummary.projectCount = Object.keys(projectIndex.roots).length;
+    async function loadHomepageSnapshot(
+        expectedLoadGeneration = loadGeneration,
+    ): Promise<void> {
+        const snapshotConfig = config;
+        if (!snapshotConfig) return;
+        const generation = ++snapshotLoadGeneration;
+        snapshotLoading = true;
+        snapshotLoadError = null;
+        try {
+            const nextSnapshot = await loadEnhancedDiaryHomepageSnapshot(snapshotConfig);
+            if (
+                generation === snapshotLoadGeneration
+                && expectedLoadGeneration === loadGeneration
+            ) {
+                homepageSnapshot = nextSnapshot;
+                snapshotLoadError = null;
+            }
+        } catch (error) {
+            console.warn("[enhancedDiary] homepage snapshot load failed", error);
+            if (
+                generation === snapshotLoadGeneration
+                && expectedLoadGeneration === loadGeneration
+            ) {
+                snapshotLoadError = "今日状态暂时无法读取";
+            }
+        } finally {
+            if (generation === snapshotLoadGeneration) snapshotLoading = false;
+        }
+    }
+
+    const PERIOD_SHORT_LABELS: Record<EnhancedDiaryPeriod, string> = {
+        day: "日",
+        week: "周",
+        month: "月",
+        year: "年",
+    };
+
+    interface HomepageAttentionItem {
+        key: string;
+        label: string;
+        action: "tasks" | "review" | "overview" | "today" | "projects";
+    }
+
+    function formatTodayLabel(): string {
+        const date = new Date();
+        const dateLabel = new Intl.DateTimeFormat("zh-CN", {
+            month: "long",
+            day: "numeric",
+        }).format(date);
+        const weekdayLabel = new Intl.DateTimeFormat("zh-CN", {
+            weekday: "short",
+        }).format(date);
+        return `${dateLabel} · ${weekdayLabel}`;
+    }
+
+    function periodIconName(status: EnhancedDiaryStatus): WorkspaceOverviewIconName {
+        if (status === "completed") return "check";
+        if (status === "overdue") return "clock";
+        if (status === "missing_template") return "attention";
+        if (status === "pending") return "clock";
+        if (status === "not_created") return "today";
+        if (status === "skipped") return "refresh";
+        return "calendar";
+    }
+
+    function focusTaskHint(task: EnhancedDiaryWorkspaceTask): string {
+        if (task.isOverdue) return "逾期";
+        if (task.isTodayTask) return "今日";
+        return "";
+    }
+
+    function getHomepageAttentionItems(): HomepageAttentionItem[] {
+        const snapshot = homepageSnapshot;
+        if (!snapshot) return [];
+        const items: HomepageAttentionItem[] = [];
+        if (taskManagementEnabled && (snapshot.overdueTaskCount || 0) > 0) {
+            items.push({
+                key: "overdue-tasks",
+                label: `${snapshot.overdueTaskCount} 个逾期任务`,
+                action: "tasks",
+            });
+        }
+        if (snapshot.todayDiaryStatus === "exists" && !snapshot.templateValid) {
+            items.push({
+                key: "template",
+                label: `模板缺少 ${snapshot.missingSections.length} 个区块`,
+                action: "today",
+            });
+        }
+        const reviewCount = cards.filter((card) =>
+            card.period !== "day"
+            && ["overdue", "pending", "missing_template", "not_created"].includes(card.status),
+        ).length;
+        if (reviewCount > 0) {
+            items.push({
+                key: "reviews",
+                label: `${reviewCount} 个复盘待处理`,
+                action: "review",
+            });
+        }
+        if (taskManagementEnabled && !snapshot.taskIndexAvailable) {
+            items.push({
+                key: "task-index",
+                label: "任务索引尚未建立",
+                action: "tasks",
+            });
+        }
+        if (snapshot.projectStorageConfigured && !snapshot.projectIndexComplete) {
+            items.push({
+                key: "project-index",
+                label: "项目索引需检查",
+                action: "projects",
+            });
+        }
+        return items.slice(0, 3);
+    }
+
+    const homepageAttentionItems = $derived.by(() => getHomepageAttentionItems());
+
+    function handleAttentionClick(item: HomepageAttentionItem): void {
+        if (item.action === "today") {
+            void openTodayDiary();
+            return;
+        }
+        openWorkspace(item.action);
+    }
+
+    async function handleToggleFocusTask(task: EnhancedDiaryWorkspaceTask): Promise<void> {
+        if (focusTaskBusyId || task.completed) return;
+        focusTaskBusyId = task.blockId;
+        try {
+            const result = await toggleWorkspaceTaskComplete(task, true);
+            if (!result.ok) {
+                showMessage(result.message || "任务完成状态更新失败，请稍后重试", 4000);
+                return;
+            }
+            if (result.partial) {
+                showMessage(result.message || "任务已完成，但部分索引关系同步失败", 4500);
+            }
+            await loadHomepageSnapshot();
+        } catch (error) {
+            console.warn("[enhancedDiary] toggle focus task failed", error);
+            showMessage("任务完成状态更新失败，请稍后重试", 4000);
+        } finally {
+            focusTaskBusyId = "";
+        }
+    }
+
+    function scheduleHomepageSnapshotRefresh(): void {
+        if (!advancedEnabled || !config || snapshotRefreshFrame !== null) return;
+        snapshotRefreshFrame = window.requestAnimationFrame(() => {
+            snapshotRefreshFrame = null;
+            void loadHomepageSnapshot();
+        });
+    }
+
+    function handleTaskDataUpdated(): void {
+        scheduleHomepageSnapshotRefresh();
+    }
+
+    function clearHomepageSnapshotRefresh(): void {
+        if (snapshotRefreshFrame !== null) {
+            window.cancelAnimationFrame(snapshotRefreshFrame);
+            snapshotRefreshFrame = null;
         }
     }
 
@@ -511,7 +690,7 @@
 
             if (result.ok) {
                 showMessage(result.message || "已写入今日日记的「新建任务」区块", result.message ? 4500 : 3000);
-                await loadAndBuildCards();
+                await loadHomepageSnapshot();
                 return true;
             } else {
                 showMessage(result.message || "新增任务失败", 4000);
@@ -549,7 +728,7 @@
 
             if (result.ok) {
                 showMessage(result.message || "已写入今日日记的「快速记录」区块", result.message ? 4500 : 3000);
-                await loadAndBuildCards();
+                await loadHomepageSnapshot();
                 return true;
             } else {
                 showMessage(result.message || "新增记录失败", 4000);
@@ -589,13 +768,13 @@
         }
     }
 
-    function openWorkspace(): void {
+    function openWorkspace(initialTab = "overview"): void {
         if (!advancedEnabled) {
             showMessage("强化日记工作台为高级会员专属功能，请在「主页设置」→「会员服务」中开通后使用", 3000);
             return;
         }
         if (typeof plugin?.openEnhancedDiaryWorkspace === "function") {
-            plugin.openEnhancedDiaryWorkspace();
+            plugin.openEnhancedDiaryWorkspace(initialTab);
         } else {
             showMessage("打开强化日记工作台失败", 3000);
         }
@@ -837,132 +1016,283 @@
     onMount(() => {
         advancedEnabled = Boolean(plugin?.ADVANCED);
         if (advancedEnabled) {
-            loadAndBuildCards();
+            void loadAndBuildCards();
         }
 
         const onReady = () => {
             advancedEnabled = true;
-            loadAndBuildCards();
+            void loadAndBuildCards();
         };
         const onUnavailable = () => {
             advancedEnabled = false;
+            loadGeneration += 1;
+            snapshotLoadGeneration += 1;
             cards = [];
-            todayWorkspaceSummary = null;
-            todayDiaryExists = false;
+            homepageSnapshot = null;
+            snapshotLoading = false;
+            snapshotLoadError = null;
+            focusTaskBusyId = "";
+            clearHomepageSnapshotRefresh();
             removeBodyMenu();
         };
         window.addEventListener("homepage-advanced-ready", onReady);
         window.addEventListener("homepage-advanced-unavailable", onUnavailable);
+        window.addEventListener(TASK_DATA_UPDATED_EVENT, handleTaskDataUpdated);
         return () => {
             window.removeEventListener("homepage-advanced-ready", onReady);
             window.removeEventListener("homepage-advanced-unavailable", onUnavailable);
+            window.removeEventListener(TASK_DATA_UPDATED_EVENT, handleTaskDataUpdated);
+            clearHomepageSnapshotRefresh();
         };
     });
 
     onDestroy(() => {
+        loadGeneration += 1;
+        snapshotLoadGeneration += 1;
+        clearHomepageSnapshotRefresh();
         removeBodyMenu();
     });
 </script>
 
 {#if advancedEnabled}
-<div class="enhanced-diary-container" data-widget-part="root">
-    <WidgetSemanticTitle
-        widgetType="enhancedDiary"
-        configuredTitle="强化日记"
-        semanticLabel="强化日记"
-        fallbackIcon="iconCalendar"
-        compact={isMobilePlacement}
-        summary={isMobilePlacement
-            ? (todayWorkspaceSummary
-                ? `${todayWorkspaceSummary.newTaskCount + todayWorkspaceSummary.migratedTaskCount} 任务`
-                : (todayDiaryExists ? "今日" : "未创建"))
-            : undefined}
-    />
+<div class="enhanced-diary-container" data-widget-part="root" class:is-mobile-placement={isMobilePlacement}>
+    <div class="enhanced-diary-topbar">
+        <WidgetSemanticTitle
+            widgetType="enhancedDiary"
+            configuredTitle="强化日记"
+            semanticLabel="强化日记"
+            fallbackIcon="iconCalendar"
+            compact={isMobilePlacement}
+            summary={isMobilePlacement
+                ? (homepageSnapshot?.pendingTaskCount == null
+                    ? (snapshotLoading ? "加载中" : "任务 —")
+                    : `${homepageSnapshot.pendingTaskCount} 待办`)
+                : undefined}
+        />
+    </div>
 
     <div class="enhanced-diary-body" data-widget-part="body">
-    <div class="enhanced-diary-header">
-        <button
-            class="enhanced-diary-open-button"
-            type="button"
-            onclick={openTodayDiary}
-            disabled={actionBusy}
-        >
-            打开今日日记
-        </button>
-        <button
-            class="enhanced-diary-open-button"
-            type="button"
-            onclick={openWorkspace}
-        >
-            查看工作台
-        </button>
-    </div>
-
-    <div class="enhanced-diary-quick-actions">
-        {#if taskManagementEnabled}
-            <button type="button" onclick={openNewTaskDialog} disabled={actionBusy}>
-                新建任务
-            </button>
-        {/if}
-        <button type="button" onclick={openQuickRecordDialog} disabled={actionBusy}>
-            快速记录
-        </button>
-    </div>
-
-    {#if todayWorkspaceSummary}
-        <div class="enhanced-diary-summary">
-            <div>
-                <span class="summary-label">今日任务</span>
-                <strong>{todayWorkspaceSummary.newTaskCount + todayWorkspaceSummary.migratedTaskCount}</strong>
-            </div>
-            <div>
-                <span class="summary-label">快速记录</span>
-                <strong>{todayWorkspaceSummary.quickRecordCount}</strong>
-            </div>
-            <div>
-                <span class="summary-label">根项目</span>
-                <strong>{todayWorkspaceSummary.projectCount}</strong>
-            </div>
-            <div>
-                <span class="summary-label">模板</span>
-                <strong>{todayWorkspaceSummary.templateValid ? "完整" : "缺失"}</strong>
-            </div>
-        </div>
-        {#if !todayWorkspaceSummary.templateValid}
-            <div class="enhanced-diary-warning">
-                缺少 {todayWorkspaceSummary.missing.slice(0, 3).join("、")}
-                {todayWorkspaceSummary.missing.length > 3 ? " 等区块" : ""}
-            </div>
-        {/if}
-    {:else if !todayDiaryExists}
-        <div class="enhanced-diary-empty">
-            今日还没有日记，创建后可补充强化日记模板。
-        </div>
-    {/if}
-
-    <div class="cards-grid">
-        {#each cards as card}
-            <div
-                class="diary-card"
-                role="button"
-                tabindex="0"
-                onclick={(e) => handleCardClick(card, e)}
-                onkeydown={(e) => handleCardKeydown(card, e)}
+        {#if homepageSnapshot}
+            <button
+                class="enhanced-diary-today"
+                class:enhanced-diary-today--missing={homepageSnapshot.todayDiaryStatus === "missing"}
+                class:enhanced-diary-today--attention={homepageSnapshot.todayDiaryStatus === "unreadable" || (homepageSnapshot.todayDiaryStatus === "exists" && !homepageSnapshot.templateValid)}
+                type="button"
+                onclick={openTodayDiary}
+                disabled={actionBusy}
             >
-                <div class="card-header">
-                    <span class="card-title">{card.title}</span>
-                    <span class="card-status status-{card.status}"
-                        >{card.statusLabel}</span
-                    >
-                </div>
-                <div class="card-date">{card.dateOrRange}</div>
-                {#if card.countdown}
-                    <div class="card-countdown">⏰ {card.countdown}</div>
-                {/if}
-                <div class="card-action">{card.nextAction}</div>
+                <span class="enhanced-diary-today-icon" aria-hidden="true">
+                    <WorkspaceOverviewIcon
+                        name={homepageSnapshot.todayDiaryStatus === "exists"
+                            ? (homepageSnapshot.templateValid ? "check" : "attention")
+                            : homepageSnapshot.todayDiaryStatus === "missing" ? "today" : "attention"}
+                        size={20}
+                    />
+                </span>
+                <span class="enhanced-diary-today-copy">
+                    <span class="enhanced-diary-today-date">{formatTodayLabel()}</span>
+                    {#if homepageSnapshot.todayDiaryStatus === "missing"}
+                        <strong>今日尚未开始</strong>
+                        <span>创建今日日记后即可开始记录</span>
+                    {:else if homepageSnapshot.todayDiaryStatus === "unreadable"}
+                        <strong>今日日记暂时无法读取</strong>
+                        <span>请稍后重试，不会自动创建新日记</span>
+                    {:else if homepageSnapshot.templateValid}
+                        <strong>今日日记已创建</strong>
+                        <span>模板完整</span>
+                    {:else}
+                        <strong>今日日记已创建</strong>
+                        <span>模板缺少 {homepageSnapshot.missingSections.length} 个区块</span>
+                    {/if}
+                </span>
+                <span class="enhanced-diary-today-action" aria-hidden="true">
+                    <WorkspaceOverviewIcon name="arrow" size={16} />
+                </span>
+            </button>
+        {:else if snapshotLoading}
+            <div class="enhanced-diary-loading" aria-live="polite">正在读取今日状态…</div>
+        {:else}
+            <div class="enhanced-diary-unavailable" role="status" aria-live="polite">
+                <WorkspaceOverviewIcon name="attention" size={15} />
+                <span>{snapshotLoadError || "今日状态暂时无法读取"}</span>
+                <button
+                    class="enhanced-diary-retry"
+                    type="button"
+                    title="重新读取今日状态"
+                    aria-label="重新读取今日状态"
+                    onclick={() => void loadHomepageSnapshot()}
+                >
+                    <WorkspaceOverviewIcon name="refresh" size={14} />
+                    <span>重新加载</span>
+                </button>
             </div>
-        {/each}
-    </div>
+        {/if}
+
+        <div class="enhanced-diary-quick-dock" aria-label="强化日记辅助操作">
+            <button
+                class="enhanced-diary-quick-action"
+                type="button"
+                title="打开强化日记工作台"
+                aria-label="打开强化日记工作台"
+                onclick={() => openWorkspace("overview")}
+            >
+                <WorkspaceOverviewIcon name="dashboard" size={16} />
+            </button>
+            {#if taskManagementEnabled}
+                <button
+                    class="enhanced-diary-quick-action"
+                    type="button"
+                    title="新建任务"
+                    aria-label="新建任务"
+                    onclick={openNewTaskDialog}
+                    disabled={actionBusy}
+                >
+                    <WorkspaceOverviewIcon name="taskAdd" size={16} />
+                </button>
+            {/if}
+            <button
+                class="enhanced-diary-quick-action"
+                type="button"
+                title="快速记录"
+                aria-label="快速记录"
+                onclick={openQuickRecordDialog}
+                disabled={actionBusy}
+            >
+                <WorkspaceOverviewIcon name="recordAdd" size={16} />
+            </button>
+        </div>
+
+        {#if homepageSnapshot}
+            <div class="enhanced-diary-metrics" aria-label="今日摘要">
+                {#if taskManagementEnabled}
+                    <button class="enhanced-diary-metric" type="button" onclick={() => openWorkspace("tasks")}>
+                        <WorkspaceOverviewIcon name="tasks" size={15} />
+                        <span><span>任务</span><strong>{homepageSnapshot.taskIndexAvailable ? homepageSnapshot.todayTaskCount : "—"}</strong></span>
+                    </button>
+                {/if}
+                <button class="enhanced-diary-metric" type="button" onclick={() => openWorkspace("records")}>
+                    <WorkspaceOverviewIcon name="record" size={15} />
+                    <span><span>记录</span><strong>{homepageSnapshot.todayDiaryStatus === "unreadable" ? "—" : homepageSnapshot.quickRecordCount}</strong></span>
+                </button>
+                <button class="enhanced-diary-metric" type="button" onclick={() => openWorkspace("projects")}>
+                    <WorkspaceOverviewIcon name="projects" size={15} />
+                    <span><span>项目</span><strong>{homepageSnapshot.projectStorageConfigured && homepageSnapshot.projectIndexComplete ? homepageSnapshot.activeProjectCount : "—"}</strong></span>
+                </button>
+                <button class="enhanced-diary-metric" type="button" onclick={() => openWorkspace("overview")}>
+                    <WorkspaceOverviewIcon
+                        name={homepageSnapshot.todayDiaryStatus === "missing"
+                            ? "today"
+                            : homepageSnapshot.todayDiaryStatus === "exists" && homepageSnapshot.templateValid ? "check" : "attention"}
+                        size={15}
+                    />
+                    <span><span>模板</span><strong>{homepageSnapshot.todayDiaryStatus === "missing"
+                        ? "未开始"
+                        : homepageSnapshot.todayDiaryStatus === "unreadable"
+                            ? "不可用"
+                            : homepageSnapshot.templateValid
+                                ? "完整"
+                                : `缺 ${homepageSnapshot.missingSections.length}`}</strong></span>
+                </button>
+            </div>
+
+            {#if taskManagementEnabled && homepageSnapshot.taskIndexAvailable}
+                <section class="enhanced-diary-focus" aria-labelledby="enhanced-diary-focus-title">
+                    <div class="enhanced-diary-section-heading">
+                        <div class="enhanced-diary-section-title" id="enhanced-diary-focus-title">
+                            <WorkspaceOverviewIcon name="target" size={16} />
+                            <span>今日焦点</span>
+                        </div>
+                        <button class="enhanced-diary-section-link" type="button" onclick={() => openWorkspace("tasks")}>
+                            查看全部 <WorkspaceOverviewIcon name="arrow" size={14} />
+                        </button>
+                    </div>
+                    {#if homepageSnapshot.taskIndexAvailable && homepageSnapshot.focusTasks.length > 0}
+                        <div class="enhanced-diary-focus-list">
+                            {#each homepageSnapshot.focusTasks as task (task.blockId)}
+                                <div class="enhanced-diary-focus-row">
+                                    <input
+                                        type="checkbox"
+                                        checked={task.completed}
+                                        aria-label={`完成任务：${task.taskname}`}
+                                        disabled={focusTaskBusyId === task.blockId}
+                                        onchange={() => void handleToggleFocusTask(task)}
+                                    />
+                                    <button
+                                        class="enhanced-diary-focus-task"
+                                        type="button"
+                                        title={task.taskname}
+                                        onclick={() => openWorkspace("tasks")}
+                                    >
+                                        {task.taskname}
+                                    </button>
+                                    {#if focusTaskHint(task)}
+                                        <span class:enhanced-diary-focus-hint--danger={task.isOverdue} class="enhanced-diary-focus-hint">{focusTaskHint(task)}</span>
+                                    {/if}
+                                </div>
+                            {/each}
+                        </div>
+                    {:else if homepageSnapshot.taskIndexAvailable}
+                        <div class="enhanced-diary-focus-empty">
+                            <WorkspaceOverviewIcon name="target" size={14} />
+                            <span>今日暂无待处理焦点</span>
+                        </div>
+                    {/if}
+                </section>
+            {/if}
+
+            {#if homepageAttentionItems.length > 0}
+                <section class="enhanced-diary-attention" aria-label="需要关注">
+                    <div class="enhanced-diary-section-title">
+                        <WorkspaceOverviewIcon name="attention" size={15} />
+                        <span>需要关注</span>
+                    </div>
+                    <div class="enhanced-diary-attention-list">
+                        {#each homepageAttentionItems as item (item.key)}
+                            <button class="enhanced-diary-attention-item" type="button" onclick={() => handleAttentionClick(item)}>
+                                <span>{item.label}</span>
+                                <WorkspaceOverviewIcon name="arrow" size={14} />
+                            </button>
+                        {/each}
+                    </div>
+                </section>
+            {/if}
+        {/if}
+
+        <section class="enhanced-diary-periods" aria-label="周期状态">
+            <div class="enhanced-diary-section-heading">
+                <div class="enhanced-diary-section-title">
+                    <WorkspaceOverviewIcon name="calendar" size={15} />
+                    <span>周期状态</span>
+                </div>
+                <span class="enhanced-diary-section-note">点击查看操作</span>
+            </div>
+            <div class="enhanced-diary-period-track">
+                {#each cards as card (card.period)}
+                    <button
+                        class="enhanced-diary-period-item status-{card.status}"
+                        type="button"
+                        title={`${card.title} · ${card.statusLabel}`}
+                        onclick={(event) => handleCardClick(card, event)}
+                        onkeydown={(event) => handleCardKeydown(card, event)}
+                    >
+                        <span class="enhanced-diary-period-marker">
+                            <span>{PERIOD_SHORT_LABELS[card.period]}</span>
+                            <WorkspaceOverviewIcon name={periodIconName(card.status)} size={13} />
+                        </span>
+                        <span class="enhanced-diary-period-copy">
+                            <strong>{card.title}</strong>
+                            <span>{card.statusLabel}</span>
+                            {#if card.countdown}
+                                <small class="enhanced-diary-period-countdown">
+                                    <WorkspaceOverviewIcon name="clock" size={10} />
+                                    <span>{card.countdown}</span>
+                                </small>
+                            {/if}
+                        </span>
+                    </button>
+                {/each}
+            </div>
+        </section>
     </div>
 </div>
 {:else}
@@ -999,23 +1329,125 @@
         box-sizing: border-box;
         background: transparent;
         border-radius: 8px;
-        padding: 12px;
+        padding: 10px;
         display: flex;
         flex-direction: column;
-        gap: 8px;
+        gap: 7px;
         overflow: hidden;
         color: var(--b3-theme-on-background);
+        container-type: inline-size;
+        container-name: hp-widget;
     }
 
-    .enhanced-diary-container :global(.hp-widget-title) {
-        width: calc(100% - 6rem);
-        margin: 0 3rem 4px;
-        padding-bottom: 0.3rem;
-        border-bottom: 1px solid var(--b3-border-color);
-        font-size: 18px;
-        font-weight: 600;
+    /* Homepage Widget 的通用 drag handle 固定占用右上角；强化日记业务操作不进入该 host chrome 安全区。 */
+    .enhanced-diary-topbar {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        min-width: 0;
+        min-height: 30px;
+        box-sizing: border-box;
+        padding-inline-end: 38px;
+    }
+
+    .enhanced-diary-topbar :global(.hp-widget-title) {
+        flex: 1 1 auto;
+        min-width: 0;
+        width: auto;
+        margin: 0;
+        padding: 0;
+        border: 0;
+        font-size: 16px;
+        font-weight: 650;
         line-height: 1.2;
-        text-align: center;
+        text-align: left;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .enhanced-diary-container.is-mobile-placement .enhanced-diary-topbar {
+        padding-inline-end: 0;
+    }
+
+    /* Mobile Homepage editing chrome reserves both 44px host controls, edge inset, and visual breathing room. */
+    :global(.mobile-homepage.mobile-homepage--editing) .enhanced-diary-container.is-mobile-placement .enhanced-diary-topbar {
+        padding-inline-end: 110px;
+    }
+
+    /* Non-editing context actions reserve the single 44px action button, edge inset, and visual breathing room. */
+    :global(.mobile-homepage:not(.mobile-homepage--editing) .widget-block[data-widget-context-actions="true"]) .enhanced-diary-container.is-mobile-placement .enhanced-diary-topbar {
+        padding-inline-end: 60px;
+    }
+
+    .enhanced-diary-quick-dock {
+        align-self: flex-end;
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        gap: 3px;
+        width: fit-content;
+        max-width: 100%;
+        min-height: 30px;
+        margin-top: 4px;
+        border-radius: 8px;
+        padding: 1px 2px;
+        background: color-mix(in srgb, var(--b3-theme-on-background) 4%, transparent);
+    }
+
+    .enhanced-diary-quick-action,
+    .enhanced-diary-section-link,
+    .enhanced-diary-metric,
+    .enhanced-diary-attention-item,
+    .enhanced-diary-period-item,
+    .enhanced-diary-focus-task {
+        border: 0;
+        background: transparent;
+        color: var(--b3-theme-on-surface, var(--b3-theme-on-background));
+        cursor: pointer;
+        font: inherit;
+    }
+
+    .enhanced-diary-quick-action {
+        width: 30px;
+        height: 30px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 7px;
+        padding: 0;
+        color: var(--b3-theme-on-surface, var(--b3-theme-on-background));
+    }
+
+    .enhanced-diary-quick-action:hover,
+    .enhanced-diary-quick-action:focus-visible,
+    .enhanced-diary-section-link:hover,
+    .enhanced-diary-section-link:focus-visible,
+    .enhanced-diary-metric:hover,
+    .enhanced-diary-metric:focus-visible,
+    .enhanced-diary-attention-item:hover,
+    .enhanced-diary-attention-item:focus-visible,
+    .enhanced-diary-period-item:hover,
+    .enhanced-diary-period-item:focus-visible {
+        outline: none;
+        color: var(--b3-theme-primary);
+        background: color-mix(in srgb, var(--b3-theme-primary) 8%, transparent);
+    }
+
+    .enhanced-diary-quick-action:focus-visible,
+    .enhanced-diary-section-link:focus-visible,
+    .enhanced-diary-metric:focus-visible,
+    .enhanced-diary-attention-item:focus-visible,
+    .enhanced-diary-period-item:focus-visible,
+    .enhanced-diary-focus-task:focus-visible,
+    .enhanced-diary-today:focus-visible {
+        box-shadow: 0 0 0 2px color-mix(in srgb, var(--b3-theme-primary) 45%, transparent);
+    }
+
+    .enhanced-diary-quick-action:disabled,
+    .enhanced-diary-today:disabled {
+        cursor: not-allowed;
+        opacity: 0.55;
     }
 
     .enhanced-diary-body {
@@ -1031,207 +1463,452 @@
         -webkit-overflow-scrolling: touch;
     }
 
-    .enhanced-diary-header {
-        display: grid;
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-        align-items: center;
-        gap: 8px;
-        margin-bottom: 12px;
+    .enhanced-diary-loading {
+        color: var(--b3-theme-on-surface, var(--b3-theme-on-background));
+        opacity: 0.65;
+        font-size: 12px;
+        padding: 12px 4px;
     }
 
-    .enhanced-diary-open-button {
-        border: 1px solid var(--b3-border-color);
-        border-radius: 6px;
-        background: var(--b3-theme-surface);
-        color: var(--b3-theme-on-surface);
-        font-size: 12px;
-        padding: 7px 10px;
-        cursor: pointer;
+    .enhanced-diary-unavailable {
+        display: flex;
+        align-items: center;
+        gap: 6px;
         min-width: 0;
-        min-height: 32px;
+        color: var(--b3-theme-on-surface, var(--b3-theme-on-background));
+        font-size: 12px;
+        padding: 10px 4px;
+    }
+
+    .enhanced-diary-unavailable > span {
+        min-width: 0;
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
     }
 
-    .enhanced-diary-open-button:hover {
-        border-color: var(--b3-theme-primary);
+    .enhanced-diary-retry {
+        display: inline-flex;
+        flex: 0 0 auto;
+        align-items: center;
+        gap: 3px;
+        border: 0;
+        border-radius: 5px;
+        padding: 3px 5px;
+        background: transparent;
         color: var(--b3-theme-primary);
-    }
-
-    .enhanced-diary-open-button:disabled {
-        cursor: not-allowed;
-        opacity: 0.6;
-    }
-
-    .enhanced-diary-quick-actions {
-        display: grid;
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-        gap: 8px;
-        margin-bottom: 12px;
-    }
-
-    .enhanced-diary-quick-actions button {
-        border: 1px solid var(--b3-border-color);
-        border-radius: 6px;
-        background: var(--b3-theme-surface);
-        color: var(--b3-theme-on-surface);
-        font-size: 13px;
-        padding: 8px 10px;
         cursor: pointer;
+        font: inherit;
+        font-size: 11px;
     }
 
-    .enhanced-diary-quick-actions button:hover {
-        border-color: var(--b3-theme-primary);
+    .enhanced-diary-retry:hover,
+    .enhanced-diary-retry:focus-visible {
+        outline: none;
         background: color-mix(in srgb, var(--b3-theme-primary) 8%, transparent);
     }
 
-    .enhanced-diary-quick-actions button:disabled {
-        cursor: not-allowed;
-        opacity: 0.6;
-    }
-
-    .enhanced-diary-summary {
+    .enhanced-diary-today {
+        width: 100%;
+        min-width: 0;
         display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(92px, 1fr));
-        gap: 8px;
-        margin-bottom: 10px;
+        grid-template-columns: auto minmax(0, 1fr) auto;
+        align-items: center;
+        gap: 10px;
+        border: 0;
+        border-radius: 10px;
+        padding: 10px 11px;
+        background: color-mix(in srgb, var(--b3-theme-primary) 7%, var(--b3-theme-surface, transparent));
+        color: var(--b3-theme-on-surface, var(--b3-theme-on-background));
+        text-align: left;
+        cursor: pointer;
     }
 
-    .enhanced-diary-summary > div {
-        border: 1px solid var(--b3-border-color);
-        border-radius: 6px;
-        background: var(--b3-theme-surface);
-        padding: 8px;
+    .enhanced-diary-today--missing {
+        background: color-mix(in srgb, var(--b3-theme-on-surface, #555) 5%, var(--b3-theme-surface, transparent));
+    }
+
+    .enhanced-diary-today--attention {
+        background: color-mix(in srgb, var(--b3-theme-error, #c94d4d) 8%, var(--b3-theme-surface, transparent));
+    }
+
+    .enhanced-diary-today-icon {
+        width: 34px;
+        height: 34px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 9px;
+        color: var(--b3-theme-primary);
+        background: color-mix(in srgb, var(--b3-theme-primary) 13%, transparent);
+    }
+
+    .enhanced-diary-today--attention .enhanced-diary-today-icon {
+        color: var(--b3-theme-error, #c94d4d);
+        background: color-mix(in srgb, var(--b3-theme-error, #c94d4d) 12%, transparent);
+    }
+
+    .enhanced-diary-today-copy {
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+    }
+
+    .enhanced-diary-today-date {
+        font-size: 11px;
+        opacity: 0.62;
+    }
+
+    .enhanced-diary-today-copy strong {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-size: 14px;
+        line-height: 1.25;
+    }
+
+    .enhanced-diary-today-copy > span:last-child {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-size: 11px;
+        opacity: 0.67;
+    }
+
+    .enhanced-diary-today-action {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        color: var(--b3-theme-primary);
+        opacity: 0.75;
+    }
+
+    .enhanced-diary-metrics {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        margin-top: 7px;
+        border: 1px solid color-mix(in srgb, var(--b3-border-color) 75%, transparent);
+        border-radius: 8px;
+        overflow: hidden;
+        background: color-mix(in srgb, var(--b3-theme-surface, transparent) 45%, transparent);
+    }
+
+    .enhanced-diary-metric {
+        min-width: 0;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 8px 7px;
+        text-align: left;
+    }
+
+    .enhanced-diary-metric + .enhanced-diary-metric {
+        border-left: 1px solid color-mix(in srgb, var(--b3-border-color) 72%, transparent);
+    }
+
+    .enhanced-diary-metric > :global(svg) {
+        flex: 0 0 auto;
+        opacity: 0.68;
+    }
+
+    .enhanced-diary-metric > span {
+        min-width: 0;
+        display: flex;
+        align-items: baseline;
+        flex-direction: row;
+        flex-wrap: wrap;
+        column-gap: 4px;
+        row-gap: 1px;
+    }
+
+    .enhanced-diary-metric > span > span {
+        font-size: 11px;
+        opacity: 0.65;
+        white-space: nowrap;
+    }
+
+    .enhanced-diary-metric strong {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-size: 13px;
+        font-weight: 600;
+    }
+
+    .enhanced-diary-focus,
+    .enhanced-diary-attention,
+    .enhanced-diary-periods {
+        min-width: 0;
+        margin-top: 10px;
+    }
+
+    .enhanced-diary-section-heading,
+    .enhanced-diary-section-title {
+        display: flex;
+        align-items: center;
         min-width: 0;
     }
 
-    .summary-label {
-        display: block;
-        color: var(--b3-theme-on-surface);
-        font-size: 11px;
-        opacity: 0.65;
-        margin-bottom: 3px;
+    .enhanced-diary-section-heading {
+        justify-content: space-between;
+        gap: 8px;
+        margin-bottom: 5px;
     }
 
-    .enhanced-diary-summary strong {
-        color: var(--b3-theme-on-surface);
-        font-size: 14px;
-        font-weight: 600;
-    }
-
-    .enhanced-diary-warning,
-    .enhanced-diary-empty {
-        border: 1px solid var(--b3-border-color);
-        border-radius: 6px;
-        background: var(--b3-theme-surface);
-        color: var(--b3-theme-on-surface);
+    .enhanced-diary-section-title {
+        gap: 5px;
         font-size: 12px;
-        line-height: 1.5;
-        padding: 8px 10px;
-        margin-bottom: 10px;
+        font-weight: 650;
     }
 
-    .enhanced-diary-warning {
-        border-color: rgba(255, 165, 0, 0.45);
-        color: #b87300;
+    .enhanced-diary-section-title :global(svg) {
+        flex: 0 0 auto;
+        color: var(--b3-theme-primary);
     }
 
-    .cards-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-        gap: 10px;
-        padding-bottom: 2px;
+    .enhanced-diary-section-link {
+        display: inline-flex;
+        align-items: center;
+        gap: 3px;
+        padding: 3px 4px;
+        border-radius: 5px;
+        color: var(--b3-theme-primary);
+        font-size: 11px;
+        white-space: nowrap;
     }
 
-    .diary-card {
-        background: var(--b3-theme-surface);
-        border: 1px solid var(--b3-border-color);
-        border-radius: 6px;
-        padding: 12px;
-        cursor: pointer;
-        transition:
-            border-color 0.15s,
-            box-shadow 0.15s;
+    .enhanced-diary-section-note {
+        font-size: 10px;
+        opacity: 0.52;
     }
 
-    .diary-card:hover {
-        border-color: var(--b3-theme-primary);
-        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+    .enhanced-diary-focus-list {
+        border-top: 1px solid color-mix(in srgb, var(--b3-border-color) 70%, transparent);
     }
 
-    .card-header {
+    .enhanced-diary-focus-row {
+        min-width: 0;
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        min-height: 34px;
+        border-bottom: 1px solid color-mix(in srgb, var(--b3-border-color) 58%, transparent);
+    }
+
+    .enhanced-diary-focus-row input {
+        flex: 0 0 auto;
+        width: 14px;
+        height: 14px;
+        margin: 0;
+        accent-color: var(--b3-theme-primary);
+    }
+
+    .enhanced-diary-focus-task {
+        min-width: 0;
+        flex: 1 1 auto;
+        overflow: hidden;
+        padding: 5px 0;
+        text-align: left;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-size: 12px;
+    }
+
+    .enhanced-diary-focus-task:hover {
+        color: var(--b3-theme-primary);
+    }
+
+    .enhanced-diary-focus-hint {
+        flex: 0 0 auto;
+        max-width: 40px;
+        overflow: hidden;
+        color: var(--b3-theme-primary);
+        font-size: 10px;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .enhanced-diary-focus-hint--danger {
+        color: var(--b3-theme-error, #c94d4d);
+    }
+
+    .enhanced-diary-focus-empty {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        min-height: 28px;
+        color: var(--b3-theme-on-surface, var(--b3-theme-on-background));
+        font-size: 11px;
+        opacity: 0.62;
+    }
+
+    .enhanced-diary-attention {
+        padding: 8px 9px;
+        border-radius: 8px;
+        background: color-mix(in srgb, var(--b3-theme-error, #c94d4d) 6%, transparent);
+    }
+
+    .enhanced-diary-attention .enhanced-diary-section-title {
+        color: var(--b3-theme-error, #c94d4d);
+    }
+
+    .enhanced-diary-attention .enhanced-diary-section-title :global(svg) {
+        color: inherit;
+    }
+
+    .enhanced-diary-attention-list {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        margin-top: 4px;
+    }
+
+    .enhanced-diary-attention-item {
         display: flex;
         align-items: center;
         justify-content: space-between;
-        margin-bottom: 6px;
-    }
-
-    .card-title {
-        font-size: 13px;
-        font-weight: 600;
-        color: var(--b3-theme-on-surface);
-    }
-
-    .card-status {
+        gap: 8px;
+        min-width: 0;
+        padding: 3px 2px;
+        border-radius: 4px;
+        color: var(--b3-theme-on-surface, var(--b3-theme-on-background));
         font-size: 11px;
-        padding: 2px 6px;
-        border-radius: 3px;
-        font-weight: 500;
+        text-align: left;
     }
 
-    .status-not_due {
-        background: rgba(0, 128, 255, 0.1);
-        color: #0080ff;
+    .enhanced-diary-attention-item span {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
     }
 
-    .status-not_created {
-        background: rgba(128, 128, 128, 0.1);
-        color: #888;
+    .enhanced-diary-period-track {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        border-top: 1px solid color-mix(in srgb, var(--b3-border-color) 70%, transparent);
+        border-bottom: 1px solid color-mix(in srgb, var(--b3-border-color) 70%, transparent);
     }
 
-    .status-missing_template {
-        background: rgba(255, 165, 0, 0.1);
-        color: #ffa500;
+    .enhanced-diary-period-item {
+        min-width: 0;
+        display: flex;
+        align-items: flex-start;
+        gap: 6px;
+        padding: 8px 6px;
+        text-align: left;
     }
 
-    .status-pending {
-        background: rgba(255, 193, 7, 0.1);
-        color: #e6a800;
+    .enhanced-diary-period-item + .enhanced-diary-period-item {
+        border-left: 1px solid color-mix(in srgb, var(--b3-border-color) 60%, transparent);
     }
 
-    .status-completed {
-        background: rgba(40, 167, 69, 0.1);
-        color: #28a745;
-    }
-
-    .status-overdue {
-        background: rgba(220, 53, 69, 0.1);
-        color: #dc3545;
-    }
-
-    .status-skipped {
-        background: rgba(108, 117, 125, 0.1);
-        color: #6c757d;
-    }
-
-    .card-date {
-        font-size: 12px;
-        color: var(--b3-theme-on-surface);
-        opacity: 0.7;
-        margin-bottom: 4px;
-    }
-
-    .card-countdown {
-        font-size: 12px;
+    .enhanced-diary-period-marker {
+        flex: 0 0 auto;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 2px;
         color: var(--b3-theme-primary);
-        margin-bottom: 4px;
+        font-size: 11px;
+        font-weight: 650;
     }
 
-    .card-action {
+    .enhanced-diary-period-copy {
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 1px;
+    }
+
+    .enhanced-diary-period-copy strong,
+    .enhanced-diary-period-copy > span {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .enhanced-diary-period-copy strong {
         font-size: 11px;
-        color: var(--b3-theme-on-surface);
-        opacity: 0.6;
+        font-weight: 600;
+    }
+
+    .enhanced-diary-period-copy > span {
+        font-size: 10px;
+        opacity: 0.62;
+    }
+
+    .enhanced-diary-period-countdown {
+        display: inline-flex;
+        align-items: center;
+        align-self: flex-start;
+        justify-content: flex-start;
+        gap: 2px;
+        min-width: 0;
+        max-width: 100%;
+        line-height: 1.2;
+        color: var(--b3-theme-primary);
+        font-size: 10px;
+        text-align: left;
+    }
+
+    .enhanced-diary-period-countdown :global(svg) {
+        flex: 0 0 auto;
+    }
+
+    .enhanced-diary-period-countdown > span {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .status-overdue .enhanced-diary-period-marker,
+    .status-missing_template .enhanced-diary-period-marker {
+        color: var(--b3-theme-error, #c94d4d);
+    }
+
+    .status-completed .enhanced-diary-period-marker {
+        color: var(--b3-theme-success, var(--b3-theme-primary));
+    }
+
+    @container hp-widget (max-width: 359px) {
+        .enhanced-diary-metrics {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .enhanced-diary-metric:nth-child(odd) + .enhanced-diary-metric {
+            border-left: 0;
+        }
+
+        .enhanced-diary-metric:nth-child(n + 3) {
+            border-top: 1px solid color-mix(in srgb, var(--b3-border-color) 72%, transparent);
+        }
+
+        .enhanced-diary-topbar {
+            align-items: flex-start;
+        }
+    }
+
+    @container hp-widget (max-width: 239px) {
+        .enhanced-diary-period-track {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .enhanced-diary-period-item:nth-child(odd) + .enhanced-diary-period-item {
+            border-left: 0;
+        }
+
+        .enhanced-diary-period-item:nth-child(n + 3) {
+            border-top: 1px solid color-mix(in srgb, var(--b3-border-color) 60%, transparent);
+        }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+        .enhanced-diary-container * {
+            transition: none !important;
+        }
     }
 
     :global(.enhanced-diary-body-menu-overlay) {
@@ -1306,28 +1983,6 @@
     :global(.enhanced-diary-record-textarea) {
         min-height: 140px;
         resize: vertical;
-    }
-
-    @media (max-width: 480px) {
-        .enhanced-diary-header {
-            align-items: stretch;
-            grid-template-columns: 1fr;
-            gap: 8px;
-        }
-
-        .enhanced-diary-title {
-            margin-inline: 2.4rem;
-        }
-
-        .enhanced-diary-quick-actions,
-        .enhanced-diary-summary,
-        :global(.enhanced-diary-action-row) {
-            grid-template-columns: 1fr;
-        }
-
-        .cards-grid {
-            grid-template-columns: 1fr;
-        }
     }
 
     .enhanced-diary-locked {

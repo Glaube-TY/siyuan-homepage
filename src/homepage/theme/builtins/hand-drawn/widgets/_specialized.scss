@@ -104,31 +104,6 @@
         :is(.hp-widget-title__legacy, .hp-widget-title__semantic) { overflow: visible; text-overflow: clip; white-space: normal; }
     }
 
-    .widget-block[data-widget-presentation="hand-drawn.workspace.enhanced-diary"][data-widget-placement="homepage"][data-widget-presentation-scope="native"]
-        .enhanced-diary-header {
-        align-items: start;
-        margin-bottom: var(--hp-widget-space-2);
-
-        .enhanced-diary-title {
-            grid-column: 1 / -1;
-            justify-self: stretch;
-            min-width: 0;
-            margin: 0 0 var(--hp-widget-space-1);
-            padding: 0 0 4px;
-            border: 0;
-            border-bottom: 1px dashed var(--hp-sketch-pencil-soft);
-            color: var(--hp-sketch-ink);
-            font-family: "KaiTi", "STKaiti", "FangSong", serif;
-            font-size: 15px;
-            font-weight: 800;
-            line-height: 1.3;
-            text-align: left;
-            overflow: visible;
-            text-overflow: clip;
-            white-space: normal;
-        }
-    }
-
     :is(
         .widget-block[data-widget-presentation="hand-drawn.workspace.native.weather"],
         .widget-block[data-widget-presentation="hand-drawn.workspace.native.stikynot"],

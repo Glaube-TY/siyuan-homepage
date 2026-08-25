@@ -26,7 +26,10 @@ function taskSortDate(task: EnhancedDiaryWorkspaceTask): string {
     return task.deadline || task.startDate || task.sourceDate || FAR_FUTURE;
 }
 
-export function selectOverviewFocusTasks(tasks: EnhancedDiaryWorkspaceTask[]): EnhancedDiaryWorkspaceTask[] {
+export function selectOverviewFocusTasks(
+    tasks: EnhancedDiaryWorkspaceTask[],
+    limit = 5,
+): EnhancedDiaryWorkspaceTask[] {
     return tasks
         .map((task, index) => ({ task, index }))
         .filter(({ task }) => !task.completed)
@@ -40,7 +43,7 @@ export function selectOverviewFocusTasks(tasks: EnhancedDiaryWorkspaceTask[]): E
             if (todayA !== todayB) return todayA ? -1 : 1;
             return taskSortDate(a.task).localeCompare(taskSortDate(b.task)) || a.index - b.index;
         })
-        .slice(0, 5)
+        .slice(0, Math.max(0, limit))
         .map(({ task }) => task);
 }
 
