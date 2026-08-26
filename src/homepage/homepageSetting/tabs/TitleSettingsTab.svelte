@@ -17,8 +17,8 @@
         type HomepageStatusTextMode,
         type HomepageStatusStatKey,
     } from '@/homepage/status-text-config';
-    import type { BannerGlassColorMode, QuickButtonStyle } from '../config';
-    import type { HomepageTopLayoutModel } from '@/homepage/theme/runtime/topLayout';
+    import { DEFAULT_QUICK_BUTTON_STYLE, type BannerGlassColorMode, type QuickButtonStyle } from '../config';
+    import { DEFAULT_HOMEPAGE_TOP_LAYOUT, type HomepageTopLayoutModel } from '@/homepage/theme/runtime/topLayout';
 
     let iconInputEl: HTMLInputElement | null = $state(null);
     let emojiButtonRef: HTMLButtonElement | null = $state(null);
@@ -123,6 +123,13 @@
         onTempBannerGlassOpacityChange,
         onTempBannerGlassBlurChange
     }: Props = $props();
+
+    const effectiveTopLayoutForSettings = $derived(
+        advancedEnabled ? tempHomepageTopLayout : DEFAULT_HOMEPAGE_TOP_LAYOUT,
+    );
+    const effectiveQuickButtonStyleForSettings = $derived(
+        advancedEnabled ? tempQuickButtonStyle : DEFAULT_QUICK_BUTTON_STYLE,
+    );
 
     const statusStatGroups = [
         { key: "time_notes", label: "时间与笔记" },
@@ -267,7 +274,7 @@
     {/if}
 
     <SettingRow title="信息区结构" description="控制标题、状态语和快捷按钮如何分布">
-        <select class="control-sm" value={tempHomepageTopLayout.contentLayout} disabled={!advancedEnabled} onchange={(e) => updateTopLayout({ contentLayout: (e.currentTarget as HTMLSelectElement).value as HomepageTopLayoutModel['contentLayout'] })}>
+        <select class="control-sm" value={effectiveTopLayoutForSettings.contentLayout} disabled={!advancedEnabled} onchange={(e) => updateTopLayout({ contentLayout: (e.currentTarget as HTMLSelectElement).value as HomepageTopLayoutModel['contentLayout'] })}>
             <option value="split">左右分区</option>
             <option value="inline">同排展示</option>
             <option value="stacked">依次纵排</option>
@@ -275,28 +282,28 @@
     </SettingRow>
 
     <SettingRow title="横幅位置" description="横幅显示在信息区上方或下方">
-        <select class="control-sm" value={tempHomepageTopLayout.bannerPosition} disabled={!advancedEnabled || !tempBannerEnabled || tempHomepageTopLayout.bannerContent === 'all'} onchange={(e) => updateTopLayout({ bannerPosition: (e.currentTarget as HTMLSelectElement).value as HomepageTopLayoutModel['bannerPosition'] })}>
+        <select class="control-sm" value={effectiveTopLayoutForSettings.bannerPosition} disabled={!advancedEnabled || !tempBannerEnabled || tempHomepageTopLayout.bannerContent === 'all'} onchange={(e) => updateTopLayout({ bannerPosition: (e.currentTarget as HTMLSelectElement).value as HomepageTopLayoutModel['bannerPosition'] })}>
             <option value="before">信息区上方</option>
             <option value="after">信息区下方</option>
         </select>
     </SettingRow>
 
     <SettingRow title="左右顺序" description="交换标题状态区与快捷按钮区的位置">
-        <select class="control-sm" value={tempHomepageTopLayout.primaryPosition} disabled={!advancedEnabled || tempHomepageTopLayout.contentLayout === 'stacked'} onchange={(e) => updateTopLayout({ primaryPosition: (e.currentTarget as HTMLSelectElement).value as HomepageTopLayoutModel['primaryPosition'] })}>
+        <select class="control-sm" value={effectiveTopLayoutForSettings.primaryPosition} disabled={!advancedEnabled || tempHomepageTopLayout.contentLayout === 'stacked'} onchange={(e) => updateTopLayout({ primaryPosition: (e.currentTarget as HTMLSelectElement).value as HomepageTopLayoutModel['primaryPosition'] })}>
             <option value="content-first">标题在前</option>
             <option value="actions-first">按钮在前</option>
         </select>
     </SettingRow>
 
     <SettingRow title="横幅承载" description={!tempBannerEnabled ? "开启横幅后可用" : "可将整个信息区覆盖到横幅中"}>
-        <select class="control-sm" value={tempHomepageTopLayout.bannerContent} disabled={!advancedEnabled || !tempBannerEnabled} onchange={(e) => updateTopLayout({ bannerContent: (e.currentTarget as HTMLSelectElement).value as HomepageTopLayoutModel['bannerContent'] })}>
+        <select class="control-sm" value={effectiveTopLayoutForSettings.bannerContent} disabled={!advancedEnabled || !tempBannerEnabled} onchange={(e) => updateTopLayout({ bannerContent: (e.currentTarget as HTMLSelectElement).value as HomepageTopLayoutModel['bannerContent'] })}>
             <option value="none">独立显示</option>
             <option value="all">整体融入横幅</option>
         </select>
     </SettingRow>
 
     <SettingRow title="内容对齐" description="统一控制标题、状态语和快捷按钮的对齐方向">
-        <select class="control-sm" value={tempHomepageTopLayout.align} disabled={!advancedEnabled} onchange={(e) => updateTopLayout({ align: (e.currentTarget as HTMLSelectElement).value as HomepageTopLayoutModel['align'] })}>
+        <select class="control-sm" value={effectiveTopLayoutForSettings.align} disabled={!advancedEnabled} onchange={(e) => updateTopLayout({ align: (e.currentTarget as HTMLSelectElement).value as HomepageTopLayoutModel['align'] })}>
             <option value="left">左对齐</option>
             <option value="center">居中</option>
             <option value="right">右对齐</option>
@@ -306,7 +313,7 @@
     <SettingRow title="快捷按钮样式" description={!advancedEnabled ? "当前按默认按钮样式显示" : "仅影响主页标题区域的快捷按钮"}>
         <select
             class="control-sm"
-            value={tempQuickButtonStyle}
+            value={effectiveQuickButtonStyleForSettings}
             disabled={!advancedEnabled}
             onchange={(e) => onTempQuickButtonStyleChange((e.currentTarget as HTMLSelectElement).value as QuickButtonStyle)}
         >

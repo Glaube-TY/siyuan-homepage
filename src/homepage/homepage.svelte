@@ -185,6 +185,8 @@
     let bannerImage: HTMLImageElement = $state();
     let bannerHeight = $state(300);
     let bannerImgSrc = $state("");
+    let bannerFallbackReason = $state<"premium_required" | undefined>(undefined);
+    const PREMIUM_BANNER_FALLBACK_HEIGHT = 100;
     let homepageTopLayout = $state<HomepageTopLayoutModel>({ ...DEFAULT_HOMEPAGE_TOP_LAYOUT });
     let quickButtonStyle = $state<QuickButtonStyle>("default");
     let bannerTitleColor = $state("#ffffff");
@@ -2677,6 +2679,8 @@
     // 初始化横幅拖拽（带清理闭环）
     function initBannerDrag() {
         destroyBannerDrag?.destroy();
+        destroyBannerDrag = null;
+        if (!bannerImage || bannerFallbackReason) return;
         destroyBannerDrag = handleLoad(plugin, bannerImage, bannerDragOptions) ?? null;
     }
 
@@ -3640,6 +3644,7 @@
         if (currentVersion !== updateHomepageVersion) return;
         bannerHeight = bannerDisplaySettings?.bannerHeight ?? config.bannerHeight;
         bannerImgSrc = bannerResult.bannerImgSrc;
+        bannerFallbackReason = bannerResult.fallbackReason;
         backgroundImageSrc = backgroundResult.backgroundImageSrc;
     }
 
@@ -3940,7 +3945,8 @@
         banner: Object.freeze({
             enabled: supportsHomepageThemeBanner(themeResolution.definition) && bannerEnabled,
             imageSrc: bannerImgSrc,
-            height: bannerHeight,
+            fallbackReason: bannerFallbackReason,
+            height: bannerFallbackReason === "premium_required" ? PREMIUM_BANNER_FALLBACK_HEIGHT : bannerHeight,
             integrated: supportsHomepageThemeBanner(themeResolution.definition) && homepageTopLayout.bannerContent === "all",
             glassEnabled: bannerGlassEnabled,
             glassColorMode: bannerGlassColorMode,

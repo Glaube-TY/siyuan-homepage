@@ -1,4 +1,5 @@
 <script lang="ts">
+    import PremiumMark from "@/components/utils/shared/PremiumMark.svelte";
     import type { HomepageBannerModel } from "../../api/types";
 
     interface Props {
@@ -28,15 +29,22 @@
 </script>
 
 <section class={`hp-banner ${className}`.trim()} data-hp-context-region="banner" {style} aria-label={ariaLabel}>
-    <img
-        use:bannerImageNode
-        src={banner.imageSrc}
-        crossorigin="anonymous"
-        alt=""
-        class={`hp-banner__image ${imageClass}`.trim()}
-        aria-hidden="true"
-    />
-    {#if banner.integrated && banner.glassEnabled}
+    {#if banner.fallbackReason === "premium_required"}
+        <div class="hp-banner__premium-fallback" role="status">
+            <PremiumMark size={14} />
+            <span>每日一图暂不可用</span>
+        </div>
+    {:else if banner.imageSrc}
+        <img
+            use:bannerImageNode
+            src={banner.imageSrc}
+            crossorigin="anonymous"
+            alt=""
+            class={`hp-banner__image ${imageClass}`.trim()}
+            aria-hidden="true"
+        />
+    {/if}
+    {#if banner.integrated && banner.glassEnabled && !banner.fallbackReason}
         <div
             class="hp-banner__glass"
             class:hp-banner__glass--custom={banner.glassColorMode === "custom"}
@@ -44,17 +52,49 @@
             aria-hidden="true"
         ></div>
     {/if}
-    {@render children?.()}
-    <button
-        class={`hp-banner__reset ${resetClass}`.trim()}
-        type="button"
-        title="恢复默认位置"
-        aria-label="恢复横幅默认位置"
-        onclick={() => void banner.resetPosition()}
-    >↺</button>
+    {#if banner.imageSrc && !banner.fallbackReason}
+        {@render children?.()}
+    {/if}
+    {#if banner.imageSrc && !banner.fallbackReason}
+        <button
+            class={`hp-banner__reset ${resetClass}`.trim()}
+            type="button"
+            title="恢复默认位置"
+            aria-label="恢复横幅默认位置"
+            onclick={() => void banner.resetPosition()}
+        >↺</button>
+    {/if}
 </section>
 
 <style>
+    .hp-banner__premium-fallback {
+        position: relative;
+        z-index: 3;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        width: 100%;
+        height: 100%;
+        min-height: 100%;
+        box-sizing: border-box;
+        background: color-mix(
+            in srgb,
+            var(--b3-theme-primary, #3578e5) 5%,
+            var(--hp-surface, var(--b3-theme-background, #fff))
+        );
+        color: color-mix(
+            in srgb,
+            var(--b3-theme-on-surface, #6b7280) 72%,
+            transparent
+        );
+        font-size: 13px;
+        line-height: 1.4;
+        pointer-events: none;
+        user-select: none;
+        white-space: nowrap;
+    }
+
     .hp-banner.hp-banner--dragging .hp-banner__image {
         transition: none !important;
         cursor: grabbing !important;

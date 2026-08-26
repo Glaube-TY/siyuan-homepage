@@ -244,6 +244,19 @@
         background-repeat: no-repeat;
         background-position: right 0.65rem center;
         background-size: 14px;
+        field-sizing: content;
+        max-width: 100%;
+        white-space: nowrap;
+    }
+
+    .setting-row__control :global(select.control-xs),
+    .setting-row__control :global(select.control-sm),
+    .setting-row__control :global(select.control-md),
+    .setting-row__control :global(select.control-lg) {
+        width: max-content;
+        min-width: 0;
+        max-width: 100%;
+        flex-shrink: 1;
     }
 
     .setting-row__control :global(select:hover) {

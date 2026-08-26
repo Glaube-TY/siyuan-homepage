@@ -55,6 +55,42 @@ const homepageSettingSource = readFileSync(
     "src/homepage/homepageSetting/homepageSetting.svelte",
     "utf8",
 );
+const titleSettingsTabSource = readFileSync(
+    "src/homepage/homepageSetting/tabs/TitleSettingsTab.svelte",
+    "utf8",
+);
+assert.match(
+    titleSettingsTabSource,
+    /const effectiveTopLayoutForSettings = \$derived\(\s*advancedEnabled\s*\?\s*tempHomepageTopLayout\s*:\s*DEFAULT_HOMEPAGE_TOP_LAYOUT,\s*\);/s,
+    "Free settings must derive the displayed top layout from the default effective value",
+);
+for (const field of ["contentLayout", "bannerPosition", "primaryPosition", "bannerContent", "align"]) {
+    assert.match(
+        titleSettingsTabSource,
+        new RegExp(`value=\\{effectiveTopLayoutForSettings\\.${field}\\}`),
+        `Top-layout Select must display the effective ${field} value`,
+    );
+}
+assert.match(
+    titleSettingsTabSource,
+    /const effectiveQuickButtonStyleForSettings = \$derived\(\s*advancedEnabled\s*\?\s*tempQuickButtonStyle\s*:\s*DEFAULT_QUICK_BUTTON_STYLE,\s*\);/s,
+    "Free settings must derive the displayed quick-button style from the default effective value",
+);
+assert.match(
+    titleSettingsTabSource,
+    /value=\{effectiveQuickButtonStyleForSettings\}/,
+    "Quick-button Select must display the effective value",
+);
+assert.doesNotMatch(
+    titleSettingsTabSource,
+    /value=\{tempHomepageTopLayout\.(?:contentLayout|bannerPosition|primaryPosition|bannerContent|align)\}/,
+    "Top-layout Selects must not display the saved value directly",
+);
+assert.doesNotMatch(
+    titleSettingsTabSource,
+    /value=\{tempQuickButtonStyle\}/,
+    "Quick-button Select must not display the saved value directly",
+);
 const homepageConfigLoaderSource = readFileSync("src/homepage/configLoader.ts", "utf8");
 const bannerSaveStart = homepageConfigLoaderSource.indexOf("export async function saveBannerDisplaySettings");
 const bannerSaveEnd = homepageConfigLoaderSource.indexOf("\nexport ", bannerSaveStart + 1);

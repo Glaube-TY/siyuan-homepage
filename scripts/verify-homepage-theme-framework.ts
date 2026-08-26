@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFileSync, readdirSync, statSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { HOMEPAGE_THEME_API_VERSION } from "../src/homepage/theme/api/themeApiVersion";
 import type { HomepageThemeDefinition } from "../src/homepage/theme/api/types";
@@ -325,6 +325,49 @@ assert.match(sharedBannerSource, /\.hp-banner\.hp-banner--dragging \.hp-banner__
 assert.doesNotMatch(sharedBannerSource, /\.hp-banner\.hp-banner--dragging\s+\.hp-banner__glass/, "Dragging must not toggle the shared banner glass layer");
 assert.doesNotMatch(sharedBannerSource, /hp-banner--dragging[\s\S]{0,300}(?:-webkit-)?backdrop-filter:\s*none/i, "Dragging must not disable backdrop-filter during the drag lifecycle");
 
+const configLoaderSource = readFileSync("src/homepage/configLoader.ts", "utf8");
+const bannerResolverSource = configLoaderSource.slice(
+    configLoaderSource.indexOf("export async function resolveBannerImage"),
+    configLoaderSource.indexOf("export async function resolveBackgroundImage"),
+);
+const bingResolverSource = bannerResolverSource.slice(
+    bannerResolverSource.indexOf('} else if (config.bannerGlobalType === "bing")'),
+    bannerResolverSource.indexOf("\n    return { bannerImgSrc, remoteBannerImageData };")
+);
+const freeBingResolverSource = bingResolverSource.slice(
+    bingResolverSource.indexOf("if (!advanced)"),
+    bingResolverSource.indexOf("const bingUrlMap"),
+);
+assert.match(
+    freeBingResolverSource,
+    /return\s*\{[\s\S]*fallbackReason:\s*"premium_required"[\s\S]*\}/,
+    "Free Bing Banner must return the explicit premium fallback state",
+);
+assert.doesNotMatch(freeBingResolverSource, /getImage/, "Free Bing Banner must not request an image");
+assert.match(bannerResolverSource, /config\.bannerGlobalType === "custom"[\s\S]*config\.bannerGlobalType === "bing"/, "Custom Banner must remain independent of the Bing premium fallback");
+assert.match(themeTypesSource, /export interface HomepageBannerModel[\s\S]*fallbackReason\?: "premium_required"/, "Homepage Banner Model must expose its presentation fallback reason");
+const fallbackBlockStart = sharedBannerSource.indexOf("{#if banner.fallbackReason === \"premium_required\"}");
+const fallbackBlockEnd = sharedBannerSource.indexOf("{:else if banner.imageSrc}", fallbackBlockStart);
+const fallbackBlock = sharedBannerSource.slice(fallbackBlockStart, fallbackBlockEnd);
+assert.match(fallbackBlock, /<PremiumMark size=\{14\} \/>/, "Premium Banner fallback must use the shared PremiumMark");
+assert.match(fallbackBlock, /每日一图暂不可用/, "Premium Banner fallback must explain that the daily image is unavailable");
+assert.doesNotMatch(fallbackBlock, /<img|hp-banner__reset|hp-banner__glass|会员|VIP|👑|会员专属/, "Premium Banner fallback must stay a single lightweight status row");
+assert.match(sharedBannerSource, /\{:else if banner\.imageSrc\}[\s\S]*<img[\s\S]*use:bannerImageNode/, "Only a real Banner image may initialize the image action");
+assert.match(sharedBannerSource, /banner\.integrated && banner\.glassEnabled && !banner\.fallbackReason/, "Premium Banner fallback must not render glass");
+assert.match(sharedBannerSource, /banner\.imageSrc && !banner\.fallbackReason/, "Premium Banner reset must only render for a real image");
+assert.match(sharedBannerSource, /background:\s*color-mix\(/, "Premium Banner fallback must use a theme-surface color mix");
+assert.match(sharedBannerSource, /gap:\s*6px/, "Premium Banner fallback must stay compact");
+assert.match(sharedBannerSource, /color:\s*color-mix\([\s\S]*var\(--b3-theme-on-surface,\s*#6b7280\)\s*72%[\s\S]*transparent/s, "Premium Banner fallback text should use a theme-aware weakened color");
+assert.doesNotMatch(sharedBannerSource, /opacity:\s*\.72/, "Premium Banner fallback should weaken its color instead of the whole container");
+assert.match(sharedBannerSource, /\{#if banner\.imageSrc && !banner\.fallbackReason\}\s*\{@render children\?\.\(\)\}\s*\{\/if\}/s, "Banner children should render only for a usable image");
+const legacyBannerAssetName = ["not", "VIP"].join("");
+assert.equal(
+    existsSync(join("asset", "bannerImg", `${legacyBannerAssetName}.jpg`)),
+    false,
+    "The retired static premium Banner fallback asset must stay deleted",
+);
+assert.doesNotMatch(configLoaderSource, new RegExp(legacyBannerAssetName), "Banner runtime must not reference the retired static fallback asset");
+
 const homepageStyleSource = readFileSync("src/homepage/style/homepage.scss", "utf8");
 assert.doesNotMatch(homepageStyleSource, /_workspace-header|_plugin-footer|_top-banner/, "Core stylesheet still imports Classic presentation partials");
 assert.doesNotMatch(homepageStyleSource, /\.section\s*\{/, "Core stylesheet must not impose global section padding");
@@ -474,6 +517,16 @@ assert.match(homepageSource, /homepageTopLayout\s*=\s*advanced\s*\?\s*config\.ho
 assert.match(homepageSource, /enabled:\s*supportsHomepageThemeBanner\(themeResolution\.definition\)\s*&&\s*bannerEnabled/, "Banner visibility must be derived from theme capability at render time");
 assert.match(homepageSource, /integrated:\s*supportsHomepageThemeBanner\(themeResolution\.definition\)\s*&&\s*homepageTopLayout\.bannerContent\s*===\s*"all"/, "Integrated Banner content must be derived from theme capability at render time");
 assert.match(homepageSource, /resolveBannerImage\(config, getAdvancedEnabled\(\)\)/, "Banner resources must stay ready for live theme switching");
+assert.match(homepageSource, /let bannerFallbackReason = \$state<"premium_required" \| undefined>\(undefined\);/, "Homepage must retain the Banner presentation fallback state separately from saved settings");
+assert.match(homepageSource, /const PREMIUM_BANNER_FALLBACK_HEIGHT = 100;/, "Premium Banner fallback must use one compact effective-height constant");
+assert.match(homepageSource, /bannerFallbackReason = bannerResult\.fallbackReason;/, "Homepage must update the Banner presentation fallback from the resolver result");
+assert.match(homepageSource, /bannerHeight = bannerDisplaySettings\?\.bannerHeight \?\? config\.bannerHeight/, "Persisted Banner height must remain the source value");
+assert.match(homepageSource, /height:\s*bannerFallbackReason === "premium_required"\s*\?\s*PREMIUM_BANNER_FALLBACK_HEIGHT\s*:\s*bannerHeight/, "Premium fallback must only change the effective Theme height");
+const bannerDragInitSource = homepageSource.slice(
+    homepageSource.indexOf("function initBannerDrag"),
+    homepageSource.indexOf("// 具名函数用于 window load 监听器"),
+);
+assert.match(bannerDragInitSource, /if \(!bannerImage \|\| bannerFallbackReason\) return;/, "Premium Banner fallback must not initialize Banner dragging");
 const themeActivationRequestSource = homepageSource.slice(
     homepageSource.indexOf("async function requestThemeResolutionActivation"),
     homepageSource.indexOf("function activateThemeResolution"),
@@ -502,10 +555,67 @@ assert.doesNotMatch(themeHostStyleSource, /hp-core-parking\s*\{[^}]*display:\s*n
 assert.match(themeHostStyleSource, /data-hp-widget-appearance-policy="theme-controlled"/, "Theme-controlled widget appearance policy is missing");
 assert.match(themeHostStyleSource, /hp-initial-theme-content\s*\{[^}]*opacity:\s*0;[^}]*visibility:\s*hidden;/s, "The unresolved theme must not flash before initial reveal");
 assert.match(themeHostStyleSource, /prefers-reduced-motion:\s*reduce/, "Initial loading motion must respect reduced-motion preferences");
+assert.match(themeHostStyleSource, /\.homepage-container\[data-hp-theme\]\s*\{[\s\S]*container-name:\s*hp-homepage;[\s\S]*container-type:\s*inline-size;/s, "Homepage theme root must keep the named inline-size container contract");
 assert.match(themeHostStyleSource, /data-content-layout="inline"[^}]*\.hp-top-primary\s*\{[^}]*flex-flow:\s*row nowrap !important;/s, "Inline top layout must place identity and status on the same row instead of inheriting a theme column");
+assert.match(
+    themeHostStyleSource,
+    /grid-template-columns:\s*minmax\(0,\s*1fr\)\s+minmax\(0,\s*[^)]+\)\s+clamp\(24px,\s*3vw,\s*48px\)\s+minmax\(0,\s*[^)]+\)\s+minmax\(0,\s*1fr\)\s*!important;/s,
+    "Split and inline top layouts must use flexible gutters, two bounded content rails, and a central gap rail",
+);
+assert.doesNotMatch(
+    themeHostStyleSource,
+    /grid-template-columns:\s*minmax\(0,\s*1fr\)\s+auto\s*!important;/,
+    "Shared top layouts must not push actions to an intrinsic-width edge column",
+);
+assert.match(
+    themeHostStyleSource,
+    /\.hp-top-layout\[data-banner-content="all"\]\s*\{[\s\S]*?grid-template-columns:\s*minmax\(0,\s*1fr\)\s+minmax\(0,\s*[^)]+\)\s+clamp\(24px,\s*3vw,\s*48px\)\s+minmax\(0,\s*[^)]+\)\s+minmax\(0,\s*1fr\)\s*!important;/s,
+    "Integrated Banner top layout must use the same centered content rails",
+);
+assert.match(
+    themeHostStyleSource,
+    /\.hp-top-layout\[data-banner-content="all"\]\[data-content-layout="stacked"\]\s*\{\s*grid-template-columns:\s*minmax\(0,\s*1fr\)\s*!important;/,
+    "Integrated Banner stacked top layout must remain a single column",
+);
+assert.match(
+    themeHostStyleSource,
+    /\.hp-top-primary,[\s\S]*?\.hp-top-actions\s*\{[^}]*max-width:\s*100%;/s,
+    "Shared top regions must stay within their grid columns",
+);
+assert.match(themeHostStyleSource, /\.homepage-container\[data-hp-theme\] \.hp-top-primary\s*\{\s*grid-column:\s*2\s*!important;/, "Primary content must use the first bounded content rail");
+assert.match(themeHostStyleSource, /\.homepage-container\[data-hp-theme\] \.hp-top-actions\s*\{\s*grid-column:\s*4\s*!important;/, "Actions must use the second bounded content rail");
+assert.doesNotMatch(themeHostStyleSource, /\.homepage-container\[data-hp-theme\] \.hp-top-primary\s*\{\s*grid-column:\s*1\s*!important;/, "Primary content must not use the outer gutter as its default rail");
+assert.doesNotMatch(themeHostStyleSource, /\.homepage-container\[data-hp-theme\] \.hp-top-actions\s*\{\s*grid-column:\s*2\s*!important;/, "Actions must not use the primary rail as their default rail");
+assert.match(themeHostStyleSource, /\.hp-top-banner\s*\{\s*grid-column:\s*1\s*\/\s*-1\s*!important;/, "Banner must continue spanning the full top layout");
 assert.match(themeHostStyleSource, /data-content-layout="stacked"[^}]*grid-template-columns:\s*minmax\(0, 1fr\) !important;/s, "Stacked top layout must use one shared column");
 assert.match(themeHostStyleSource, /data-banner-position="before"[^}]*\.hp-top-banner\s*\{[^}]*grid-row:\s*1 !important;/s, "Banner-before layout must be owned by the shared theme host");
-assert.match(themeHostStyleSource, /data-primary-position="actions-first"[^}]*\.hp-top-primary\s*\{[^}]*grid-column:\s*2 !important;/s, "Actions-first layout must swap the shared primary region");
+assert.match(themeHostStyleSource, /data-primary-position="actions-first"[^}]*\.hp-top-primary\s*\{[^}]*grid-column:\s*4 !important;/s, "Actions-first layout must move primary content to the actions rail");
+assert.match(themeHostStyleSource, /data-primary-position="actions-first"[^}]*\.hp-top-actions\s*\{[^}]*grid-column:\s*2 !important;/s, "Actions-first layout must move actions to the primary rail");
+assert.match(themeHostStyleSource, /data-banner-content="all"[^}]*\.hp-top-primary\s*\{[^}]*grid-column:\s*2 !important;/s, "Integrated Banner primary content must use the first bounded rail");
+assert.match(themeHostStyleSource, /data-banner-content="all"[^}]*\.hp-top-actions\s*\{[^}]*grid-column:\s*4 !important;/s, "Integrated Banner actions must use the second bounded rail");
+assert.match(themeHostStyleSource, /data-banner-content="all"[^}]*data-primary-position="actions-first"[^}]*\.hp-top-primary\s*\{[^}]*grid-column:\s*4 !important;/s, "Integrated actions-first layout must swap the bounded rails for primary content");
+assert.match(themeHostStyleSource, /data-banner-content="all"[^}]*data-primary-position="actions-first"[^}]*\.hp-top-actions\s*\{[^}]*grid-column:\s*2 !important;/s, "Integrated actions-first layout must swap the bounded rails for actions");
+assert.match(themeHostStyleSource, /\.hp-top-primary\s*\{\s*display:\s*flex\s*!important;\s*flex-direction:\s*column\s*!important;/s, "Non-inline primary content must use a column flex container");
+assert.match(themeHostStyleSource, /data-content-layout="inline"\]\s+\.hp-top-primary\s*\{[^}]*align-items:\s*center;/s, "Inline primary content must keep its row items vertically centered");
+for (const [align, alignItems] of [["left", "flex-start"], ["center", "center"], ["right", "flex-end"]] as const) {
+    assert.match(
+        themeHostStyleSource,
+        new RegExp(`data-align="${align}"\\]\\s+\\.hp-top-primary\\s*\\{[^}]*align-items:\\s*${alignItems};`),
+        `Primary content must align its identity and status boxes to the ${align} axis`,
+    );
+}
+assert.match(themeHostStyleSource, /row-gap:\s*clamp\(10px,\s*1\.2vw,\s*16px\)/, "Shared top layout vertical spacing must remain compact");
+assert.match(themeHostStyleSource, /@container hp-homepage \(max-width: 760px\)/, "Homepage top responsive layout must use the named container query");
+assert.doesNotMatch(themeHostStyleSource, /@media \(max-width: 760px\)/, "Homepage top responsive layout must not use a viewport media breakpoint");
+const integratedMobileTopLayoutSource = themeHostStyleSource.slice(themeHostStyleSource.indexOf("@container hp-homepage (max-width: 760px)"));
+assert.match(integratedMobileTopLayoutSource, /\.hp-top-layout:not\(\[data-banner-content="all"\]\)\s*\{\s*grid-template-columns:\s*minmax\(0,\s*1fr\)\s*!important;/, "Non-integrated mobile top layout must remain a single column");
+assert.match(integratedMobileTopLayoutSource, /\.hp-top-layout\[data-banner-content="all"\]:not\(\[data-content-layout="stacked"\]\)\s*\{[\s\S]*grid-template-columns:\s*minmax\(0,\s*1fr\)/, "Integrated mobile top layout must collapse to one column");
+assert.match(integratedMobileTopLayoutSource, /\.hp-top-layout\[data-banner-content="all"\]:not\(\[data-content-layout="stacked"\]\) \.hp-top-banner\s*\{[\s\S]*grid-column:\s*1[\s\S]*grid-row:\s*1\s*\/\s*3/, "Integrated mobile banner must span both content rows");
+assert.match(integratedMobileTopLayoutSource, /\.hp-top-layout\[data-banner-content="all"\]:not\(\[data-content-layout="stacked"\]\) \.hp-top-primary\s*\{[\s\S]*grid-row:\s*1/, "Integrated mobile primary content must occupy the first row");
+assert.match(integratedMobileTopLayoutSource, /\.hp-top-layout\[data-banner-content="all"\]:not\(\[data-content-layout="stacked"\]\) \.hp-top-actions\s*\{[\s\S]*grid-row:\s*2/, "Integrated mobile actions must occupy the second row");
+assert.match(integratedMobileTopLayoutSource, /\.hp-top-layout\[data-banner-content="all"\]:not\(\[data-content-layout="stacked"\]\) :is\(\.hp-top-primary, \.hp-top-actions\)[\s\S]*margin-inline:\s*clamp\(10px,\s*3vw,\s*16px\)/, "Integrated mobile content must keep compact horizontal margins");
+assert.match(integratedMobileTopLayoutSource, /\.hp-top-layout\[data-banner-content="all"\]:not\(\[data-content-layout="stacked"\]\)\[data-primary-position="actions-first"\] \.hp-top-primary\s*\{[\s\S]*grid-row:\s*2/, "Integrated mobile actions-first must move primary content to the second row");
+assert.match(integratedMobileTopLayoutSource, /\.hp-top-layout\[data-banner-content="all"\]:not\(\[data-content-layout="stacked"\]\)\[data-primary-position="actions-first"\] \.hp-top-actions\s*\{[\s\S]*grid-row:\s*1/, "Integrated mobile actions-first must move actions to the first row");
 for (const align of ["left", "center", "right"]) {
     assert.match(themeHostStyleSource, new RegExp(`data-align="${align}"`), `Shared top layout must support ${align} alignment`);
 }

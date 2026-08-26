@@ -207,6 +207,7 @@ export async function loadHomepageConfigDataStrict(
 export interface BannerImageResult {
     bannerImgSrc: string;
     remoteBannerImageData: string;
+    fallbackReason?: "premium_required";
 }
 
 export interface BackgroundImageResult {
@@ -487,24 +488,23 @@ export async function resolveBannerImage(
             bannerImgSrc = remoteBannerImageData || config.bannerRemoteUrl;
         }
     } else if (config.bannerGlobalType === "bing") {
-        if (advanced) {
-            const bingUrlMap: Record<string, string> = {
-                POD_UHD: "https://bing.img.run/uhd.php",
-                POD_1K: "https://bing.img.run/1920x1080.php",
-                POD_Normal: "https://bing.img.run/1366x768.php",
-                rand_uhd: "https://bing.img.run/rand_uhd.php",
-                rand_1K: "https://bing.img.run/rand.php",
-                rand_Normal: "https://bing.img.run/rand_1366x768.php",
-                ECY1: "https://www.dmoe.cc/random.php",
-                RAND1: "https://api.btstu.cn/sjbz/api.php",
-            };
-            const bingImageUrl = bingUrlMap[config.bingApiType];
-            if (bingImageUrl) {
-                remoteBannerImageData = await getImage(bingImageUrl);
-                bannerImgSrc = remoteBannerImageData || bingImageUrl;
-            }
-        } else {
-            bannerImgSrc = "/plugins/siyuan-homepage/asset/bannerImg/notVIP.jpg";
+        if (!advanced) {
+            return { bannerImgSrc, remoteBannerImageData, fallbackReason: "premium_required" };
+        }
+        const bingUrlMap: Record<string, string> = {
+            POD_UHD: "https://bing.img.run/uhd.php",
+            POD_1K: "https://bing.img.run/1920x1080.php",
+            POD_Normal: "https://bing.img.run/1366x768.php",
+            rand_uhd: "https://bing.img.run/rand_uhd.php",
+            rand_1K: "https://bing.img.run/rand.php",
+            rand_Normal: "https://bing.img.run/rand_1366x768.php",
+            ECY1: "https://www.dmoe.cc/random.php",
+            RAND1: "https://api.btstu.cn/sjbz/api.php",
+        };
+        const bingImageUrl = bingUrlMap[config.bingApiType];
+        if (bingImageUrl) {
+            remoteBannerImageData = await getImage(bingImageUrl);
+            bannerImgSrc = remoteBannerImageData || bingImageUrl;
         }
     }
 

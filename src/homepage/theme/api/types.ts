@@ -48,6 +48,7 @@ export interface HomepageStatusModel {
 export interface HomepageBannerModel {
     enabled: boolean;
     imageSrc: string;
+    fallbackReason?: "premium_required";
     height: number;
     integrated: boolean;
     glassEnabled: boolean;
