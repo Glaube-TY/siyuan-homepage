@@ -4,6 +4,8 @@
     import Default from "./_default.svelte";
     import Ring1 from "./_ring1.svelte";
     import AdvancedFeatureLock from "../common/AdvancedFeatureLock.svelte";
+    import Clock from "@lucide/svelte/icons/clock";
+    import Play from "@lucide/svelte/icons/play";
 
     interface Props {
         plugin: any;
@@ -52,7 +54,7 @@
         {:else}
             <div class="content-not-started">
                 <div class="countdown-header">
-                    <i class="fas fa-clock"></i>
+                    <Clock size={20} />
                     <h3>设置倒计时</h3>
                 </div>
                 <div class="countdown-input-container">
@@ -103,7 +105,7 @@
                     onclick={() => (beforeCountdown = true)}
                     disabled={hours === 0 && minutes === 0 && seconds === 0}
                 >
-                    <i class="fas fa-play"></i>
+                    <Play size={18} />
                     开始倒计时
                 </button>
             </div>
@@ -159,7 +161,7 @@
                 color: var(--b3-theme-primary);
                 margin-bottom: 0.5rem;
 
-                i {
+                :global(svg) {
                     font-size: 1.5rem;
                 }
 
@@ -264,7 +266,7 @@
                     box-shadow: none;
                 }
 
-                i {
+                :global(svg) {
                     font-size: 0.75rem;
                 }
             }

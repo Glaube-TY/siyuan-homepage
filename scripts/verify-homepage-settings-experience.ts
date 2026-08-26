@@ -119,8 +119,8 @@ assert.equal(
 );
 assert.match(
     homepageSettingSource,
-    /const layoutSettings = await loadWidgetLayoutSettings\(plugin\);[\s\S]{0,600}applyDesktopDraftFromPersistedConfig\(savedConfig, layoutSettings\)/,
-    "初次加载必须在读取 layout 后调用共享桌面草稿 mapper",
+    /const layoutSettingsPromise = loadWidgetLayoutSettings\(plugin\);[\s\S]{0,500}const \[savedConfig, mobileConfig, layoutSettings\] = await Promise\.all\(\[[\s\S]{0,500}applyDesktopDraftFromPersistedConfig\(savedConfig, layoutSettings\)/,
+    "初次加载必须并行读取 layout 并调用共享桌面草稿 mapper",
 );
 assert.match(
     homepageSettingSource,

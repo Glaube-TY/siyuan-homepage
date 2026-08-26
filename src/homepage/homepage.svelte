@@ -117,6 +117,7 @@
     } from "./status-text-config";
     import { assertSectionLayoutInvariants } from "@/components/utils/widgetBlock/utils/layout-section-ops";
     import { mapWithConcurrency } from "@/utils/async/mapWithConcurrency";
+    import { createLatestWinsAsyncQueue } from "@/utils/async/latestWinsAsyncQueue";
     import { scheduleIdleTask } from "@/utils/runtime/idleTask";
     import { createRuntimePerformanceTrace } from "@/utils/performance/runtimePerformance";
     import {
@@ -245,9 +246,10 @@
         themeName: string;
         firstActivation: boolean;
         startedAt: number;
+        trace: ReturnType<typeof createRuntimePerformanceTrace>;
     }>;
     const warmedHomepageThemeIds = new Set<string>();
-    const MIN_THEME_TRANSITION_OVERLAY_MS = 240;
+    const MIN_THEME_TRANSITION_OVERLAY_MS = 120;
     let homepageThemeTransition = $state.raw<HomepageThemeTransitionState | null>(null);
     let homepageThemeTransitionSequence = 0;
     let homepageThemeTransitionTimer: number | null = null;
@@ -399,6 +401,43 @@
     const sectionSortables = new Map<string, Sortable>();
     const sectionResizeObservers = new Map<string, ResizeObserver>();
     const sectionInfrastructureContainers = new Map<string, HTMLElement>();
+    let activeSectionPersistenceRequestId = 0;
+    let activeSectionPersistenceTask: Promise<void> = Promise.resolve();
+    const activeSectionPersistenceQueue = createLatestWinsAsyncQueue(
+        async ({ sectionId, fixedContext, requestId }: {
+            sectionId: string;
+            fixedContext: ReturnType<typeof getCurrentDeviceViewContext>;
+            requestId: number;
+        }) => {
+            try {
+                const committedRevision = await setActiveComponentSectionForCurrentDevice(
+                    plugin,
+                    sectionId,
+                    "desktop-homepage",
+                    fixedContext,
+                );
+                if (
+                    requestId === activeSectionPersistenceRequestId
+                    && !homepageComponentDestroyed
+                ) {
+                    for (const [runtimeSectionId, state] of sectionRuntimeStates) {
+                        if (
+                            (state.status === "ready" || state.status === "degraded")
+                            && state.structuralComplete
+                        ) {
+                            setSectionRuntimeState(runtimeSectionId, { ...state, layoutRevision: committedRevision });
+                        }
+                    }
+                }
+            } catch (error) {
+                if (!homepageComponentDestroyed && requestId === activeSectionPersistenceRequestId) {
+                    showMessage("当前分栏已显示，但活动分栏状态未保存。", 5000, "info");
+                }
+                throw error;
+            }
+        },
+        (_current, next) => next,
+    );
     let sectionWidgetLayoutNumbers = new SvelteMap<string, number>();
     let sectionWidgetGaps = new SvelteMap<string, number>();
 
@@ -669,6 +708,55 @@
         };
     }
 
+    async function saveSectionLayoutAfterDrag(sectionId: string, container: HTMLElement): Promise<void> {
+        await activeSectionPersistenceTask.catch(() => undefined);
+        if (homepageComponentDestroyed || !container.isConnected) return;
+        if (pendingExternalStorageRefresh) {
+            requestExternalStorageRefresh();
+            return;
+        }
+        if (sectionInfrastructureContainers.get(sectionId) !== container) return;
+
+        const runtimeState = sectionRuntimeStates.get(sectionId);
+        if (
+            !runtimeState
+            || !["ready", "degraded"].includes(runtimeState.status)
+            || !runtimeState.structuralComplete
+        ) {
+            return;
+        }
+        // 拖动保存必须绑定该 section/root 当前已渲染的 layout revision。
+        const uiBaseRevision = runtimeState.layoutRevision;
+        if (uiBaseRevision <= 0) return;
+
+        const result = await saveLayoutWithResult(plugin, container, {
+            sectionsEnabled: sectionId !== ROOT_COMPONENT_SECTION_ID,
+            sectionId: sectionId === ROOT_COMPONENT_SECTION_ID ? null : sectionId,
+            expectedLayoutRevision: uiBaseRevision,
+        });
+        if (result.success) {
+            // 连续拖动：更新该 section 的 runtime layoutRevision 为刚提交的 revision。
+            const current = sectionRuntimeStates.get(sectionId);
+            if (current && current.layoutRevision === uiBaseRevision) {
+                setSectionRuntimeState(sectionId, { ...current, layoutRevision: result.layoutRevision });
+            }
+            // 若拖动期间有 pending 外部 storage change，按最新 storage 再刷新一次。
+            if (pendingExternalStorageRefresh && !homepageComponentDestroyed) {
+                requestExternalStorageRefresh();
+            }
+        } else if (result.code === "revision_conflict") {
+            // 用户与 Agent/其他窗口同时编辑：不覆盖，提示并刷新最新 storage。
+            showMessage("主页已被其他操作修改，当前拖动未保存，正在重新加载最新布局。", 5000, "info");
+            updateHomepageVersion += 1;
+            externalStorageRefreshGeneration += 1;
+            pendingExternalStorageRefresh = true;
+            requestExternalStorageRefresh();
+        } else if (result.code === "rejected") {
+            showMessage(`主页布局保存被拒绝：${result.reason}`, 5000, "error");
+        }
+        // unavailable：保持现状，不打扰用户。
+    }
+
     function setupContainerInfrastructure(container: HTMLElement, sectionId: string): void {
         cleanupContainerInfrastructure(sectionId);
         sectionInfrastructureContainers.set(sectionId, container);
@@ -702,42 +790,10 @@
                     void requestThemeResolutionActivation(pendingThemeResolution);
                     pendingThemeResolution = null;
                 }
-                const runtimeState = sectionRuntimeStates.get(sectionId);
-                const runtimeStatus = runtimeState?.status;
-                if (!["ready", "degraded"].includes(runtimeStatus || "")) {
-                    return;
-                }
-                // 拖动保存必须绑定该 section/root 当前已渲染的 layout revision。
-                const uiBaseRevision = runtimeState?.layoutRevision ?? 0;
-                if (uiBaseRevision <= 0) {
-                    return;
-                }
-                void saveLayoutWithResult(plugin, container, {
-                    sectionsEnabled: sectionId !== ROOT_COMPONENT_SECTION_ID,
-                    sectionId: sectionId === ROOT_COMPONENT_SECTION_ID ? null : sectionId,
-                    expectedLayoutRevision: uiBaseRevision,
-                }).then((result) => {
-                    if (result.success) {
-                        // 连续拖动：更新该 section 的 runtime layoutRevision 为刚提交的 revision。
-                        const current = sectionRuntimeStates.get(sectionId);
-                        if (current && current.layoutRevision === uiBaseRevision) {
-                            setSectionRuntimeState(sectionId, { ...current, layoutRevision: result.layoutRevision });
-                        }
-                        // 若拖动期间有 pending 外部 storage change，按最新 storage 再刷新一次。
-                        if (pendingExternalStorageRefresh && !homepageComponentDestroyed) {
-                            requestExternalStorageRefresh();
-                        }
-                    } else if (result.code === "revision_conflict") {
-                        // 用户与 Agent/其他窗口同时编辑：不覆盖，提示并刷新最新 storage。
-                        showMessage("主页已被其他操作修改，当前拖动未保存，正在重新加载最新布局。", 5000, "info");
-                        updateHomepageVersion += 1;
-                        externalStorageRefreshGeneration += 1;
-                        pendingExternalStorageRefresh = true;
-                        requestExternalStorageRefresh();
-                    } else if (result.code === "rejected") {
-                        showMessage(`主页布局保存被拒绝：${result.reason}`, 5000, "error");
+                void saveSectionLayoutAfterDrag(sectionId, container).catch((error) => {
+                    if (!homepageComponentDestroyed) {
+                        console.warn("[Homepage] 拖动后布局保存失败", error);
                     }
-                    // unavailable：保持现状，不打扰用户。
                 });
             },
         });
@@ -797,14 +853,16 @@
         }
         const fixedContext = options.fixedContext
             ?? getCurrentDeviceViewContext(plugin, "desktop-homepage");
-        const snapshot = await loadLayoutSnapshotForContext(fixedContext, { assumeReady: true });
+        const [snapshot, manifest] = await Promise.all([
+            loadLayoutSnapshotForContext(fixedContext, { assumeReady: true }),
+            readDeviceViewManifest(fixedContext),
+        ]);
         if (
             options.expectedLayoutRevision !== undefined
             && options.expectedLayoutRevision !== snapshot.revision
         ) {
             throw new Error("分栏布局 revision 在身份计算前发生变化");
         }
-        const manifest = await readDeviceViewManifest(fixedContext);
         if (!manifest) throw new Error("当前设备视图 manifest 缺失");
         const settings = resolveEffectiveWidgetLayoutSettings(
             snapshot.layout,
@@ -872,7 +930,11 @@
             // 仅当 resolvedOptions 携带了最新 revision（非 root 分栏由 resolveSectionRestoreOptions 重读得到）时才升级；
             // 未携带时（root 无参数 PureReuse）不升级，避免基于缓存校验误把真正 stale DOM 当成最新。
             const latestRevision = resolvedOptions.expectedLayoutRevision ?? cachedState.layoutRevision;
-            if (latestRevision !== cachedState.layoutRevision) {
+            if (
+                latestRevision !== cachedState.layoutRevision
+                && (cachedState.status === "ready" || cachedState.status === "degraded")
+                && cachedState.structuralComplete
+            ) {
                 setSectionRuntimeState(effectiveSectionId, { ...cachedState, layoutRevision: latestRevision });
             }
             return {
@@ -1527,15 +1589,19 @@
             window.clearTimeout(homepageThemeTransitionTimer);
             homepageThemeTransitionTimer = null;
         }
+        homepageThemeTransition?.trace.finish("superseded");
 
         const requestId = ++homepageThemeTransitionSequence;
         const firstActivation = !warmedHomepageThemeIds.has(nextResolution.effectiveThemeId);
+        const trace = createRuntimePerformanceTrace("homepage-theme-switch");
+        trace.checkpoint("start");
         const transition = Object.freeze({
             requestId,
             themeId: nextResolution.effectiveThemeId,
             themeName: nextResolution.definition.name,
             firstActivation,
             startedAt: performance.now(),
+            trace,
         });
         homepageThemeTransition = transition;
         dispatchHomepageThemeTransition({
@@ -1550,14 +1616,18 @@
             // 先让遮罩完成一次实际绘制，再挂载首次使用的主题，避免主线程工作挡住点击反馈。
             await tick();
             await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
-            await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+            trace.checkpoint("overlay-painted");
             if (
                 homepageComponentDestroyed
                 || homepageThemeTransition?.requestId !== requestId
-            ) return;
+            ) {
+                trace.finish(homepageComponentDestroyed ? "destroyed" : "superseded");
+                return;
+            }
         }
 
         activateThemeResolution(nextResolution);
+        trace.checkpoint("activated");
     }
 
     function finishHomepageThemeTransition(
@@ -1576,6 +1646,7 @@
             if (homepageThemeTransition?.requestId !== transition.requestId) return;
             homepageThemeTransition = null;
             homepageThemeTransitionTimer = null;
+            transition.trace.finish(phase);
             dispatchHomepageThemeTransition({
                 phase,
                 requestId: transition.requestId,
@@ -2035,9 +2106,17 @@
     }
 
     async function switchComponentSectionTransaction(sectionId: string): Promise<void> {
-        if (!effectiveComponentSectionsEnabled || homepageComponentDestroyed) return;
+        const sectionTrace = createRuntimePerformanceTrace("homepage-section-switch");
+        sectionTrace.checkpoint("start");
+        if (!effectiveComponentSectionsEnabled || homepageComponentDestroyed) {
+            sectionTrace.finish("skipped");
+            return;
+        }
         const targetSectionId = getSafeActiveComponentSectionId(sectionId);
-        if (!targetSectionId) return;
+        if (!targetSectionId) {
+            sectionTrace.finish("skipped");
+            return;
+        }
 
         // 立即设置请求状态，导航按钮显示正在切换。
         requestedComponentSectionId = targetSectionId;
@@ -2049,8 +2128,11 @@
         let snapshot: Awaited<ReturnType<typeof loadLayoutSnapshotForContext>>;
         let sectionIdentity: SectionIdentity;
         try {
-            snapshot = await loadLayoutSnapshotForContext(fixedContext, { assumeReady: true });
-            const manifest = await readDeviceViewManifest(fixedContext);
+            const [loadedSnapshot, manifest] = await Promise.all([
+                loadLayoutSnapshotForContext(fixedContext, { assumeReady: true }),
+                readDeviceViewManifest(fixedContext),
+            ]);
+            snapshot = loadedSnapshot;
             if (!manifest) throw new Error("当前设备视图 manifest 缺失");
             const unresolvedLegacyWidgetIds = new Set(manifest.migration?.unresolvedLegacyWidgetIds ?? []);
             const effectiveSettings = resolveEffectiveWidgetLayoutSettings(
@@ -2068,14 +2150,17 @@
                 effectiveSettings.widgetLayoutNumber,
                 effectiveSettings.widgetGap,
             );
+            sectionTrace.checkpoint("storage-identity-ready");
         } catch (error) {
             failPreparing("分栏结构不可用", previousVisibleSectionId, error);
+            sectionTrace.finish("error");
             return;
         }
 
         const targetContainer = getComponentSectionContainer(targetSectionId);
         if (!targetContainer) {
             failPreparing(undefined, previousVisibleSectionId);
+            sectionTrace.finish("error");
             return;
         }
 
@@ -2090,12 +2175,10 @@
         );
         if (reuseDecision === SectionReuse.PureReuse) {
             // PureReuse 确认目标分栏 DOM 与最新 layout 的 section 内容一致；
-            // 提升该分栏 runtime revision 到最新 snapshot revision，避免后续拖动假冲突。
-            const cached = sectionRuntimeStates.get(targetSectionId);
-            if (cached && cached.layoutRevision !== snapshot.revision) {
-                setSectionRuntimeState(targetSectionId, { ...cached, layoutRevision: snapshot.revision });
-            }
+            sectionTrace.checkpoint("runtime-ready");
             await switchVisibleComponentSection(targetSectionId, fixedContext, snapshot.revision);
+            sectionTrace.checkpoint("visible");
+            sectionTrace.finish("visible");
             return;
         }
 
@@ -2104,13 +2187,26 @@
             // 进入准备状态：目标面板可测量但不可见。
             preparingComponentSectionId = targetSectionId;
             await tick();
-            if (homepageComponentDestroyed) { failPreparing(undefined, previousVisibleSectionId); return; }
+            if (homepageComponentDestroyed) {
+                failPreparing(undefined, previousVisibleSectionId);
+                sectionTrace.finish("destroyed");
+                return;
+            }
             const prepContainer = getComponentSectionContainer(targetSectionId);
-            if (!prepContainer) { failPreparing(undefined, previousVisibleSectionId); return; }
+            if (!prepContainer) {
+                failPreparing(undefined, previousVisibleSectionId);
+                sectionTrace.finish("error");
+                return;
+            }
             const prepMountable = await waitForContainerMountable(prepContainer);
-            if (homepageComponentDestroyed) { failPreparing(undefined, previousVisibleSectionId); return; }
+            if (homepageComponentDestroyed) {
+                failPreparing(undefined, previousVisibleSectionId);
+                sectionTrace.finish("destroyed");
+                return;
+            }
             if (!prepMountable) {
                 failPreparing("目标分栏容器宽度暂不可用", previousVisibleSectionId);
+                sectionTrace.finish("error");
                 return;
             }
 
@@ -2120,6 +2216,7 @@
                 || sectionIdentity.effectiveGap === undefined
             ) {
                 failPreparing("分栏布局设置不可读", previousVisibleSectionId);
+                sectionTrace.finish("error");
                 return;
             }
             sectionWidgetLayoutNumbers.set(targetSectionId, sectionIdentity.effectiveColumns);
@@ -2140,12 +2237,20 @@
                 effectiveGap: sectionIdentity.effectiveGap,
                 identityResolved: true,
             });
-            if (homepageComponentDestroyed) { failPreparing(undefined, previousVisibleSectionId); return; }
-            if (restored.status === "fatal") {
-                failPreparing("分栏恢复失败", previousVisibleSectionId, restored.reason);
+            if (homepageComponentDestroyed) {
+                failPreparing(undefined, previousVisibleSectionId);
+                sectionTrace.finish("destroyed");
                 return;
             }
+            if (restored.status === "fatal") {
+                failPreparing("分栏恢复失败", previousVisibleSectionId, restored.reason);
+                sectionTrace.finish("error");
+                return;
+            }
+            sectionTrace.checkpoint("runtime-ready");
             await switchVisibleComponentSection(targetSectionId, fixedContext, snapshot.revision);
+            sectionTrace.checkpoint("visible");
+            sectionTrace.finish("visible");
             return;
         }
 
@@ -2153,16 +2258,29 @@
         // 设置 preparing 后模板会使用 section-preparing 类（visibility:hidden, position:absolute, 有宽度）。
         preparingComponentSectionId = targetSectionId;
         await tick();
-        if (homepageComponentDestroyed) { failPreparing(undefined, previousVisibleSectionId); return; }
+        if (homepageComponentDestroyed) {
+            failPreparing(undefined, previousVisibleSectionId);
+            sectionTrace.finish("destroyed");
+            return;
+        }
 
         // 重新从 container map 取得已进入准备状态的容器。
         const prepContainer = getComponentSectionContainer(targetSectionId);
-        if (!prepContainer) { failPreparing(undefined, previousVisibleSectionId); return; }
+        if (!prepContainer) {
+            failPreparing(undefined, previousVisibleSectionId);
+            sectionTrace.finish("error");
+            return;
+        }
 
         const mountable = await waitForContainerMountable(prepContainer);
-        if (homepageComponentDestroyed) { failPreparing(undefined, previousVisibleSectionId); return; }
+        if (homepageComponentDestroyed) {
+            failPreparing(undefined, previousVisibleSectionId);
+            sectionTrace.finish("destroyed");
+            return;
+        }
         if (!mountable) {
             failPreparing("目标分栏容器宽度暂不可用", previousVisibleSectionId);
+            sectionTrace.finish("error");
             return;
         }
 
@@ -2172,6 +2290,7 @@
             || sectionIdentity.effectiveGap === undefined
         ) {
             failPreparing("分栏布局设置不可读", previousVisibleSectionId);
+            sectionTrace.finish("error");
             return;
         }
         sectionWidgetLayoutNumbers.set(targetSectionId, sectionIdentity.effectiveColumns);
@@ -2193,7 +2312,11 @@
             effectiveGap: sectionIdentity.effectiveGap,
             identityResolved: true,
         });
-        if (homepageComponentDestroyed) { failPreparing(undefined, previousVisibleSectionId); return; }
+        if (homepageComponentDestroyed) {
+            failPreparing(undefined, previousVisibleSectionId);
+            sectionTrace.finish("destroyed");
+            return;
+        }
         if (restored.status === "fatal") {
             failPreparing(
                 restored.failureKind === "widget-read" ? "组件配置读取失败，分栏未就绪" : "分栏恢复失败",
@@ -2202,10 +2325,14 @@
             );
             // widget-read 失败不再保留 preparing 面板；目标面板重新进入 hidden。
             markSectionRuntimeState(targetSectionId, "stale", restored.reason);
+            sectionTrace.finish("error");
             return;
         }
         // complete 或 degraded 均视为目标可显示。
+        sectionTrace.checkpoint("runtime-ready");
         await switchVisibleComponentSection(targetSectionId, fixedContext, snapshot.revision);
+        sectionTrace.checkpoint("visible");
+        sectionTrace.finish("visible");
     }
 
     function failPreparing(
@@ -2227,25 +2354,29 @@
     async function switchVisibleComponentSection(
         targetSectionId: string,
         fixedContext: ReturnType<typeof getCurrentDeviceViewContext>,
-        layoutRevision: number,
+        _layoutRevision: number,
     ): Promise<void> {
+        const previousVisibleSectionId = showRootComponentSection
+            ? ROOT_COMPONENT_SECTION_ID
+            : (activeComponentSectionId || ROOT_COMPONENT_SECTION_ID);
         preparingComponentSectionId = undefined;
         requestedComponentSectionId = targetSectionId;
         activeComponentSectionId = targetSectionId;
         await tick();
         if (homepageComponentDestroyed) return;
         updateCustomGridMetrics();
-        try {
-            await setActiveComponentSectionForCurrentDevice(
-                plugin,
-                targetSectionId,
-                "desktop-homepage",
-                fixedContext,
-                layoutRevision,
-            );
-        } catch {
-            showMessage("当前分栏已显示，但活动分栏状态未保存。", 5000, "info");
+        activateComponentSectionContainer(targetSectionId);
+        if (previousVisibleSectionId !== targetSectionId) {
+            cleanupContainerInfrastructure(previousVisibleSectionId);
         }
+        const requestId = ++activeSectionPersistenceRequestId;
+        const persistenceTask = activeSectionPersistenceQueue.enqueue({
+            sectionId: targetSectionId,
+            fixedContext,
+            requestId,
+        });
+        activeSectionPersistenceTask = persistenceTask.catch(() => undefined);
+        void persistenceTask.catch(() => undefined);
     }
 
     async function handleComponentSectionSwitch(sectionId: string): Promise<void> {
@@ -3131,6 +3262,8 @@
 
     onDestroy(() => {
         homepageComponentDestroyed = true;
+        homepageThemeTransition?.trace.finish("destroyed");
+        activeSectionPersistenceRequestId += 1;
         cancelDeferredHomepageEffects?.();
         cancelDeferredHomepageEffects = null;
 
@@ -3636,13 +3769,12 @@
         buttonsList = resolveButtonsList(config);
 
         // 横幅资源保持就绪，主题切换时只改变展示能力，无需重新加载主页。
-        const [bannerDisplaySettings, bannerResult, backgroundResult] = await Promise.all([
-            loadBannerDisplaySettings(plugin).catch(() => null),
+        const [bannerResult, backgroundResult] = await Promise.all([
             resolveBannerImage(config, getAdvancedEnabled()),
             resolveBackgroundImage(config, getAdvancedEnabled()),
         ]);
         if (currentVersion !== updateHomepageVersion) return;
-        bannerHeight = bannerDisplaySettings?.bannerHeight ?? config.bannerHeight;
+        bannerHeight = config.bannerHeight;
         bannerImgSrc = bannerResult.bannerImgSrc;
         bannerFallbackReason = bannerResult.fallbackReason;
         backgroundImageSrc = backgroundResult.backgroundImageSrc;

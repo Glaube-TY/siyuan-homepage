@@ -52,7 +52,12 @@ import {
     type HomepageStatusStatKey,
     type HomepageStatusTextMode,
 } from "./status-text-config";
-import { mergeHomepageSharedSettings } from "./sharedSettings/homepageSharedSettings";
+import {
+    mergeHomepageSharedSettings,
+    pickHomepageSharedSettings,
+    readHomepageSharedSettingsSnapshot,
+} from "./sharedSettings/homepageSharedSettings";
+import { cloneJsonSafe } from "./deviceView/jsonSafe";
 import { createLatestWinsAsyncQueue, type LatestWinsAsyncQueue } from "@/utils/async/latestWinsAsyncQueue";
 import {
     normalizeHomepageAppearanceConfig,
@@ -155,10 +160,15 @@ export async function loadHomepageConfigDataStrict(
         }
         throw error;
     }
+    const viewPromise = readDeviceViewSettings(context);
+    const layoutPromise = surface === "desktop-homepage"
+        ? readDeviceViewLayout(context)
+        : Promise.resolve(null);
     let settings: Awaited<ReturnType<typeof readDeviceViewSettings>>;
     try {
-        settings = await readDeviceViewSettings(context);
+        settings = await viewPromise;
     } catch (error) {
+        await layoutPromise.catch(() => null);
         if (error instanceof DeviceViewAccessBlockedError) {
             throw error;
         }
@@ -169,26 +179,24 @@ export async function loadHomepageConfigDataStrict(
         });
     }
     if (!settings) {
+        await layoutPromise.catch(() => null);
         throw new DeviceViewTemporarilyIncompleteError({
             deviceId: context.scopeId,
             surface: context.surface,
             missingType: "view",
         });
     }
-    let mergedConfig: Record<string, unknown>;
-    try {
-        mergedConfig = await mergeHomepageSharedSettings(
-            plugin,
-            settings.config,
-        );
-    } catch (error) {
+    const mergedConfigPromise = mergeHomepageSharedSettings(
+        plugin,
+        settings.config,
+    ).catch((error) => {
         // 共享能力配置异常不能阻断整个设备主页；保留当前 surface 的只读回退，
         // 但不得据此覆盖或重建损坏的共享文件。
         console.warn("[Homepage] 共享主页设置暂时不可读，本轮回退到当前设备视图配置:", error);
-        mergedConfig = settings.config;
-    }
+        return settings.config;
+    });
+    let [mergedConfig, layout] = await Promise.all([mergedConfigPromise, layoutPromise]);
     if (surface === "desktop-homepage") {
-        const layout = await readDeviceViewLayout(context);
         if (!layout) {
             throw new DeviceViewTemporarilyIncompleteError({
                 deviceId: context.scopeId,
@@ -202,6 +210,29 @@ export async function loadHomepageConfigDataStrict(
         data: mergedConfig,
         fileExists: true,
     };
+}
+
+/** 只读取 Quick Notes、选择 AI 等共享能力需要的配置，不加载完整主页配置。 */
+export async function loadHomepageSharedCapabilityConfig(
+    plugin: any,
+    surface: DeviceViewSurface = "desktop-homepage",
+): Promise<Record<string, unknown>> {
+    const context = getCurrentDeviceViewContext(plugin, surface);
+    await ensureCurrentDeviceViewReady(context);
+    const viewPromise = readDeviceViewSettings(context);
+    const sharedPromise = readHomepageSharedSettingsSnapshot(plugin);
+    const [view, shared] = await Promise.all([viewPromise, sharedPromise]);
+    if (!view) {
+        throw new DeviceViewTemporarilyIncompleteError({
+            deviceId: context.scopeId,
+            surface: context.surface,
+            missingType: "view",
+        });
+    }
+    return cloneJsonSafe({
+        ...cloneJsonSafe(view.config, "设备视图主页设置"),
+        ...(shared ? pickHomepageSharedSettings(shared.config) : {}),
+    }, "共享能力主页设置");
 }
 
 export interface BannerImageResult {
@@ -397,14 +428,17 @@ export interface BannerDisplaySettings {
 
 export async function loadBannerDisplaySettings(plugin: any): Promise<BannerDisplaySettings> {
     let config: Record<string, any> = {};
+    const context = getCurrentDeviceViewContext(plugin, "desktop-homepage");
     try {
-        config = (await loadHomepageConfigDataStrict(plugin)).data;
+        await ensureCurrentDeviceViewReady(context);
+        const settings = await readDeviceViewSettings(context);
+        if (!settings) throw new Error("当前设备 desktop-homepage 的 view.json 缺失");
+        config = settings.config;
     } catch (error) {
         console.warn("[Homepage] 横幅设备配置暂时不可读，本轮仅使用展示默认值:", error);
     }
     const globalBannerHeight = normalizeNumber(config.bannerHeight, 300, 50, 1000);
 
-    const context = getCurrentDeviceViewContext(plugin, "desktop-homepage");
     return {
         bannerHeight: globalBannerHeight,
         scrollTop: normalizeNumber(config.bannerScrollTop, 0, MIN_BANNER_SCROLL_TOP, MAX_BANNER_SCROLL_TOP),

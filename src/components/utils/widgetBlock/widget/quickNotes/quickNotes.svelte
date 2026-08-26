@@ -5,7 +5,7 @@
     import { mdToHtml } from "@/components/tools/mdToHtml";
     import { selectByIdsBatched } from "@/components/tools/siyuanSqlPaging";
     import { getChildBlocks, deleteBlock } from "@/api";
-    import { loadHomepageConfigDataStrict } from "@/homepage/configLoader";
+    import { loadHomepageSharedCapabilityConfig } from "@/homepage/configLoader";
     import { writeTextToClipboard } from "@/libs/clipboard";
     import WidgetSemanticTitle from "@/homepage/theme/widgetPresentation/components/WidgetSemanticTitle.svelte";
 
@@ -22,8 +22,9 @@
     const quickNotesTitle = $derived(parsed.data?.quickNotesTitle || "快速笔记");
     const quickNotesSort = $derived(parsed.data?.quickNotesSort || "DOC_ASC");
 
-    let quickNotesEnabled = $state();
-    let quickNotesPosition;
+    let quickNotesEnabled = $state<boolean | undefined>(undefined);
+    let quickNotesPosition: string | undefined;
+    let quickNotesConfigLoadState = $state<"loading" | "ready" | "error">("loading");
 
     const SIYUAN_NODE_ID_RE = /^\d{14}-[a-z0-9]{7}$/;
     function isValidSiyuanNodeId(value) {
@@ -33,14 +34,27 @@
     let quickNotesList = $state([]);
 
     onMount(async () => {
-        const homepageSettingConfig = (await loadHomepageConfigDataStrict(plugin)).data;
-        quickNotesEnabled = homepageSettingConfig.quickNotesEnabled;
-        quickNotesPosition = homepageSettingConfig.quickNotesPosition;
+        try {
+            const homepageSettingConfig = await loadHomepageSharedCapabilityConfig(plugin);
+            quickNotesEnabled = homepageSettingConfig.quickNotesEnabled === true;
+            quickNotesPosition = typeof homepageSettingConfig.quickNotesPosition === "string"
+                ? homepageSettingConfig.quickNotesPosition
+                : undefined;
+            quickNotesConfigLoadState = "ready";
+        } catch (error) {
+            quickNotesConfigLoadState = "error";
+            console.warn("[QuickNotes] 读取快速笔记配置失败", error);
+            return;
+        }
         if (!quickNotesEnabled || !isValidSiyuanNodeId(quickNotesPosition)) {
             quickNotesList = [];
             return;
         }
-        await getQuickNotes();
+        try {
+            await getQuickNotes();
+        } catch (error) {
+            console.warn("[QuickNotes] 读取快速笔记内容失败", error);
+        }
     });
 
     async function getQuickNotes() {
@@ -128,13 +142,6 @@
     }
 </script>
 
-<svelte:head>
-    <link
-        rel="stylesheet"
-        href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css"
-    />
-</svelte:head>
-
 <div class="content-display" data-widget-part="root">
     <WidgetSemanticTitle
         widgetType="quick-notes"
@@ -145,7 +152,11 @@
         summary={isMobilePlacement ? quickNotesList.length : undefined}
     />
     <div class="quick-notes-content-container" data-widget-part="body">
-        {#if !quickNotesEnabled}
+        {#if quickNotesConfigLoadState === "loading"}
+            <p class="empty-tip" data-widget-part="empty">正在读取快速笔记设置…</p>
+        {:else if quickNotesConfigLoadState === "error"}
+            <p class="empty-tip" data-widget-part="empty">快速笔记设置暂时无法读取</p>
+        {:else if !quickNotesEnabled}
             <p data-widget-part="empty">当前未开启快速笔记功能，请到主页设置中开启。</p>
         {:else if quickNotesList.length === 0}
             <p class="empty-tip" data-widget-part="empty">暂无快速笔记，点击添加按钮开始记录</p>

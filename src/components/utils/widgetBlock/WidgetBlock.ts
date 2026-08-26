@@ -20,6 +20,10 @@ import {
     type WidgetContextMenuActionContext,
 } from "./widgetContextMenuActions";
 
+function isValidWidgetLayoutNumber(value: unknown): value is number {
+    return typeof value === "number" && Number.isInteger(value) && value > 0;
+}
+
 // 内部交互控件和显式声明的区域保留自己的右键行为。
 // 第三方组件可在任意容器上添加 data-widget-native-context-menu 作为逃生口。
 const WIDGET_NATIVE_CONTEXT_MENU_SELECTOR = [
@@ -143,12 +147,16 @@ export class WidgetBlock {
         this.style = style || "aspect-ratio: 1 / 1;";
         this.loadcontent = loadcontent || '';
 
-        // 从当前设备 desktop-homepage/layout.json 读取列数。
-        loadWidgetLayoutSettings(plugin, runtimeOptions, runtimeOptions.deviceViewContext).then((settings) => {
-            this.widgetLayoutNumber = settings.widgetLayoutNumber;
-        }).catch((error) => {
-            console.warn(`[WidgetBlock] 异步读取布局列数失败 (${this.id})`, error);
-        });
+        if (isValidWidgetLayoutNumber(runtimeOptions.widgetLayoutNumber)) {
+            this.widgetLayoutNumber = runtimeOptions.widgetLayoutNumber;
+        } else {
+            // legacy/manual caller：从当前设备 desktop-homepage/layout.json 读取列数。
+            loadWidgetLayoutSettings(plugin, runtimeOptions, runtimeOptions.deviceViewContext).then((settings) => {
+                this.widgetLayoutNumber = settings.widgetLayoutNumber;
+            }).catch((error) => {
+                console.warn(`[WidgetBlock] 异步读取布局列数失败 (${this.id})`, error);
+            });
+        }
 
         this.element = document.createElement("div");
         this.element.className = "widget-block";
@@ -282,6 +290,7 @@ export class WidgetBlock {
         return {
             sectionsEnabled: this.runtimeOptions.sectionsEnabled,
             sectionId: this.runtimeOptions.sectionId,
+            widgetLayoutNumber: this.widgetLayoutNumber,
             deviceViewContext: this.runtimeOptions.deviceViewContext,
             componentSectionContainers: this.runtimeOptions.componentSectionContainers,
             preservedWidgetElements: this.runtimeOptions.preservedWidgetElements,
@@ -364,13 +373,15 @@ export class WidgetBlock {
 
     /** 容器模式切换时沿用现有实例，并更新其后续保存、隐藏和移动所使用的分栏上下文。 */
     public async updateRuntimeOptions(runtimeOptions: HomepageLayoutRuntimeOptions): Promise<void> {
-        const settings = await loadWidgetLayoutSettings(
-            this.plugin,
-            runtimeOptions,
-            runtimeOptions.deviceViewContext,
-        );
+        const widgetLayoutNumber = isValidWidgetLayoutNumber(runtimeOptions.widgetLayoutNumber)
+            ? runtimeOptions.widgetLayoutNumber
+            : (await loadWidgetLayoutSettings(
+                this.plugin,
+                runtimeOptions,
+                runtimeOptions.deviceViewContext,
+            )).widgetLayoutNumber;
         this.runtimeOptions = { ...this.runtimeOptions, ...runtimeOptions };
-        this.widgetLayoutNumber = settings.widgetLayoutNumber;
+        this.widgetLayoutNumber = widgetLayoutNumber;
     }
 
     private setupEventListeners(): void {

@@ -22,7 +22,7 @@ if "%EXIT_CODE%"=="0" (
 ) else (
     echo.
     echo [FAILED] Archive failed. Exit code: %EXIT_CODE%
+    pause
 )
 
-pause
 endlocal & exit /b %EXIT_CODE%

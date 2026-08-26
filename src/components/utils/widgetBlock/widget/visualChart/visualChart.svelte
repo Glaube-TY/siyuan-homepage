@@ -22,56 +22,163 @@
     let loading = $state(true);
     let error = $state("");
     let advancedEnabled = $state(false);
-    let refreshTimer: ReturnType<typeof setInterval> | null = null;
+    let configReady = $state(false);
+    let refreshTimer: ReturnType<typeof setTimeout> | null = null;
+    let reloadPromise: Promise<void> | null = null;
+    let lastReloadCompletedAt = 0;
+    let hasLoadedOnce = false;
+    let destroyed = false;
+    let reloadGeneration = 0;
+    let rootElement: HTMLDivElement | null = $state(null);
+    let widgetVisible = $state(typeof IntersectionObserver === "undefined");
+    let documentVisible = $state(document.visibilityState !== "hidden");
+    let visibilityObserver: IntersectionObserver | null = null;
     const displayData = $derived(transformVisualChartData(dataset, config));
+    const autoRefreshActive = $derived(advancedEnabled && configReady && widgetVisible && documentVisible);
 
-    async function reload(): Promise<void> {
+    async function reload(generation: number): Promise<void> {
         if (!advancedEnabled) { loading = false; return; }
         loading = true;
         error = "";
         try {
             const result = await loadVisualChartData(config);
+            if (destroyed || generation !== reloadGeneration) return;
             dataset = result;
             if (result.resolvedDatabaseId && result.resolvedDatabaseId !== config.source.databaseId) config.source.databaseId = result.resolvedDatabaseId;
         } catch (reason) {
+            if (destroyed || generation !== reloadGeneration) return;
             dataset = { columns: [], rows: [], sourceLabel: "" };
             error = reason instanceof Error ? reason.message : "图表数据读取失败";
-        } finally { loading = false; }
+        } finally {
+            if (destroyed || generation !== reloadGeneration) return;
+            loading = false;
+            hasLoadedOnce = true;
+            lastReloadCompletedAt = Date.now();
+        }
+    }
+
+    function clearRefreshTimer(): void {
+        if (refreshTimer !== null) clearTimeout(refreshTimer);
+        refreshTimer = null;
+    }
+
+    function shouldReloadOnActivation(): boolean {
+        if (!hasLoadedOnce) return true;
+        if (config.source.type === "manual") return false;
+        const intervalMs = Math.max(0, Number(config.source.refreshSeconds) || 0) * 1000;
+        return intervalMs > 0 && (lastReloadCompletedAt <= 0 || Date.now() - lastReloadCompletedAt >= intervalMs);
     }
 
     function scheduleRefresh(): void {
-        if (refreshTimer) clearInterval(refreshTimer);
-        refreshTimer = null;
+        clearRefreshTimer();
+        if (!autoRefreshActive) return;
         const seconds = Math.max(0, Number(config.source.refreshSeconds) || 0);
-        if (seconds > 0 && config.source.type !== "manual") refreshTimer = setInterval(() => void reload(), seconds * 1000);
+        if (seconds <= 0 || config.source.type === "manual") return;
+        if (!hasLoadedOnce) {
+            void requestReload();
+            return;
+        }
+        const intervalMs = seconds * 1000;
+        const remainingMs = Math.max(0, intervalMs - Math.max(0, Date.now() - lastReloadCompletedAt));
+        refreshTimer = setTimeout(() => {
+            refreshTimer = null;
+            if (!autoRefreshActive) return;
+            if (shouldReloadOnActivation()) void requestReload();
+            else scheduleRefresh();
+        }, remainingMs);
+    }
+
+    function requestReload(): Promise<void> {
+        if (reloadPromise) return reloadPromise;
+        if (destroyed || !autoRefreshActive) return Promise.resolve();
+        const generation = reloadGeneration;
+        const request = reload(generation);
+        reloadPromise = request;
+        void request.then(
+            () => {
+                if (reloadPromise !== request) return;
+                reloadPromise = null;
+                if (!destroyed) scheduleRefresh();
+            },
+            () => {
+                if (reloadPromise !== request) return;
+                reloadPromise = null;
+                if (!destroyed) scheduleRefresh();
+            },
+        );
+        return request;
+    }
+
+    function syncRefreshActivity(wasActive = false): void {
+        if (!autoRefreshActive) {
+            clearRefreshTimer();
+            return;
+        }
+        if (!wasActive && shouldReloadOnActivation()) {
+            void requestReload();
+            return;
+        }
+        scheduleRefresh();
+    }
+
+    function markDestroyed(): void {
+        if (destroyed) return;
+        destroyed = true;
+        reloadGeneration += 1;
+        clearRefreshTimer();
+        visibilityObserver?.disconnect();
+        visibilityObserver = null;
     }
 
     onMount(() => {
-        let disposed = false;
-        const enable = () => { advancedEnabled = true; void reload(); scheduleRefresh(); };
-        const disable = () => { advancedEnabled = false; if (refreshTimer) clearInterval(refreshTimer); refreshTimer = null; };
+        const enable = () => {
+            const wasActive = autoRefreshActive;
+            advancedEnabled = true;
+            syncRefreshActivity(wasActive);
+        };
+        const disable = () => { advancedEnabled = false; syncRefreshActivity(); };
+        const handleDocumentVisibilityChange = () => {
+            const wasActive = autoRefreshActive;
+            documentVisible = document.visibilityState !== "hidden";
+            syncRefreshActivity(!wasActive && autoRefreshActive);
+        };
         window.addEventListener("homepage-advanced-ready", enable);
         window.addEventListener("homepage-advanced-unavailable", disable);
+        document.addEventListener("visibilitychange", handleDocumentVisibilityChange);
         advancedEnabled = Boolean(plugin?.ADVANCED);
+        if (rootElement && typeof IntersectionObserver !== "undefined") {
+            visibilityObserver = new IntersectionObserver((entries) => {
+                const wasActive = autoRefreshActive;
+                widgetVisible = entries.some((entry) => entry.isIntersecting && entry.intersectionRatio > 0);
+                syncRefreshActivity(!wasActive && autoRefreshActive);
+            });
+            visibilityObserver.observe(rootElement);
+        }
         void (async () => {
             const instanceId = String(widgetContent.instanceId || "");
             if (instanceId && runtimeContext.deviceViewContext) {
                 const stored = await loadWidgetInstanceConfig(runtimeContext.deviceViewContext, instanceId).catch(() => null);
-                if (!disposed && stored) { widgetContent = stored; config = visualChartConfigFromWidgetContent(stored); }
+                if (!destroyed && stored) { widgetContent = stored; config = visualChartConfigFromWidgetContent(stored); }
             }
-            if (!disposed) { await reload(); scheduleRefresh(); }
+            if (!destroyed) {
+                configReady = true;
+                syncRefreshActivity();
+            }
         })();
         return () => {
-            disposed = true;
             window.removeEventListener("homepage-advanced-ready", enable);
             window.removeEventListener("homepage-advanced-unavailable", disable);
+            document.removeEventListener("visibilitychange", handleDocumentVisibilityChange);
+            markDestroyed();
         };
     });
 
-    onDestroy(() => { if (refreshTimer) clearInterval(refreshTimer); });
+    onDestroy(() => {
+        markDestroyed();
+    });
 </script>
 
-<div class="visual-chart-widget" data-widget-part="root">
+<div bind:this={rootElement} class="visual-chart-widget" data-widget-part="root">
     {#if !advancedEnabled}
         <AdvancedFeatureLock compact title="可视化图表" subtitle="连接数据库、SQL 和文档数据生成图表" icon="chart" highlights={["多数据源", "动态图表"]} />
     {:else}

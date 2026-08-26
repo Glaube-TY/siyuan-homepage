@@ -1,3 +1,5 @@
+import { mapWithConcurrency } from "@/utils/async/mapWithConcurrency";
+
 export interface BackgroundScanTask {
   id: string;
   signals?: readonly string[];
@@ -8,6 +10,7 @@ interface RegisteredTask { definition: BackgroundScanTask; nextAt: number; runni
 const tasks = new Map<string, RegisteredTask>();
 let timer: number | undefined;
 let listening = false;
+const BACKGROUND_SCAN_CONCURRENCY = 2;
 
 function schedule(): void {
   if (timer !== undefined) window.clearTimeout(timer);
@@ -33,7 +36,11 @@ async function runTask(task: RegisteredTask): Promise<void> {
 async function pump(): Promise<void> {
   timer = undefined;
   const now = Date.now();
-  await Promise.all([...tasks.values()].filter((task) => task.nextAt <= now).map(runTask));
+  await mapWithConcurrency(
+    [...tasks.values()].filter((task) => task.nextAt <= now),
+    BACKGROUND_SCAN_CONCURRENCY,
+    runTask,
+  );
   schedule();
 }
 

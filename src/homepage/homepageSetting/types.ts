@@ -1,6 +1,7 @@
 export type HomepageSettingMainTab = "homepage" | "aiKnowledgeBase" | "notifyBridge" | "robotAssistant" | "vip" | "about";
 export type HomepageSettingSubTab = "behavior" | "appearance" | "mobile" | "banner" | "title" | "button" | "widgets" | "indexing" | "devices" | "styles";
 export type HomepageSettingFocusTarget = "title" | "status" | "buttons" | "banner" | "footer";
+export type StatusAiModelSummaryState = "idle" | "loading" | "ready" | "error";
 
 export interface HomepageSettingOpenOptions {
     initialMainTab?: HomepageSettingMainTab;

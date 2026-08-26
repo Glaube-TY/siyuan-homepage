@@ -5,6 +5,7 @@ import { ensureCurrentDeviceViewReady } from "@/homepage/deviceView/deviceViewRe
 import { readDeviceViewLayout, updateDeviceViewLayout } from "@/homepage/deviceView/deviceViewStorage";
 import { loadWidgetInstanceConfig } from "@/homepage/deviceView/widgetInstanceRepository";
 import { stringifyWidgetConfigForMount, type LayoutItem } from "../../components/utils/widgetBlock/utils/layout-shared";
+import { mapWithConcurrency } from "@/utils/async/mapWithConcurrency";
 import { shouldClearMobileConfirmedEmpty } from "../deviceView/confirmedEmptyLayout";
 import type { DeviceViewContext } from "@/homepage/deviceView/deviceViewTypes";
 import {
@@ -240,7 +241,7 @@ export async function restoreLayout(
     const sectionState = readMobileSectionState(layout);
 
     const order = validateLayoutItems(layout.order);
-    const prepared: Array<{ item: LayoutItem; instance: WidgetBlock; contentJson: string }> = [];
+    const prepared: Array<{ item: LayoutItem; contentJson: string }> = [];
     const existing = new Map<string, HTMLElement>();
     for (const child of Array.from(container.children)) {
         if (child instanceof HTMLElement && child.classList.contains("widget-block") && child.id) existing.set(child.id, child);
@@ -275,29 +276,41 @@ export async function restoreLayout(
     }
 
     let allWidgetsComplete = true;
-    for (const item of order) {
+    const widgetReadResults = await mapWithConcurrency(order, 4, async (item) => {
+        const current = existing.get(item.id);
+        if ((current as any)?.__widgetBlockInstance?.hasMountedContent?.()) {
+            return { item, alreadyHealthy: true as const };
+        }
         try {
-            const current = existing.get(item.id);
-            if ((current as any)?.__widgetBlockInstance?.hasMountedContent?.()) continue;
             const config = await loadWidgetInstanceConfig(context, item.id);
             const contentJson = stringifyWidgetConfigForMount(config);
             if (!contentJson) throw new Error(`移动组件 ${item.id} 配置缺失或无效`);
-            prepared.push({
-                item,
-                instance: new WidgetBlock(plugin, currentBlockForSettingsRef, item.id, item.style || undefined, "", {
-                    ...widgetRuntimeContext,
-                    deviceViewContext: context,
-                }),
-                contentJson,
-            });
+            return { item, alreadyHealthy: false as const, contentJson };
         } catch (error) {
-            allWidgetsComplete = false;
-            console.warn(`[MobileLayout] 组件 ${item.id} 暂时无法恢复，已继续处理其他健康组件:`, error);
+            return {
+                item,
+                alreadyHealthy: false as const,
+                error: error instanceof Error ? error.message : String(error),
+            };
         }
+    });
+    for (const result of widgetReadResults) {
+        if (result.alreadyHealthy) continue;
+        if ("error" in result) {
+            allWidgetsComplete = false;
+            console.warn(`[MobileLayout] 组件 ${result.item.id} 暂时无法恢复，已继续处理其他健康组件:`, result.error);
+            continue;
+        }
+        prepared.push({ item: result.item, contentJson: result.contentJson });
     }
 
-    for (const { item, instance, contentJson } of prepared) {
+    for (const { item, contentJson } of prepared) {
+        let instance: WidgetBlock | null = null;
         try {
+            instance = new WidgetBlock(plugin, currentBlockForSettingsRef, item.id, item.style || undefined, "", {
+                ...widgetRuntimeContext,
+                deviceViewContext: context,
+            });
             const old = existing.get(item.id);
             if (old?.parentElement === container) {
                 (old as any).__widgetBlockInstance?.destroy?.();
@@ -310,8 +323,12 @@ export async function restoreLayout(
             existing.set(item.id, instance.element);
         } catch (error) {
             allWidgetsComplete = false;
-            instance.destroy();
-            instance.element.remove();
+            try {
+                instance?.destroy();
+            } catch {
+                // 构造函数失败时实例可能尚未赋值；清理失败不能掩盖单组件隔离。
+            }
+            instance?.element.remove();
             existing.delete(item.id);
             console.warn(`[MobileLayout] 组件 ${item.id} 挂载失败，已保留其他健康组件:`, error);
         }

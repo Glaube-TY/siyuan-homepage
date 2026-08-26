@@ -12,6 +12,7 @@ import type { DeviceViewContext } from "@/homepage/deviceView/deviceViewTypes";
 export interface HomepageLayoutRuntimeOptions {
     sectionsEnabled?: boolean;
     sectionId?: string | null;
+    widgetLayoutNumber?: number;
     preservedWidgetElements?: Map<string, HTMLElement>;
     componentSectionContainers?: ReadonlyMap<string, HTMLElement>;
     deviceViewContext?: DeviceViewContext;

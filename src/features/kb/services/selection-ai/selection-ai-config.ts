@@ -3,7 +3,7 @@ import {
   normalizeSelectionAiToolbarSettings,
 } from "./selection-ai-defaults";
 import type { SelectionAiToolbarSettings } from "./selection-ai-types";
-import { loadHomepageConfigDataStrict } from "@/homepage/configLoader";
+import { loadHomepageSharedCapabilityConfig } from "@/homepage/configLoader";
 
 let settingsSnapshot: SelectionAiToolbarSettings = {
   ...DEFAULT_SELECTION_AI_TOOLBAR_SETTINGS,
@@ -24,12 +24,13 @@ export function getSelectionAiToolbarSettingsSnapshot(): SelectionAiToolbarSetti
 
 export async function loadSelectionAiToolbarSettingsSnapshot(plugin: any): Promise<SelectionAiToolbarSettings> {
   try {
-    const config = (await loadHomepageConfigDataStrict(plugin)).data;
+    const config = await loadHomepageSharedCapabilityConfig(plugin);
     const rawSettings = config && typeof config === "object"
       ? (config as { selectionAiToolbar?: unknown }).selectionAiToolbar
       : undefined;
     return setSelectionAiToolbarSettingsSnapshot(rawSettings);
-  } catch {
-    return setSelectionAiToolbarSettingsSnapshot(undefined);
+  } catch (error) {
+    console.warn("[SelectionAI] 读取工具栏设置失败，本轮保留当前内存配置", error);
+    return getSelectionAiToolbarSettingsSnapshot();
   }
 }

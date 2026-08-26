@@ -1,4 +1,10 @@
-export type RuntimePerformanceArea = "plugin-startup" | "layout-ready" | "homepage-startup";
+export type RuntimePerformanceArea =
+    | "plugin-startup"
+    | "layout-ready"
+    | "homepage-startup"
+    | "homepage-settings-open"
+    | "homepage-section-switch"
+    | "homepage-theme-switch";
 
 export interface RuntimePerformanceSample {
     area: RuntimePerformanceArea;

@@ -24,11 +24,16 @@ import {
 import { svelteDialog } from "@/libs/dialog";
 import "./style/dialog-viewport.css";
 import * as advanced from "@/components/tools/advanced";
-import { destroyFloatingDoc } from "@/components/tools/floatingDoc";
+import {
+    destroyFloatingDoc,
+    invalidateFloatingDocDefaultModeCache,
+} from "@/components/tools/floatingDoc";
 import { destroyFloatingMini } from "@/components/utils/widgetBlock/widget/musicPlayer/musicFloatingMiniManager";
 import {
     loadHomepageConfig,
     loadHomepageConfigDataStrict,
+    loadHomepageSharedCapabilityConfig,
+    normalizeHomepageConfigData,
     resolveBackgroundImage,
 } from "./homepage/configLoader";
 import { getCurrentDeviceViewContext } from "./homepage/deviceView/deviceViewContext";
@@ -447,7 +452,7 @@ export default class PluginHomepage extends Plugin {
         // 第一部分：首个 await 前同步完成所有独立能力和最小主页入口注册。
         setSharedWidgetStoragePlugin(this);
         setQuickNoteWritePlugin(this);
-        setQuickNoteConfigLoader(async (plugin) => (await loadHomepageConfigDataStrict(plugin)).data);
+        setQuickNoteConfigLoader((plugin) => loadHomepageSharedCapabilityConfig(plugin));
         setKbSettingsPlugin(this);
         setReferenceNavigationPlugin(this);
         setNotebrainPlugin(this);
@@ -513,20 +518,22 @@ export default class PluginHomepage extends Plugin {
         }
     }
 
-    private async applyGlobalBackgroundImageStyle(): Promise<void> {
+    private async applyGlobalBackgroundImageStyle(config?: PluginConfig): Promise<void> {
         const version = ++this.globalBackgroundApplyVersion;
-        const config = await loadHomepageConfig(this);
+        const resolvedConfig = config
+            ? normalizeHomepageConfigData(config)
+            : await loadHomepageConfig(this);
         if (version !== this.globalBackgroundApplyVersion) return;
         const advancedEnabled = isHomepageEntitlementGranted();
-        const { backgroundImageSrc } = await resolveBackgroundImage(config, advancedEnabled);
+        const { backgroundImageSrc } = await resolveBackgroundImage(resolvedConfig, advancedEnabled);
         if (version !== this.globalBackgroundApplyVersion) return;
         updateGlobalBackgroundImageStyle({
             advanced: advancedEnabled,
-            backgroundImageEnabled: config.backgroundImageEnabled,
-            backgroundImageGlobalEnabled: config.backgroundImageGlobalEnabled,
+            backgroundImageEnabled: resolvedConfig.backgroundImageEnabled,
+            backgroundImageGlobalEnabled: resolvedConfig.backgroundImageGlobalEnabled,
             backgroundImageSrc,
-            backgroundImageOpacity: config.backgroundImageOpacity,
-            backgroundImageBlur: config.backgroundImageBlur,
+            backgroundImageOpacity: resolvedConfig.backgroundImageOpacity,
+            backgroundImageBlur: resolvedConfig.backgroundImageBlur,
         });
     }
 
@@ -572,13 +579,14 @@ export default class PluginHomepage extends Plugin {
         // 全局背景应用失败是非致命副作用，单独捕获，避免整个主页初始化永久卡死。
         try {
             // 插件加载时应用全局背景（会员校验是异步的，后续事件会再次触发刷新）
-            await this.applyGlobalBackgroundImageStyle();
+            await this.applyGlobalBackgroundImageStyle(config);
         } catch (error) {
             console.warn("[Homepage] 初始化全局背景样式失败:", error);
         }
     }
 
     private async handleHomepageSettingsSaved(): Promise<void> {
+        invalidateFloatingDocDefaultModeCache();
         const surface: DeviceViewSurface = this.isMobileFrontend() ? "mobile-homepage" : "desktop-homepage";
         if (this.isMobileFrontend() && isHomepageEntitlementGranted()) {
             this.registerMobileQuickActionsForegroundListeners();
@@ -726,8 +734,10 @@ export default class PluginHomepage extends Plugin {
         if (this.isMobileFrontend() && isHomepageEntitlementGranted()) {
             this.registerMobileQuickActionsForegroundListeners();
         }
+        let configForBackground: PluginConfig | undefined;
         try {
             const config = await this.getPluginConfig();
+            configForBackground = config;
             this.clearHomepageSurfaceReadErrors(surface);
             this.readyDeviceViewSurfaces.add(surface);
             this.syncHomepageConfigDependentListeners(config);
@@ -741,7 +751,7 @@ export default class PluginHomepage extends Plugin {
             this.syncHomepageConfigDependentListeners(null);
         }
         try {
-            await this.applyGlobalBackgroundImageStyle();
+            await this.applyGlobalBackgroundImageStyle(configForBackground);
         } catch (error) {
             console.warn("[Homepage] 高级功能就绪后刷新全局背景样式失败:", error);
         }
@@ -1048,15 +1058,23 @@ export default class PluginHomepage extends Plugin {
                     self.renderHomepageBlockedNotice(this.element as HTMLElement);
                     return;
                 }
-                try {
-                    await self.recoverDeviceViewRuntimeAfterIdentityReady();
-                } catch (error) {
-                    if (error instanceof DeviceViewAccessBlockedError) {
-                        self.renderHomepageBlockedNotice(this.element as HTMLElement);
+                const primarySurface: DeviceViewSurface = self.isMobile
+                    ? "mobile-homepage"
+                    : "desktop-homepage";
+                if (!(
+                    self.readyDeviceViewSurfaces.has(primarySurface)
+                    && self.isHomepageDeviceViewAvailable()
+                )) {
+                    try {
+                        await self.recoverDeviceViewRuntimeAfterIdentityReady();
+                    } catch (error) {
+                        if (error instanceof DeviceViewAccessBlockedError) {
+                            self.renderHomepageBlockedNotice(this.element as HTMLElement);
+                            return;
+                        }
+                        self.renderHomepageUnavailableNotice(this.element as HTMLElement);
                         return;
                     }
-                    self.renderHomepageUnavailableNotice(this.element as HTMLElement);
-                    return;
                 }
                 self.destroyHomepageInstance();
                 self.homepageTabDiv = document.createElement("div");

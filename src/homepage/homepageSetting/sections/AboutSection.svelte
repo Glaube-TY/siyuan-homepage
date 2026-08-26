@@ -1,3 +1,7 @@
+<script lang="ts">
+    import Heart from "@lucide/svelte/icons/heart";
+</script>
+
 <div class="about-section">
     <div class="about-header">
         <h3>🏠 思源主页插件</h3>
@@ -59,7 +63,7 @@
                 <span class="label">您的支持是持续开发的动力！</span>
                 <div class="link-list">
                     <a href="https://glaube-ty.top/da-shang/" class="link support-link">
-                        <i class="fas fa-hand-holding-heart"></i>
+                        <Heart size={16} />
                         立即赞助
                         <span class="sparkle">✨</span>
                     </a>

@@ -11,7 +11,7 @@
     } from "@/features/entitlement/homepage-entitlement";
 
     import "./homepageSettingStyle/homepageSetting.scss"
-    import type { HomepageSettingProps, ButtonItem, HomepageSettingMainTab, HomepageSettingSubTab, WidgetsSettingsState, WidgetsSettingsActions, StylesSettingsState, StylesSettingsActions, ButtonSettingsActions } from "./types"
+    import type { HomepageSettingProps, ButtonItem, HomepageSettingMainTab, HomepageSettingSubTab, WidgetsSettingsState, WidgetsSettingsActions, StylesSettingsState, StylesSettingsActions, ButtonSettingsActions, StatusAiModelSummaryState } from "./types"
     import {
         normalizeBannerGlassBlur,
         normalizeBannerGlassColor,
@@ -73,6 +73,8 @@
     import SettingRow from "@/libs/components/SettingRow.svelte";
     import SiyuanIcon from "@/components/utils/shared/SiyuanIcon.svelte";
     import { getKbSettings, KB_SETTINGS_CHANGED_EVENT } from "@/features/kb/services/settings/kb-settings-service";
+    import { scheduleIdleTask } from "@/utils/runtime/idleTask";
+    import { createRuntimePerformanceTrace } from "@/utils/performance/runtimePerformance";
     import { buildChatModelOptions } from "@/features/kb/services/settings/chat-model-options";
     import { buildChatModelKey, type ChatModelOption } from "@/features/kb/types/chat-model-selection";
     import {
@@ -220,7 +222,6 @@
     let statusAiModelOptions: ChatModelOption[] = $state([]);
     let statusAiAvailableModelCount = $state(0);
     let statusAiSelectedModelLabel = $state("");
-    let statusAiModelLoadError = $state(false);
 
     let buttonsList: ButtonItem[] = $state(createDefaultButtons());
 
@@ -249,6 +250,13 @@
     let aiKbTabEnabled = $state(true);
 
     let settingsLoaded = $state(false);
+    let statusAiModelSummaryState = $state<StatusAiModelSummaryState>("idle");
+    let statusAiModelSummaryGeneration = 0;
+    let statusAiModelSummaryAppliedGeneration = -1;
+    let statusAiModelSummaryRequest: Promise<void> | null = null;
+    let statusAiSummaryWasVisible = false;
+    let cancelStatusAiSummaryIdle: (() => void) | null = null;
+    let settingsOpenTrace: ReturnType<typeof createRuntimePerformanceTrace> | null = null;
 
     async function focusInitialSettingLocation(): Promise<void> {
         if (!initialFocus || initialFocusScheduled) return;
@@ -543,7 +551,7 @@
     };
 
     const AUTO_SAVE_DELAY_MS = 600;
-    const SHARED_SETTINGS_POLL_MS = 1500;
+    const SHARED_SETTINGS_POLL_MS = 10000;
 
     let autoSaveStatus = $state<SettingsSaveStatus>("idle");
     let autoSaveTimer: ReturnType<typeof setTimeout> | null = null;
@@ -729,6 +737,7 @@
     async function refreshSharedMobileSettings(): Promise<void> {
         if (
             !settingsLoaded
+            || document.visibilityState === "hidden"
             || autoSavePending
             || autoSaveStatus === "saving"
             || sharedSettingsRefreshInFlight
@@ -761,6 +770,22 @@
 
     function handleHomepageSettingsSavedEvent(): void {
         void refreshSharedMobileSettings();
+    }
+
+    function handleSettingsFocus(): void {
+        void refreshSharedMobileSettings();
+    }
+
+    function handleSettingsVisibilityChange(): void {
+        if (document.visibilityState === "visible") void refreshSharedMobileSettings();
+    }
+
+    function isStatusAiSummaryVisible(): boolean {
+        return settingsLoaded
+            && advancedEnabled
+            && activeTab === "homepage"
+            && settingsActiveTab === "title"
+            && tempStatusTextMode === "ai";
     }
 
     function scheduleAutoSave(): void {
@@ -845,17 +870,65 @@
         tempStatusTextMode = value;
     }
 
-    async function refreshStatusAiModelSummary(): Promise<void> {
+    async function ensureStatusAiModelSummaryLoaded(): Promise<void> {
+        if (!isStatusAiSummaryVisible()) return;
+        if (statusAiModelSummaryRequest) {
+            await statusAiModelSummaryRequest;
+            return;
+        }
+        const requestGeneration = statusAiModelSummaryGeneration;
+        if (
+            statusAiModelSummaryAppliedGeneration === requestGeneration
+            && (statusAiModelSummaryState === "ready" || statusAiModelSummaryState === "error")
+        ) return;
+        if (statusAiModelSummaryState !== "ready") statusAiModelSummaryState = "loading";
+        const request = (async (): Promise<void> => {
+            try {
+                const settings = await getKbSettings();
+                const options = buildChatModelOptions(settings);
+                if (requestGeneration !== statusAiModelSummaryGeneration) return;
+                statusAiModelOptions = options;
+                syncStatusAiModelSummary(options);
+                statusAiModelSummaryState = "ready";
+                statusAiModelSummaryAppliedGeneration = requestGeneration;
+                settingsOpenTrace?.checkpoint("ai-model-summary-ready");
+            } catch {
+                if (requestGeneration !== statusAiModelSummaryGeneration) return;
+                statusAiModelSummaryState = "error";
+                statusAiModelSummaryAppliedGeneration = requestGeneration;
+            }
+        })();
+        statusAiModelSummaryRequest = request;
         try {
-            const settings = await getKbSettings();
-            const options = buildChatModelOptions(settings);
-            statusAiModelOptions = options;
-            statusAiModelLoadError = false;
-            syncStatusAiModelSummary(options);
-        } catch {
-            statusAiModelLoadError = true;
+            await request;
+        } finally {
+            if (statusAiModelSummaryRequest !== request) return;
+            statusAiModelSummaryRequest = null;
+            if (
+                requestGeneration !== statusAiModelSummaryGeneration
+                && isStatusAiSummaryVisible()
+            ) void ensureStatusAiModelSummaryLoaded();
         }
     }
+
+    function requestStatusAiModelSummaryRefresh(): void {
+        statusAiModelSummaryGeneration += 1;
+        if (statusAiModelSummaryState === "error") statusAiModelSummaryState = "idle";
+        if (isStatusAiSummaryVisible()) void ensureStatusAiModelSummaryLoaded();
+    }
+
+    $effect(() => {
+        const visible = isStatusAiSummaryVisible();
+        if (!visible) {
+            statusAiSummaryWasVisible = false;
+            return;
+        }
+        if (!statusAiSummaryWasVisible) {
+            statusAiSummaryWasVisible = true;
+            statusAiModelSummaryGeneration += 1;
+        }
+        void ensureStatusAiModelSummaryLoaded();
+    });
 
     function handleStatusAiModelChange(value: { providerId: string; modelId: string }): void {
         tempStatusAiProviderId = normalizeStatusAiModelId(value.providerId);
@@ -864,7 +937,7 @@
     }
 
     function handleKbSettingsChanged(): void {
-        void refreshStatusAiModelSummary();
+        requestStatusAiModelSummaryRefresh();
     }
 
     function applyDesktopDraftFromPersistedConfig(
@@ -977,38 +1050,50 @@
 
     // 设置页面加载时读取配置信息
     onMount(async () => {
+        const trace = createRuntimePerformanceTrace("homepage-settings-open");
+        settingsOpenTrace = trace;
+        trace.checkpoint("start");
         window.addEventListener(HOMEPAGE_THEME_TRANSITION_EVENT, handleHomepageThemeTransition);
-        const savedConfig = await loadHomepageSettingConfig(plugin);
+        const desktopConfigPromise = loadHomepageSettingConfig(plugin);
+        const mobileConfigPromise = loadHomepageSettingConfig(plugin, "mobile-homepage")
+            .then((config) => (config || {}) as unknown as Record<string, unknown>)
+            .catch(() => ({}));
+        const layoutSettingsPromise = loadWidgetLayoutSettings(plugin);
+        const [savedConfig, mobileConfig, layoutSettings] = await Promise.all([
+            desktopConfigPromise,
+            mobileConfigPromise,
+            layoutSettingsPromise,
+        ]);
         if (savedConfig) {
-            let mobileConfig: Record<string, unknown> = {};
-            try {
-                mobileConfig = (await loadHomepageSettingConfig(plugin, "mobile-homepage") || {}) as unknown as Record<string, unknown>;
-            } catch {
-                // mobile 配置读取失败：共享设置仍可从当前桌面配置恢复。
-            }
-            const layoutSettings = await loadWidgetLayoutSettings(plugin);
             applyMobileSettingsConfig({
                 ...(savedConfig as unknown as Record<string, unknown>),
                 ...mobileConfig,
             });
             applyDesktopDraftFromPersistedConfig(savedConfig, layoutSettings);
         }
+        trace.checkpoint("core-config-loaded");
 
         // 同步到临时变量
         advancedEnabled = getHomepageEntitlementSnapshot().advanced;
 
-        await refreshStatusAiModelSummary();
         window.addEventListener(KB_SETTINGS_CHANGED_EVENT, handleKbSettingsChanged);
         window.addEventListener("homepage-settings-saved", handleHomepageSettingsSavedEvent);
+        window.addEventListener("focus", handleSettingsFocus);
+        document.addEventListener("visibilitychange", handleSettingsVisibilityChange);
         lastLoadedMobileSignature = captureMobileSettingsSignature();
         lastPersistedDraftSignature = captureHomepageSettingsSignature();
         autoSaveInitialized = true;
         settingsLoaded = true;
+        trace.checkpoint("interactive");
         void refreshSharedMobileSettings();
         sharedSettingsPollTimer = setInterval(
             () => void refreshSharedMobileSettings(),
             SHARED_SETTINGS_POLL_MS,
         );
+        cancelStatusAiSummaryIdle = scheduleIdleTask(() => {
+            cancelStatusAiSummaryIdle = null;
+            if (isStatusAiSummaryVisible()) void ensureStatusAiModelSummaryLoaded();
+        }, { timeout: 1200 });
     });
 
     onMount(() => subscribeHomepageEntitlement((snapshot) => {
@@ -1017,6 +1102,10 @@
     }));
 
     onDestroy(() => {
+        cancelStatusAiSummaryIdle?.();
+        cancelStatusAiSummaryIdle = null;
+        settingsOpenTrace?.finish("destroyed");
+        settingsOpenTrace = null;
         if (autoSaveTimer) {
             clearTimeout(autoSaveTimer);
             autoSaveTimer = null;
@@ -1032,6 +1121,8 @@
         }
         window.removeEventListener(KB_SETTINGS_CHANGED_EVENT, handleKbSettingsChanged);
         window.removeEventListener("homepage-settings-saved", handleHomepageSettingsSavedEvent);
+        window.removeEventListener("focus", handleSettingsFocus);
+        document.removeEventListener("visibilitychange", handleSettingsVisibilityChange);
         window.removeEventListener(HOMEPAGE_THEME_TRANSITION_EVENT, handleHomepageThemeTransition);
     });
 
@@ -1219,13 +1310,13 @@
             grantHomepageEntitlement(plugin, activationResult.userInfo);
         }
         void plugin.refreshHomepageEntitlement?.();
-        void refreshStatusAiModelSummary();
+        requestStatusAiModelSummaryRefresh();
     }
 
     function handleVipAdvancedReady(): void {
         advancedEnabled = true;
         activated = true;
-        void refreshStatusAiModelSummary();
+        requestStatusAiModelSummaryRefresh();
     }
 
     function handleVipMembershipActivated(result: any): void {
@@ -1235,7 +1326,7 @@
             advancedEnabled = true;
             if (result.userInfo) grantHomepageEntitlement(plugin, result.userInfo);
             void plugin.refreshHomepageEntitlement?.();
-            void refreshStatusAiModelSummary();
+            requestStatusAiModelSummaryRefresh();
         }
     }
 
@@ -1246,7 +1337,7 @@
         advancedEnabled = false;
         denyHomepageEntitlement(plugin, "会员授权已取消");
         void plugin.refreshHomepageEntitlement?.();
-        void refreshStatusAiModelSummary();
+        requestStatusAiModelSummaryRefresh();
     }
 
     async function handleVipDeactivate(): Promise<void> {
@@ -1710,7 +1801,7 @@
                             tempBannerGlassBlur={tempBannerGlassBlur}
                             statusAiAvailableModelCount={statusAiAvailableModelCount}
                             statusAiSelectedModelLabel={statusAiSelectedModelLabel}
-                            statusAiModelLoadError={statusAiModelLoadError}
+                            statusAiModelSummaryState={statusAiModelSummaryState}
                             advancedEnabled={advancedEnabled}
                             onTempShowTitleIconChange={(value) => showIcon = value}
                             onTempTitleIconTypeChange={(value) => titleIconType = value}

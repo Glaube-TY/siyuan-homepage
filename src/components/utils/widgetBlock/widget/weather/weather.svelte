@@ -5,6 +5,10 @@
     import Simple1 from "./_simple1.svelte";
     import Simple2 from "./_simple2.svelte";
     import { parseWeatherConfig } from "./weatherConfigParser";
+    import Thermometer from "@lucide/svelte/icons/thermometer";
+    import CloudSun from "@lucide/svelte/icons/cloud-sun";
+    import Wind from "@lucide/svelte/icons/wind";
+    import Droplets from "@lucide/svelte/icons/droplets";
 
     interface Props {
         plugin: any;
@@ -98,13 +102,6 @@
     });
 </script>
 
-<svelte:head>
-    <link
-        rel="stylesheet"
-        href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css"
-    />
-</svelte:head>
-
 <div class="content-display">
     {#if weatherStyle === "default"}
         <div
@@ -115,20 +112,20 @@
             <div class="weather-content-container">
                 <div class="weather-info-grid">
                     <div class="info-item">
-                        <i class="fas fa-thermometer-half"></i>
+                        <Thermometer class="weather-icon" size={20} />
                         <span id="temperature">{temperature}℃</span>
                     </div>
                     <div class="info-item">
-                        <i class="fas fa-cloud-sun"></i>
+                        <CloudSun class="weather-icon" size={20} />
                         <span id="weather">{weather}</span>
                     </div>
                     <div class="info-item">
-                        <i class="fas fa-wind"></i>
+                        <Wind class="weather-icon" size={20} />
                         <span id="wind-direction">{wind_direction}</span>
                         <span id="wind-power">{wind_power}级</span>
                     </div>
                     <div class="info-item">
-                        <i class="fas fa-tint"></i>
+                        <Droplets class="weather-icon" size={20} />
                         <span id="humidity">{humidity}%</span>
                     </div>
                 </div>
@@ -190,13 +187,13 @@
         font-weight: bold;
     }
 
-    .info-item i {
+    .info-item :global(.weather-icon) {
         margin-right: 8px;
         min-width: 20px;
         text-align: center;
     }
 
-    .info-item i:hover {
+    .info-item :global(.weather-icon:hover) {
         transform: scale(1.1);
         transition: transform 0.2s ease-in-out;
     }

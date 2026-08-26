@@ -284,14 +284,27 @@ export async function loadHomepageSettingConfig(
 ): Promise<HomepageSettingConfig | null> {
     const context = getCurrentDeviceViewContext(plugin, surface);
     await ensureCurrentDeviceViewReady(context);
-    const settings = await readDeviceViewSettings(context);
-    if (!settings) return null;
-    let merged = await mergeHomepageSharedSettings(
+    const settingsPromise = readDeviceViewSettings(context);
+    const layoutPromise = surface === "desktop-homepage"
+        ? readDeviceViewLayout(context)
+        : Promise.resolve(null);
+    let settings: Awaited<ReturnType<typeof readDeviceViewSettings>>;
+    try {
+        settings = await settingsPromise;
+    } catch (error) {
+        await layoutPromise.catch(() => null);
+        throw error;
+    }
+    if (!settings) {
+        await layoutPromise.catch(() => null);
+        return null;
+    }
+    const mergedConfigPromise = mergeHomepageSharedSettings(
         plugin,
         settings.config,
     );
+    let [merged, layout] = await Promise.all([mergedConfigPromise, layoutPromise]);
     if (surface === "desktop-homepage") {
-        const layout = await readDeviceViewLayout(context);
         if (!layout) {
             throw new DeviceViewTemporarilyIncompleteError({
                 deviceId: context.scopeId,

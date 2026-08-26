@@ -520,7 +520,7 @@ assert.match(homepageSource, /resolveBannerImage\(config, getAdvancedEnabled\(\)
 assert.match(homepageSource, /let bannerFallbackReason = \$state<"premium_required" \| undefined>\(undefined\);/, "Homepage must retain the Banner presentation fallback state separately from saved settings");
 assert.match(homepageSource, /const PREMIUM_BANNER_FALLBACK_HEIGHT = 100;/, "Premium Banner fallback must use one compact effective-height constant");
 assert.match(homepageSource, /bannerFallbackReason = bannerResult\.fallbackReason;/, "Homepage must update the Banner presentation fallback from the resolver result");
-assert.match(homepageSource, /bannerHeight = bannerDisplaySettings\?\.bannerHeight \?\? config\.bannerHeight/, "Persisted Banner height must remain the source value");
+assert.match(homepageSource, /bannerHeight = config\.bannerHeight/, "Persisted Banner height must remain the source value");
 assert.match(homepageSource, /height:\s*bannerFallbackReason === "premium_required"\s*\?\s*PREMIUM_BANNER_FALLBACK_HEIGHT\s*:\s*bannerHeight/, "Premium fallback must only change the effective Theme height");
 const bannerDragInitSource = homepageSource.slice(
     homepageSource.indexOf("function initBannerDrag"),

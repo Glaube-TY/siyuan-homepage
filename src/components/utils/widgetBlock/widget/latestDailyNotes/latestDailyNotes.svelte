@@ -14,6 +14,7 @@
     } from "@/components/tools/floatingDoc";
     import { resolveBuiltinDocIcon, resolveConfiguredDocIcon, type DocIconResult } from "@/components/tools/docIcon";
     import WidgetSemanticTitle from "@/homepage/theme/widgetPresentation/components/WidgetSemanticTitle.svelte";
+    import SiyuanIcon from "@/components/utils/shared/SiyuanIcon.svelte";
 
     interface Props {
         plugin: any;
@@ -667,13 +668,6 @@
     });
 </script>
 
-<svelte:head>
-    <link
-        rel="stylesheet"
-        href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css"
-    />
-</svelte:head>
-
 <div class="content-display" data-widget-part="root">
     {#if recentJournalsShowType == "list"}
         <WidgetSemanticTitle
@@ -762,7 +756,7 @@
                 title="上一个月"
                 onclick={goToPreviousMonth}
             >
-                <i class="fas fa-chevron-left"></i>
+                <SiyuanIcon name="previous" size={16} />
             </button>
             <p class="widget-title-calendar">{formatMonthTitle(currentDate)}</p>
             <button
@@ -770,7 +764,7 @@
                 title="下一个月"
                 onclick={goToNextMonth}
             >
-                <i class="fas fa-chevron-right"></i>
+                <SiyuanIcon name="next" size={16} />
             </button>
         </div>
         <div bind:this={chartContainer} class="calendar-chart-container" data-widget-part="body"></div>
@@ -833,7 +827,7 @@
         min-height: 200px;
     }
 
-    .fas {
+    .nav-button :global(svg) {
         color: var(--b3-theme-primary, #3575f0);
     }
 

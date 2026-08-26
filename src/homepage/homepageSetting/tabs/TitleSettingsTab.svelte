@@ -19,6 +19,7 @@
     } from '@/homepage/status-text-config';
     import { DEFAULT_QUICK_BUTTON_STYLE, type BannerGlassColorMode, type QuickButtonStyle } from '../config';
     import { DEFAULT_HOMEPAGE_TOP_LAYOUT, type HomepageTopLayoutModel } from '@/homepage/theme/runtime/topLayout';
+    import type { StatusAiModelSummaryState } from '../types';
 
     let iconInputEl: HTMLInputElement | null = $state(null);
     let emojiButtonRef: HTMLButtonElement | null = $state(null);
@@ -49,7 +50,7 @@
         tempBannerGlassBlur: number;
         statusAiAvailableModelCount?: number;
         statusAiSelectedModelLabel?: string;
-        statusAiModelLoadError?: boolean;
+        statusAiModelSummaryState?: StatusAiModelSummaryState;
         advancedEnabled?: boolean;
         onTempShowTitleIconChange: (value: boolean) => void;
         onTempTitleIconTypeChange: (value: string) => void;
@@ -99,7 +100,7 @@
         tempBannerGlassBlur,
         statusAiAvailableModelCount = 0,
         statusAiSelectedModelLabel = "",
-        statusAiModelLoadError = false,
+        statusAiModelSummaryState = "idle",
         advancedEnabled = false,
         onTempShowTitleIconChange,
         onTempTitleIconTypeChange,
@@ -524,12 +525,17 @@
         </SettingRow>
 
         <div class="status-ai-notes">
-            {#if statusAiModelLoadError}
+            {#if statusAiModelSummaryState === "idle" || statusAiModelSummaryState === "loading"}
+                <div class="status-ai-note">
+                    <SiyuanIcon name="refresh" size={14} />
+                    <span>正在读取模型配置…</span>
+                </div>
+            {:else if statusAiModelSummaryState === "error"}
                 <div class="status-ai-note warning">
                     <SiyuanIcon name="warning" size={14} />
                     <span>设置读取失败，暂时无法确认可用大模型，请检查设置存储后重试。</span>
                 </div>
-            {:else if statusAiAvailableModelCount <= 0}
+            {:else if statusAiModelSummaryState === "ready" && statusAiAvailableModelCount <= 0}
                 <div class="status-ai-note warning">
                     <SiyuanIcon name="warning" size={14} />
                     <span>尚未配置可用大模型。请先到「AI 中心 → 模型与服务」添加模型，再到「状态语 AI」标签选择状态语模型。</span>

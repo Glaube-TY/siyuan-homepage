@@ -3,6 +3,9 @@
 
     import { onMount, onDestroy } from "svelte";
     import AdvancedFeatureLock from "../common/AdvancedFeatureLock.svelte";
+    import Play from "@lucide/svelte/icons/play";
+    import Pause from "@lucide/svelte/icons/pause";
+    import Square from "@lucide/svelte/icons/square";
 
     interface Props {
         plugin: any;
@@ -118,7 +121,11 @@
                 aria-label={isPaused ? "Resume countdown" : "Pause countdown"}
                 title={isPaused ? "Resume countdown" : "Pause countdown"}
             >
-                <i class="fas {isPaused ? 'fa-play' : 'fa-pause'}"></i>
+                {#if isPaused}
+                    <Play size={18} />
+                {:else}
+                    <Pause size={18} />
+                {/if}
             </button>
             <button
                 class="control-button stop-button"
@@ -126,7 +133,7 @@
                 aria-label="Stop countdown"
                 title="Stop countdown"
             >
-                <i class="fas fa-stop"></i>
+                <Square size={18} />
             </button>
         </div>
     {:else}
@@ -221,7 +228,7 @@
                 cursor: pointer;
                 transition: all 0.2s ease;
 
-                i {
+                :global(svg) {
                     font-size: 0.75rem;
                 }
 

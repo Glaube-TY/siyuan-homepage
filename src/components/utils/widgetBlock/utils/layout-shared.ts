@@ -57,8 +57,10 @@ import {
     storePreservedWidgetElement,
     type HomepageWidgetDomScope,
 } from "@/homepage/homepage-widget-dom";
+import { mapWithConcurrency } from "@/utils/async/mapWithConcurrency";
 
 const surfaceTransactionQueues = new Map<string, Promise<any>>();
+const HOMEPAGE_WIDGET_READ_CONCURRENCY = 4;
 
 export async function runInSurfaceTransaction<T>(queueKey: string, task: () => Promise<T>): Promise<T> {
     const previous = surfaceTransactionQueues.get(queueKey) ?? Promise.resolve();
@@ -471,7 +473,7 @@ async function scanStoredWidgetInventory(
     const widgetIds = [...collectReferencedWidgetIds(layout)].sort();
     let widgetFilesComplete = true;
     const widgetSignatures: string[] = [];
-    const discovered = await Promise.all(widgetIds.map(async (widgetId, index): Promise<LayoutItem | null> => {
+    const discovered = await mapWithConcurrency(widgetIds, HOMEPAGE_WIDGET_READ_CONCURRENCY, async (widgetId, index): Promise<LayoutItem | null> => {
         try {
             const content = await loadWidgetConfigWithRetry(plugin, widgetId, layoutFileName, fixedContext);
             if (!content) {
@@ -488,7 +490,7 @@ async function scanStoredWidgetInventory(
             widgetFilesComplete = false;
             return null;
         }
-    }));
+    });
 
     return {
         items: discovered.filter((item): item is LayoutItem => item !== null),
@@ -511,7 +513,7 @@ export async function readHomepageStorageSnapshot(
     layoutFileName: DeviceViewSurface = "desktop-homepage",
 ): Promise<HomepageStorageSnapshot> {
     const context = await getReadyContext(plugin, layoutFileName);
-    const layout = (await loadLayoutSnapshotForContext(context)).layout;
+    const layout = (await loadLayoutSnapshotForContext(context, { assumeReady: true })).layout;
     const inventory = await scanStoredWidgetInventory(plugin, layout, layoutFileName, context);
     if (!inventory.complete) {
         throw new Error("桌面主页组件清单暂时不完整");
@@ -709,8 +711,10 @@ export async function readCoordinatedSnapshotForContext(context: DeviceViewConte
 
     for (const delayMs of retryDelays) {
         await waitForLayoutRetry(delayMs);
-        const layout = await loadLayoutSnapshotForContext(context);
-        const view = expectsView ? await readDeviceViewSettings(context) : null;
+        const [layout, view] = await Promise.all([
+            loadLayoutSnapshotForContext(context, { assumeReady: true }),
+            expectsView ? readDeviceViewSettings(context) : Promise.resolve(null),
+        ]);
         if (expectsView && !view) {
             throw new Error(`当前设备 ${context.surface} 的 view.json 缺失，无法建立协调快照`);
         }
@@ -721,7 +725,13 @@ export async function readCoordinatedSnapshotForContext(context: DeviceViewConte
             throw new Error("协调 view 与固定设备 context 不一致");
         }
 
-        const layoutRecheck = await loadLayoutSnapshotForContext(context);
+        const [layoutRecheck, viewRecheck] = await Promise.all([
+            loadLayoutSnapshotForContext(context, { assumeReady: true }),
+            expectsView ? readDeviceViewSettings(context) : Promise.resolve(null),
+        ]);
+        if (layoutRecheck.deviceId !== context.scopeId || layoutRecheck.surface !== context.surface) {
+            throw new Error("协调布局复核与固定设备 context 不一致");
+        }
         if (layoutRecheck.revision !== layout.revision) {
             lastInstability = `layout revision 已变化（${layout.revision} → ${layoutRecheck.revision}）`;
             continue;
@@ -730,11 +740,13 @@ export async function readCoordinatedSnapshotForContext(context: DeviceViewConte
             lastInstability = "layout 内容在读取期间发生变化";
             continue;
         }
-        const viewRecheck = expectsView ? await readDeviceViewSettings(context) : null;
         if (expectsView) {
             if (!viewRecheck) {
                 lastInstability = "view 在读取期间缺失";
                 continue;
+            }
+            if (viewRecheck.deviceId !== context.scopeId || viewRecheck.surface !== context.surface) {
+                throw new Error("协调 view 复核与固定设备 context 不一致");
             }
             if (viewRecheck.revision !== view.revision) {
                 lastInstability = `view revision 已变化（${view.revision} → ${viewRecheck.revision}）`;
@@ -1390,18 +1402,13 @@ async function findMissingComponents(
     }
 
     const deviceOrderIds = new Set(deviceOrder.map(item => item.id));
-    const missingItems: LayoutItem[] = [];
-
-    for (const item of defaultOrder) {
-        if (!deviceOrderIds.has(item.id)) {
-            const widgetDocument = await readWidgetInstanceDocument(context, item.id);
-            if (widgetDocument) {
-                missingItems.push(item);
-            }
-        }
-    }
-
-    return missingItems;
+    const candidates = defaultOrder.filter((item) => !deviceOrderIds.has(item.id));
+    const results = await mapWithConcurrency(
+        candidates,
+        HOMEPAGE_WIDGET_READ_CONCURRENCY,
+        async (item) => (await readWidgetInstanceDocument(context, item.id)) ? item : null,
+    );
+    return results.filter((item): item is LayoutItem => item !== null);
 }
 
 async function reconcileDeviceOrder(
@@ -1683,6 +1690,11 @@ export async function restoreLayoutForContainer(
     if (!layout) {
         layout = { order: inventory.items, profiles: {} };
     }
+    const effectiveWidgetLayoutSettings = resolveEffectiveWidgetLayoutSettings(
+        layout,
+        deviceId,
+        { sectionsEnabled, sectionId },
+    );
 
     const currentProfileOrder = sectionsEnabled
         ? getSectionOrderForDevice(layout, deviceId, sectionId)
@@ -1783,7 +1795,10 @@ export async function restoreLayoutForContainer(
     );
     const verifyRestoreDataSnapshot = async (): Promise<string | null> => {
         try {
-            const latestSnapshot = await loadLayoutSnapshotForContext(deviceViewContext, { assumeReady: true });
+            const [latestSnapshot, latestManifest] = await Promise.all([
+                loadLayoutSnapshotForContext(deviceViewContext, { assumeReady: true }),
+                readDeviceViewManifest(deviceViewContext),
+            ]);
             if (latestSnapshot.revision !== layoutRevision) {
                 return "布局 revision 在恢复事务中发生变化";
             }
@@ -1794,7 +1809,6 @@ export async function restoreLayoutForContainer(
             if (!haveSameOrderedStrings(latestDeclaredWidgetIds, transactionDeclaredWidgetIds)) {
                 return "目标组件 declared 成员或顺序在恢复事务中发生变化";
             }
-            const latestManifest = await readDeviceViewManifest(deviceViewContext);
             if (!latestManifest) return "设备视图 manifest 在恢复事务中缺失";
             const latestUnresolved = new Set(latestManifest.migration.unresolvedLegacyWidgetIds ?? []);
             const latestTargetUnresolved = transactionTargetWidgetIds.filter((id) => latestUnresolved.has(id));
@@ -1805,17 +1819,23 @@ export async function restoreLayoutForContainer(
             if (!haveSameOrderedStrings(latestRenderable, transactionRenderableWidgetIds)) {
                 return "目标组件 renderable 集合在恢复事务中发生变化";
             }
-            for (const [widgetId, expectedDocument] of rebuildWidgetDocuments) {
-                const latestDocument = await readWidgetInstanceDocument(deviceViewContext, widgetId);
-                if (
-                    !latestDocument
-                    || latestDocument.revision !== expectedDocument.revision
-                    || !hasSameJsonSemantic(latestDocument.config, expectedDocument.config)
-                ) {
-                    return `组件 ${widgetId} 文档在恢复事务中发生变化`;
-                }
-            }
-            return null;
+            const documentErrors = await mapWithConcurrency(
+                [...rebuildWidgetDocuments],
+                HOMEPAGE_WIDGET_READ_CONCURRENCY,
+                async ([widgetId, expectedDocument]): Promise<string | null> => {
+                    try {
+                        const latestDocument = await readWidgetInstanceDocument(deviceViewContext, widgetId);
+                        return latestDocument
+                            && latestDocument.revision === expectedDocument.revision
+                            && hasSameJsonSemantic(latestDocument.config, expectedDocument.config)
+                            ? null
+                            : `组件 ${widgetId} 文档在恢复事务中发生变化`;
+                    } catch (error) {
+                        return `组件 ${widgetId} 文档复核失败：${error instanceof Error ? error.message : String(error)}`;
+                    }
+                },
+            );
+            return documentErrors.find((error): error is string => error !== null) ?? null;
         } catch (error) {
             return `恢复数据复核失败：${error instanceof Error ? error.message : String(error)}`;
         }
@@ -1937,11 +1957,17 @@ export async function restoreLayoutForContainer(
                     }
                     emptyPlan.push({ kind: "move-owner", element: child, ownerContainer, ownerSectionId });
                     try {
+                        const ownerWidgetLayoutSettings = resolveEffectiveWidgetLayoutSettings(
+                            layout,
+                            deviceId,
+                            { sectionsEnabled: true, sectionId: ownerSectionId },
+                        );
                         const transaction = prepareRuntimeOptionTransaction(
                             (child as any).__widgetBlockInstance,
                             {
                                 sectionsEnabled: true,
                                 sectionId: ownerSectionId,
+                                widgetLayoutNumber: ownerWidgetLayoutSettings.widgetLayoutNumber,
                                 deviceViewContext,
                                 componentSectionContainers: options.componentSectionContainers,
                                 preservedWidgetElements: options.preservedWidgetElements,
@@ -2197,7 +2223,11 @@ export async function restoreLayoutForContainer(
 
     // 第一阶段：只读布局、配置与现有元素位置，禁止移动、销毁或创建 DOM。
     const defaultStyleByWidgetId = new Map(defaultOrder.map((item) => [item.id, item.style]));
-    const reconcilePlan: ReconcilePlanEntry[] = [];
+    const plannedEntries = new Map<string, ReconcilePlanEntry>();
+    const widgetsNeedingRestoreRead: Array<{
+        item: LayoutItem;
+        existingElement: HTMLElement | null;
+    }> = [];
     for (const item of runtimeOrder) {
         const existingElements = getWidgetElements(item.id);
         if (existingElements.length > 1) {
@@ -2207,7 +2237,7 @@ export async function restoreLayoutForContainer(
         const existingInstance = existingElement ? (existingElement as any).__widgetBlockInstance : null;
         const existingHealthy = Boolean(existingInstance?.hasMountedContent?.());
         if (existingHealthy) {
-            reconcilePlan.push({
+            plannedEntries.set(item.id, {
                 item,
                 existingElement,
                 existingHealthy: true,
@@ -2216,50 +2246,74 @@ export async function restoreLayoutForContainer(
             });
             continue;
         }
-        try {
-            const widgetDocument = await readWidgetInstanceDocument(deviceViewContext, item.id);
-            const contentData = widgetDocument?.config ?? null;
-            const contentJson = contentData ? stringifyWidgetConfigForMount(contentData) : null;
-            if (!widgetDocument || !contentJson) {
-                return finish(
-                    "fatal",
-                    layoutRevision,
-                    runtimeOrder.map((entry) => entry.id),
-                    `组件 ${item.id} 配置无法确认`,
-                    [],
-                    [],
-                    false,
-                    "widget-read",
-                );
-            }
-            rebuildWidgetDocuments.set(item.id, {
-                revision: widgetDocument.revision,
-                config: cloneJsonSafe(widgetDocument.config, `组件 ${item.id} 恢复事务配置快照`),
-            });
-            reconcilePlan.push({
-                item,
-                existingElement,
-                existingHealthy: false,
-                contentJson,
-                restoredStyle: recoverGridSpanFromWidgetConfig(
-                    item.style,
-                    contentData,
-                    defaultStyleByWidgetId.get(item.id) || null,
-                ),
-            });
-        } catch (error) {
-            return finish(
-                "fatal",
-                layoutRevision,
-                runtimeOrder.map((entry) => entry.id),
-                `组件 ${item.id} 配置读取状态不确定：${error instanceof Error ? error.message : String(error)}`,
-                [],
-                [],
-                false,
-                "widget-read",
-            );
-        }
+        widgetsNeedingRestoreRead.push({ item, existingElement });
     }
+    interface RestoreReadResult {
+        item: LayoutItem;
+        existingElement: HTMLElement | null;
+        contentJson: string;
+        restoredStyle: string | null;
+        revision: number;
+        config: Record<string, unknown>;
+    }
+    let restoreReadResults: RestoreReadResult[];
+    try {
+        restoreReadResults = await mapWithConcurrency(
+            widgetsNeedingRestoreRead,
+            HOMEPAGE_WIDGET_READ_CONCURRENCY,
+            async ({ item, existingElement }): Promise<RestoreReadResult> => {
+                try {
+                    const widgetDocument = await readWidgetInstanceDocument(deviceViewContext, item.id);
+                    const contentData = widgetDocument?.config ?? null;
+                    const contentJson = contentData ? stringifyWidgetConfigForMount(contentData) : null;
+                    if (!widgetDocument || !contentJson) {
+                        throw new Error(`组件 ${item.id} 配置无法确认`);
+                    }
+                    return {
+                        item,
+                        existingElement,
+                        contentJson,
+                        restoredStyle: recoverGridSpanFromWidgetConfig(
+                            item.style,
+                            contentData,
+                            defaultStyleByWidgetId.get(item.id) || null,
+                        ),
+                        revision: widgetDocument.revision,
+                        config: cloneJsonSafe(widgetDocument.config, `组件 ${item.id} 恢复事务配置快照`),
+                    };
+                } catch (error) {
+                    throw new Error(
+                        `组件 ${item.id} 配置读取状态不确定：${error instanceof Error ? error.message : String(error)}`,
+                    );
+                }
+            },
+        );
+    } catch (error) {
+        return finish(
+            "fatal",
+            layoutRevision,
+            runtimeOrder.map((entry) => entry.id),
+            error instanceof Error ? error.message : String(error),
+            [],
+            [],
+            false,
+            "widget-read",
+        );
+    }
+    for (const result of restoreReadResults) {
+        rebuildWidgetDocuments.set(result.item.id, {
+            revision: result.revision,
+            config: result.config,
+        });
+        plannedEntries.set(result.item.id, {
+            item: result.item,
+            existingElement: result.existingElement,
+            existingHealthy: false,
+            contentJson: result.contentJson,
+            restoredStyle: result.restoredStyle,
+        });
+    }
+    const reconcilePlan = runtimeOrder.map((item) => plannedEntries.get(item.id)!);
     type DisplacedElementAction =
         | { kind: "move-owner"; element: HTMLElement; ownerSectionId: string; ownerContainer: HTMLElement }
         | { kind: "preserve"; element: HTMLElement }
@@ -2303,11 +2357,17 @@ export async function restoreLayoutForContainer(
     try {
         for (const action of displacedPlan) {
             if (action.kind !== "move-owner") continue;
+            const ownerWidgetLayoutSettings = resolveEffectiveWidgetLayoutSettings(
+                layout,
+                deviceId,
+                { sectionsEnabled: true, sectionId: action.ownerSectionId },
+            );
             const transaction = prepareRuntimeOptionTransaction(
                 (action.element as any).__widgetBlockInstance,
                 {
                     sectionsEnabled: true,
                     sectionId: action.ownerSectionId,
+                    widgetLayoutNumber: ownerWidgetLayoutSettings.widgetLayoutNumber,
                     deviceViewContext,
                     componentSectionContainers: options.componentSectionContainers,
                     preservedWidgetElements: options.preservedWidgetElements,
@@ -2322,6 +2382,7 @@ export async function restoreLayoutForContainer(
                 {
                     sectionsEnabled,
                     sectionId,
+                    widgetLayoutNumber: effectiveWidgetLayoutSettings.widgetLayoutNumber,
                     deviceViewContext,
                     componentSectionContainers: options.componentSectionContainers,
                     preservedWidgetElements: options.preservedWidgetElements,
@@ -2374,6 +2435,7 @@ export async function restoreLayoutForContainer(
                 {
                     sectionsEnabled,
                     sectionId,
+                    widgetLayoutNumber: effectiveWidgetLayoutSettings.widgetLayoutNumber,
                     deviceViewContext,
                     componentSectionContainers: options.componentSectionContainers,
                     preservedWidgetElements: options.preservedWidgetElements,
@@ -2633,17 +2695,19 @@ export async function setActiveComponentSectionForCurrentDevice(
     layoutFileName: DeviceViewSurface = "desktop-homepage",
     fixedContext?: DeviceViewContext,
     expectedRevision?: number,
-): Promise<void> {
+): Promise<number> {
     const normalized = normalizeSectionId(sectionId);
-    if (!normalized) return;
+    if (!normalized) return 0;
     const context = fixedContext ?? await getReadyContext(plugin, layoutFileName);
     if (context.surface !== layoutFileName) {
         throw new Error("活动分栏写入 context 与 surface 不一致");
     }
 
-    await updateCurrentDeviceLayout(context, (layout, deviceId) => {
+    return updateCurrentDeviceLayout(context, (layout, deviceId) => {
         const profile = ensureDeviceProfile(layout, deviceId);
-        if (!profile.sections?.[normalized]) return layout;
+        if (!profile.sections?.[normalized]) {
+            throw new Error(`目标分栏 ${normalized} 不存在于最新布局，未写入活动分栏状态`);
+        }
         return {
             ...layout,
             profiles: {
@@ -3041,7 +3105,12 @@ export async function loadWidgetLayoutSettings(
     const layout = (await loadLayoutSnapshotForContext(context, {
         assumeReady: Boolean(fixedContext),
     })).layout;
-    const sectionsEnabled = options.sectionsEnabled ?? await isRuntimeComponentSectionsEnabled(plugin, context);
+    const profile = layout.profiles?.[context.scopeId];
+    const sectionsEnabled = options.sectionsEnabled ?? (
+        isHomepageEntitlementGranted()
+        && profile?.componentSectionsModeEnabled === true
+        && Object.keys(profile?.sections ?? {}).length > 0
+    );
     const sectionId = normalizeSectionId(
         options.sectionId ?? getActiveSectionIdFromLayout(layout, context.scopeId),
     );

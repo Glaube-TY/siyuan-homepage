@@ -6,10 +6,36 @@ import {
     shift
 } from "@floating-ui/dom";
 import { Protyle } from "siyuan";
-import { loadHomepageConfigDataStrict } from "@/homepage/configLoader";
+import { getCurrentDeviceViewContext } from "@/homepage/deviceView/deviceViewContext";
+import { ensureCurrentDeviceViewReady } from "@/homepage/deviceView/deviceViewReadiness";
+import { readDeviceViewSettings } from "@/homepage/deviceView/deviceViewStorage";
 
 // 浮窗预览模式类型
 type FloatingDocMode = "preview" | "wysiwyg";
+
+let cachedDefaultDocPreviewMode: FloatingDocMode | undefined;
+
+export function invalidateFloatingDocDefaultModeCache(): void {
+    cachedDefaultDocPreviewMode = undefined;
+}
+
+async function loadFloatingDocDefaultMode(plugin: any): Promise<FloatingDocMode> {
+    if (cachedDefaultDocPreviewMode) return cachedDefaultDocPreviewMode;
+    if (!plugin) return "preview";
+    try {
+        const context = getCurrentDeviceViewContext(plugin, "desktop-homepage");
+        await ensureCurrentDeviceViewReady(context);
+        const settings = await readDeviceViewSettings(context);
+        const mode = settings?.config?.defaultDocPreviewMode;
+        if (mode === "preview" || mode === "wysiwyg") {
+            cachedDefaultDocPreviewMode = mode;
+            return mode;
+        }
+    } catch (error) {
+        console.warn("[FloatingDoc] 读取全局预览模式失败:", error);
+    }
+    return "preview";
+}
 
 // 浮窗选项接口
 interface FloatingDocOptions {
@@ -276,21 +302,8 @@ class FloatingDocManager {
             return explicitMode;
         }
 
-        // 优先级2：读取主页设置中的全局默认模式
-        if (plugin) {
-            try {
-                const config = (await loadHomepageConfigDataStrict(plugin)).data;
-                const globalMode = config?.defaultDocPreviewMode;
-                if (globalMode === 'preview' || globalMode === 'wysiwyg') {
-                    return globalMode;
-                }
-            } catch (e) {
-                console.warn('[FloatingDoc] 读取全局预览模式失败:', e);
-            }
-        }
-
-        // 优先级3：最终回退到 preview
-        return 'preview';
+        // 优先级2：只读取主页 view.json 中的全局默认模式。
+        return loadFloatingDocDefaultMode(plugin);
     }
 
     public async show(note: any, event: MouseEvent, plugin?: any, options?: FloatingDocOptions): Promise<void> {
