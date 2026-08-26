@@ -217,6 +217,7 @@ export function agentProfileResourceAllowList(access: AgentResourceAccess): read
 export const KNOWLEDGE_CHAT_AGENT_PROFILE_ID = "knowledge-chat";
 export const ROBOT_AGENT_PROFILE_ID = "remote-robot";
 export const HOMEPAGE_STATUS_AGENT_PROFILE_ID = "homepage-status";
+export const HOMEPAGE_DAILY_QUOTE_AGENT_PROFILE_ID = "homepage-daily-quote";
 export const EDITOR_SELECTION_AGENT_PROFILE_ID = "editor-selection";
 export const BACKGROUND_JOB_AGENT_PROFILE_ID = "background-job";
 
@@ -331,6 +332,22 @@ registerAgentProfile({
   capabilities: ["homepage", "global-memory"],
   permissions: {
     contextSources: ["homepage-statistics", "global-memory"],
+    tools: { names: [], actions: {} },
+    memory: { read: true, write: false },
+    externalSkillIds: [],
+    mcpServerIds: [],
+    mcpToolNames: [],
+  },
+  execution: { defaultMaxToolCalls: 0 },
+});
+
+registerAgentProfile({
+  schemaVersion: AGENT_PROFILE_SCHEMA_VERSION,
+  id: HOMEPAGE_DAILY_QUOTE_AGENT_PROFILE_ID,
+  label: "每日一句 AI",
+  capabilities: ["global-memory"],
+  permissions: {
+    contextSources: ["global-memory"],
     tools: { names: [], actions: {} },
     memory: { read: true, write: false },
     externalSkillIds: [],

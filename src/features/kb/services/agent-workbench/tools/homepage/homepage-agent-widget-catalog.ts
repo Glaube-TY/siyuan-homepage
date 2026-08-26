@@ -20,7 +20,7 @@ const EDITABLE_FIELDS: Record<string, string[]> = {
   "custom-protyle": ["isRandomDoc", "customBlockId", "displayPreset", "showBreadcrumb", "showDocumentTitle", "contentWidthMode", "outerPadding", "contentPadding", "innerCard"],
   focus: ["focusImageType", "focusBgImage", "breakImageType", "breakBgImage"],
   musicPlayer: ["sourceMode", "cloudStreamQuality", "cloudTranscodeFormat", "autoPlay"],
-  dailyQuote: ["dailyQuoteMode", "customDailyQuoteContent", "dailyQuoteSource", "dailyQuoteFontSize", "dailyQuoteBgSelect", "dailyQuoteRemoteBg"],
+  dailyQuote: ["dailyQuoteMode", "customDailyQuoteContent", "dailyQuoteSource", "dailyQuoteAiPrompt", "dailyQuoteAiUseMemory", "dailyQuoteFontSize", "dailyQuoteBgSelect", "dailyQuoteRemoteBg"],
   timedate: ["timeType", "showSeconds", "showDate", "showWeek", "showLunar", "showZodiac", "showSolarTerm", "dateFormat"],
   HOT: ["source"], News: ["NewsType"], constellation: ["selectedConstellation"], historyDays: ["historyDaysType"],
   almanac: ["almanacStyle"], stikynot: ["stikynotStyle"], CYBMOK: ["CMKnockSound"],

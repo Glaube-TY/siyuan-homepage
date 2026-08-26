@@ -67,7 +67,8 @@
     "verify:visual-chart": "node --loader ts-node/esm --experimental-specifier-resolution=node scripts/verify-visual-chart.ts",
     "verify:mobile-homepage": "node --loader ts-node/esm --experimental-specifier-resolution=node scripts/verify-mobile-homepage.ts",
     "verify:mobile-dialogs": "node --loader ts-node/esm --experimental-specifier-resolution=node scripts/verify-mobile-dialog-framework.ts",
-    "verify:entitlement": "node --loader ts-node/esm --experimental-specifier-resolution=node scripts/verify-homepage-entitlement.ts"
+    "verify:entitlement": "node --loader ts-node/esm --experimental-specifier-resolution=node scripts/verify-homepage-entitlement.ts",
+    "verify:daily-quote-ai": "cross-env TS_NODE_TRANSPILE_ONLY=true node --loader ts-node/esm --loader ./scripts/ts-node-alias-loader.mjs --experimental-specifier-resolution=node scripts/verify-daily-quote-ai.ts"
   },
   "devDependencies": {
     "@eslint/js": "^9.17.0",

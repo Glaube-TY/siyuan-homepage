@@ -3,6 +3,10 @@
     import SettingSection from "@/libs/components/SettingSection.svelte";
     import SettingRow from "@/libs/components/SettingRow.svelte";
     import AdvancedFeatureLock from "../common/AdvancedFeatureLock.svelte";
+    import {
+        DAILY_QUOTE_AI_PROMPT_MAX_LENGTH,
+        DEFAULT_DAILY_QUOTE_AI_PROMPT,
+    } from "./dailyQuoteAiConfig";
 
     interface Props {
         advancedEnabled?: boolean;
@@ -10,6 +14,8 @@
         dailyQuoteFontSize?: number;
         dailyQuoteSource?: string;
         customDailyQuoteContent?: string;
+        dailyQuoteAiPrompt?: string;
+        dailyQuoteAiUseMemory?: boolean;
         dailyQuoteBgSelect?: string;
         dailyQuoteRemoteBg?: string;
         dailyQuoteLocalBg?: string;
@@ -21,6 +27,8 @@
         dailyQuoteFontSize = $bindable(1),
         dailyQuoteSource = $bindable("classic"),
         customDailyQuoteContent = $bindable(""),
+        dailyQuoteAiPrompt = $bindable(DEFAULT_DAILY_QUOTE_AI_PROMPT),
+        dailyQuoteAiUseMemory = $bindable(true),
         dailyQuoteBgSelect = $bindable("remote"),
         dailyQuoteRemoteBg = $bindable("https://images.unsplash.com/photo-1506905925346-21bda4d32df4?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&auto=format&fit=crop&w=2070&q=80"),
         dailyQuoteLocalBg = $bindable("")
@@ -31,7 +39,8 @@
     <SettingRow title="每日一言模式">
         <select bind:value={dailyQuoteMode} class="control-sm">
             <option value="custom">自定义文字</option>
-            <option value="remote">远程接口👑</option>
+            <option value="ai" disabled={!advancedEnabled}>AI 生成（会员）</option>
+            <option value="remote" disabled={!advancedEnabled}>远程接口（会员）</option>
         </select>
     </SettingRow>
 
@@ -69,6 +78,38 @@
             highlights={["远程接口", "多种语录", "灵感启发"]}
         />
     {/if}
+{:else if dailyQuoteMode === "ai"}
+    {#if advancedEnabled}
+        <SettingSection>
+            <SettingRow title="AI 生成要求" description="描述你希望每日一句的语气和风格。">
+                <textarea
+                    bind:value={dailyQuoteAiPrompt}
+                    maxlength={DAILY_QUOTE_AI_PROMPT_MAX_LENGTH}
+                    rows="4"
+                ></textarea>
+            </SettingRow>
+            <SettingRow
+                title="结合全局记忆"
+                description="结合 AI 中心的全局记忆，让内容更贴近长期目标和偏好。"
+            >
+                <input type="checkbox" class="b3-switch fn__flex-center" bind:checked={dailyQuoteAiUseMemory} />
+            </SettingRow>
+            <SettingRow
+                title="模型与缓存"
+                description="模型跟随 AI 中心默认模型；每日自动生成一次，可在组件内手动刷新。"
+            >
+                <span class="daily-quote-ai-info">使用 AI 中心默认模型</span>
+            </SettingRow>
+        </SettingSection>
+    {:else}
+        <AdvancedFeatureLock
+            title="AI 每日一句"
+            subtitle="使用 AI 中心每日生成个性化内容。"
+            icon="quote"
+            features={["每日自动生成", "全局记忆个性化", "手动重新生成"]}
+            highlights={["AI 生成", "全局记忆", "每日缓存"]}
+        />
+    {/if}
 {:else}
     <SettingSection>
         <SettingRow title="自定义内容" description="每句话一行">
@@ -98,5 +139,10 @@
         background: var(--b3-theme-background);
         font-family: inherit;
         resize: vertical;
+    }
+
+    .daily-quote-ai-info {
+        color: var(--b3-theme-on-surface);
+        font-size: 12px;
     }
 </style>

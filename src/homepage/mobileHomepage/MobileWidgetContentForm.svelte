@@ -54,6 +54,12 @@
     visualChartConfigFromWidgetContent,
   } from "@/features/visual-chart/visual-chart-config";
   import { STIKYNOT_STYLE_PRESETS } from "@/components/utils/widgetBlock/widget/stikynot/stikynotPresets";
+  import {
+    DAILY_QUOTE_AI_PROMPT_MAX_LENGTH,
+    DEFAULT_DAILY_QUOTE_AI_PROMPT,
+    normalizeDailyQuoteAiPrompt,
+    normalizeDailyQuoteAiUseMemory,
+  } from "../../components/utils/widgetBlock/widget/dailyQuote/dailyQuoteAiConfig";
 
   interface Props {
     plugin: any;
@@ -99,6 +105,7 @@
   interface FieldOption {
     value: string | number;
     label: string;
+    disabled?: boolean;
   }
 
   interface MobileField {
@@ -110,6 +117,7 @@
     options?: FieldOption[];
     min?: number;
     max?: number;
+    maxLength?: number;
     step?: number;
     rows?: number;
     vipOnly?: boolean;
@@ -382,6 +390,8 @@
         dailyQuoteMode: "custom",
         customDailyQuoteContent: "",
         dailyQuoteSource: "classic",
+        dailyQuoteAiPrompt: DEFAULT_DAILY_QUOTE_AI_PROMPT,
+        dailyQuoteAiUseMemory: true,
         dailyQuoteFontSize: 1,
         dailyQuoteBgSelect: "remote",
         dailyQuoteRemoteBg: defaultBackgrounds.dailyQuote,
@@ -989,6 +999,8 @@
               form.customDailyQuoteContent,
             ),
             dailyQuoteSource: normalizeString(form.dailyQuoteSource, "classic"),
+            dailyQuoteAiPrompt: normalizeDailyQuoteAiPrompt(form.dailyQuoteAiPrompt),
+            dailyQuoteAiUseMemory: normalizeDailyQuoteAiUseMemory(form.dailyQuoteAiUseMemory),
             dailyQuoteFontSize: normalizeNumber(form.dailyQuoteFontSize, 1),
             dailyQuoteBgSelect: normalizeString(
               form.dailyQuoteBgSelect,
@@ -1316,8 +1328,8 @@
     }
   }
 
-  function option(value: string | number, label: string): FieldOption {
-    return { value, label };
+  function option(value: string | number, label: string, disabled?: boolean): FieldOption {
+    return disabled === undefined ? { value, label } : { value, label, disabled };
   }
 
   function getFields(type: string, state: FormState): MobileField[] {
@@ -1863,7 +1875,11 @@
             key: "dailyQuoteMode",
             type: "select",
             label: "语录来源",
-            options: [option("custom", "自定义"), option("remote", "远程语录")],
+            options: [
+              option("custom", "自定义"),
+              option("ai", "AI 生成（会员）", !mobileAdvancedEnabled),
+              option("remote", "远程语录（会员）", !mobileAdvancedEnabled),
+            ],
           },
           ...(state.dailyQuoteMode === "custom"
             ? [
@@ -1874,7 +1890,32 @@
                   rows: 4,
                 } as MobileField,
               ]
-            : [
+            : state.dailyQuoteMode === "ai"
+              ? [
+                  {
+                    key: "dailyQuoteAiPrompt",
+                    type: "textarea",
+                    label: "AI 生成要求",
+                    description: "AI 每日一句为高级会员专属；现有设置会保留，会员恢复后继续使用。",
+                    rows: 4,
+                    maxLength: DAILY_QUOTE_AI_PROMPT_MAX_LENGTH,
+                    vipOnly: true,
+                  } as MobileField,
+                  {
+                    key: "dailyQuoteAiUseMemory",
+                    type: "switch",
+                    label: "结合全局记忆",
+                    description: "结合 AI 中心的全局记忆；AI 每日一句为高级会员专属，现有设置会保留。",
+                    vipOnly: true,
+                  } as MobileField,
+                  {
+                    key: "dailyQuoteAiInfo",
+                    type: "info",
+                    label: "模型与缓存",
+                    description: "模型跟随 AI 中心默认模型；每日自动生成一次，可在组件内手动刷新。",
+                  } as MobileField,
+                ]
+              : [
                 {
                   key: "dailyQuoteSource",
                   type: "select",
@@ -2419,24 +2460,34 @@
               </div>
             </div>
           {:else}
+            {@const isVipField = field.vipOnly === true}
             <label class="mobile-form-row mobile-form-row-stack">
               <span>
-                <strong>{field.label}</strong>
+                <strong>
+                  {#if isVipField}<SiyuanIcon name="vip" size={12} title="高级会员专属" />{/if}
+                  {field.label}
+                </strong>
                 {#if field.description}
                   <small>{field.description}</small>
                 {/if}
               </span>
 
               {#if field.type === "select"}
-                <select bind:value={form[field.key]} onchange={(event) => handleFieldChange(field.key, event.currentTarget.value)}>
+                <select
+                  bind:value={form[field.key]}
+                  disabled={isVipField && !mobileAdvancedEnabled}
+                  onchange={(event) => handleFieldChange(field.key, event.currentTarget.value)}
+                >
                   {#each field.options || [] as item}
-                    <option value={item.value}>{item.label}</option>
+                    <option value={item.value} disabled={item.disabled === true}>{item.label}</option>
                   {/each}
                 </select>
               {:else if field.type === "textarea"}
                 <textarea
                   bind:value={form[field.key]}
                   rows={field.rows || 4}
+                  maxlength={field.maxLength}
+                  disabled={isVipField && !mobileAdvancedEnabled}
                   placeholder={field.placeholder || ""}
                 ></textarea>
               {:else if field.type === "number"}
@@ -2446,14 +2497,17 @@
                   min={field.min}
                   max={field.max}
                   step={field.step || 1}
+                  disabled={isVipField && !mobileAdvancedEnabled}
                   placeholder={field.placeholder || ""}
                 />
               {:else if field.type === "color"}
-                <input type="color" bind:value={form[field.key]} />
+                <input type="color" bind:value={form[field.key]} disabled={isVipField && !mobileAdvancedEnabled} />
               {:else}
                 <input
                   type="text"
                   bind:value={form[field.key]}
+                  maxlength={field.maxLength}
+                  disabled={isVipField && !mobileAdvancedEnabled}
                   placeholder={field.placeholder || ""}
                 />
               {/if}

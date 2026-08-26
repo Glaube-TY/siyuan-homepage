@@ -11,6 +11,11 @@
   import CountdownSet from "./widget/countdown/countdownSet.svelte";
   import CustomTextSet from "./widget/customText/customTextSet.svelte";
   import DailyQuoteSet from "./widget/dailyQuote/dailyQuoteSet.svelte";
+  import {
+    DEFAULT_DAILY_QUOTE_AI_PROMPT,
+    normalizeDailyQuoteAiPrompt,
+    normalizeDailyQuoteAiUseMemory,
+  } from "./widget/dailyQuote/dailyQuoteAiConfig";
   import HeatmapSet from "./widget/heatmap/heatmapSet.svelte";
   import HistoryDaysSet from "./widget/historyDays/historyDaysSet.svelte";
   import HOTSet from "./widget/HOT/HOTSet.svelte";
@@ -221,6 +226,8 @@
   let customDailyQuoteContent: string = $state("");
   let dailyQuoteSource: string = $state("classic");
   let dailyQuoteFontSize: number = $state(1);
+  let dailyQuoteAiPrompt: string = $state(DEFAULT_DAILY_QUOTE_AI_PROMPT);
+  let dailyQuoteAiUseMemory: boolean = $state(true);
   let dailyQuoteBgSelect = $state("remote");
   let dailyQuoteRemoteBg = $state(
     "https://haowallpaper.com/link/common/file/previewFileImg/17169460970507648",
@@ -743,6 +750,12 @@
           parsedData.data?.customDailyQuoteContent || customDailyQuoteContent;
         dailyQuoteSource =
           parsedData.data?.dailyQuoteSource || dailyQuoteSource;
+        dailyQuoteAiPrompt = normalizeDailyQuoteAiPrompt(
+          parsedData.data?.dailyQuoteAiPrompt,
+        );
+        dailyQuoteAiUseMemory = normalizeDailyQuoteAiUseMemory(
+          parsedData.data?.dailyQuoteAiUseMemory,
+        );
         dailyQuoteFontSize =
           parsedData.data?.dailyQuoteFontSize || dailyQuoteFontSize;
         dailyQuoteBgSelect =
@@ -1138,6 +1151,8 @@
             bind:dailyQuoteFontSize
             bind:dailyQuoteSource
             bind:customDailyQuoteContent
+            bind:dailyQuoteAiPrompt
+            bind:dailyQuoteAiUseMemory
             bind:dailyQuoteBgSelect
             bind:dailyQuoteRemoteBg
             bind:dailyQuoteLocalBg
@@ -1708,6 +1723,8 @@
               dailyQuoteMode,
               customDailyQuoteContent,
               dailyQuoteSource,
+              dailyQuoteAiPrompt: normalizeDailyQuoteAiPrompt(dailyQuoteAiPrompt),
+              dailyQuoteAiUseMemory: normalizeDailyQuoteAiUseMemory(dailyQuoteAiUseMemory),
               dailyQuoteFontSize,
               dailyQuoteBgSelect,
               dailyQuoteRemoteBg,

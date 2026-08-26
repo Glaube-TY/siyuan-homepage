@@ -9,6 +9,7 @@ import {
   AGENT_CONTEXT_SOURCE_IDS,
   AGENT_PROFILE_SCHEMA_VERSION,
   EDITOR_SELECTION_AGENT_PROFILE_ID,
+  HOMEPAGE_DAILY_QUOTE_AGENT_PROFILE_ID,
   HOMEPAGE_STATUS_AGENT_PROFILE_ID,
   agentProfileAllowsContext,
   agentProfileHasCapability,
@@ -163,6 +164,21 @@ assert.equal(agentProfileAllowsContext(homepageStatus, "conversation"), false);
 assert.equal(agentProfileAllowsMemory(homepageStatus, "write"), false);
 assert.equal(agentProfileAllowsMemory(homepageStatus, "read"), true);
 
+const dailyQuoteAiProfile = getAgentProfile(HOMEPAGE_DAILY_QUOTE_AGENT_PROFILE_ID);
+assert.deepEqual(dailyQuoteAiProfile.capabilities, ["global-memory"]);
+assert.deepEqual(dailyQuoteAiProfile.permissions.contextSources, ["global-memory"]);
+assert.deepEqual(dailyQuoteAiProfile.permissions.tools.names, []);
+assert.deepEqual(dailyQuoteAiProfile.permissions.tools.actions, {});
+assert.equal(dailyQuoteAiProfile.execution.defaultMaxToolCalls, 0);
+assert.equal(agentProfileAllowsContext(dailyQuoteAiProfile, "conversation"), false);
+assert.equal(agentProfileAllowsContext(dailyQuoteAiProfile, "global-memory"), true);
+assert.equal(agentProfileHasCapability(dailyQuoteAiProfile, "tools"), false);
+assert.equal(agentProfileAllowsTool(dailyQuoteAiProfile, "siyuan_kb"), false);
+assert.equal(agentProfileAllowsTool(dailyQuoteAiProfile, "web_search"), false);
+assert.equal(agentProfileAllowsTool(dailyQuoteAiProfile, "web_fetch"), false);
+assert.equal(agentProfileAllowsMemory(dailyQuoteAiProfile, "read"), true);
+assert.equal(agentProfileAllowsMemory(dailyQuoteAiProfile, "write"), false);
+
 const editorSelection = getAgentProfile(EDITOR_SELECTION_AGENT_PROFILE_ID);
 assert.deepEqual(editorSelection.permissions.contextSources, ["editor-selection", "editor-document"]);
 assert.equal(editorSelection.execution.defaultMaxToolCalls, 0);
@@ -260,6 +276,10 @@ const statusGeneratorSource = readFileSync(
   new URL("../src/homepage/header/status-ai-generator.ts", import.meta.url),
   "utf8",
 );
+const dailyQuoteGeneratorSource = readFileSync(
+  new URL("../src/components/utils/widgetBlock/widget/dailyQuote/dailyQuoteAi.ts", import.meta.url),
+  "utf8",
+);
 const plainTextSource = readFileSync(
   new URL("../src/services/ai/plain-text-generation.ts", import.meta.url),
   "utf8",
@@ -319,6 +339,11 @@ assert.equal(
 assert.match(robotRuntimeSource, /ROBOT_AGENT_PROFILE_ID/);
 assert.match(robotRuntimeSource, /agentProfileAllowsTool/);
 assert.match(statusGeneratorSource, /HOMEPAGE_STATUS_AGENT_PROFILE_ID/);
+assert.match(dailyQuoteGeneratorSource, /HOMEPAGE_DAILY_QUOTE_AGENT_PROFILE_ID/);
+assert.match(dailyQuoteGeneratorSource, /generatePlainText/);
+assert.equal(dailyQuoteGeneratorSource.includes("runAgentProfile"), false);
+assert.equal(dailyQuoteGeneratorSource.includes("web_search"), false);
+assert.equal(dailyQuoteGeneratorSource.includes("web_fetch"), false);
 assert.match(selectionRunnerSource, /EDITOR_SELECTION_AGENT_PROFILE_ID/);
 assert.equal(selectionRunnerSource.includes("streamModelText"), false);
 assert.match(plainTextSource, /agentProfileAllowsContext/);

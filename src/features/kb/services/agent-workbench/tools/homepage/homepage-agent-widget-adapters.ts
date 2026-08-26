@@ -2,6 +2,10 @@ import { getMobileWidgetActiveTab } from "../../../../../../homepage/mobileHomep
 import { assertHomepagePatchContainsNoSensitiveFields } from "./homepage-agent-widget-sanitizer";
 import { getHomepageAgentWidgetDescriptor } from "./homepage-agent-widget-catalog";
 import {
+  DAILY_QUOTE_AI_PROMPT_MAX_LENGTH,
+  DEFAULT_DAILY_QUOTE_AI_PROMPT,
+} from "../../../../../../components/utils/widgetBlock/widget/dailyQuote/dailyQuoteAiConfig";
+import {
   getProtyleDisplayPreset,
   PROTYLE_CONTENT_PADDING_OPTIONS,
   PROTYLE_OUTER_PADDING_OPTIONS,
@@ -20,7 +24,7 @@ const DEFAULT_DATA: Record<string, Record<string, unknown>> = {
   "custom-text": { customText: "" }, "custom-web": { url: "" }, "custom-protyle": { isRandomDoc: false, customBlockId: "", ...getProtyleDisplayPreset("compact") },
   focus: { focusImageType: "remote", focusBgImage: "", breakImageType: "remote", breakBgImage: "" },
   musicPlayer: { musicFolderPath: "", sourceMode: "local", cloudStreamQuality: "original", cloudTranscodeFormat: "auto", autoPlay: false },
-  dailyQuote: { dailyQuoteMode: "custom", customDailyQuoteContent: "", dailyQuoteSource: "classic", dailyQuoteFontSize: 1, dailyQuoteBgSelect: "remote", dailyQuoteRemoteBg: "" },
+  dailyQuote: { dailyQuoteMode: "custom", customDailyQuoteContent: "", dailyQuoteSource: "classic", dailyQuoteAiPrompt: DEFAULT_DAILY_QUOTE_AI_PROMPT, dailyQuoteAiUseMemory: true, dailyQuoteFontSize: 1, dailyQuoteBgSelect: "remote", dailyQuoteRemoteBg: "" },
   timedate: { timeType: "classic", showSeconds: true, showDate: true, showWeek: true, showLunar: true, showZodiac: true, showSolarTerm: true, dateFormat: "YYYY年MM月DD日" },
   HOT: { source: "bilibili" }, News: { NewsType: "daily-news-bulletin" }, constellation: { selectedConstellation: "摩羯" }, historyDays: { historyDaysType: "list" },
   almanac: { almanacStyle: "classic" }, stikynot: { stikynotStyle: "default" }, CYBMOK: { CMKnockSound: "普通" },
@@ -40,7 +44,7 @@ const ENUM_FIELDS: Readonly<Record<string, readonly string[]>> = {
   weatherStyle: ["default", "simple1", "simple2"],
   focusImageType: ["remote", "local"], breakImageType: ["remote", "local"],
   sourceMode: ["local", "subsonic"], cloudStreamQuality: ["original", "320", "192", "128"], cloudTranscodeFormat: ["auto", "mp3"],
-  dailyQuoteMode: ["custom", "remote"], dailyQuoteSource: ["classic", "celebrity", "emotion", "gaoxiao", "pyq", "straybirdsZH", "straybirdsEN", "lovegarden"], dailyQuoteBgSelect: ["remote", "local"],
+  dailyQuoteMode: ["custom", "ai", "remote"], dailyQuoteSource: ["classic", "celebrity", "emotion", "gaoxiao", "pyq", "straybirdsZH", "straybirdsEN", "lovegarden"], dailyQuoteBgSelect: ["remote", "local"],
   timeType: ["classic", "simple1", "simple2", "dial1", "dial2", "dial3", "dial4", "dial5", "dial6", "dial7", "dial8", "dial9"],
   dateFormat: ["YYYY年MM月DD日", "YYYY-MM-DD", "YYYY/MM/DD", "YYYY.MM.DD"],
   source: ["bilibili", "acfun", "weibo", "zhihu", "douyin", "kuaishou", "douban-movie", "douban-group", "tieba", "hupu", "miyoushe", "ngabbs", "v2ex", "52pojie", "hostloc", "coolapk", "baidu", "thepaper", "toutiao", "qq-news", "sina", "sina-news", "netease-news", "huxiu", "ifanr", "sspai", "ithome", "ithome-xijiayi", "juejin", "jianshu", "guokr", "36kr", "51cto", "csdn", "nodeseek", "hellogithub", "lol", "genshin", "honkai", "starrail", "weread"],
@@ -71,6 +75,7 @@ function validateField(type: string, key: string, value: unknown): void {
   if (key === "contentPadding" && !PROTYLE_CONTENT_PADDING_OPTIONS.includes(value as never)) throw new Error("contentPadding 不在允许范围内");
   if (key !== "contentPadding" && defaultValue !== undefined && typeof value !== typeof defaultValue) throw new Error(`字段 ${key} 必须是 ${typeof defaultValue} 类型`);
   if (typeof value === "string" && value.length > 10000) throw new Error(`字段 ${key} 文本过长`);
+  if (key === "dailyQuoteAiPrompt" && (typeof value !== "string" || value.length > DAILY_QUOTE_AI_PROMPT_MAX_LENGTH)) throw new Error(`字段 ${key} 必须是不超过 ${DAILY_QUOTE_AI_PROMPT_MAX_LENGTH} 字符的文本`);
   if (typeof value === "string" && isAbsoluteLocalPath(value)) throw new Error(`字段 ${key} 不允许写入本地绝对路径`);
   if (key === "customText" && (typeof value !== "string" || value.length > 10000)) throw new Error("customText 必须是不超过 10000 字符的文本");
   if (key === "url") {
@@ -102,7 +107,7 @@ export function validateAndNormalizeHomepageWidgetPatch(
   }
   if (!options.advancedEnabled) {
     if (type === "favorites" && ("favoritesGroupingEnabled" in patch || "favoritesGroupIds" in patch)) throw new Error("收藏分组展示设置需要高级功能");
-    if (type === "dailyQuote" && (patch.dailyQuoteMode === "remote" || "dailyQuoteSource" in patch)) throw new Error("远程每日一句设置需要高级功能");
+    if (type === "dailyQuote" && (patch.dailyQuoteMode === "remote" || patch.dailyQuoteMode === "ai" || "dailyQuoteSource" in patch || "dailyQuoteAiPrompt" in patch || "dailyQuoteAiUseMemory" in patch)) throw new Error("AI/远程每日一句设置需要高级功能");
     if (type === "timedate" && ["dial3", "dial4", "dial5", "dial6", "dial7", "dial8", "dial9"].includes(String(patch.timeType ?? ""))) throw new Error("该时间日期样式需要高级功能");
   }
   assertHomepagePatchContainsNoSensitiveFields(patch);
