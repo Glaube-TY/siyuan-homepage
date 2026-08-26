@@ -9,7 +9,7 @@
 </script>
 
 {#if !advancedEnabled}
-  <AdvancedFeatureLock title="全局日历" subtitle="高级会员专属组件" icon="calendar" compact />
+  <AdvancedFeatureLock title="全局日历" subtitle="汇总任务、日记和重要日期" icon="calendar" compact />
 {:else}
 <SettingSection title="日历显示">
   <SettingRow title="组件标题">

@@ -27,6 +27,8 @@
   } from "@/components/tools/siyuanComponentDataApi";
   import { onFavoritesUpdated } from "@/features/favorites-manager/favorites-events";
   import SiyuanIcon from "@/components/utils/shared/SiyuanIcon.svelte";
+  import PremiumMark from "@/components/utils/shared/PremiumMark.svelte";
+  import PremiumSelect, { type PremiumSelectOption } from "@/components/utils/shared/PremiumSelect.svelte";
   import {
     isNotificationCenterFeatureAvailable,
     NOTIFICATION_CENTER_PREMIUM_REQUIRED_MESSAGE,
@@ -60,6 +62,12 @@
     normalizeDailyQuoteAiPrompt,
     normalizeDailyQuoteAiUseMemory,
   } from "../../components/utils/widgetBlock/widget/dailyQuote/dailyQuoteAiConfig";
+  import {
+    isPremiumDailyQuoteMode,
+    isPremiumHeatmapCountType,
+    isPremiumTimedateMode,
+    isPremiumWeatherStyle,
+  } from "@/features/entitlement/homepage-premium-features";
 
   interface Props {
     plugin: any;
@@ -106,6 +114,7 @@
     value: string | number;
     label: string;
     disabled?: boolean;
+    requiresAdvanced?: boolean;
   }
 
   interface MobileField {
@@ -1332,6 +1341,26 @@
     return disabled === undefined ? { value, label } : { value, label, disabled };
   }
 
+  function premiumOption(
+    value: string | number,
+    label: string,
+    requiresAdvanced: boolean,
+  ): FieldOption {
+    return {
+      ...option(value, label, requiresAdvanced && !mobileAdvancedEnabled),
+      requiresAdvanced,
+    };
+  }
+
+  function toPremiumSelectOptions(options: FieldOption[] | undefined): PremiumSelectOption[] {
+    return (options || []).map((item) => ({
+      value: String(item.value),
+      label: item.label,
+      requiresAdvanced: item.requiresAdvanced === true,
+      disabled: item.disabled === true,
+    }));
+  }
+
   function getFields(type: string, state: FormState): MobileField[] {
     const titleField = (key: string, placeholder: string): MobileField => ({
       key,
@@ -1702,9 +1731,9 @@
             label: "计数类型",
             options: [
                 option("block", "内容块"),
-                option("words", "字数👑"),
-                option("documentCreated", "创建文档数👑"),
-                option("documentUpdated", "更新文档数👑"),
+                premiumOption("words", "字数", isPremiumHeatmapCountType("words")),
+                premiumOption("documentCreated", "创建文档数", isPremiumHeatmapCountType("documentCreated")),
+                premiumOption("documentUpdated", "更新文档数", isPremiumHeatmapCountType("documentUpdated")),
             ],
           },
         ];
@@ -1837,13 +1866,13 @@
               option("simple2", "简洁 2"),
               option("dial1", "表盘 1"),
               option("dial2", "表盘 2"),
-              option("dial3", "表盘 3"),
-              option("dial4", "表盘 4"),
-              option("dial5", "表盘 5"),
-              option("dial6", "表盘 6"),
-              option("dial7", "表盘 7"),
-              option("dial8", "表盘 8"),
-              option("dial9", "表盘 9"),
+              premiumOption("dial3", "表盘 3", isPremiumTimedateMode("dial3")),
+              premiumOption("dial4", "表盘 4", isPremiumTimedateMode("dial4")),
+              premiumOption("dial5", "表盘 5", isPremiumTimedateMode("dial5")),
+              premiumOption("dial6", "表盘 6", isPremiumTimedateMode("dial6")),
+              premiumOption("dial7", "表盘 7", isPremiumTimedateMode("dial7")),
+              premiumOption("dial8", "表盘 8", isPremiumTimedateMode("dial8")),
+              premiumOption("dial9", "表盘 9", isPremiumTimedateMode("dial9")),
             ],
           },
           { key: "showSeconds", type: "switch", label: "显示秒" },
@@ -1877,8 +1906,8 @@
             label: "语录来源",
             options: [
               option("custom", "自定义"),
-              option("ai", "AI 生成（会员）", !mobileAdvancedEnabled),
-              option("remote", "远程语录（会员）", !mobileAdvancedEnabled),
+              premiumOption("ai", "AI 生成", isPremiumDailyQuoteMode("ai")),
+              premiumOption("remote", "远程语录", isPremiumDailyQuoteMode("remote")),
             ],
           },
           ...(state.dailyQuoteMode === "custom"
@@ -1896,7 +1925,7 @@
                     key: "dailyQuoteAiPrompt",
                     type: "textarea",
                     label: "AI 生成要求",
-                    description: "AI 每日一句为高级会员专属；现有设置会保留，会员恢复后继续使用。",
+                    description: "描述每日一句的语气和风格。",
                     rows: 4,
                     maxLength: DAILY_QUOTE_AI_PROMPT_MAX_LENGTH,
                     vipOnly: true,
@@ -1905,7 +1934,7 @@
                     key: "dailyQuoteAiUseMemory",
                     type: "switch",
                     label: "结合全局记忆",
-                    description: "结合 AI 中心的全局记忆；AI 每日一句为高级会员专属，现有设置会保留。",
+                    description: "结合 AI 中心的全局记忆进行个性化。",
                     vipOnly: true,
                   } as MobileField,
                   {
@@ -1961,8 +1990,8 @@
             label: "显示样式",
             options: [
               option("default", "默认"),
-              option("simple1", "简约 1"),
-              option("simple2", "简约 2"),
+              premiumOption("simple1", "简约 1", isPremiumWeatherStyle("simple1")),
+              premiumOption("simple2", "简约 2", isPremiumWeatherStyle("simple2")),
             ],
           },
         ];
@@ -2407,20 +2436,20 @@
         </div>
 
         {#each fields as field}
+          {@const isVipField = field.vipOnly === true}
+          {@const hasPremiumOptions = field.type === "select" && field.options?.some((item) => item.requiresAdvanced === true) === true}
           {#if field.type === "info"}
             <div class="mobile-form-info">
-              <strong>{field.label}</strong>
+              <strong>{field.label}{#if isVipField}<PremiumMark />{/if}</strong>
               {#if field.description}
                 <span>{field.description}</span>
               {/if}
             </div>
           {:else if field.type === "switch"}
-            {@const isVipField = field.vipOnly === true}
             <label class="mobile-form-row mobile-form-row-switch">
               <span>
                 <strong>
-                    {#if isVipField}<SiyuanIcon name="vip" size={12} title="高级会员专属" />{/if}
-                    {field.label}
+                    {field.label}{#if isVipField}<PremiumMark />{/if}
                 </strong>
                 {#if field.description}
                   <small>{field.description}</small>
@@ -2439,7 +2468,7 @@
           {:else if field.type === "notebooks"}
             <div class="mobile-form-row mobile-form-row-stack">
               <span>
-                <strong>{field.label}</strong>
+                <strong>{field.label}{#if isVipField}<PremiumMark />{/if}</strong>
                 {#if field.description}
                   <small>{field.description}</small>
                 {/if}
@@ -2460,12 +2489,10 @@
               </div>
             </div>
           {:else}
-            {@const isVipField = field.vipOnly === true}
             <label class="mobile-form-row mobile-form-row-stack">
               <span>
                 <strong>
-                  {#if isVipField}<SiyuanIcon name="vip" size={12} title="高级会员专属" />{/if}
-                  {field.label}
+                  {field.label}{#if isVipField}<PremiumMark />{/if}
                 </strong>
                 {#if field.description}
                   <small>{field.description}</small>
@@ -2473,15 +2500,26 @@
               </span>
 
               {#if field.type === "select"}
-                <select
-                  bind:value={form[field.key]}
-                  disabled={isVipField && !mobileAdvancedEnabled}
-                  onchange={(event) => handleFieldChange(field.key, event.currentTarget.value)}
-                >
-                  {#each field.options || [] as item}
-                    <option value={item.value} disabled={item.disabled === true}>{item.label}</option>
-                  {/each}
-                </select>
+                {#if hasPremiumOptions}
+                  <PremiumSelect
+                    bind:value={form[field.key]}
+                    options={toPremiumSelectOptions(field.options)}
+                    disabled={isVipField && !mobileAdvancedEnabled}
+                    ariaLabel={field.label}
+                    size="md"
+                    onValueChange={(value) => handleFieldChange(field.key, value)}
+                  />
+                {:else}
+                  <select
+                    bind:value={form[field.key]}
+                    disabled={isVipField && !mobileAdvancedEnabled}
+                    onchange={(event) => handleFieldChange(field.key, event.currentTarget.value)}
+                  >
+                    {#each field.options || [] as item}
+                      <option value={item.value} disabled={item.disabled === true}>{item.label}</option>
+                    {/each}
+                  </select>
+                {/if}
               {:else if field.type === "textarea"}
                 <textarea
                   bind:value={form[field.key]}
@@ -2535,7 +2573,7 @@
                 }
                 onOpenSubpage("favorites-manager");
               }}>
-              <SiyuanIcon name="vip" size={14} title="高级会员专属" />
+              <PremiumMark size={14} />
               打开收藏文档管理
             </button>
           </section>

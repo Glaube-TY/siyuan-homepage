@@ -137,14 +137,14 @@
     onDestroy(() => destroyActionSortable());
 </script>
 
-<SettingSection title="移动端主页">
+<SettingSection title="移动端主页" premium>
     {#if !mobileSettingsEditable}
-        <div class="shp-mobile-settings-lock-tip">移动端主页为会员专属功能，开通后可配置和使用。</div>
+        <div class="shp-mobile-settings-lock-tip">当前不可用，开通后可配置和使用；已有设置会继续保留。</div>
     {/if}
 
     <SettingRow
-        title="移动端自动打开窗口👑"
-        description={mobileSettingsEditable ? "移动端启动后自动打开所选界面" : "会员专属，当前不会自动打开"}
+        title="移动端自动打开窗口"
+        description={mobileSettingsEditable ? "移动端启动后自动打开所选界面" : "当前不会自动打开，已保存设置会保留"}
     >
         <input
             type="checkbox"
@@ -204,10 +204,10 @@
     {/if}
 </SettingSection>
 
-<SettingSection title="悬浮快捷按钮">
+<SettingSection title="悬浮快捷按钮" premium>
     <SettingRow
         title="开启悬浮快捷按钮"
-        description={mobileSettingsEditable ? "在手机端右下角显示可展开的主页快捷入口" : "会员专属，当前不会显示"}
+        description={mobileSettingsEditable ? "在手机端右下角显示可展开的主页快捷入口" : "当前不会显示，已保存设置会保留"}
     >
         <input
             type="checkbox"

@@ -1,23 +1,42 @@
 <script lang="ts">
     import SettingSection from "@/libs/components/SettingSection.svelte";
     import SettingRow from "@/libs/components/SettingRow.svelte";
+    import PremiumSelect, { type PremiumSelectOption } from "@/components/utils/shared/PremiumSelect.svelte";
+    import { isPremiumWeatherStyle } from "@/features/entitlement/homepage-premium-features";
 
     interface Props {
         customWeatherCityName?: string;
         customWeatherCityCode?: string;
         weatherStyle?: string;
+        advancedEnabled?: boolean;
     }
 
-    let { customWeatherCityName = $bindable(""), customWeatherCityCode = $bindable(""), weatherStyle = $bindable("default") }: Props = $props();
+    let { customWeatherCityName = $bindable(""), customWeatherCityCode = $bindable(""), weatherStyle = $bindable("default"), advancedEnabled = false }: Props = $props();
+
+    const WEATHER_STYLE_OPTIONS: readonly Pick<PremiumSelectOption, "value" | "label">[] = [
+        { value: "default", label: "默认" },
+        { value: "simple1", label: "简约1" },
+        { value: "simple2", label: "简约2" },
+    ];
+
+    function getWeatherStyleOptions(): PremiumSelectOption[] {
+        return WEATHER_STYLE_OPTIONS.map((option) => {
+            const requiresAdvanced = isPremiumWeatherStyle(option.value);
+            return requiresAdvanced
+                ? { ...option, requiresAdvanced: true, disabled: !advancedEnabled }
+                : option;
+        });
+    }
 </script>
 
 <SettingSection>
     <SettingRow title="样式">
-        <select bind:value={weatherStyle} class="control-sm">
-            <option value="default">默认</option>
-            <option value="simple1">简约1👑</option>
-            <option value="simple2">简约2👑</option>
-        </select>
+        <PremiumSelect
+            bind:value={weatherStyle}
+            options={getWeatherStyleOptions()}
+            ariaLabel="天气样式"
+            size="sm"
+        />
     </SettingRow>
 </SettingSection>
 

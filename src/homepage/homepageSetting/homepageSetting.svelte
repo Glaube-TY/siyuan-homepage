@@ -1573,6 +1573,7 @@
             activeTab={activeTab}
             onTabChange={handleMainTabChange}
             showRobotAssistant={!plugin?.isMobile}
+            advancedEnabled={advancedEnabled}
         />
     </div>
 
@@ -1589,6 +1590,7 @@
         <div class="sub-nav-column">
             <AiKnowledgeBaseSubTabNav
                 activeTab={aiKnowledgeBaseActiveTab}
+                {advancedEnabled}
                 onTabChange={(tab) => aiKnowledgeBaseActiveTab = tab}
             />
         </div>
@@ -1596,6 +1598,7 @@
         <div class="sub-nav-column">
             <NotificationCenterSubTabNav
                 activeTab={notificationCenterActiveTab}
+                {advancedEnabled}
                 onTabChange={(tab) => notificationCenterActiveTab = tab}
             />
         </div>
@@ -1603,6 +1606,7 @@
         <div class="sub-nav-column">
             <RobotAssistantSubTabNav
                 activeTab={robotAssistantActiveTab}
+                {advancedEnabled}
                 onTabChange={(tab) => robotAssistantActiveTab = tab}
             />
         </div>

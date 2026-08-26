@@ -15,11 +15,11 @@
     let backgroundFileInputEl: HTMLInputElement | null = $state(null);
 </script>
 
-<SettingSection title="页脚" focusKey="footer">
+<SettingSection title="页脚" focusKey="footer" premium>
     {#if !advancedEnabled}
-        <div class="footer-vip-note">页脚显示与自定义为会员专属；普通用户始终显示系统默认页脚，已保存的会员设置会继续保留。</div>
+        <div class="footer-vip-note">普通用户使用系统默认页脚，已保存的设置会继续保留。</div>
     {/if}
-    <SettingRow title="显示页脚" description={advancedEnabled ? "在主页底部显示自定义页脚内容" : "会员专属，当前使用系统默认页脚"}>
+    <SettingRow title="显示页脚" description={advancedEnabled ? "在主页底部显示自定义页脚内容" : "当前使用系统默认页脚，已保存设置会保留"}>
         <input
             type="checkbox"
             class="b3-switch fn__flex-center"
@@ -44,7 +44,7 @@
 </SettingSection>
 
 {#if advancedEnabled}
-<SettingSection title="鼠标样式">
+<SettingSection title="鼠标样式" premium>
     <SettingRow title="鼠标图标" description="选择自定义鼠标指针样式">
         <select
             class="control-md"
@@ -111,7 +111,7 @@
     {/if}
 </SettingSection>
 
-<SettingSection title="背景图片">
+<SettingSection title="背景图片" premium>
     <SettingRow title="开启背景图片" description="为主页或整个思源界面显示背景图片">
         <input
             type="checkbox"
@@ -207,7 +207,7 @@
     {/if}
 </SettingSection>
 
-<SettingSection title="飘落特效">
+<SettingSection title="飘落特效" premium>
     <SettingRow title="开启飘落特效" description="在页面上显示飘落动画">
         <input
             type="checkbox"

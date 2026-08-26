@@ -1,11 +1,7 @@
 import { MOBILE_WIDGET_CATALOG } from "../../../../../../homepage/mobileHomepage/mobile-widget-categories";
+import { isPremiumWidgetType } from "../../../../../../features/entitlement/homepage-premium-features";
 import { getHomepageBusinessCapability, type HomepageBusinessCapability } from "./homepage-agent-business-capabilities";
 
-const ADVANCED_TYPES = new Set([
-  "accounting", "almanac", "constellation", "countdown", "countdownTimer", "CYBMOK",
-  "enhancedDiary", "fixedAssets", "heatmap", "historyDays", "musicPlayer",
-  "News", "PicCaro", "reviewDocs", "statisticalCard", "stikynot", "focus", "globalCalendar", "habitTracker",
-]);
 const SINGLETON_TYPES = new Set(["musicPlayer"]);
 
 const EDITABLE_FIELDS: Record<string, string[]> = {
@@ -67,7 +63,7 @@ const DESKTOP_ONLY_WIDGET_DESCRIPTORS: HomepageAgentWidgetDescriptor[] = [
     description: "桌面主页的 AI 知识库面板，展示配置由知识库自身管理。",
     activeTab: "workspace",
     supportedSurfaces: ["desktop-homepage"],
-    advancedRequired: true,
+    advancedRequired: isPremiumWidgetType("notebrain"),
     singleton: true,
     editableFields: [],
     businessCapability: getHomepageBusinessCapability("notebrain")!,
@@ -78,7 +74,7 @@ export const HOMEPAGE_AGENT_WIDGET_CATALOG: HomepageAgentWidgetDescriptor[] = [
   ...MOBILE_WIDGET_CATALOG.map((item): HomepageAgentWidgetDescriptor => ({
     ...item,
     supportedSurfaces: ["desktop-homepage", "mobile-homepage"],
-    advancedRequired: ADVANCED_TYPES.has(item.type),
+    advancedRequired: isPremiumWidgetType(item.type),
     singleton: SINGLETON_TYPES.has(item.type),
     editableFields: [...(EDITABLE_FIELDS[item.type] ?? [])],
     businessCapability: getHomepageBusinessCapability(item.type)!,

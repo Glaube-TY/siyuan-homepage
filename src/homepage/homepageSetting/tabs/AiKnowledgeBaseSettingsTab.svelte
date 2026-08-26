@@ -3,7 +3,9 @@
     import Sortable from "sortablejs";
     import SettingSection from "@/libs/components/SettingSection.svelte";
     import SettingRow from "@/libs/components/SettingRow.svelte";
+    import PremiumMark from "@/components/utils/shared/PremiumMark.svelte";
     import SiyuanIcon from "@/components/utils/shared/SiyuanIcon.svelte";
+    import AdvancedFeatureLock from "@/components/utils/widgetBlock/widget/common/AdvancedFeatureLock.svelte";
     import { getKbSettings, KB_SETTINGS_CHANGED_EVENT } from "@/features/kb/services/settings/kb-settings-service";
     import { buildChatModelOptions } from "@/features/kb/services/settings/chat-model-options";
     import { buildChatModelKey, type ChatModelOption } from "@/features/kb/types/chat-model-selection";
@@ -55,6 +57,71 @@
         onSelectionAiToolbarChange,
     }: Props = $props();
 
+    const AI_PREMIUM_META: Record<AiKnowledgeBaseSubTab, {
+        title: string;
+        subtitle: string;
+        icon: string;
+        features: string[];
+        highlights: string[];
+    }> = {
+        models: {
+            title: "模型与服务",
+            subtitle: "配置 AI 中心使用的模型供应商、API Key 和默认模型。",
+            icon: "database",
+            features: ["统一管理模型供应商", "配置默认模型"],
+            highlights: ["模型配置", "服务管理"],
+        },
+        entries: {
+            title: "AI 知识库",
+            subtitle: "启用侧边栏和标签页 AI 对话入口。",
+            icon: "notebrain",
+            features: ["侧边栏对话入口", "标签页对话入口"],
+            highlights: ["侧边栏", "标签页"],
+        },
+        status: {
+            title: "状态语 AI",
+            subtitle: "配置主页状态语的 AI 生成能力。",
+            icon: "quote",
+            features: ["独立选择状态语模型", "配置生成思考模式"],
+            highlights: ["AI 状态语", "独立模型"],
+        },
+        selection: {
+            title: "选区工具栏",
+            subtitle: "配置编辑器选区中的 AI 操作入口和技能。",
+            icon: "edit",
+            features: ["选区 AI 工具栏", "管理处理技能"],
+            highlights: ["选区 AI", "技能管理"],
+        },
+        webSearch: {
+            title: "联网搜索",
+            subtitle: "配置 Agent 的联网检索与网页读取能力。",
+            icon: "globe",
+            features: ["全局搜索策略", "网页读取设置"],
+            highlights: ["联网检索", "网页读取"],
+        },
+        workbenches: {
+            title: "临时工作台",
+            subtitle: "管理 Agent 入口生成的临时工作台。",
+            icon: "layout",
+            features: ["查看临时工作台", "管理工作台空间"],
+            highlights: ["临时工作台"],
+        },
+        memory: {
+            title: "记忆中枢",
+            subtitle: "管理授权 Agent 入口共享的长期记忆。",
+            icon: "database",
+            features: ["共享长期记忆", "管理记忆内容"],
+            highlights: ["长期记忆"],
+        },
+        automation: {
+            title: "自动化中心",
+            subtitle: "创建和管理后台 Agent 自动化任务。",
+            icon: "clock",
+            features: ["管理自动化任务", "查看运行记录"],
+            highlights: ["后台任务", "运行记录"],
+        },
+    };
+
     let modelOptions: ChatModelOption[] = $state([]);
     let selectedStatusAiModelKey = $state("");
     let statusAiModelInvalid = $state(false);
@@ -92,6 +159,12 @@
     }
 
     async function refreshStatusAiModels(): Promise<void> {
+        if (!advancedEnabled) {
+            modelOptions = [];
+            modelOptionsLoadError = false;
+            syncSelectedModelState([]);
+            return;
+        }
         modelOptionsLoading = true;
         try {
             const settings = await getKbSettings();
@@ -326,7 +399,16 @@
     });
 </script>
 
-{#if activeSubTab === "models"}
+{#if !advancedEnabled}
+    {@const lockMeta = AI_PREMIUM_META[activeSubTab]}
+    <AdvancedFeatureLock
+        title={lockMeta.title}
+        subtitle={lockMeta.subtitle}
+        icon={lockMeta.icon}
+        features={lockMeta.features}
+        highlights={lockMeta.highlights}
+    />
+{:else if activeSubTab === "models"}
 <KbSettingsPanel modelOnly />
 
 {:else if activeSubTab === "entries"}
@@ -350,39 +432,32 @@
         title="开启侧边栏对话"
         description="在右侧侧边栏启用 AI 知识库对话入口"
     >
-        <div class="switch-with-vip">
-            <SiyuanIcon name="vip" size={14} />
-            <input
-                class="b3-switch"
-                type="checkbox"
-                checked={aiKbDockEnabled}
-                onchange={(e) => onAiKbDockEnabledChange(e.currentTarget.checked)}
-            />
-        </div>
+        <input
+            class="b3-switch"
+            type="checkbox"
+            checked={aiKbDockEnabled}
+            onchange={(e) => onAiKbDockEnabledChange(e.currentTarget.checked)}
+        />
     </SettingRow>
     <SettingRow
         title="开启标签页对话"
         description="在左上角显示 AI 知识库标签页入口"
     >
-        <div class="switch-with-vip">
-            <SiyuanIcon name="vip" size={14} />
-            <input
-                class="b3-switch"
-                type="checkbox"
-                checked={aiKbTabEnabled}
-                onchange={(e) => onAiKbTabEnabledChange(e.currentTarget.checked)}
-            />
-        </div>
+        <input
+            class="b3-switch"
+            type="checkbox"
+            checked={aiKbTabEnabled}
+            onchange={(e) => onAiKbTabEnabledChange(e.currentTarget.checked)}
+        />
     </SettingRow>
 </SettingSection>
 
 {:else if activeSubTab === "status"}
-<SettingSection title="状态语 AI 生成">
+<SettingSection title="状态语 AI 生成" premium>
     {#if !advancedEnabled}
         <div class="status-ai-vip-card">
             <div class="status-ai-vip-title">
-                <SiyuanIcon name="vip" size={16} />
-                <span>AI 状态语是会员专属功能</span>
+                <span>状态语 AI</span>
             </div>
             <p class="status-ai-vip-desc">
                 开通会员后，主页可以根据你的真实统计数据自动生成状态语，例如记录天数、笔记数量、文档数量和任务情况，让每次打开主页都有不同的鼓励与提醒。
@@ -448,12 +523,11 @@
 </SettingSection>
 
 {:else if activeSubTab === "selection"}
-<SettingSection title="编辑器选区 AI 工具栏">
+<SettingSection title="编辑器选区 AI 工具栏" premium>
     {#if !advancedEnabled}
         <div class="status-ai-vip-card">
             <div class="status-ai-vip-title">
-                <SiyuanIcon name="vip" size={16} />
-                <span>编辑器工具栏 AI 是会员专属功能</span>
+                <span>编辑器工具栏 AI</span>
             </div>
             <p class="status-ai-vip-desc">
                 开通会员后，可在思源编辑器中选中文字后直接使用 AI 问答、翻译、解释、润色和自定义技能。
@@ -714,13 +788,6 @@
 
     .tutorial-link-card:hover .tutorial-arrow {
         opacity: 1;
-    }
-
-    .switch-with-vip {
-        display: inline-flex;
-        align-items: center;
-        gap: 0.5rem;
-        color: var(--b3-theme-primary);
     }
 
     .model-loading,

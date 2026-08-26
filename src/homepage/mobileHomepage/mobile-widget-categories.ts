@@ -1,3 +1,5 @@
+import { isPremiumWidgetType } from "../../features/entitlement/homepage-premium-features";
+
 export type MobileWidgetSectionId = "note" | "visualization" | "tool" | "info" | "custom";
 export type MobileWidgetCategoryId = "all" | MobileWidgetSectionId;
 
@@ -11,6 +13,7 @@ export interface MobileWidgetCatalogItem {
     label: string;
     description: string;
     activeTab: MobileWidgetSectionId;
+    requiresAdvanced: boolean;
 }
 
 export const MOBILE_WIDGET_CATEGORIES: MobileWidgetCategory[] = [
@@ -22,7 +25,7 @@ export const MOBILE_WIDGET_CATEGORIES: MobileWidgetCategory[] = [
     { id: "custom", label: "自定义" },
 ];
 
-export const MOBILE_WIDGET_CATALOG: MobileWidgetCatalogItem[] = [
+const MOBILE_WIDGET_CATALOG_BASE: Array<Omit<MobileWidgetCatalogItem, "requiresAdvanced">> = [
     {
         type: "globalCalendar",
         label: "全局日历",
@@ -61,7 +64,7 @@ export const MOBILE_WIDGET_CATALOG: MobileWidgetCatalogItem[] = [
     },
     {
         type: "countdown",
-        label: "纪念日👑",
+        label: "纪念日",
         description: "展示重要日期和剩余天数",
         activeTab: "tool",
     },
@@ -234,6 +237,11 @@ export const MOBILE_WIDGET_CATALOG: MobileWidgetCatalogItem[] = [
         activeTab: "tool",
     },
 ];
+
+export const MOBILE_WIDGET_CATALOG: MobileWidgetCatalogItem[] = MOBILE_WIDGET_CATALOG_BASE.map((item) => ({
+    ...item,
+    requiresAdvanced: isPremiumWidgetType(item.type),
+}));
 
 const CATALOG_BY_TYPE = new Map(MOBILE_WIDGET_CATALOG.map((item) => [item.type, item]));
 

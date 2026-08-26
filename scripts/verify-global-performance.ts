@@ -37,7 +37,8 @@ async function verifySourceContracts(): Promise<void> {
     assert.match(homepage, /Promise\.all\(\[/);
     assert.match(homepage, /scheduleIdleTask\(\(\) =>/);
     assert.match(homepage, /destroyBannerDrag\?\.setPosition\(0\)/);
-    assert.match(entry, /void loadSelectionAiToolbarSettingsSnapshot\(this\)/);
+    assert.match(entry, /private async startSelectionAiPremiumRuntime[\s\S]*await loadSelectionAiToolbarSettingsSnapshot\(this\)/);
+    assert.doesNotMatch(entry, /\.finally\(\(\) => initSelectionAiToolbarPointerTracker\(\)\)/);
     assert.match(entry, /cancelDeferredBackgroundStartup/);
     assert.match(overlay, /aria-valuenow=\{normalizedProgress\}/);
     assert.match(clock, /document\.visibilityState === "hidden"/);

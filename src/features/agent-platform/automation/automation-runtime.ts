@@ -39,6 +39,7 @@ import { inspectAgentRunResume } from "@/features/kb/services/agent-core/session
 import { kbSessionStore } from "@/features/kb/stores/kb-session-store";
 import { ROBOT_OUTBOUND_RESULT_EVENT } from "@/features/robot-assistant/contracts/robot-message";
 import { RobotSettingsClient } from "@/features/robot-assistant/settings/robot-settings-client";
+import { isHomepageEntitlementGranted } from "@/features/entitlement/homepage-entitlement";
 
 export const AUTOMATION_RUNTIME_CHANGED_EVENT = "automation-runtime-changed";
 const TASK_ID = "automation-jobs";
@@ -604,6 +605,7 @@ async function runOccurrence(
 }
 
 async function scanJobs(): Promise<void> {
+  if (!isHomepageEntitlementGranted()) return;
   for (const job of await automationJobStore.listJobs()) {
     if (job.runner.deviceId !== getNotificationDeviceId())
       continue;
@@ -660,6 +662,7 @@ function onJobsChanged(): void {
 }
 
 function onRunNow(event: Event): void {
+  if (!isHomepageEntitlementGranted()) return;
   const jobId = (event as CustomEvent<{ jobId?: string }>).detail?.jobId;
   if (!jobId) return;
   signalBackgroundScanTask(TASK_ID);

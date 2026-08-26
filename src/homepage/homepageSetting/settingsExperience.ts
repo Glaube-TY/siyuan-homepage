@@ -25,6 +25,7 @@ export interface SettingSearchEntry {
     scope: SettingScope;
     keywords?: readonly string[];
     target: "row" | "section";
+    requiresAdvanced?: boolean;
 }
 
 export interface SettingSearchResult extends SettingSearchEntry {
@@ -48,9 +49,10 @@ interface EntryDefaults {
     subTab?: SettingSearchSubTab;
     section?: string;
     scope: SettingScope;
+    requiresAdvanced?: boolean;
 }
 
-type EntryInput = Omit<SettingSearchEntry, keyof EntryDefaults | "target"> & {
+type EntryInput = Omit<SettingSearchEntry, "mainTab" | "subTab" | "section" | "scope" | "target"> & {
     target?: SettingSearchEntry["target"];
 };
 
@@ -67,7 +69,7 @@ const SETTINGS_SEARCH_REGISTRY: readonly SettingSearchEntry[] = [
         { mainTab: "homepage", subTab: "behavior", section: "主页行为", scope: "current-device" },
         [
             { id: "homepage.behavior.auto-open", title: "自动打开主页", description: "启动思源后自动进入主页", keywords: ["启动", "首页"] },
-            { id: "homepage.behavior.sidebar", title: "开启侧边栏👑", description: "在桌面端启用主页侧边栏", keywords: ["边栏", "dock"] },
+            { id: "homepage.behavior.sidebar", title: "开启侧边栏", description: "在桌面端启用主页侧边栏", keywords: ["边栏", "dock"], requiresAdvanced: true },
         ],
     ),
     ...defineSettings(
@@ -77,15 +79,15 @@ const SETTINGS_SEARCH_REGISTRY: readonly SettingSearchEntry[] = [
         ],
     ),
     ...defineSettings(
-        { mainTab: "homepage", subTab: "mobile", section: "移动端主页", scope: "mobile-shared" },
+        { mainTab: "homepage", subTab: "mobile", section: "移动端主页", scope: "mobile-shared", requiresAdvanced: true },
         [
-            { id: "homepage.mobile.auto-open-enabled", title: "移动端自动打开窗口👑", description: "移动端启动后自动打开所选界面", keywords: ["手机", "启动"] },
+            { id: "homepage.mobile.auto-open-enabled", title: "移动端自动打开窗口", description: "移动端启动后自动打开所选界面", keywords: ["手机", "启动"] },
             { id: "homepage.mobile.auto-open-target", title: "自动打开", description: "选择移动端启动后默认打开的界面", keywords: ["手机", "主页"] },
             { id: "homepage.mobile.preview", title: "打开手机端主页", description: "在电脑上以手机尺寸编辑移动端主页", keywords: ["预览", "编辑"] },
         ],
     ),
     ...defineSettings(
-        { mainTab: "homepage", subTab: "mobile", section: "悬浮快捷按钮", scope: "mobile-shared" },
+        { mainTab: "homepage", subTab: "mobile", section: "悬浮快捷按钮", scope: "mobile-shared", requiresAdvanced: true },
         [
             { id: "homepage.mobile.quick-actions", title: "开启悬浮快捷按钮", description: "在手机端显示可展开的主页快捷入口", keywords: ["手机", "浮动"] },
             { id: "homepage.mobile.quick-action-size", title: "主按钮大小", description: "设置移动端悬浮主按钮尺寸" },
@@ -114,7 +116,7 @@ const SETTINGS_SEARCH_REGISTRY: readonly SettingSearchEntry[] = [
         ],
     ),
     ...defineSettings(
-        { mainTab: "homepage", subTab: "banner", section: "Bing 每日一图", scope: "current-device" },
+        { mainTab: "homepage", subTab: "banner", section: "Bing 每日一图", scope: "current-device", requiresAdvanced: true },
         [
             { id: "homepage.banner.bing-api", title: "远程接口", description: "选择 Bing 每日一图使用的远程接口", keywords: ["bing", "壁纸"] },
         ],
@@ -136,7 +138,7 @@ const SETTINGS_SEARCH_REGISTRY: readonly SettingSearchEntry[] = [
         ],
     ),
     ...defineSettings(
-        { mainTab: "homepage", subTab: "title", section: "标题区域外观", scope: "current-device" },
+        { mainTab: "homepage", subTab: "title", section: "标题区域外观", scope: "current-device", requiresAdvanced: true },
         [
             { id: "homepage.title.align", title: "标题对齐方式", description: "设置标题、状态语和快捷按钮的对齐方式" },
             { id: "homepage.title.quick-button-style", title: "快捷按钮样式", description: "设置标题区域快捷按钮外观" },
@@ -155,8 +157,8 @@ const SETTINGS_SEARCH_REGISTRY: readonly SettingSearchEntry[] = [
         [
             { id: "homepage.status.mode", title: "状态语来源", description: "选择自定义或 AI 生成主页状态语" },
             { id: "homepage.status.text", title: "自定义状态语", description: "设置主页标题下方的状态文字", keywords: ["变量"] },
-            { id: "homepage.status.prompt", title: "生成提示语", description: "控制 AI 状态语的风格和格式", keywords: ["prompt"] },
-            { id: "homepage.status.max-chars", title: "返回字符上限", description: "限制 AI 状态语的最大长度" },
+            { id: "homepage.status.prompt", title: "生成提示语", description: "控制 AI 状态语的风格和格式", keywords: ["prompt"], requiresAdvanced: true },
+            { id: "homepage.status.max-chars", title: "返回字符上限", description: "限制 AI 状态语的最大长度", requiresAdvanced: true },
         ],
     ),
     ...defineSettings(
@@ -175,7 +177,7 @@ const SETTINGS_SEARCH_REGISTRY: readonly SettingSearchEntry[] = [
         ],
     ),
     ...defineSettings(
-        { mainTab: "homepage", subTab: "widgets", section: "组件分区导航 👑", scope: "current-device" },
+        { mainTab: "homepage", subTab: "widgets", section: "组件分区导航", scope: "current-device", requiresAdvanced: true },
         [
             { id: "homepage.widgets.sections", title: "启用分区导航", description: "将主页组件划分到可切换的分区" },
             { id: "homepage.widgets.section-align", title: "导航对齐", description: "设置组件分区导航的水平位置" },
@@ -221,14 +223,14 @@ const SETTINGS_SEARCH_REGISTRY: readonly SettingSearchEntry[] = [
         ],
     ),
     ...defineSettings(
-        { mainTab: "homepage", subTab: "styles", section: "页脚", scope: "current-device" },
+        { mainTab: "homepage", subTab: "styles", section: "页脚", scope: "current-device", requiresAdvanced: true },
         [
             { id: "homepage.styles.footer", title: "显示页脚", description: "在主页底部显示自定义页脚内容" },
             { id: "homepage.styles.footer-content", title: "页脚内容", description: "设置主页页脚显示的 HTML 内容" },
         ],
     ),
     ...defineSettings(
-        { mainTab: "homepage", subTab: "styles", section: "鼠标样式", scope: "current-device" },
+        { mainTab: "homepage", subTab: "styles", section: "鼠标样式", scope: "current-device", requiresAdvanced: true },
         [
             { id: "homepage.styles.cursor", title: "鼠标图标", description: "选择自定义鼠标指针样式" },
             { id: "homepage.styles.cursor-global", title: "应用于全局", description: "将鼠标样式应用到整个思源笔记", keywords: ["鼠标"] },
@@ -238,7 +240,7 @@ const SETTINGS_SEARCH_REGISTRY: readonly SettingSearchEntry[] = [
         ],
     ),
     ...defineSettings(
-        { mainTab: "homepage", subTab: "styles", section: "背景图片", scope: "current-device" },
+        { mainTab: "homepage", subTab: "styles", section: "背景图片", scope: "current-device", requiresAdvanced: true },
         [
             { id: "homepage.styles.background", title: "开启背景图片", description: "为主页或思源界面显示背景图片" },
             { id: "homepage.styles.background-global", title: "应用于全局", description: "将背景图片应用到整个思源笔记", keywords: ["背景"] },
@@ -250,7 +252,7 @@ const SETTINGS_SEARCH_REGISTRY: readonly SettingSearchEntry[] = [
         ],
     ),
     ...defineSettings(
-        { mainTab: "homepage", subTab: "styles", section: "飘落特效", scope: "current-device" },
+        { mainTab: "homepage", subTab: "styles", section: "飘落特效", scope: "current-device", requiresAdvanced: true },
         [
             { id: "homepage.styles.falling", title: "开启飘落特效", description: "在页面上显示飘落动画" },
             { id: "homepage.styles.falling-global", title: "应用于全局", description: "将飘落特效应用到整个思源笔记", keywords: ["飘落"] },
@@ -260,46 +262,46 @@ const SETTINGS_SEARCH_REGISTRY: readonly SettingSearchEntry[] = [
         ],
     ),
     ...defineSettings(
-        { mainTab: "aiKnowledgeBase", subTab: "models", section: "模型与服务", scope: "all-devices" },
+        { mainTab: "aiKnowledgeBase", subTab: "models", section: "模型与服务", scope: "all-devices", requiresAdvanced: true },
         [
             { id: "ai.models.providers", title: "模型与服务", description: "配置全局模型供应商、API Key 和默认模型", keywords: ["大模型", "provider", "API Key"], target: "section" },
         ],
     ),
     ...defineSettings(
-        { mainTab: "aiKnowledgeBase", subTab: "entries", section: "AI 知识库", scope: "all-devices" },
+        { mainTab: "aiKnowledgeBase", subTab: "entries", section: "AI 知识库", scope: "all-devices", requiresAdvanced: true },
         [
             { id: "ai.entries.dock", title: "开启侧边栏对话", description: "在右侧侧边栏启用 AI 知识库入口" },
             { id: "ai.entries.tab", title: "开启标签页对话", description: "在左上角显示 AI 知识库标签页入口" },
         ],
     ),
     ...defineSettings(
-        { mainTab: "aiKnowledgeBase", subTab: "status", section: "状态语 AI 生成", scope: "all-devices" },
+        { mainTab: "aiKnowledgeBase", subTab: "status", section: "状态语 AI 生成", scope: "all-devices", requiresAdvanced: true },
         [
             { id: "ai.status.model", title: "状态语 AI 模型", description: "独立选择主页状态语使用的大模型" },
             { id: "ai.status.thinking", title: "状态语思考模式", description: "控制状态语生成时是否允许模型思考" },
         ],
     ),
     ...defineSettings(
-        { mainTab: "aiKnowledgeBase", subTab: "selection", section: "编辑器选区 AI 工具栏", scope: "all-devices" },
+        { mainTab: "aiKnowledgeBase", subTab: "selection", section: "编辑器选区 AI 工具栏", scope: "all-devices", requiresAdvanced: true },
         [
             { id: "ai.selection.enabled", title: "启用选区 AI 工具栏", description: "划选正文文字后显示 AI 操作入口", keywords: ["划词", "选中文字"] },
             { id: "ai.selection.skills", title: "选区 AI 技能", description: "新增、编辑、排序和启停选区处理技能", keywords: ["翻译", "润色", "总结"], target: "section" },
         ],
     ),
     ...defineSettings(
-        { mainTab: "aiKnowledgeBase", subTab: "webSearch", section: "全局联网搜索", scope: "all-devices" },
+        { mainTab: "aiKnowledgeBase", subTab: "webSearch", section: "全局联网搜索", scope: "all-devices", requiresAdvanced: true },
         [
             { id: "ai.web-search.settings", title: "联网搜索设置", description: "配置原生搜索优先级、fallback 服务、域名和网页读取策略", keywords: ["联网", "搜索", "web search", "fallback"], target: "section" },
         ],
     ),
     ...defineSettings(
-        { mainTab: "aiKnowledgeBase", subTab: "workbenches", section: "临时工作台", scope: "all-devices" },
+        { mainTab: "aiKnowledgeBase", subTab: "workbenches", section: "临时工作台", scope: "all-devices", requiresAdvanced: true },
         [
             { id: "ai.workbenches.manage", title: "临时工作台管理", description: "查看、打开和删除所有 Agent 入口生成的临时工作台", keywords: ["工作台", "AI 卡片", "空间占用"], target: "section" },
         ],
     ),
     ...defineSettings(
-        { mainTab: "aiKnowledgeBase", subTab: "memory", section: "记忆中枢", scope: "all-devices" },
+        { mainTab: "aiKnowledgeBase", subTab: "memory", section: "记忆中枢", scope: "all-devices", requiresAdvanced: true },
         [
             { id: "ai.memory.enabled", title: "使用记忆中枢", description: "让所有授权 Agent 入口共享长期用户记忆", keywords: ["全局记忆", "个人偏好", "长期记忆"] },
             { id: "ai.memory.learn", title: "允许 AI 自动学习", description: "从稳定、重要且明确的用户事实中形成和更新记忆", keywords: ["自动学习", "进化", "越用越懂"] },
@@ -307,14 +309,14 @@ const SETTINGS_SEARCH_REGISTRY: readonly SettingSearchEntry[] = [
         ],
     ),
     ...defineSettings(
-        { mainTab: "aiKnowledgeBase", subTab: "automation", section: "自动化中心", scope: "all-devices" },
+        { mainTab: "aiKnowledgeBase", subTab: "automation", section: "自动化中心", scope: "all-devices", requiresAdvanced: true },
         [
             { id: "ai.automation.jobs", title: "自动化任务", description: "创建和管理定时提醒、后台 Agent 与变化监测", keywords: ["定时任务", "心跳", "提醒", "监控"], target: "section" },
             { id: "ai.automation.runs", title: "自动化运行记录", description: "查看任务执行状态、结果和失败原因", keywords: ["日志", "历史", "后台任务"], target: "section" },
         ],
     ),
     ...defineSettings(
-        { mainTab: "notifyBridge", subTab: "desktop", section: "桌面系统通知", scope: "current-device" },
+        { mainTab: "notifyBridge", subTab: "desktop", section: "桌面系统通知", scope: "current-device", requiresAdvanced: true },
         [
             { id: "notify.desktop.enabled", title: "开启桌面系统通知", description: "通过操作系统通知中心显示提醒" },
             { id: "notify.desktop.permission", title: "通知权限", description: "查看当前系统通知授权状态" },
@@ -324,7 +326,7 @@ const SETTINGS_SEARCH_REGISTRY: readonly SettingSearchEntry[] = [
         ],
     ),
     ...defineSettings(
-        { mainTab: "notifyBridge", subTab: "mobile", section: "移动端系统通知", scope: "mobile-shared" },
+        { mainTab: "notifyBridge", subTab: "mobile", section: "移动端系统通知", scope: "mobile-shared", requiresAdvanced: true },
         [
             { id: "notify.mobile.enabled", title: "开启移动通知", description: "在原生手机端注册本地通知计划" },
             { id: "notify.mobile.behavior", title: "通知持续方式", description: "控制移动系统通知是否持续显示" },
@@ -334,7 +336,7 @@ const SETTINGS_SEARCH_REGISTRY: readonly SettingSearchEntry[] = [
         ],
     ),
     ...defineSettings(
-        { mainTab: "notifyBridge", subTab: "external", section: "外联通知", scope: "all-devices" },
+        { mainTab: "notifyBridge", subTab: "external", section: "外联通知", scope: "all-devices", requiresAdvanced: true },
         [
             { id: "notify.external.enabled", title: "开启外联通知", description: "向 Webhook 或飞书渠道投递通知" },
             { id: "notify.external.rate-limit", title: "按渠道限流", description: "限制同一渠道的连续发送频率" },
@@ -344,13 +346,13 @@ const SETTINGS_SEARCH_REGISTRY: readonly SettingSearchEntry[] = [
         ],
     ),
     ...defineSettings(
-        { mainTab: "notifyBridge", subTab: "history", section: "最近投递结果", scope: "all-devices" },
+        { mainTab: "notifyBridge", subTab: "history", section: "最近投递结果", scope: "all-devices", requiresAdvanced: true },
         [
             { id: "notify.history", title: "通知发送历史", description: "查看最近通知投递结果和失败原因", keywords: ["日志", "记录"], target: "section" },
         ],
     ),
     ...defineSettings(
-        { mainTab: "robotAssistant", subTab: "general", section: "机器人助手", scope: "all-devices" },
+        { mainTab: "robotAssistant", subTab: "general", section: "机器人助手", scope: "all-devices", requiresAdvanced: true },
         [
             { id: "robot.general.enabled", title: "启用机器人助手", description: "启用远程机器人接入" },
             { id: "robot.general.provider", title: "当前使用的机器人", description: "选择当前运行的机器人渠道" },
@@ -358,7 +360,7 @@ const SETTINGS_SEARCH_REGISTRY: readonly SettingSearchEntry[] = [
         ],
     ),
     ...defineSettings(
-        { mainTab: "robotAssistant", subTab: "general", section: "运行限制", scope: "all-devices" },
+        { mainTab: "robotAssistant", subTab: "general", section: "运行限制", scope: "all-devices", requiresAdvanced: true },
         [
             { id: "robot.limits.length", title: "消息 / 回复长度", description: "设置机器人输入和回复长度限制" },
             { id: "robot.limits.timeout", title: "并发与超时", description: "设置 Agent 并发和模型、整轮超时" },
@@ -366,14 +368,14 @@ const SETTINGS_SEARCH_REGISTRY: readonly SettingSearchEntry[] = [
         ],
     ),
     ...defineSettings(
-        { mainTab: "robotAssistant", subTab: "wechat", section: "微信机器人", scope: "all-devices" },
+        { mainTab: "robotAssistant", subTab: "wechat", section: "微信机器人", scope: "all-devices", requiresAdvanced: true },
         [
             { id: "robot.wechat.chat", title: "私聊 / 群聊", description: "配置微信机器人可处理的消息类型" },
             { id: "robot.wechat.allow-list", title: "允许的用户 ID / 聊天 ID", description: "限制可以使用机器人的微信账号或会话" },
         ],
     ),
     ...defineSettings(
-        { mainTab: "robotAssistant", subTab: "feishu", section: "飞书机器人", scope: "all-devices" },
+        { mainTab: "robotAssistant", subTab: "feishu", section: "飞书机器人", scope: "all-devices", requiresAdvanced: true },
         [
             { id: "robot.feishu.app-id", title: "App ID", description: "设置飞书机器人应用 ID" },
             { id: "robot.feishu.secret", title: "App Secret", description: "设置飞书机器人应用密钥" },
@@ -382,7 +384,7 @@ const SETTINGS_SEARCH_REGISTRY: readonly SettingSearchEntry[] = [
         ],
     ),
     ...defineSettings(
-        { mainTab: "robotAssistant", subTab: "qq", section: "QQ 机器人", scope: "all-devices" },
+        { mainTab: "robotAssistant", subTab: "qq", section: "QQ 机器人", scope: "all-devices", requiresAdvanced: true },
         [
             { id: "robot.qq.platform", title: "开放平台", description: "打开 QQ 机器人开放平台" },
             { id: "robot.qq.app-id", title: "App ID", description: "设置 QQ 机器人应用 ID" },
@@ -392,13 +394,13 @@ const SETTINGS_SEARCH_REGISTRY: readonly SettingSearchEntry[] = [
         ],
     ),
     ...defineSettings(
-        { mainTab: "robotAssistant", subTab: "agent", section: "Agent 模型", scope: "all-devices" },
+        { mainTab: "robotAssistant", subTab: "agent", section: "Agent 模型", scope: "all-devices", requiresAdvanced: true },
         [
             { id: "robot.agent.model", title: "执行模型", description: "选择机器人 Agent 使用的大模型" },
         ],
     ),
     ...defineSettings(
-        { mainTab: "robotAssistant", subTab: "agent", section: "机器人可使用的 AI 工具", scope: "all-devices" },
+        { mainTab: "robotAssistant", subTab: "agent", section: "机器人可使用的 AI 工具", scope: "all-devices", requiresAdvanced: true },
         [
             { id: "robot.agent.write-policy", title: "默认写操作策略", description: "设置机器人执行写工具时的默认确认方式" },
             { id: "robot.agent.tools", title: "机器人 AI 工具", description: "逐项设置机器人允许使用的 Agent 工具", keywords: ["权限", "工具白名单"], target: "section" },
@@ -431,7 +433,10 @@ function scoreEntry(entry: SettingSearchEntry, query: string): number {
     const title = normalizeSearchText(entry.title);
     const description = normalizeSearchText(entry.description);
     const section = normalizeSearchText(entry.section ?? "");
-    const keywords = normalizeSearchText(entry.keywords?.join(" ") ?? "");
+    const keywords = normalizeSearchText([
+        ...(entry.keywords ?? []),
+        ...(entry.requiresAdvanced ? ["会员", "VIP", "高级"] : []),
+    ].join(" "));
     const path = normalizeSearchText(`${MAIN_TAB_LABELS.get(entry.mainTab) ?? ""}${getSubTabLabel(entry) ?? ""}`);
     const scope = normalizeSearchText(SETTING_SCOPE_LABELS[entry.scope]);
     if (title === normalizedQuery) return 120;

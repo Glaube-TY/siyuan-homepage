@@ -47,6 +47,7 @@
         deleteWidgetInstance,
         readWidgetInstanceDocument,
     } from "@/homepage/deviceView/widgetInstanceRepository";
+    import { destroyMountedWidgetBlocks } from "@/components/utils/widgetBlock/utils/widget-runtime-lifecycle";
     import {
         HOMEPAGE_AGENT_STORAGE_CHANGED_EVENT,
         type HomepageAgentStorageChangedDetail,
@@ -226,6 +227,7 @@
     }
 
     async function initMobileHomepageLayout(options: { confirmedEmptyLayout?: boolean } = {}): Promise<void> {
+        if (!advanced) return;
         // Single-flight: if already initializing, wait for that one
         if (initInFlight) {
             return initInFlight;
@@ -253,6 +255,11 @@
                 previewMode,
                 confirmedEmptyLayout: options.confirmedEmptyLayout,
             });
+
+            if (!advanced) {
+                destroyMountedWidgetBlocks(container);
+                return;
+            }
 
             // If a newer restore started or container was destroyed, skip post-processing
             if (version !== restoreVersion || destroyed) return;
@@ -322,13 +329,13 @@
 
     /** 请求执行一次移动主页外部存储刷新；编辑/保存/隐藏/在途恢复时不立即执行。 */
     function scheduleExternalStorageRefresh(): void {
-        if (destroyed) return;
+        if (destroyed || !advanced) return;
         if (!mobileHomepageRootElement || !mobileHomepageRootElement.isConnected) return;
         if (editMode || layoutSaving) return;
         if (!isMobileHomepageVisibleAndMountable()) return;
         if (initInFlight) return;
         requestAnimationFrame(() => {
-            if (destroyed) return;
+            if (destroyed || !advanced) return;
             if (!pendingExternalStorageRefresh) return;
             if (editMode || layoutSaving) return;
             if (initInFlight) return;
@@ -338,6 +345,7 @@
 
     /** 基于最新持久化 storage 恢复一次移动主页。 */
     async function runExternalStorageRefresh(): Promise<void> {
+        if (!advanced) return;
         const refreshGeneration = externalStorageRefreshGeneration;
         // Agent 外部写入已完成事务提交与写后验证；只有该路径允许请求“已确认空布局”清空。
         await initMobileHomepageLayout({ confirmedEmptyLayout: true });
@@ -925,8 +933,10 @@
         };
 
         const handleAdvancedUnavailable = () => {
-            advanced = false;
+            restoreVersion += 1;
+            destroyMountedWidgetBlocks(mobileHomepageWidgetContainer);
             cleanupSortableState();
+            advanced = false;
         };
 
         window.addEventListener("homepage-advanced-ready", handleAdvancedReady);
@@ -948,19 +958,7 @@
 
             // Only clean up our own container instance
             const container = mobileHomepageWidgetContainer;
-            if (container) {
-                const widgetBlocks = container.querySelectorAll(".widget-block");
-                widgetBlocks.forEach((block) => {
-                    const instance = (block as any).__widgetBlockInstance;
-                    if (instance && typeof instance.destroy === "function") {
-                        try {
-                            instance.destroy();
-                        } catch {
-                            // 忽略销毁错误
-                        }
-                    }
-                });
-            }
+            destroyMountedWidgetBlocks(container);
             mobileHomepageWidgetContainer = null;
         };
     });

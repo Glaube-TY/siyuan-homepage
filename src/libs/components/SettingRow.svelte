@@ -4,15 +4,19 @@
   桌面端左右布局，窄屏可自动换成上下结构
 -->
 <script lang="ts">
+    import PremiumMark from "@/components/utils/shared/PremiumMark.svelte";
+
     interface Props {
         title: string;
         description?: string;
+        premium?: boolean;
         children?: import('svelte').Snippet;
     }
 
     let {
         title,
         description = "",
+        premium = false,
         children
     }: Props = $props();
 </script>
@@ -23,7 +27,10 @@
     tabindex="-1"
 >
     <div class="setting-row__info">
-        <div class="setting-row__title">{title}</div>
+        <div class="setting-row__title">
+            <span class="setting-row__title-text">{title}</span>
+            {#if premium}<PremiumMark />{/if}
+        </div>
         {#if description}
             <div class="setting-row__description">{@html description}</div>
         {/if}
@@ -66,10 +73,17 @@
     }
 
     .setting-row__title {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
         font-size: 14px;
         font-weight: 500;
         color: var(--b3-theme-on-surface);
         line-height: 1.5;
+    }
+
+    .setting-row__title-text {
+        min-width: 0;
     }
 
     .setting-row__description {

@@ -2711,6 +2711,7 @@
 
     // 会员状态不可用时重新加载配置
     async function handleAdvancedUnavailable() {
+        abortStatusAiRequest();
         if (homepageInitialLoadState !== "ready") return;
         await enqueueSectionUiOperation(async () => {
             try {
@@ -3730,12 +3731,19 @@
     async function updateDisplayedStatsInfoText(options: { forceRefresh?: boolean } = {}) {
         const currentVersion = ++updateStatsVersion;
         abortStatusAiRequest();
-        await prepareHomepageStatistics(plugin);
 
         if (options.forceRefresh) {
             statusAiCacheKey = "";
             statusAiCachedText = "";
         }
+
+        if (statusTextMode === "ai" && !advanced) {
+            setStatusAiRuntimeState("no_premium");
+            setVisibleStatusTextError(getHomepageStatusAiFailureText("not_premium"));
+            return;
+        }
+
+        await prepareHomepageStatistics(plugin);
 
         if (statusTextMode !== "ai") {
             setStatusAiRuntimeState("disabled");

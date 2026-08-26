@@ -53,7 +53,7 @@
 
 <div class="habit-widget" data-widget-part="root">
   {#if !advancedEnabled}
-    <AdvancedFeatureLock compact title="习惯打卡" subtitle="高级会员专属" icon="check" />
+    <AdvancedFeatureLock compact title="习惯打卡" subtitle="记录习惯与连续完成情况" icon="check" />
   {:else}
     <div class="widget-header">
       <WidgetSemanticTitle widgetType="habitTracker" configuredTitle={config.title} semanticLabel="习惯打卡" fallbackIcon="confirm" />

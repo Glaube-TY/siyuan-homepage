@@ -61,6 +61,7 @@ import type { ReviewMenuTarget } from "./components/utils/widgetBlock/widget/rev
 import EnhancedDiaryWorkspacePage from "./components/utils/widgetBlock/widget/enhancedDiary/workspace/enhancedDiaryWorkspacePage.svelte";
 import KbPremiumGatePanel from "@/features/kb/components/panels/kb-premium-gate-panel.svelte";
 import KbSettingsPanel from "@/features/kb/components/panels/kb-settings-panel.svelte";
+import { createOpenHomepageSetting } from "./homepage/header/quick-button";
 import { KB_SETTINGS_CHANGED_EVENT, setKbSettingsPlugin } from "@/features/kb/services/settings/kb-settings-service";
 import { setReferenceNavigationPlugin } from "@/features/kb/services/siyuan/reference-navigation";
 import { setNotebrainPlugin } from "@/features/kb/services/agent-workbench/storage";
@@ -320,6 +321,8 @@ export default class PluginHomepage extends Plugin {
     private homepageServerSyncAt = 0;
     private homepageServerSyncInFlight: Promise<void> | null = null;
     private homepageServerRevokedLicense = "";
+    private homepagePremiumBackgroundRuntimesStarted = false;
+    private selectionAiPremiumRuntimeStart: Promise<void> | null = null;
     private homepageEntitlementVisibilityBindThis = () => {
         if (document.visibilityState !== "visible") return;
         const snapshot = getHomepageEntitlementSnapshot();
@@ -358,7 +361,6 @@ export default class PluginHomepage extends Plugin {
     private mobileQuickActionsFocusHandler: (() => void) | null = null;
     private cancelDeferredBackgroundStartup: (() => void) | null = null;
     private desktopCommandsRegistered = false;
-    private homepageWindowListenersRegistered = false;
     private baseEventListenersRegistered = false;
     private contentMenuListenerRegistered = false;
     private sidebarDockRegistered = false;
@@ -470,7 +472,6 @@ export default class PluginHomepage extends Plugin {
         this.ensureTabContainers();
         this.registerCustomTabs();
         this.registerBaseIndependentListeners();
-        this.registerMobileQuickActionsForegroundListeners();
         this.registerMinimalHomepageEntry();
         this.data[STORAGE_NAME] = { readonlyText: "Readonly" };
         startupTrace.checkpoint("registrations-ready");
@@ -482,13 +483,8 @@ export default class PluginHomepage extends Plugin {
         const identityPromise = this.ensureDeviceIdentityForRuntime();
         void identityPromise.catch(() => undefined);
 
-        // 划词设置不影响插件注册和主页可用性，不再阻塞 onload。
-        void loadSelectionAiToolbarSettingsSnapshot(this)
-            .catch((error) => {
-                console.warn("[Homepage] 划词 AI 设置读取失败，划词 AI 本次停用", error);
-            })
-            .finally(() => initSelectionAiToolbarPointerTracker());
-        startupTrace.checkpoint("noncritical-settings-scheduled");
+        // 划词 AI 与移动前台刷新监听器由会员生命周期启动，不在 onload 无条件运行。
+        startupTrace.checkpoint("premium-runtime-deferred");
 
         // 第三部分：独立能力完成后才等待身份；失败只停用设备视图。
         try {
@@ -540,6 +536,8 @@ export default class PluginHomepage extends Plugin {
         this.eventBus.on("click-editortitleicon", this.editorTitleIconMenuEventBindThis);
         this.eventBus.on("click-blockicon", this.blockIconMenuEventBindThis);
         window.addEventListener("homepage-settings-saved", this.homepageSettingsSavedBindThis);
+        window.addEventListener("homepage-advanced-ready", this.homepageAdvancedReadyBindThis);
+        window.addEventListener("homepage-advanced-unavailable", this.homepageAdvancedUnavailableBindThis);
         this.baseEventListenersRegistered = true;
     }
 
@@ -553,16 +551,6 @@ export default class PluginHomepage extends Plugin {
             this.contentMenuListenerRegistered = false;
         }
 
-        const enableWindowListeners = config !== null;
-        if (enableWindowListeners && !this.homepageWindowListenersRegistered) {
-            window.addEventListener("homepage-advanced-ready", this.homepageAdvancedReadyBindThis);
-            window.addEventListener("homepage-advanced-unavailable", this.homepageAdvancedUnavailableBindThis);
-            this.homepageWindowListenersRegistered = true;
-        } else if (!enableWindowListeners && this.homepageWindowListenersRegistered) {
-            window.removeEventListener("homepage-advanced-ready", this.homepageAdvancedReadyBindThis);
-            window.removeEventListener("homepage-advanced-unavailable", this.homepageAdvancedUnavailableBindThis);
-            this.homepageWindowListenersRegistered = false;
-        }
         this.syncKbTopBar(config);
     }
 
@@ -592,6 +580,11 @@ export default class PluginHomepage extends Plugin {
 
     private async handleHomepageSettingsSaved(): Promise<void> {
         const surface: DeviceViewSurface = this.isMobileFrontend() ? "mobile-homepage" : "desktop-homepage";
+        if (this.isMobileFrontend() && isHomepageEntitlementGranted()) {
+            this.registerMobileQuickActionsForegroundListeners();
+        } else {
+            this.unregisterMobileQuickActionsForegroundListeners();
+        }
         try {
             const config = await this.getPluginConfig();
             this.clearHomepageSurfaceReadErrors(surface);
@@ -607,10 +600,132 @@ export default class PluginHomepage extends Plugin {
             this.captureHomepageSurfaceError(surface, error);
             this.syncHomepageConfigDependentListeners(null);
         }
+        this.syncSelectionAiPremiumRuntime();
+    }
+
+    private async startHomepagePremiumBackgroundRuntimes(): Promise<void> {
+        await this.waitForHomepageEntitlementReady();
+        if (!isHomepageEntitlementGranted() || this.homepagePremiumBackgroundRuntimesStarted) return;
+
+        if (!this.isMobileFrontend()) {
+            try {
+                startNotificationCenterRuntime();
+            } catch (error) {
+                console.warn("[Homepage] 通知中心核心启动失败，其他会员后台能力继续运行", error);
+            }
+        }
+        this.homepagePremiumBackgroundRuntimesStarted = true;
+        const starters: Array<readonly [string, () => void]> = [
+            ["自动化中心", startAutomationRuntime],
+            ["任务通知", startTaskNotifyScheduler],
+            ["倒计时通知", startCountdownNotifyScheduler],
+            ["日记通知", startEnhancedDiaryNotifyScheduler],
+            ["复习通知", startReviewNotifyScheduler],
+        ];
+        for (const [name, start] of starters) {
+            try {
+                start();
+            } catch (error) {
+                console.warn(`[Homepage] ${name}启动失败，其他会员后台能力继续运行`, error);
+            }
+        }
+        if (!this.isMobileFrontend()) {
+            try {
+                initRobotClientRuntime(this);
+            } catch (error) {
+                console.warn("[Homepage] Robot 前端运行时启动失败，其他会员后台能力继续运行", error);
+            }
+        }
+    }
+
+    private async stopHomepagePremiumBackgroundRuntimes(): Promise<void> {
+        this.homepagePremiumBackgroundRuntimesStarted = false;
+        const destroyers: Array<readonly [string, () => void]> = [
+            ["自动化中心", destroyAutomationRuntime],
+            ["任务通知", destroyTaskNotifyScheduler],
+            ["倒计时通知", destroyCountdownNotifyScheduler],
+            ["日记通知", destroyEnhancedDiaryNotifyScheduler],
+            ["复习通知", destroyReviewNotifyScheduler],
+        ];
+        for (const [name, destroy] of destroyers) {
+            try {
+                destroy();
+            } catch (error) {
+                console.warn(`[Homepage] ${name}停止失败，继续停止其他会员后台能力`, error);
+            }
+        }
+        try {
+            await disposeRobotClientRuntime();
+        } catch (error) {
+            console.warn("[Homepage] Robot 前端运行时停止失败，继续停止其他会员后台能力", error);
+        }
+        if (!this.isMobileFrontend()) {
+            destroyNotificationCenterRuntime();
+        }
+    }
+
+    private stopSelectionAiPremiumRuntime(): void {
+        destroySelectionAiPopup();
+        destroySelectionAiActionMenu();
+        destroySelectionAiToolbarPointerTracker();
+    }
+
+    private syncSelectionAiPremiumRuntime(): void {
+        if (!isHomepageEntitlementGranted() || this.isMobileFrontend()) {
+            this.stopSelectionAiPremiumRuntime();
+            return;
+        }
+        if (!getSelectionAiToolbarSettingsSnapshot().enabled) {
+            this.stopSelectionAiPremiumRuntime();
+            return;
+        }
+        initSelectionAiToolbarPointerTracker();
+    }
+
+    private async startSelectionAiPremiumRuntime(): Promise<void> {
+        if (!isHomepageEntitlementGranted() || this.isMobileFrontend()) {
+            this.stopSelectionAiPremiumRuntime();
+            return;
+        }
+        if (this.selectionAiPremiumRuntimeStart) {
+            await this.selectionAiPremiumRuntimeStart;
+            return;
+        }
+
+        const startup = (async () => {
+            try {
+                await loadSelectionAiToolbarSettingsSnapshot(this);
+                this.syncSelectionAiPremiumRuntime();
+            } catch (error) {
+                this.stopSelectionAiPremiumRuntime();
+                console.warn("[Homepage] 划词 AI 设置读取失败，划词 AI 本次停用", error);
+            }
+        })();
+        this.selectionAiPremiumRuntimeStart = startup;
+        try {
+            await startup;
+        } finally {
+            if (this.selectionAiPremiumRuntimeStart === startup) {
+                this.selectionAiPremiumRuntimeStart = null;
+            }
+        }
     }
 
     private async handleHomepageAdvancedReady(): Promise<void> {
         const surface: DeviceViewSurface = this.isMobileFrontend() ? "mobile-homepage" : "desktop-homepage";
+        try {
+            await this.startHomepagePremiumBackgroundRuntimes();
+        } catch (error) {
+            console.warn("[Homepage] 高级功能就绪后启动会员后台运行时失败", error);
+        }
+        try {
+            await this.startSelectionAiPremiumRuntime();
+        } catch (error) {
+            console.warn("[Homepage] 高级功能就绪后启动划词 AI 运行时失败", error);
+        }
+        if (this.isMobileFrontend() && isHomepageEntitlementGranted()) {
+            this.registerMobileQuickActionsForegroundListeners();
+        }
         try {
             const config = await this.getPluginConfig();
             this.clearHomepageSurfaceReadErrors(surface);
@@ -640,6 +755,15 @@ export default class PluginHomepage extends Plugin {
     }
 
     private async handleHomepageAdvancedUnavailable(): Promise<void> {
+        this.stopSelectionAiPremiumRuntime();
+        this.unregisterMobileQuickActionsForegroundListeners();
+        this.destroyMobileQuickActions();
+        this.mobileQuickActionsAppliedSignature = "";
+        try {
+            await this.stopHomepagePremiumBackgroundRuntimes();
+        } catch (error) {
+            console.warn("[Homepage] 高级功能不可用后停止会员后台运行时失败", error);
+        }
         this.destroyMobileMusicRuntime();
         try {
             if (this.currentMobileEnhancedDiaryWorkspaceDialog) {
@@ -662,11 +786,6 @@ export default class PluginHomepage extends Plugin {
         } catch (error) {
             console.warn("[Homepage] 关闭移动端设置对话框失败:", error);
         }
-        try {
-            this.destroyMobileQuickActions();
-        } catch (error) {
-            console.warn("[Homepage] 销毁移动快捷操作失败:", error);
-        }
     }
 
     async onunload() {
@@ -678,7 +797,7 @@ export default class PluginHomepage extends Plugin {
         }
         document.removeEventListener("visibilitychange", this.homepageEntitlementVisibilityBindThis);
         this.destroyMobileMusicRuntime();
-        await disposeRobotClientRuntime();
+        await this.stopHomepagePremiumBackgroundRuntimes();
         if (this.currentMobileEnhancedDiaryWorkspaceDialog) {
             this.currentMobileEnhancedDiaryWorkspaceDialog.close();
             this.currentMobileEnhancedDiaryWorkspaceDialog = null;
@@ -698,11 +817,6 @@ export default class PluginHomepage extends Plugin {
             }
         }
         destroyTaskDataRuntime();
-        destroyTaskNotifyScheduler();
-        destroyCountdownNotifyScheduler();
-        destroyEnhancedDiaryNotifyScheduler();
-        destroyReviewNotifyScheduler();
-        destroyAutomationRuntime();
         destroyNotificationCenterRuntime();
         await settleMobilePlanReconcile();
         notificationPlanUnregisters.forEach((unregister) => unregister());
@@ -728,7 +842,6 @@ export default class PluginHomepage extends Plugin {
         this.unregisterMobileQuickActionsForegroundListeners();
         this.baseEventListenersRegistered = false;
         this.contentMenuListenerRegistered = false;
-        this.homepageWindowListenersRegistered = false;
         this.globalBackgroundApplyVersion++;
         cleanupGlobalBackgroundImageStyle();
 
@@ -758,9 +871,7 @@ export default class PluginHomepage extends Plugin {
         } catch {
             // 忽略销毁过程中的错误
         }
-        destroySelectionAiPopup();
-        destroySelectionAiActionMenu();
-        destroySelectionAiToolbarPointerTracker();
+        this.stopSelectionAiPremiumRuntime();
         clearSelectionAskPayloadHandler();
 
         // 销毁 dock Sidebar 实例
@@ -797,9 +908,12 @@ export default class PluginHomepage extends Plugin {
         // The selection AI menu is an editor toolbar action, not a shortcut command.
         if (toolbar.length === 0) return toolbar;
 
-        const settings = getSelectionAiToolbarSettingsSnapshot();
         // 先清理旧的 selection-ai item，确保 click 回调来自当前代码版本
         removeSelectionAiToolbarItems(toolbar);
+        if (!isHomepageEntitlementGranted()) {
+            return toolbar;
+        }
+        const settings = getSelectionAiToolbarSettingsSnapshot();
         if (!settings.enabled || this.isMobileFrontend()) {
             return toolbar;
         }
@@ -817,24 +931,18 @@ export default class PluginHomepage extends Plugin {
         this.cancelDeferredBackgroundStartup?.();
         this.cancelDeferredBackgroundStartup = scheduleIdleTask(() => {
             this.cancelDeferredBackgroundStartup = null;
-            const starters: Array<readonly [string, () => void]> = [
-                ["通知中心", startNotificationCenterRuntime],
-                ["自动化中心", startAutomationRuntime],
-                ["任务通知", startTaskNotifyScheduler],
-                ["倒计时通知", startCountdownNotifyScheduler],
-                ["日记通知", startEnhancedDiaryNotifyScheduler],
-                ["复习通知", startReviewNotifyScheduler],
-            ];
-            for (const [name, start] of starters) {
-                try {
-                    start();
-                } catch (error) {
-                    console.warn(`[Homepage] ${name}启动失败，其他后台能力继续运行`, error);
+            try {
+                // 移动端保留轻量通知核心，用于会员撤销后的计划清理；桌面端由会员生命周期启动。
+                if (this.isMobileFrontend()) {
+                    startNotificationCenterRuntime();
                 }
+            } catch (error) {
+                console.warn("[Homepage] 通知中心核心启动失败，其他后台能力继续运行", error);
             }
-            // 手机端不参与机器人运行设备竞争，也不加载任何渠道 Provider。
-            if (!this.isMobileFrontend()) initRobotClientRuntime(this);
-            layoutTrace.checkpoint("background-runtimes-started");
+            void this.startHomepagePremiumBackgroundRuntimes().catch((error) => {
+                console.warn("[Homepage] 会员后台运行时启动失败，等待会员状态事件重试", error);
+            });
+            layoutTrace.checkpoint("background-runtimes-scheduled-by-entitlement");
         }, { timeout: 1200 });
         layoutTrace.checkpoint("background-runtimes-scheduled");
 
@@ -870,6 +978,11 @@ export default class PluginHomepage extends Plugin {
             if (this.isMobileFrontend()) {
                 // 先验证许可
                 await this.waitForHomepageEntitlementReady();
+                if (isHomepageEntitlementGranted()) {
+                    this.registerMobileQuickActionsForegroundListeners();
+                } else {
+                    this.unregisterMobileQuickActionsForegroundListeners();
+                }
 
                 // 音频运行实例挂在插件层，主页或播放器界面关闭后仍保留播放。
                 this.ensureMobileMusicRuntime();
@@ -1932,7 +2045,7 @@ export default class PluginHomepage extends Plugin {
     private async refreshMobileQuickActionsFromSharedConfig(
         reason: "visibility" | "focus" | "local-save",
     ): Promise<void> {
-        if (!this.isMobileFrontend() || this.isNewWindow()) return;
+        if (!isHomepageEntitlementGranted() || !this.isMobileFrontend() || this.isNewWindow()) return;
 
         try {
             const strictRead = await loadHomepageConfigDataStrict(this, "mobile-homepage");
@@ -1955,7 +2068,7 @@ export default class PluginHomepage extends Plugin {
     }
 
     private scheduleMobileQuickActionsRefresh(reason: "visibility" | "focus"): void {
-        if (!this.isMobileFrontend() || this.isNewWindow()) return;
+        if (!isHomepageEntitlementGranted() || !this.isMobileFrontend() || this.isNewWindow()) return;
 
         // 如果正在刷新中，记录一次 pending
         if (this.mobileQuickActionsRefreshing) {
@@ -1978,6 +2091,10 @@ export default class PluginHomepage extends Plugin {
     private async performMobileQuickActionsRefresh(
         reason: "visibility" | "focus",
     ): Promise<void> {
+        if (!isHomepageEntitlementGranted() || !this.isMobileFrontend() || this.isNewWindow()) {
+            this.mobileQuickActionsPendingRefresh = false;
+            return;
+        }
         this.mobileQuickActionsRefreshing = true;
         try {
             await this.refreshMobileQuickActionsFromSharedConfig(reason);
@@ -1986,22 +2103,30 @@ export default class PluginHomepage extends Plugin {
         }
 
         // 刷新期间又收到触发，最多再刷新一次
-        if (this.mobileQuickActionsPendingRefresh) {
+        if (this.mobileQuickActionsPendingRefresh && isHomepageEntitlementGranted()) {
             this.mobileQuickActionsPendingRefresh = false;
             void this.performMobileQuickActionsRefresh(reason);
         }
     }
 
     private registerMobileQuickActionsForegroundListeners(): void {
-        if (!this.isMobileFrontend()) return;
+        if (
+            !isHomepageEntitlementGranted()
+            || !this.isMobileFrontend()
+            || this.isNewWindow()
+            || this.mobileQuickActionsVisibilityHandler
+            || this.mobileQuickActionsFocusHandler
+        ) return;
 
         this.mobileQuickActionsVisibilityHandler = () => {
-            if (document.visibilityState === "visible") {
+            if (isHomepageEntitlementGranted() && document.visibilityState === "visible") {
                 this.scheduleMobileQuickActionsRefresh("visibility");
             }
         };
         this.mobileQuickActionsFocusHandler = () => {
-            this.scheduleMobileQuickActionsRefresh("focus");
+            if (isHomepageEntitlementGranted()) {
+                this.scheduleMobileQuickActionsRefresh("focus");
+            }
         };
 
         document.addEventListener("visibilitychange", this.mobileQuickActionsVisibilityHandler);
@@ -2021,6 +2146,7 @@ export default class PluginHomepage extends Plugin {
             clearTimeout(this.mobileQuickActionsRefreshTimer);
             this.mobileQuickActionsRefreshTimer = null;
         }
+        this.mobileQuickActionsPendingRefresh = false;
     }
 
     private async openHomepage() {
@@ -2135,7 +2261,12 @@ export default class PluginHomepage extends Plugin {
         dialogRef.dialog.element.classList.add("enhanced-diary-workspace-mobile-dialog");
     }
 
-    public openKbSettingsDialog(): void {
+    public async openKbSettingsDialog(): Promise<void> {
+        await this.waitForHomepageEntitlementReady();
+        if (!isHomepageEntitlementGranted()) {
+            createOpenHomepageSetting(this, { initialMainTab: "aiKnowledgeBase" })();
+            return;
+        }
         const dialog = svelteDialog({
             title: "AI 知识库设置",
             width: "960px",

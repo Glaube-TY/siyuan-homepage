@@ -6,6 +6,7 @@
     import { isCoreButton, getButtonActionMeta } from '../buttonSettings';
     import SettingSection from '@/libs/components/SettingSection.svelte';
     import SettingRow from '@/libs/components/SettingRow.svelte';
+    import PremiumMark from '@/components/utils/shared/PremiumMark.svelte';
     import SiyuanIcon from '@/components/utils/shared/SiyuanIcon.svelte';
 
     interface Props {
@@ -224,7 +225,10 @@
                             {#if getButtonActionMeta(item)?.icon}
                                 <SiyuanIcon name={getButtonActionMeta(item)!.icon} size={15} />
                             {/if}
-                            <span class="button-name">{item.label}</span>
+                            <span class="button-name">
+                                {item.label}
+                                {#if getButtonActionMeta(item)?.requiresAdvanced}<PremiumMark />{/if}
+                            </span>
                         </button>
                         <input
                             type="checkbox"
@@ -258,7 +262,10 @@
                             {#if selectedButtonMeta?.icon}
                                 <SiyuanIcon name={selectedButtonMeta.icon} size={18} />
                             {/if}
-                            <span class="builtin-info-title">{selectedButtonMeta?.title ?? selectedButton.label}</span>
+                            <span class="builtin-info-title">
+                                {selectedButtonMeta?.title ?? selectedButton.label}
+                                {#if selectedButtonMeta?.requiresAdvanced}<PremiumMark />{/if}
+                            </span>
                             <span class="builtin-info-badge">{selectedButtonMeta?.badge ?? "内置功能"}</span>
                         </div>
                         <p class="builtin-lock-tip">该按钮可以拖动排序，也可以选择直接显示在主页快捷栏或收纳到“更多”菜单，但不支持修改标签、功能、快捷键或删除。</p>

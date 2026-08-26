@@ -74,6 +74,12 @@ let idleTimer: ReturnType<typeof setTimeout> | null = null;
 let flushPromise: Promise<void> | null = null;
 let batchSequence = 0;
 const pendingBatches: CYBMOKRuntimeBatch[] = [];
+type CYBMOKDataRuntimeLease = { released: boolean };
+const cybmokDataRuntimeLeases = new Set<CYBMOKDataRuntimeLease>();
+let cybmokDataRuntimeRefCount = 0;
+let cybmokDataRuntimeListening = false;
+let unregisterCYBMOKPendingSafetyFlusher: (() => void) | null = null;
+let unregisterCYBMOKSharedCleanup: (() => void) | null = null;
 
 function reportScheduledFlushFailure(error: unknown): void {
     console.warn("[cybmokData] 木鱼批次写入失败，已保留待写批次", error);
@@ -459,9 +465,30 @@ function clearIdleTimer(): void {
     idleTimer = null;
 }
 
+function releaseCYBMOKPendingSafetyFlusherIfIdle(): void {
+    if (activeBatch !== null || pendingBatches.length > 0 || flushPromise !== null) return;
+    unregisterCYBMOKPendingSafetyFlusher?.();
+    unregisterCYBMOKPendingSafetyFlusher = null;
+}
+
+function ensureCYBMOKPendingSafetyFlusher(): void {
+    if (activeBatch === null && pendingBatches.length === 0 && flushPromise === null) return;
+    if (unregisterCYBMOKPendingSafetyFlusher) return;
+    unregisterCYBMOKPendingSafetyFlusher = registerSharedWidgetFlusher(async () => {
+        try {
+            await flushPendingCYBMOKKnocks();
+        } finally {
+            releaseCYBMOKPendingSafetyFlusherIfIdle();
+        }
+    });
+}
+
 function finalizeActiveBatch(): void {
     clearIdleTimer();
-    if (!activeBatch) return;
+    if (!activeBatch) {
+        ensureCYBMOKPendingSafetyFlusher();
+        return;
+    }
     pendingBatches.push({
         id: activeBatch.id,
         kind: "batch",
@@ -472,12 +499,19 @@ function finalizeActiveBatch(): void {
         source: "runtime",
     });
     activeBatch = null;
+    ensureCYBMOKPendingSafetyFlusher();
 }
 
 async function persistPendingBatches(): Promise<void> {
-    if (flushPromise) return flushPromise;
+    if (flushPromise) {
+        ensureCYBMOKPendingSafetyFlusher();
+        return flushPromise;
+    }
     const snapshot = pendingBatches.slice();
-    if (snapshot.length === 0) return;
+    if (snapshot.length === 0) {
+        releaseCYBMOKPendingSafetyFlusherIfIdle();
+        return;
+    }
     const snapshotIds = new Set(snapshot.map((batch) => batch.id));
     flushPromise = (async () => {
         await appendCYBMOKBatches(snapshot);
@@ -486,7 +520,9 @@ async function persistPendingBatches(): Promise<void> {
         }
     })().finally(() => {
         flushPromise = null;
+        releaseCYBMOKPendingSafetyFlusherIfIdle();
     });
+    ensureCYBMOKPendingSafetyFlusher();
     return flushPromise;
 }
 
@@ -520,18 +556,21 @@ export function recordCYBMOKKnock(now = new Date()): void {
     }
     activeBatch.count += 1;
     activeBatch.lastKnockAt = timestamp;
+    ensureCYBMOKPendingSafetyFlusher();
     scheduleCYBMOKFlush();
 }
 
 export async function flushPendingCYBMOKKnocks(): Promise<void> {
     finalizeActiveBatch();
-    while (pendingBatches.length > 0 || flushPromise) {
-        if (flushPromise) await flushPromise;
-        else await persistPendingBatches();
+    try {
+        while (pendingBatches.length > 0 || flushPromise) {
+            if (flushPromise) await flushPromise;
+            else await persistPendingBatches();
+        }
+    } finally {
+        releaseCYBMOKPendingSafetyFlusherIfIdle();
     }
 }
-
-registerSharedWidgetFlusher(flushPendingCYBMOKKnocks);
 
 const handleVisibilityChange = () => {
     if (document.visibilityState === "hidden") void flushPendingCYBMOKKnocks().catch(reportScheduledFlushFailure);
@@ -539,10 +578,40 @@ const handleVisibilityChange = () => {
 const handlePageHide = () => {
     void flushPendingCYBMOKKnocks().catch(reportScheduledFlushFailure);
 };
-if (typeof document !== "undefined") document.addEventListener("visibilitychange", handleVisibilityChange);
-if (typeof window !== "undefined") window.addEventListener("pagehide", handlePageHide);
-registerSharedWidgetCleanup(() => {
+
+function stopCYBMOKDataRuntimeCompletely(): void {
     clearIdleTimer();
-    if (typeof document !== "undefined") document.removeEventListener("visibilitychange", handleVisibilityChange);
-    if (typeof window !== "undefined") window.removeEventListener("pagehide", handlePageHide);
-});
+    if (cybmokDataRuntimeListening) {
+        if (typeof document !== "undefined") document.removeEventListener("visibilitychange", handleVisibilityChange);
+        if (typeof window !== "undefined") window.removeEventListener("pagehide", handlePageHide);
+        cybmokDataRuntimeListening = false;
+    }
+    unregisterCYBMOKSharedCleanup?.();
+    unregisterCYBMOKSharedCleanup = null;
+    for (const lease of cybmokDataRuntimeLeases) lease.released = true;
+    cybmokDataRuntimeLeases.clear();
+    cybmokDataRuntimeRefCount = 0;
+}
+
+export function acquireCYBMOKDataRuntime(): () => void {
+    const lease: CYBMOKDataRuntimeLease = { released: false };
+    cybmokDataRuntimeLeases.add(lease);
+    cybmokDataRuntimeRefCount += 1;
+    if (cybmokDataRuntimeRefCount === 1) {
+        if (typeof document !== "undefined") document.addEventListener("visibilitychange", handleVisibilityChange);
+        if (typeof window !== "undefined") window.addEventListener("pagehide", handlePageHide);
+        unregisterCYBMOKSharedCleanup = registerSharedWidgetCleanup(stopCYBMOKDataRuntimeCompletely);
+        cybmokDataRuntimeListening = true;
+    }
+    return () => {
+        if (lease.released) return;
+        lease.released = true;
+        cybmokDataRuntimeLeases.delete(lease);
+        cybmokDataRuntimeRefCount -= 1;
+        if (cybmokDataRuntimeRefCount < 0) {
+            console.warn("[cybmokData] runtime refCount 出现负数，已恢复为 0");
+            cybmokDataRuntimeRefCount = 0;
+        }
+        if (cybmokDataRuntimeRefCount === 0) stopCYBMOKDataRuntimeCompletely();
+    };
+}

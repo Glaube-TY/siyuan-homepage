@@ -1,4 +1,5 @@
 <script lang="ts">
+    import PremiumMark from "@/components/utils/shared/PremiumMark.svelte";
     import type { HomepageThemeDefinition, HomepageThemeFallbackReason } from "../../theme/api/types";
     import "../homepageSettingStyle/_appearance.scss";
 
@@ -55,8 +56,10 @@
             {@const switching = theme.id === switchingThemeId}
             <article class="theme-card" class:theme-card--preferred={theme.id === preferredThemeId} class:theme-card--effective={theme.id === effectiveThemeId} class:theme-card--locked={locked} class:theme-card--switching={switching} aria-busy={switching}>
                 <div class="theme-card__head">
-                    <strong>{theme.name}</strong>
-                    <span class:theme-card__vip={theme.access === "vip"}>{theme.access === "vip" ? "VIP" : "免费"}</span>
+                    <strong class="theme-card__title">
+                        <span>{theme.name}</span>
+                        {#if theme.access === "vip"}<PremiumMark />{/if}
+                    </strong>
                 </div>
                 {#if switching}
                     <div class="theme-card__progress" aria-hidden="true">
@@ -77,10 +80,12 @@
                     class:theme-card__action--selected={theme.id === preferredThemeId}
                     class:theme-card__action--locked={locked}
                     aria-pressed={theme.id === preferredThemeId}
+                    aria-label={locked ? "需要高级会员" : undefined}
+                    title={locked ? "需要高级会员" : undefined}
                     disabled={themeSwitchInProgress || theme.id === preferredThemeId || locked}
                     onclick={() => onSelectTheme(theme.id)}
                 >
-                    {switching ? "正在切换…" : themeSwitchInProgress ? "请稍候" : theme.id === preferredThemeId ? "已选择" : locked ? "会员主题" : "立即使用"}
+                    {switching ? "正在切换…" : themeSwitchInProgress ? "请稍候" : theme.id === preferredThemeId ? "已选择" : "立即使用"}
                 </button>
             </article>
         {/each}

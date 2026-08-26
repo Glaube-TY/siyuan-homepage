@@ -14,7 +14,7 @@ export const definition: HomepageThemeDefinition = {
     surfaces: ["desktop-homepage"],
     renderer: CardTheme,
     widgetPresentation: cardWidgetPresentation,
-    preview: { tags: ["VIP", "卡片", "现代", "分层"] },
+    preview: { tags: ["卡片", "现代", "分层"] },
     features: { banner: true, widgetAppearance: "theme-controlled" },
 };
 

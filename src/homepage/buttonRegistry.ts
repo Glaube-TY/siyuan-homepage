@@ -181,6 +181,7 @@ export interface ButtonActionMeta {
     action: string;
     title: string;
     icon: string;
+    requiresAdvanced?: boolean;
     badge?: string;
     description: string;
     sourceText?: string;
@@ -233,6 +234,7 @@ const BUTTON_ACTION_META: Record<string, ButtonActionMeta> = {
         action: "aiKnowledgeBase",
         title: "AI 知识库",
         icon: BUILTIN_BUTTONS.aiKnowledgeBase.icon,
+        requiresAdvanced: true,
         badge: "内置功能",
         description: "打开 AI 知识库问答标签页，用于在主工作区中进行知识库对话。",
         usage: [
@@ -267,7 +269,8 @@ const BUTTON_ACTION_META: Record<string, ButtonActionMeta> = {
         action: "templateCenter",
         title: "布局模板",
         icon: BUILTIN_BUTTONS.templateCenter.icon,
-        badge: "会员功能",
+        requiresAdvanced: true,
+        badge: "内置功能",
         description: "打开布局模板中心，保存和应用你自己的主页布局方案。",
         usage: [
             "点击后打开布局模板弹窗。",

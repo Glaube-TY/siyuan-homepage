@@ -3,6 +3,7 @@
     import { normalizeSiyuanDocIcon } from '@/components/tools/docIcon';
     import SettingSection from '@/libs/components/SettingSection.svelte';
     import SettingRow from '@/libs/components/SettingRow.svelte';
+    import PremiumMark from '@/components/utils/shared/PremiumMark.svelte';
     import SiyuanIcon from '@/components/utils/shared/SiyuanIcon.svelte';
     import StatusVariableReferenceDialog from './StatusVariableReferenceDialog.svelte';
     import {
@@ -258,11 +259,10 @@
     </SettingRow>
 </SettingSection>
 
-<SettingSection title="顶部区域布局">
+<SettingSection title="顶部区域布局" premium>
     {#if !advancedEnabled}
         <div class="title-appearance-vip-note">
-            <SiyuanIcon name="vip" size={14} />
-            <span>顶部区域排布、快捷按钮样式和横幅毛玻璃为会员专属。会员过期后会按默认布局显示，已保存的设置会保留。</span>
+            <span>顶部区域排布、快捷按钮样式和横幅毛玻璃在未授权时按默认行为显示，已保存的设置会保留。</span>
         </div>
     {/if}
 
@@ -303,7 +303,7 @@
         </select>
     </SettingRow>
 
-    <SettingRow title="快捷按钮样式" description={!advancedEnabled ? "会员专属，当前按默认按钮样式显示" : "仅影响主页标题区域的快捷按钮"}>
+    <SettingRow title="快捷按钮样式" description={!advancedEnabled ? "当前按默认按钮样式显示" : "仅影响主页标题区域的快捷按钮"}>
         <select
             class="control-sm"
             value={tempQuickButtonStyle}
@@ -347,7 +347,7 @@
             />
         </SettingRow>
 
-        <SettingRow title="横幅毛玻璃层" description={!advancedEnabled ? "会员专属，当前不显示毛玻璃层" : "在横幅图片和标题内容之间增加可调毛玻璃层"}>
+        <SettingRow title="横幅毛玻璃层" description={!advancedEnabled ? "当前不显示毛玻璃层" : "在横幅图片和标题内容之间增加可调毛玻璃层"}>
             <input
                 type="checkbox"
                 class="b3-switch fn__flex-center"
@@ -428,7 +428,7 @@
                 onclick={() => selectStatusTextMode("ai")}
             >
                 <span>AI 智能生成</span>
-                <span class="vip-label"><SiyuanIcon name="vip" size={12} />会员专属</span>
+                <PremiumMark size={12} />
             </button>
         </div>
     </SettingRow>
@@ -451,8 +451,7 @@
     {:else if !advancedEnabled}
         <div class="status-ai-vip-card">
             <div class="status-ai-vip-title">
-                <SiyuanIcon name="vip" size={16} />
-                <span>AI 智能生成状态语是会员专属功能</span>
+                <span>AI 智能生成状态语</span>
             </div>
             <p class="status-ai-vip-desc">
                 开通后可根据记录天数、笔记数量和任务情况自动生成主页状态语，并支持自定义风格和长度。你已保存的 AI 状态语设置会保留，重新开通会员后可继续使用。
@@ -460,7 +459,7 @@
             <div class="status-ai-vip-cta">请前往「会员服务」开通后使用</div>
         </div>
     {:else}
-        <SettingRow title="生成提示语" description="控制 AI 状态语的风格和格式">
+        <SettingRow title="生成提示语" description="控制 AI 状态语的风格和格式" premium>
             <div class="ai-prompt-control">
                 <textarea
                     class="ai-prompt-textarea control-full"
@@ -475,7 +474,7 @@
         <div class="status-stat-selector">
             <div class="status-stat-selector-header">
                 <div>
-                    <strong>发送给 AI 的统计数据</strong>
+                    <strong>发送给 AI 的统计数据 <PremiumMark size={12} /></strong>
                     <span>已选择 {tempStatusAiStatKeys.length} 项</span>
                 </div>
                 <div class="status-stat-actions">
@@ -505,7 +504,7 @@
             </div>
             <p>只会读取并发送已勾选的统计数字，不读取笔记正文。未勾选的数据不会进入 AI 请求。</p>
         </div>
-        <SettingRow title="返回字符上限" description={`限制最终显示长度，范围 ${MIN_STATUS_AI_MAX_CHARS}-${MAX_STATUS_AI_MAX_CHARS} 个字符`}>
+        <SettingRow title="返回字符上限" description={`限制最终显示长度，范围 ${MIN_STATUS_AI_MAX_CHARS}-${MAX_STATUS_AI_MAX_CHARS} 个字符`} premium>
             <input
                 type="number"
                 class="control-sm"
@@ -651,14 +650,6 @@
     .status-mode-switch button:disabled {
         cursor: not-allowed;
         opacity: 0.55;
-    }
-    .vip-label {
-        display: inline-flex;
-        align-items: center;
-        gap: 0.2rem;
-        font-size: 11px;
-        line-height: 1;
-        color: var(--b3-theme-primary);
     }
     .ai-prompt-textarea {
         min-height: 96px;

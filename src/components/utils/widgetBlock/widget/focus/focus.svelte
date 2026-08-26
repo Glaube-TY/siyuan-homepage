@@ -16,7 +16,7 @@
   import type { WidgetRuntimeContext } from "../../widgetMountRegistry";
   import FocusCenterDialog, { type FocusTimerConfig } from "./FocusCenterDialog.svelte";
   import {
-    flushPendingFocusSessions, getLocalFocusDate, loadFocusStatistics, queueFocusSession, toFocusSecondTimestamp,
+    acquireFocusDataRuntime, flushPendingFocusSessions, getLocalFocusDate, loadFocusStatistics, queueFocusSession, toFocusSecondTimestamp,
     type FocusBindingSnapshot, type FocusSegmentType, type FocusSessionRecord,
   } from "./focusData";
   import { normalizeFocusBinding } from "./focusBinding";
@@ -54,6 +54,7 @@
   let destroyed = false;
   let unsubscribe: (() => void) | null = null;
   let unregisterFlusher: (() => void) | null = null;
+  let releaseFocusDataRuntime: (() => void) | null = null;
 
   const isBreak = $derived(segmentType !== "focus");
   const isMobilePlacement = $derived(placement === "mobile" || runtimeContext.placement === "mobile");
@@ -206,6 +207,7 @@
   }
 
   onMount(() => {
+    releaseFocusDataRuntime = acquireFocusDataRuntime();
     advancedEnabled = Boolean(plugin?.ADVANCED);
     const enabled = () => { advancedEnabled = true; void refreshStats(); };
     const disabled = () => { advancedEnabled = false; void stopTimer(); };
@@ -220,6 +222,8 @@
     clearHandles(); unsubscribe?.(); unregisterFlusher?.();
     if (recordStartedAt !== null) { const record = createRecord("cancelled"); if (record) queueFocusSession(record); }
     void flushPendingFocusSessions().catch((error) => console.warn("[focus] 销毁写入失败，保留待重试", error));
+    releaseFocusDataRuntime?.();
+    releaseFocusDataRuntime = null;
   });
 </script>
 

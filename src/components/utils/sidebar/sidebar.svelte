@@ -5,6 +5,7 @@
     import { addCustomBlock } from "./block-creator";
     import SiyuanIcon from "@/components/utils/shared/SiyuanIcon.svelte";
     import AdvancedFeatureLock from "../widgetBlock/widget/common/AdvancedFeatureLock.svelte";
+    import { destroyMountedWidgetBlocks } from "../widgetBlock/utils/widget-runtime-lifecycle";
     import "./siderBar.scss";
 
     interface Props {
@@ -24,6 +25,8 @@
 
     async function initSidebarLayout(): Promise<void> {
         await tick();
+
+        if (!advanced) return;
 
         const container = sidebarWidgetContainer;
         if (!container) {
@@ -52,6 +55,10 @@
         });
 
         await restoreLayout(plugin, { value: container }, sidebarWidgetContainer);
+        if (!advanced) {
+            destroyMountedWidgetBlocks(container);
+            sidebarInitialized = false;
+        }
     }
 
     function cleanupSortableState() {
@@ -73,8 +80,10 @@
         };
 
         const handleAdvancedUnavailable = () => {
-            advanced = false;
+            const container = sidebarWidgetContainer || document.querySelector(".sidebar-widget");
+            destroyMountedWidgetBlocks(container);
             cleanupSortableState();
+            advanced = false;
         };
 
         window.addEventListener("homepage-advanced-ready", handleAdvancedReady);
@@ -90,19 +99,7 @@
             cleanupSortableState();
 
             const container = sidebarWidgetContainer || document.querySelector(".sidebar-widget");
-            if (container) {
-                const widgetBlocks = container.querySelectorAll(".widget-block");
-                widgetBlocks.forEach((block) => {
-                    const instance = (block as any).__widgetBlockInstance;
-                    if (instance && typeof instance.destroy === "function") {
-                        try {
-                            instance.destroy();
-                        } catch {
-                            // 忽略销毁错误
-                        }
-                    }
-                });
-            }
+            destroyMountedWidgetBlocks(container);
             sidebarWidgetContainer = null;
         };
     });

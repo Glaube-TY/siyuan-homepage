@@ -1,5 +1,6 @@
 <script lang="ts">
     import { onMount } from "svelte";
+    import PremiumMark from "@/components/utils/shared/PremiumMark.svelte";
     import SiyuanIcon from "@/components/utils/shared/SiyuanIcon.svelte";
     import {
         getHomepageEntitlementSnapshot,
@@ -75,13 +76,13 @@
             : entitlementStatus === "granted"
                 ? "会员状态已恢复，正在加载功能…"
                 : compact
-                    ? "高级会员专属 · 在会员服务中开通"
+                    ? "请在「主页设置」→「会员服务」中开通后使用"
                     : "请在「主页设置」→「会员服务」中开通高级会员后使用");
 </script>
 
 <div class="feature-lock" class:compact>
     <div class="lock-badge">
-        <SiyuanIcon name="vip" size={compact ? 12 : 16} />
+        <PremiumMark size={compact ? 12 : 16} />
     </div>
     <div class="lock-icon-wrap">
         <SiyuanIcon name={resolvedIcon} size={compact ? 20 : 36} />

@@ -107,7 +107,7 @@
 
 <div class="global-calendar-widget" bind:this={root} data-widget-part="root" class:compact>
   {#if !advancedEnabled}
-    <AdvancedFeatureLock compact title="全局日历" subtitle="高级会员专属" icon="calendar" />
+    <AdvancedFeatureLock compact title="全局日历" subtitle="汇总任务、日记和重要日期" icon="calendar" />
   {:else}
   <header class="widget-header" data-widget-part="header">
     <WidgetSemanticTitle

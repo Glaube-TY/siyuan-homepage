@@ -37,12 +37,12 @@
     </SettingRow>
 </SettingSection>
 
-<SettingSection title="组件分区导航 👑">
+<SettingSection title="组件分区导航" premium>
     <SettingRow
         title="启用分区导航"
         description={state.advancedEnabled
             ? "开启后，桌面主页组件区顶部显示自定义分区导航。"
-            : "会员专属，过期后按普通组件布局显示，分区数据保留。"}
+            : "过期后按普通组件布局显示，分区数据保留。"}
     >
         <input
             type="checkbox"

@@ -2,6 +2,8 @@
     import SettingSection from "@/libs/components/SettingSection.svelte";
     import SettingRow from "@/libs/components/SettingRow.svelte";
     import AdvancedFeatureLock from "../common/AdvancedFeatureLock.svelte";
+    import PremiumSelect, { type PremiumSelectOption } from "@/components/utils/shared/PremiumSelect.svelte";
+    import { isPremiumHeatmapCountType } from "@/features/entitlement/homepage-premium-features";
 
     interface Props {
         advancedEnabled?: boolean;
@@ -23,6 +25,22 @@
         customColor = $bindable("#1ea769"),
         heatmapCountType = $bindable("block")
     }: Props = $props();
+
+    const HEATMAP_COUNT_OPTIONS: readonly Pick<PremiumSelectOption, "value" | "label">[] = [
+        { value: "block", label: "内容块" },
+        { value: "words", label: "字数" },
+        { value: "documentCreated", label: "创建文档数" },
+        { value: "documentUpdated", label: "更新文档数" },
+    ];
+
+    function getHeatmapCountOptions(): PremiumSelectOption[] {
+        return HEATMAP_COUNT_OPTIONS.map((option) => {
+            const requiresAdvanced = isPremiumHeatmapCountType(option.value);
+            return requiresAdvanced
+                ? { ...option, requiresAdvanced: true, disabled: !advancedEnabled }
+                : option;
+        });
+    }
 </script>
 
 <SettingSection title="基础配置">
@@ -58,12 +76,12 @@
 
 <SettingSection title="统计配置">
     <SettingRow title="计数类型">
-        <select bind:value={heatmapCountType} class="control-sm">
-            <option value="block">内容块</option>
-            <option value="words">字数👑</option>
-            <option value="documentCreated">创建文档数👑</option>
-            <option value="documentUpdated">更新文档数👑</option>
-        </select>
+        <PremiumSelect
+            bind:value={heatmapCountType}
+            options={getHeatmapCountOptions()}
+            ariaLabel="热力图计数类型"
+            size="sm"
+        />
     </SettingRow>
     {#if heatmapCountType === "words"}
         {#if advancedEnabled}

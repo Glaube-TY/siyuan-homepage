@@ -44,54 +44,6 @@
         white-space: nowrap;
     }
 
-    select {
-        width: max-content;
-        padding: 0.5rem 2.5rem 0.5rem 1rem;
-        font-size: 14px;
-        border: 1px solid var(--b3-theme-primary-lighter);
-        border-radius: 8px;
-        background-color: var(--b3-theme-surface);
-        appearance: none;
-        background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2390a3bf' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e");
-        background-repeat: no-repeat;
-        background-position: right 0.75rem center;
-        background-size: 16px;
-        transition: border-color $cs-dur-fast $cs-ease-out, box-shadow $cs-dur-fast $cs-ease-out;
-        box-shadow: $cs-shadow-card;
-        color: var(--b3-theme-on-surface);
-
-        &:hover {
-            border-color: var(--b3-theme-primary);
-            box-shadow: $cs-shadow-raised;
-        }
-
-        &:focus {
-            outline: none;
-            border-color: var(--b3-theme-primary);
-            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2);
-        }
-
-        &:disabled {
-            background-color: var(--b3-theme-surface);
-            cursor: not-allowed;
-        }
-
-        // 下拉选项样式
-        option {
-            padding: 0.5rem;
-            background: var(--b3-theme-surface);
-
-            &:checked {
-                background: var(--b3-theme-primary-light);
-                color: white;
-            }
-
-            &:hover {
-                background: var(--b3-theme-primary-light);
-            }
-        }
-    }
-
     button {
         display: inline-flex;
         width: fit-content;
@@ -133,6 +85,15 @@
         box-sizing: border-box;
         // 禁止任何子元素撑破容器导致横向滚动
         word-break: break-word;
+    }
+
+    .content-type-empty-state {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.75rem 0;
+        color: var(--b3-theme-on-surface-light);
+        font-size: 13px;
     }
 
     // 覆盖 SettingRow 在窄容器下的布局

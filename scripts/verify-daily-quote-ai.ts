@@ -213,9 +213,13 @@ assert.match(dailyQuoteSource, /onDestroy\(\(\) => \{[\s\S]*unsubscribeEntitleme
 assert.match(dailyQuoteSource, /result\.reason === "not_premium"[\s\S]*advancedEnabled = false/);
 assert.match(dailyQuoteSource, /\{#if advancedEnabled \|\| dailyQuoteMode === "custom"\}/);
 
-assert.match(desktopSettingsSource, /<option value="custom">自定义文字<\/option>/);
-assert.match(desktopSettingsSource, /<option value="ai" disabled=\{!advancedEnabled\}>AI 生成（会员）<\/option>/);
-assert.match(desktopSettingsSource, /<option value="remote" disabled=\{!advancedEnabled\}>远程接口（会员）<\/option>/);
+assert.match(desktopSettingsSource, /<PremiumSelect[\s\S]*options=\{getDailyQuoteModeOptions\(\)\}/);
+assert.match(desktopSettingsSource, /value: "custom", label: "自定义文字"/);
+assert.match(desktopSettingsSource, /value: "ai", label: "AI 生成"/);
+assert.match(desktopSettingsSource, /value: "remote", label: "远程接口"/);
+assert.match(desktopSettingsSource, /isPremiumDailyQuoteMode\(option\.value\)/);
+assert.match(desktopSettingsSource, /disabled: !advancedEnabled/);
+assert.doesNotMatch(desktopSettingsSource, /<SettingRow title="每日一言模式" premium=/);
 assert.doesNotMatch(desktopSettingsSource, /👑/);
 assert.match(desktopSettingsSource, /dailyQuoteAiPrompt/);
 assert.match(desktopSettingsSource, /dailyQuoteAiUseMemory/);
@@ -225,8 +229,13 @@ assert.match(contentSettingsSource, /dailyQuoteAiUseMemory/);
 
 assert.match(mobileSettingsSource, /disabled\?: boolean/);
 assert.match(mobileSettingsSource, /<option value=\{item\.value\} disabled=\{item\.disabled === true\}>/);
-assert.match(mobileSettingsSource, /option\("ai", "AI 生成（会员）", !mobileAdvancedEnabled\)/);
-assert.match(mobileSettingsSource, /option\("remote", "远程语录（会员）", !mobileAdvancedEnabled\)/);
+assert.match(mobileSettingsSource, /premiumOption\("ai", "AI 生成", isPremiumDailyQuoteMode\("ai"\)\)/);
+assert.match(mobileSettingsSource, /premiumOption\("remote", "远程语录", isPremiumDailyQuoteMode\("remote"\)\)/);
+assert.doesNotMatch(mobileSettingsSource, /vipOnly: isPremiumDailyQuoteMode\(state\.dailyQuoteMode\)/);
+assert.match(mobileSettingsSource, /requiresAdvanced\?: boolean/);
+assert.match(mobileSettingsSource, /hasPremiumOptions/);
+assert.match(mobileSettingsSource, /<PremiumSelect[\s\S]*toPremiumSelectOptions\(field\.options\)/);
+assert.match(mobileSettingsSource, /<PremiumMark/);
 assert.match(mobileSettingsSource, /key: "dailyQuoteAiPrompt"[\s\S]*type: "textarea"/);
 assert.match(mobileSettingsSource, /key: "dailyQuoteAiUseMemory"[\s\S]*type: "switch"/);
 assert.match(mobileSettingsSource, /key: "dailyQuoteAiInfo"[\s\S]*type: "info"/);
@@ -243,7 +252,7 @@ assert.match(mobileSettingsSource, /mobileAdvancedEnabled = snapshot\.advanced/)
 assert.match(adapterSource, /dailyQuoteAiPrompt/);
 assert.match(adapterSource, /dailyQuoteAiUseMemory/);
 assert.match(adapterSource, /dailyQuoteMode: \["custom", "ai", "remote"\]/);
-assert.match(adapterSource, /patch\.dailyQuoteMode === "ai"/);
+assert.match(adapterSource, /isPremiumDailyQuoteMode\(String\(patch\.dailyQuoteMode \?\? ""\)\)/);
 assert.match(adapterSource, /"dailyQuoteAiPrompt" in patch/);
 assert.match(adapterSource, /"dailyQuoteAiUseMemory" in patch/);
 assert.match(adapterSource, /DAILY_QUOTE_AI_PROMPT_MAX_LENGTH/);

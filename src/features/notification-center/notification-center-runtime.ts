@@ -11,6 +11,7 @@ import {
 import { clearNotificationCenterMemoryCaches } from "./notification-center-service";
 import { NOTIFICATION_CENTER_BROADCAST_CHANNEL } from "./notification-center-events";
 import { destroyNotificationRuleRuntime, startNotificationRuleRuntime } from "./notification-rule-runtime";
+import { getHomepageEntitlementSnapshot } from "@/features/entitlement/homepage-entitlement";
 
 let started = false;
 let interval: number | null = null;
@@ -37,11 +38,13 @@ function handleRefreshEvent(): void {
 
 function handlePremiumReady(): void {
   membershipState = "ready";
+  startNotificationRuleRuntime();
   requestMobilePlanAction("premium-ready");
 }
 
 function handlePremiumUnavailable(): void {
   membershipState = "unavailable";
+  destroyNotificationRuleRuntime();
   requestMobilePlanAction("premium-unavailable");
 }
 
@@ -62,7 +65,12 @@ function handleBroadcast(event: MessageEvent<{ eventName?: string; detail?: unkn
 export function startNotificationCenterRuntime(): void {
   if (started) return;
   started = true;
-  membershipState = "unknown";
+  const snapshot = getHomepageEntitlementSnapshot();
+  membershipState = snapshot.status === "pending"
+    ? "unknown"
+    : snapshot.advanced
+      ? "ready"
+      : "unavailable";
   window.addEventListener(NOTIFICATION_CENTER_SETTINGS_CHANGED_EVENT, handleRefreshEvent);
   window.addEventListener(NOTIFICATION_RULES_CHANGED_EVENT, handleRefreshEvent);
   window.addEventListener("task-notify-settings-changed", handleRefreshEvent);
@@ -80,7 +88,11 @@ export function startNotificationCenterRuntime(): void {
   if (isMobileNotificationRuntime()) {
     interval = window.setInterval(() => requestMobilePlanAction("periodic"), 5 * 60 * 1000);
   }
-  startNotificationRuleRuntime();
+  if (membershipState === "ready") {
+    startNotificationRuleRuntime();
+  } else if (membershipState === "unavailable") {
+    requestMobilePlanAction("premium-unavailable");
+  }
 }
 
 export function destroyNotificationCenterRuntime(): void {

@@ -14,7 +14,7 @@ export const definition: HomepageThemeDefinition = {
     surfaces: ["desktop-homepage"],
     renderer: HandDrawnTheme,
     widgetPresentation: handDrawnWidgetPresentation,
-    preview: { tags: ["VIP", "手绘", "草图", "铅笔线条"] },
+    preview: { tags: ["手绘", "草图", "铅笔线条"] },
     features: { banner: true, widgetAppearance: "theme-controlled" },
 };
 

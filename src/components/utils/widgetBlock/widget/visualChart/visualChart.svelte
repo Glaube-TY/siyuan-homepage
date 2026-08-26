@@ -73,7 +73,7 @@
 
 <div class="visual-chart-widget" data-widget-part="root">
     {#if !advancedEnabled}
-        <AdvancedFeatureLock compact title="可视化图表" subtitle="高级会员专属数据可视化工作台" icon="chart" highlights={["多数据源", "动态图表"]} />
+        <AdvancedFeatureLock compact title="可视化图表" subtitle="连接数据库、SQL 和文档数据生成图表" icon="chart" highlights={["多数据源", "动态图表"]} />
     {:else}
         <div class="chart-output">
             {#if loading && !displayData.rows.length}<div class="widget-state">正在载入图表…</div>

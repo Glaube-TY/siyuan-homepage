@@ -56,6 +56,7 @@
   import CountdownCenterSettings from "./CountdownCenterSettings.svelte";
   import CountdownIcon from "./CountdownIcon.svelte";
   import CountdownIconButton from "./CountdownIconButton.svelte";
+  import PremiumMark from "@/components/utils/shared/PremiumMark.svelte";
   interface Props {
     plugin: any;
     mobile: boolean;
@@ -488,7 +489,7 @@
       />{:else if tab === "notifications"}{#if !advancedEnabled}<div
           class="shp-countdown-center-locked"
         >
-          <strong>纪念日通知为 VIP 专属</strong>
+          <strong>纪念日通知 <PremiumMark /></strong>
           <p>
             开通后可使用桌面、手机和外联提醒。已有通知设置会保留，不会被读取或重置。
           </p>

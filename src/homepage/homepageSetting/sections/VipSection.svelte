@@ -3,6 +3,7 @@
     import { showMessage } from "siyuan";
     import * as advanced from "@/components/tools/advanced";
     import type { LicenseVerifyResult } from "@/components/tools/advanced";
+    import PremiumMark from "@/components/utils/shared/PremiumMark.svelte";
     import SiyuanIcon from "@/components/utils/shared/SiyuanIcon.svelte";
     import { redeemMembership, type RedeemResponse } from "@/services/redemptionService";
     import { syncLicenseStatus, type LicenseSyncResponse } from "@/services/licenseStatusService";
@@ -61,7 +62,7 @@
         { name: "通知中心", free: false, vip: true },
         { name: "机器人助手", free: false, vip: true },
         { name: "高级样式", free: false, vip: true },
-        { name: "VIP组件", free: false, vip: true },
+        { name: "扩展组件", free: false, vip: true },
         { name: "Quicker软件全局剪藏", free: false, vip: true },
         { name: "持续更新的未来新功能", free: false, vip: true, future: true },
     ];
@@ -1118,7 +1119,7 @@
 {#snippet membershipPurchaseContent()}
     <div class="membership-offer-hero">
         <div class="membership-offer-heading">
-            <SiyuanIcon name="vip" size={22} />
+            <PremiumMark size={22} />
             <h2>{activated ? "续费会员" : "开通会员"}</h2>
         </div>
         {#if activated}
@@ -1144,7 +1145,7 @@
     <details class="membership-benefits-comparison">
         <summary>
             <span class="benefits-summary-title">
-                <SiyuanIcon name="iconVIP" size={18} />
+                <PremiumMark size={18} />
                 核心权益对比
             </span>
             <span class="benefits-summary-hint">点击展开查看</span>
@@ -1161,7 +1162,7 @@
                         <tr>
                             <th scope="col">功能模块</th>
                             <th scope="col">免费版</th>
-                            <th scope="col" class="vip-column">👑 VIP 尊享版</th>
+                            <th scope="col" class="vip-column"><PremiumMark size={14} /> 尊享版</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -1249,7 +1250,7 @@
     {#if liveUserName || liveUserId}
         <div class="redemption-card">
             <div class="redemption-card-heading">
-                <SiyuanIcon name="iconVIP" size={18} />
+                <PremiumMark size={18} />
                 <div>
                     <h3>使用兑换码激活</h3>
                     <p>兑换码会永久绑定首次兑换的思源账号，请确认当前账号无误。</p>
@@ -1352,7 +1353,7 @@
         >
             <div class="activated-hero">
                 <div class="activated-badge">
-                    <SiyuanIcon name="vip" size={14} />
+                    <PremiumMark size={14} />
                     {activationIsLifetime ? "永久会员" : "会员已激活"}
                 </div>
                 <h2>

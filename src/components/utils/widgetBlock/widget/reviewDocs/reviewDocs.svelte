@@ -450,7 +450,7 @@
             subtitle="手动标记文档和块的复习日期，在主页集中提醒。"
             icon="review"
             features={["文档和块复习计划", "到期提醒", "操作日志"]}
-            highlights={["高级会员专属"]}
+            highlights={["复习计划"]}
             compact
         />
     {:else}

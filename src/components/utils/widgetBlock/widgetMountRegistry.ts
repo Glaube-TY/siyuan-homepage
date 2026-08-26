@@ -2,6 +2,7 @@ import { mount } from "svelte";
 import type { DeviceViewContext } from "@/homepage/deviceView/deviceViewTypes";
 import { applyWidgetPresentation } from "@/homepage/theme/widgetPresentation/runtime";
 import type { WidgetPlacement } from "@/homepage/theme/widgetPresentation/types";
+import { resolveWidgetPremiumRequirement } from "@/features/entitlement/homepage-premium-features";
 import { getWidgetDefinition } from "./widgetDefinitionRegistry";
 import WidgetRuntimeHost from "./WidgetRuntimeHost.svelte";
 
@@ -54,6 +55,7 @@ export function mountWidgetContent(
         .forEach((className) => target.classList.remove(className));
     target.classList.add(`widget-type-${sanitizeWidgetTypeClass(widgetType)}`);
     const presentation = applyWidgetPresentation(target, definition, placement, contentData);
+    const premiumRequired = resolveWidgetPremiumRequirement(widgetType, contentData);
 
     const props: Record<string, any> = { contentTypeJson };
     if (definition.requiresPlugin) props.plugin = plugin;
@@ -74,6 +76,8 @@ export function mountWidgetContent(
         component,
         componentProps: props,
         frame: definition.frame,
+        premiumRequired,
+        premiumTitle: definition.semanticLabel,
     });
     try {
         return mount(WidgetRuntimeHost, { target, props: hostProps(selectedComponent) });

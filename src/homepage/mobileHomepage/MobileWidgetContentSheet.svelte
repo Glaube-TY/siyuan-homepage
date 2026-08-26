@@ -1,5 +1,6 @@
 <script lang="ts">
     import { onMount } from "svelte";
+    import PremiumMark from "@/components/utils/shared/PremiumMark.svelte";
     import SiyuanIcon from "@/components/utils/shared/SiyuanIcon.svelte";
     import MobileWidgetContentForm from "./MobileWidgetContentForm.svelte";
     import MusicCloudConnectionDialog from "@/components/utils/widgetBlock/widget/musicPlayer/MusicCloudConnectionDialog.svelte";
@@ -18,6 +19,7 @@
         getMobileWidgetLabel,
         type MobileWidgetCategoryId,
     } from "./mobile-widget-categories";
+    import { isPremiumWidgetType } from "@/features/entitlement/homepage-premium-features";
     import type { DeviceViewContext } from "@/homepage/deviceView/deviceViewTypes";
 
     interface Props {
@@ -133,7 +135,7 @@
         {/if}
         <div>
             <div class="mobile-widget-sheet-eyebrow">内容设置</div>
-            <h3>{title}</h3>
+            <h3>{title}{#if isPremiumWidgetType(selectedContentType)}<PremiumMark />{/if}</h3>
         </div>
         <button class="mobile-widget-sheet-close" type="button" aria-label="关闭" onclick={onClose}>
             <SiyuanIcon name="cancel" size={16} />
@@ -154,7 +156,7 @@
             <div class="mobile-content-menu">
                 {#each widgetsInCategory as item}
                     <button type="button" class="mobile-content-menu-card" onclick={() => openWidget(item.type)}>
-                        <strong>{item.label}</strong>
+                        <strong>{item.label}{#if item.requiresAdvanced}<PremiumMark />{/if}</strong>
                         <span>{item.description}</span>
                     </button>
                 {/each}

@@ -1,7 +1,7 @@
 <script lang="ts">
     import { onMount, onDestroy } from "svelte";
     import { showMessage } from "siyuan";
-    import { flushPendingCYBMOKKnocks, getCYBMOKStoreStatus, recordCYBMOKKnock } from "./cybmokData";
+    import { acquireCYBMOKDataRuntime, flushPendingCYBMOKKnocks, getCYBMOKStoreStatus, recordCYBMOKKnock } from "./cybmokData";
     import AdvancedFeatureLock from "../common/AdvancedFeatureLock.svelte";
 
     interface Props {
@@ -23,8 +23,10 @@
 
     let floatAnimationInterval: ReturnType<typeof setInterval> | null = null;
     let knockResetTimeout: ReturnType<typeof setTimeout> | null = null;
+    let releaseCYBMOKDataRuntime: (() => void) | null = null;
 
     onMount(async () => {
+        releaseCYBMOKDataRuntime = acquireCYBMOKDataRuntime();
         advancedEnabled = plugin.ADVANCED;
 
         MOKImgPath = `/plugins/siyuan-homepage/asset/Icon/木鱼.svg`;
@@ -41,6 +43,8 @@
         void flushPendingCYBMOKKnocks().catch((error) => {
             console.warn("[CYBMOK] 组件销毁前写入失败，已保留待写计数", error);
         });
+        releaseCYBMOKDataRuntime?.();
+        releaseCYBMOKDataRuntime = null;
         // 清理漂浮动画 interval
         if (floatAnimationInterval) {
             clearInterval(floatAnimationInterval);

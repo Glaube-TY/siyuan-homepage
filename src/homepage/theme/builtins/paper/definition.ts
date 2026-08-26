@@ -14,7 +14,7 @@ export const definition: HomepageThemeDefinition = {
     surfaces: ["desktop-homepage"],
     renderer: PaperTheme,
     widgetPresentation: paperWorkspaceWidgetPresentation,
-    preview: { tags: ["VIP", "纸张质感", "归档卡片", "知识工作区"] },
+    preview: { tags: ["纸张质感", "归档卡片", "知识工作区"] },
     features: { banner: true, widgetAppearance: "theme-controlled" },
 };
 

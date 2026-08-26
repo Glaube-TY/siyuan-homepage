@@ -1,7 +1,10 @@
 <script lang="ts">
     import SettingSection from '@/libs/components/SettingSection.svelte';
     import SettingRow from '@/libs/components/SettingRow.svelte';
+    import PremiumSelect, { type PremiumSelectOption } from '@/components/utils/shared/PremiumSelect.svelte';
+    import AdvancedFeatureLock from '@/components/utils/widgetBlock/widget/common/AdvancedFeatureLock.svelte';
     import SiyuanIcon from '@/components/utils/shared/SiyuanIcon.svelte';
+    import { isPremiumBannerGlobalType } from '@/features/entitlement/homepage-premium-features';
 
     let fileInputEl: HTMLInputElement | null = $state(null);
 
@@ -41,6 +44,20 @@
         onTempBannerHeightChange,
         handleImageSelect
     }: Props = $props();
+
+    const BANNER_GLOBAL_TYPE_OPTIONS: readonly Pick<PremiumSelectOption, "value" | "label">[] = [
+        { value: "custom", label: "自定义" },
+        { value: "bing", label: "每日一图" },
+    ];
+
+    function getBannerGlobalTypeOptions(): PremiumSelectOption[] {
+        return BANNER_GLOBAL_TYPE_OPTIONS.map((option) => {
+            const requiresAdvanced = isPremiumBannerGlobalType(option.value);
+            return requiresAdvanced
+                ? { ...option, requiresAdvanced: true, disabled: !advancedEnabled }
+                : option;
+        });
+    }
 </script>
 
 <SettingSection title="横幅开关" focusKey="banner">
@@ -57,14 +74,13 @@
 {#if tempBannerEnabled}
     <SettingSection title="横幅设置">
         <SettingRow title="横幅类型" description="选择横幅图片来源">
-            <select
-                class="control-md"
+            <PremiumSelect
                 value={bannerGlobalType}
-                onchange={(e) => onBannerGlobalTypeChange((e.currentTarget as HTMLSelectElement).value)}
-            >
-                <option value="custom">自定义</option>
-                <option value="bing">每日一图👑</option>
-            </select>
+                options={getBannerGlobalTypeOptions()}
+                ariaLabel="横幅类型"
+                size="md"
+                onValueChange={onBannerGlobalTypeChange}
+            />
         </SettingRow>
         <SettingRow title="横幅高度" description="设置横幅高度（100-800px）">
             <input
@@ -138,7 +154,7 @@
         {/if}
     {:else if bannerGlobalType === "bing"}
         {#if advancedEnabled}
-            <SettingSection title="Bing 每日一图">
+            <SettingSection title="Bing 每日一图" premium>
                 <SettingRow title="远程接口" description="选择 Bing 壁纸接口类型">
                     <select
                         class="control-lg"
@@ -157,12 +173,13 @@
                 </SettingRow>
             </SettingSection>
         {:else}
-            <SettingSection title="会员权益">
-                <div class="vip-feature-hint">
-                    <span class="vip-icon">👑</span>
-                    <span>每日一图为会员专属权益</span>
-                </div>
-            </SettingSection>
+            <AdvancedFeatureLock
+                title="每日一图"
+                subtitle="从 Bing 获取每日横幅图片。"
+                icon="image"
+                features={["Bing 每日图片源", "可选清晰度与历史随机图"]}
+                highlights={["每日图片", "Bing 图片"]}
+            />
         {/if}
     {/if}
 {/if}
@@ -178,17 +195,5 @@
         max-height: 200px;
         border-radius: 8px;
         object-fit: cover;
-    }
-    .vip-feature-hint {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        gap: 0.5rem;
-        padding: 2rem;
-        color: var(--b3-theme-on-surface-light);
-        font-size: 14px;
-    }
-    .vip-icon {
-        font-size: 24px;
     }
 </style>

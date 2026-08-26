@@ -2,7 +2,9 @@
     import ImageSourceSetting from "../../shared/ImageSourceSetting.svelte";
     import SettingSection from "@/libs/components/SettingSection.svelte";
     import SettingRow from "@/libs/components/SettingRow.svelte";
+    import PremiumSelect, { type PremiumSelectOption } from "@/components/utils/shared/PremiumSelect.svelte";
     import AdvancedFeatureLock from "../common/AdvancedFeatureLock.svelte";
+    import { isPremiumDailyQuoteMode } from "@/features/entitlement/homepage-premium-features";
     import {
         DAILY_QUOTE_AI_PROMPT_MAX_LENGTH,
         DEFAULT_DAILY_QUOTE_AI_PROMPT,
@@ -33,15 +35,31 @@
         dailyQuoteRemoteBg = $bindable("https://images.unsplash.com/photo-1506905925346-21bda4d32df4?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&auto=format&fit=crop&w=2070&q=80"),
         dailyQuoteLocalBg = $bindable("")
     }: Props = $props();
+
+    const DAILY_QUOTE_MODE_OPTIONS: readonly Pick<PremiumSelectOption, "value" | "label">[] = [
+        { value: "custom", label: "自定义文字" },
+        { value: "ai", label: "AI 生成" },
+        { value: "remote", label: "远程接口" },
+    ];
+
+    function getDailyQuoteModeOptions(): PremiumSelectOption[] {
+        return DAILY_QUOTE_MODE_OPTIONS.map((option) => {
+            const requiresAdvanced = isPremiumDailyQuoteMode(option.value);
+            return requiresAdvanced
+                ? { ...option, requiresAdvanced: true, disabled: !advancedEnabled }
+                : option;
+        });
+    }
 </script>
 
 <SettingSection>
     <SettingRow title="每日一言模式">
-        <select bind:value={dailyQuoteMode} class="control-sm">
-            <option value="custom">自定义文字</option>
-            <option value="ai" disabled={!advancedEnabled}>AI 生成（会员）</option>
-            <option value="remote" disabled={!advancedEnabled}>远程接口（会员）</option>
-        </select>
+        <PremiumSelect
+            bind:value={dailyQuoteMode}
+            options={getDailyQuoteModeOptions()}
+            ariaLabel="每日一言模式"
+            size="sm"
+        />
     </SettingRow>
 
     <SettingRow title="字体大小">
@@ -52,7 +70,7 @@
 {#if dailyQuoteMode === "remote"}
     {#if advancedEnabled}
         <SettingSection>
-            <SettingRow title="接口来源">
+            <SettingRow title="接口来源" premium>
                 <select bind:value={dailyQuoteSource} class="control-md">
                     <option value="classic">今日语录</option>
                     <option value="celebrity">名人名言</option>
@@ -81,7 +99,7 @@
 {:else if dailyQuoteMode === "ai"}
     {#if advancedEnabled}
         <SettingSection>
-            <SettingRow title="AI 生成要求" description="描述你希望每日一句的语气和风格。">
+            <SettingRow title="AI 生成要求" description="描述你希望每日一句的语气和风格。" premium>
                 <textarea
                     bind:value={dailyQuoteAiPrompt}
                     maxlength={DAILY_QUOTE_AI_PROMPT_MAX_LENGTH}
@@ -91,12 +109,14 @@
             <SettingRow
                 title="结合全局记忆"
                 description="结合 AI 中心的全局记忆，让内容更贴近长期目标和偏好。"
+                premium
             >
                 <input type="checkbox" class="b3-switch fn__flex-center" bind:checked={dailyQuoteAiUseMemory} />
             </SettingRow>
             <SettingRow
                 title="模型与缓存"
                 description="模型跟随 AI 中心默认模型；每日自动生成一次，可在组件内手动刷新。"
+                premium
             >
                 <span class="daily-quote-ai-info">使用 AI 中心默认模型</span>
             </SettingRow>

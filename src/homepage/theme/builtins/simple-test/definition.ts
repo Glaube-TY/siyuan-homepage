@@ -14,7 +14,7 @@ export const definition: HomepageThemeDefinition = {
     surfaces: ["desktop-homepage"],
     renderer: SimpleTestTheme,
     widgetPresentation: simpleWorkspaceWidgetPresentation,
-    preview: { tags: ["VIP", "简洁", "知识工作区", "横向布局"] },
+    preview: { tags: ["简洁", "知识工作区", "横向布局"] },
     features: { banner: false, widgetAppearance: "theme-controlled" },
 };
 

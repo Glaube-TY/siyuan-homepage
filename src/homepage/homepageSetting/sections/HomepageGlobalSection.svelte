@@ -31,7 +31,8 @@
     </SettingRow>
 
     <SettingRow
-        title="开启侧边栏👑"
+        title="开启侧边栏"
+        premium
         description="在桌面端启用主页侧边栏"
     >
         <input

@@ -3,15 +3,19 @@
   表示一个设置块，可带标题，内部纵向排列多个 SettingRow
 -->
 <script lang="ts">
+    import PremiumMark from "@/components/utils/shared/PremiumMark.svelte";
+
     interface Props {
         title?: string;
         focusKey?: string;
+        premium?: boolean;
         children?: import('svelte').Snippet;
     }
 
     let {
         title = "",
         focusKey,
+        premium = false,
         children
     }: Props = $props();
 </script>
@@ -23,7 +27,10 @@
     tabindex="-1"
 >
     {#if title}
-        <div class="setting-section__title">{title}</div>
+        <div class="setting-section__title">
+            <span class="setting-section__title-text">{title}</span>
+            {#if premium}<PremiumMark />{/if}
+        </div>
     {/if}
     <div class="setting-section__content">
         {@render children?.()}
@@ -45,12 +52,19 @@
     }
 
     .setting-section__title {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
         font-size: 14px;
         font-weight: 600;
         color: var(--b3-theme-on-surface);
         padding-bottom: 0.75rem;
         margin-bottom: 0.75rem;
         border-bottom: 1px solid var(--b3-border-color);
+    }
+
+    .setting-section__title-text {
+        min-width: 0;
     }
 
     .setting-section__content {

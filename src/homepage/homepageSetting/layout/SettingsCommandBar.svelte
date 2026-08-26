@@ -1,6 +1,7 @@
 <script lang="ts">
     import { onMount } from "svelte";
     import { AlertCircle, Check, LoaderCircle, Search, X } from "@lucide/svelte";
+    import PremiumMark from "@/components/utils/shared/PremiumMark.svelte";
     import { searchHomepageSettings, type SettingSearchResult, type SettingsSaveStatus } from "../settingsExperience";
 
     interface Props {
@@ -126,7 +127,10 @@
                             onclick={() => selectResult(result)}
                         >
                             <span class="settings-search-result__body">
-                                <span class="settings-search-result__title">{result.title}</span>
+                                <span class="settings-search-result__title">
+                                    <span class="settings-search-result__title-text">{result.title}</span>
+                                    {#if result.requiresAdvanced}<PremiumMark />{/if}
+                                </span>
                                 <span class="settings-search-result__description">{result.description}</span>
                                 <span class="settings-search-result__path">{result.pathLabel}</span>
                             </span>
@@ -283,12 +287,21 @@
     }
 
     .settings-search-result__title {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
         overflow: hidden;
         font-size: 13px;
         font-weight: 650;
         line-height: 1.45;
         text-overflow: ellipsis;
         white-space: nowrap;
+    }
+
+    .settings-search-result__title-text {
+        overflow: hidden;
+        min-width: 0;
+        text-overflow: ellipsis;
     }
 
     .settings-search-result__description,

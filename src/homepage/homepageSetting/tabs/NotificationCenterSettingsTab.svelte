@@ -142,8 +142,8 @@
 <div class="shp-notification-page">
   {#if !advancedEnabled}
     <SettingSection title="通知中心状态">
-      <SettingRow title="VIP 专属功能" description="通知设置、规则、历史和移动计划数据均会原样保留">
-        <span class="shp-notification-status">通知中心为 VIP 专属功能，请在会员服务中开通后使用。</span>
+      <SettingRow title="通知中心" premium description="通知设置、规则、历史和移动计划数据均会原样保留">
+        <span class="shp-notification-status">当前不可用，请在「会员服务」中开通后使用。</span>
       </SettingRow>
     </SettingSection>
   {:else}

@@ -7,7 +7,9 @@
     import ImageSourceSetting from "../../shared/ImageSourceSetting.svelte";
     import SettingSection from "@/libs/components/SettingSection.svelte";
     import SettingRow from "@/libs/components/SettingRow.svelte";
+    import PremiumSelect, { type PremiumSelectOption } from "@/components/utils/shared/PremiumSelect.svelte";
     import AdvancedFeatureLock from "../common/AdvancedFeatureLock.svelte";
+    import { isPremiumTimedateMode } from "@/features/entitlement/homepage-premium-features";
 
     interface Props {
         plugin: any;
@@ -109,6 +111,30 @@
 
     let advancedEnabled = $state(getHomepageEntitlementSnapshot().advanced);
 
+    const TIME_MODE_OPTIONS: readonly Pick<PremiumSelectOption, "value" | "label">[] = [
+        { value: "classic", label: "经典" },
+        { value: "simple1", label: "简约1" },
+        { value: "simple2", label: "简约2" },
+        { value: "dial1", label: "表盘1" },
+        { value: "dial2", label: "表盘2" },
+        { value: "dial3", label: "表盘3" },
+        { value: "dial4", label: "表盘4" },
+        { value: "dial5", label: "表盘5" },
+        { value: "dial6", label: "表盘6" },
+        { value: "dial7", label: "中国风表盘1" },
+        { value: "dial8", label: "水墨表盘1" },
+        { value: "dial9", label: "卡通熊表盘" },
+    ];
+
+    function getTimeModeOptions(): PremiumSelectOption[] {
+        return TIME_MODE_OPTIONS.map((option) => {
+            const requiresAdvanced = isPremiumTimedateMode(option.value);
+            return requiresAdvanced
+                ? { ...option, requiresAdvanced: true, disabled: !advancedEnabled }
+                : option;
+        });
+    }
+
     onMount(() => subscribeHomepageEntitlement((snapshot) => {
         advancedEnabled = snapshot.advanced;
     }));
@@ -116,20 +142,12 @@
 
 <SettingSection>
     <SettingRow title="时间模式">
-        <select bind:value={timeType} class="control-md">
-            <option value="classic">经典</option>
-            <option value="simple1">简约1</option>
-            <option value="simple2">简约2</option>
-            <option value="dial1">表盘1</option>
-            <option value="dial2">表盘2</option>
-            <option value="dial3">表盘3👑</option>
-            <option value="dial4">表盘4👑</option>
-            <option value="dial5">表盘5👑</option>
-            <option value="dial6">表盘6👑</option>
-            <option value="dial7">中国风表盘1👑</option>
-            <option value="dial8">水墨表盘1👑</option>
-            <option value="dial9">卡通熊表盘👑</option>
-        </select>
+        <PremiumSelect
+            bind:value={timeType}
+            options={getTimeModeOptions()}
+            ariaLabel="时间模式"
+            size="md"
+        />
     </SettingRow>
 </SettingSection>
 

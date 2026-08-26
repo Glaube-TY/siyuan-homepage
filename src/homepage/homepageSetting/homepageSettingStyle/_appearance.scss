@@ -14,9 +14,8 @@
 .theme-card--effective { box-shadow: 0 0 0 2px color-mix(in srgb, var(--b3-theme-primary) 18%, transparent); }
 .theme-card--switching { border-color: color-mix(in srgb, var(--b3-theme-primary) 72%, var(--b3-border-color)); }
 .theme-card__head { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; }
-.theme-card__head > strong { color: var(--b3-theme-on-background); font-size: 16px; }
+.theme-card__title { display: inline-flex; align-items: center; gap: 4px; min-width: 0; color: var(--b3-theme-on-background); font-size: 16px; }
 .theme-card__progress { display: flex; align-items: center; gap: 8px; color: var(--b3-theme-primary); font-size: 12px; }
-.theme-card__vip { color: var(--b3-theme-primary); font-weight: 600; }
 .theme-card p { margin: 0; min-height: 38px; color: var(--b3-theme-on-surface); }
 .theme-card__meta { font-size: 12px; color: var(--b3-theme-on-surface); }
 .theme-card__badges { display: flex; flex-wrap: wrap; gap: 6px; min-height: 22px; }

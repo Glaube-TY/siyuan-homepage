@@ -11,7 +11,6 @@
         normalizeFavoritesSortOrder,
         loadGroupListForSettings,
     } from "./favorites";
-    import SiyuanIcon from "@/components/utils/shared/SiyuanIcon.svelte";
     import { VIRTUAL_UNGROUPED_ID, VIRTUAL_UNGROUPED_NAME } from "@/features/favorites-manager/types";
     import { openFavoritesManagerDialog } from "@/features/favorites-manager/open-favorites-manager";
     import { onFavoritesUpdated } from "@/features/favorites-manager/favorites-events";
@@ -104,7 +103,7 @@
     function openManager() {
         if (!advancedEnabled) {
             showMessage(
-                "收藏文档管理与分组为 VIP 专属功能。已有分组和组件设置会完整保留，开通或续费后可继续使用。",
+                "已有分组和组件设置会完整保留，开通或续费后可继续使用。",
                 5000,
                 "info",
             );
@@ -195,16 +194,14 @@
         <input type="checkbox" class="b3-switch fn__flex-center" bind:checked={showFavFloatDoc} />
     </SettingRow>
 
-    <SettingRow title="收藏管理" description="管理分组、搜索并收藏文档">
+    <SettingRow title="收藏管理" description="管理分组、搜索并收藏文档" premium>
         <button type="button" class="b3-button fm-manager-btn" class:fm-vip-locked={!advancedEnabled} onclick={openManager}>
-            <SiyuanIcon name="vip" size={14} title="高级会员专属" />
             打开收藏文档管理
         </button>
     </SettingRow>
 
-    <SettingRow title="按分组显示" description="开启后按分组分区展示收藏文档">
+    <SettingRow title="按分组显示" description="开启后按分组分区展示收藏文档" premium>
         <span class="fm-switch-wrapper">
-            <SiyuanIcon name="vip" size={14} title="高级会员专属" />
             <input type="checkbox" class="b3-switch fn__flex-center" bind:checked={favoritesGroupingEnabled} disabled={!advancedEnabled} />
         </span>
     </SettingRow>

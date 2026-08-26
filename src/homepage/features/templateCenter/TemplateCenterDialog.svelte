@@ -21,6 +21,7 @@
         type UserLayoutTemplatePreviewItem,
     } from "@/homepage/templates/userLayoutTemplates";
     import { getCurrentDeviceViewContext } from "@/homepage/deviceView/deviceViewContext";
+    import PremiumMark from "@/components/utils/shared/PremiumMark.svelte";
 
     interface Props {
         plugin: any;
@@ -130,7 +131,7 @@
 
     function openSaveLayoutPanel() {
         if (!advancedEnabled) {
-            showMessage("主页模板为会员功能，请先开通会员。", 3000, "info");
+            showMessage("主页模板暂不可用，请先开通会员。", 3000, "info");
             return;
         }
         detailMode = "saveLayout";
@@ -145,7 +146,7 @@
     async function handleSaveLayoutTemplate() {
         if (savingLayoutTemplate) return;
         if (!advancedEnabled) {
-            showMessage("主页模板为会员功能，请先开通会员。", 3000, "info");
+            showMessage("主页模板暂不可用，请先开通会员。", 3000, "info");
             return;
         }
         if (!layoutTemplateName.trim()) {
@@ -181,7 +182,7 @@
         if (!selectedTemplate) return;
 
         if (!advancedEnabled) {
-            showMessage("主页模板为会员功能，请先开通会员。", 3000, "info");
+            showMessage("主页模板暂不可用，请先开通会员。", 3000, "info");
             return;
         }
         if (!userLayoutAvailabilityMap[selectedTemplate.id]?.available) return;
@@ -225,7 +226,7 @@
     async function handleDeleteUserLayoutTemplate() {
         if (!selectedTemplate || deletingUserLayout) return;
         if (!advancedEnabled) {
-            showMessage("主页模板为会员功能，请先开通会员。", 3000, "info");
+            showMessage("主页模板暂不可用，请先开通会员。", 3000, "info");
             return;
         }
         showDeleteUserLayoutConfirm = true;
@@ -260,7 +261,7 @@
     async function handleUpdateUserLayoutTemplate() {
         if (!selectedTemplate || updatingLayoutTemplate) return;
         if (!advancedEnabled) {
-            showMessage("主页模板为会员功能，请先开通会员。", 3000, "info");
+            showMessage("主页模板暂不可用，请先开通会员。", 3000, "info");
             return;
         }
         showUpdateConfirm = true;
@@ -271,7 +272,7 @@
         if (applyingUserLayout) return "添加中...";
         const targetLabel = currentTargetType === "section" ? "当前分栏" : "当前主页";
         if (!selectedTemplate) return `添加到${targetLabel}`;
-        if (!advancedEnabled) return "会员可用";
+        if (!advancedEnabled) return "暂不可用";
         return userLayoutAvailabilityMap[selectedTemplate.id]?.available ? `添加到${targetLabel}` : "暂不可添加";
     }
 
@@ -325,8 +326,10 @@
 {:else if !advancedEnabled}
     <div class="template-center vip-template-gate">
         <div class="vip-gate-panel">
-            <div class="vip-gate-badge">会员功能</div>
-            <h2 class="vip-gate-title">布局模板</h2>
+            <div class="vip-gate-title-line">
+                <h2 class="vip-gate-title">布局模板</h2>
+                <PremiumMark size={16} />
+            </div>
             <p class="vip-gate-desc">
                 将当前主页或活动分栏中的普通组件布局保存为模板，并可追加到多个布局。
             </p>
@@ -738,20 +741,15 @@
         box-sizing: border-box;
     }
 
-    .vip-gate-badge {
+    .vip-gate-title-line {
         display: inline-flex;
         align-items: center;
-        padding: 3px 10px;
-        border-radius: 999px;
-        background: var(--b3-theme-primary-light);
-        color: var(--b3-theme-primary);
-        font-size: 12px;
-        font-weight: 600;
+        gap: 6px;
         margin-bottom: 10px;
     }
 
     .vip-gate-title {
-        margin: 0 0 8px;
+        margin: 0;
         color: var(--b3-theme-on-surface);
         font-size: 22px;
         font-weight: 700;

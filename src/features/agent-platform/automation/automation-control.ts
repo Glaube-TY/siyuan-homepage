@@ -1,6 +1,9 @@
+import { isHomepageEntitlementGranted } from "@/features/entitlement/homepage-entitlement";
+
 export const AUTOMATION_RUN_NOW_EVENT = "automation-run-now";
 
 export async function requestAutomationRunNow(jobId: string): Promise<void> {
+  if (!isHomepageEntitlementGranted()) throw new Error("高级功能不可用。");
   const [{ automationJobStore }, { nextScheduledAt }] = await Promise.all([
     import("./automation-job-store"), import("./automation-schedule"),
   ]);

@@ -3,6 +3,7 @@
     import * as echarts from "@/utils/charts/echarts";
     import AdvancedFeatureLock from "../common/AdvancedFeatureLock.svelte";
     import LocalIndexEmptyState from "../common/LocalIndexEmptyState.svelte";
+    import { isPremiumHeatmapCountType } from "@/features/entitlement/homepage-premium-features";
     import {
         ensureHeatmapIndexInitialized,
         getRecentHeatmapCountsResult,
@@ -100,10 +101,6 @@
             default:
                 return "block";
         }
-    }
-
-    function isPremiumHeatmapCountType(value: unknown): boolean {
-        return value === "words" || value === "documentCreated" || value === "documentUpdated";
     }
 
     function formatHeatmapTooltip(date: string, value: number): string {

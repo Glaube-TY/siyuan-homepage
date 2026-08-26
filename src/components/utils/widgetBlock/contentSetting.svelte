@@ -56,7 +56,9 @@
   import ReviewDocsSet from "./widget/reviewDocs/reviewDocsSet.svelte";
   import EnhancedDiarySet from "./widget/enhancedDiary/enhancedDiarySet.svelte";
   import AccountingSet from "./widget/accounting/accountingSet.svelte";
+  import PremiumSelect, { type PremiumSelectOption } from "@/components/utils/shared/PremiumSelect.svelte";
   import SiyuanIcon from "@/components/utils/shared/SiyuanIcon.svelte";
+  import { isPremiumWidgetType } from "@/features/entitlement/homepage-premium-features";
   import {
     DEFAULT_ENHANCED_DIARY_CONFIG,
     type EnhancedDiaryConfig,
@@ -434,64 +436,94 @@
   let advancedEnabled = $state(false);
   let focusExistingData: Record<string, unknown> = {};
 
+  type WidgetOptionBase = { value: string; label: string };
+  const NOTE_WIDGET_OPTIONS: readonly WidgetOptionBase[] = [
+    { value: "favorites", label: "收藏文档" },
+    { value: "TaskMan", label: "任务管理" },
+    { value: "TaskManPlus", label: "任务管理Plus" },
+    { value: "latest-docs", label: "最近文档" },
+    { value: "recent-journals", label: "最近日记" },
+    { value: "quick-notes", label: "快速笔记" },
+    { value: "childDocs", label: "子文档" },
+    { value: "conditionDocs", label: "条件文档" },
+    { value: "reviewDocs", label: "复习文档" },
+    { value: "stikynot", label: "便签" },
+    { value: "enhancedDiary", label: "强化日记" },
+  ];
+  const INFO_WIDGET_OPTIONS: readonly WidgetOptionBase[] = [
+    { value: "HOT", label: "热搜" },
+    { value: "dailyQuote", label: "每日一言" },
+    { value: "News", label: "新闻资讯" },
+    { value: "constellation", label: "星座运势" },
+    { value: "historyDays", label: "历史上的今天" },
+  ];
+  const VISUALIZATION_WIDGET_OPTIONS: readonly WidgetOptionBase[] = [
+    { value: "heatmap", label: "热力图" },
+    { value: "sql", label: "SQL 查询" },
+    { value: "visualChart", label: "可视化图表" },
+    { value: "globalCalendar", label: "全局日历" },
+    { value: "statisticalCard", label: "统计卡片" },
+  ];
+  const TOOL_WIDGET_OPTIONS: readonly WidgetOptionBase[] = [
+    { value: "focus", label: "高级番茄钟" },
+    { value: "habitTracker", label: "习惯打卡" },
+    { value: "countdown", label: "纪念日" },
+    { value: "weather", label: "今日天气" },
+    { value: "timedate", label: "时钟" },
+    { value: "musicPlayer", label: "音乐播放器" },
+    { value: "almanac", label: "黄历" },
+    { value: "PicCaro", label: "图片轮播" },
+    { value: "CYBMOK", label: "赛博木鱼" },
+    { value: "countdownTimer", label: "倒计时" },
+    { value: "fixedAssets", label: "固定资产" },
+    { value: "accounting", label: "记账" },
+  ];
+  const CUSTOM_WIDGET_OPTIONS: readonly WidgetOptionBase[] = [
+    { value: "custom-protyle", label: "文档编辑器" },
+    { value: "custom-text", label: "文字内容" },
+    { value: "custom-web", label: "网页浏览器" },
+  ];
+
+  type WidgetCategoryTab = "note" | "info" | "visualization" | "tool" | "custom";
+  const WIDGET_OPTIONS_BY_TAB: Record<WidgetCategoryTab, readonly WidgetOptionBase[]> = {
+    note: NOTE_WIDGET_OPTIONS,
+    info: INFO_WIDGET_OPTIONS,
+    visualization: VISUALIZATION_WIDGET_OPTIONS,
+    tool: TOOL_WIDGET_OPTIONS,
+    custom: CUSTOM_WIDGET_OPTIONS,
+  };
+
+  function getWidgetOptions(options: readonly WidgetOptionBase[]): PremiumSelectOption[] {
+    return options.map((option) => {
+      const requiresAdvanced = isPremiumWidgetType(option.value);
+      return requiresAdvanced
+        ? { ...option, requiresAdvanced: true, disabled: !advancedEnabled }
+        : option;
+    });
+  }
+
+  function getRawWidgetOptionsForTab(tab: string): readonly WidgetOptionBase[] {
+    return WIDGET_OPTIONS_BY_TAB[tab as WidgetCategoryTab] ?? [];
+  }
+
+  function isContentTypeInTab(contentType: string, tab: string): boolean {
+    return getRawWidgetOptionsForTab(tab).some((option) => option.value === contentType);
+  }
+
   function resolveActiveTabForContentType(contentType: string): string {
-    if (
-      [
-        "latest-docs",
-        "favorites",
-        "recent-journals",
-        "TaskMan",
-        "TaskManPlus",
-        "quick-notes",
-        "childDocs",
-        "conditionDocs",
-        "reviewDocs",
-        "stikynot",
-        "enhancedDiary",
-      ].includes(contentType)
-    ) {
-      return "note";
-    }
-    if (
-      ["HOT", "dailyQuote", "News", "constellation", "historyDays"].includes(
-        contentType,
-      )
-    ) {
-      return "info";
-    }
-    if (
-      [
-        "heatmap",
-        "sql",
-        "visualChart",
-        "globalCalendar",
-        "statisticalCard",
-      ].includes(contentType)
-    ) {
-      return "visualization";
-    }
-    if (
-      [
-        "focus",
-        "habitTracker",
-        "countdown",
-        "weather",
-        "timedate",
-        "musicPlayer",
-        "almanac",
-        "PicCaro",
-        "CYBMOK",
-        "countdownTimer",
-        "fixedAssets",
-        "accounting",
-      ].includes(contentType)
-    ) {
-      return "tool";
-    }
-    if (["custom-protyle", "custom-text", "custom-web"].includes(contentType)) {
-      return "custom";
-    }
-    return "note";
+    const match = (Object.entries(WIDGET_OPTIONS_BY_TAB) as [WidgetCategoryTab, readonly WidgetOptionBase[]][]).find(
+      ([, options]) => options.some((option) => option.value === contentType),
+    );
+    return match?.[0] ?? "note";
+  }
+
+  function handleCategoryChange(nextTab: WidgetCategoryTab): void {
+    activeTab = nextTab;
+  }
+
+  function handleContentTypeChange(value: string): void {
+    selectedContentType = value;
+    activeTab = resolveActiveTabForContentType(value);
   }
 
   onMount(async () => {
@@ -520,7 +552,13 @@
       }
 
       selectedContentType = parsedData.type || "latest-docs";
-      activeTab = parsedData.activeTab || "note";
+      const canonicalTab = resolveActiveTabForContentType(selectedContentType);
+      if (parsedData.activeTab && parsedData.activeTab !== canonicalTab) {
+        console.warn(
+          "[contentSetting] 组件 type 与 activeTab 不一致，本次设置界面已按 type 修正显示分类。",
+        );
+      }
+      activeTab = canonicalTab;
       loadedWidgetConfig = parsedData;
 
       if (parsedData.type === "latest-docs") {
@@ -943,8 +981,8 @@
       }
     } else if (initialContentType) {
       selectedContentType = initialContentType;
-      activeTab =
-        initialActiveTab || resolveActiveTabForContentType(initialContentType);
+      const canonicalTab = resolveActiveTabForContentType(initialContentType);
+      activeTab = initialActiveTab === canonicalTab ? initialActiveTab : canonicalTab;
     }
 
     advancedEnabled = plugin.ADVANCED;
@@ -967,23 +1005,23 @@
   <!-- 分类导航栏 -->
   <div class="tab-nav">
     <button
-      onclick={() => (activeTab = "note")}
+      onclick={() => handleCategoryChange("note")}
       class:active={activeTab === "note"}>笔记数据</button
     >
     <button
-      onclick={() => (activeTab = "visualization")}
+      onclick={() => handleCategoryChange("visualization")}
       class:active={activeTab === "visualization"}>可视化</button
     >
     <button
-      onclick={() => (activeTab = "tool")}
+      onclick={() => handleCategoryChange("tool")}
       class:active={activeTab === "tool"}>日常工具</button
     >
     <button
-      onclick={() => (activeTab = "info")}
+      onclick={() => handleCategoryChange("info")}
       class:active={activeTab === "info"}>信息资讯</button
     >
     <button
-      onclick={() => (activeTab = "custom")}
+      onclick={() => handleCategoryChange("custom")}
       class:active={activeTab === "custom"}>自定义</button
     >
   </div>
@@ -993,27 +1031,20 @@
     {#if activeTab === "note"}
       <!-- 笔记数据 -->
       <div class="content-type-select">
-        <label for="content-type">选择组件：</label>
-        <select id="content-type" bind:value={selectedContentType}>
-          <option value="favorites">收藏文档</option>
-          <option value="TaskMan">任务管理</option>
-          <option value="TaskManPlus">任务管理Plus</option>
-          <option value="latest-docs">最近文档</option>
-          <option value="recent-journals">最近日记</option>
-          <option value="quick-notes">快速笔记</option>
-          <option value="childDocs">子文档</option>
-          <option value="conditionDocs">条件文档</option>
-          <option value="reviewDocs">复习文档👑</option>
-          <option value="stikynot">便签👑</option>
-          {#if advancedEnabled || selectedContentType === "enhancedDiary"}
-            <option value="enhancedDiary" disabled={!advancedEnabled}
-              >强化日记👑</option
-            >
-          {/if}
-        </select>
+        <label for="content-type-note">选择组件：</label>
+        <PremiumSelect
+          id="content-type-note"
+          bind:value={selectedContentType}
+          options={getWidgetOptions(getRawWidgetOptionsForTab("note"))}
+          ariaLabel="笔记数据选择组件"
+          placeholder="请选择组件"
+          size="md"
+          onValueChange={handleContentTypeChange}
+        />
       </div>
       <!-- 动态内容区域 -->
-      <div class="dynamic-content-area">
+      {#if isContentTypeInTab(selectedContentType, activeTab)}
+        <div class="dynamic-content-area">
         {#if selectedContentType === "latest-docs"}
           <LatestDocsSet
             bind:docLimit
@@ -1127,21 +1158,30 @@
             bind:draftConfig={enhancedDiaryDraftConfig}
           />
         {/if}
-      </div>
+        </div>
+      {:else}
+        <div class="content-type-empty-state">
+          <SiyuanIcon name="iconInfo" size={16} />
+          <span>请从当前分类选择一个组件</span>
+        </div>
+      {/if}
     {:else if activeTab === "info"}
       <!-- 信息资讯 -->
       <div class="content-type-select">
-        <label for="content-type">选择组件：</label>
-        <select id="content-type" bind:value={selectedContentType}>
-          <option value="HOT">热搜</option>
-          <option value="dailyQuote">每日一言</option>
-          <option value="News">新闻资讯👑</option>
-          <option value="constellation">星座运势👑</option>
-          <option value="historyDays">历史上的今天👑</option>
-        </select>
+        <label for="content-type-info">选择组件：</label>
+        <PremiumSelect
+          id="content-type-info"
+          bind:value={selectedContentType}
+          options={getWidgetOptions(getRawWidgetOptionsForTab("info"))}
+          ariaLabel="信息资讯选择组件"
+          placeholder="请选择组件"
+          size="md"
+          onValueChange={handleContentTypeChange}
+        />
       </div>
       <!-- 动态内容区域 -->
-      <div class="dynamic-content-area">
+      {#if isContentTypeInTab(selectedContentType, activeTab)}
+        <div class="dynamic-content-area">
         {#if selectedContentType === "HOT"}
           <HOTSet bind:hotSource />
         {:else if selectedContentType === "dailyQuote"}
@@ -1164,21 +1204,30 @@
         {:else if selectedContentType === "historyDays"}
           <HistoryDaysSet {advancedEnabled} bind:historyDaysType />
         {/if}
-      </div>
+        </div>
+      {:else}
+        <div class="content-type-empty-state">
+          <SiyuanIcon name="iconInfo" size={16} />
+          <span>请从当前分类选择一个组件</span>
+        </div>
+      {/if}
     {:else if activeTab === "visualization"}
       <!-- 可视化 -->
       <div class="content-type-select">
-        <label for="content-type">选择组件：</label>
-        <select id="content-type" bind:value={selectedContentType}>
-          <option value="heatmap">热力图</option>
-          <option value="sql">SQL 查询</option>
-          <option value="visualChart" disabled={!advancedEnabled}>可视化图表👑</option>
-          <option value="globalCalendar">全局日历👑</option>
-          <option value="statisticalCard">统计卡片👑</option>
-        </select>
+        <label for="content-type-visualization">选择组件：</label>
+        <PremiumSelect
+          id="content-type-visualization"
+          bind:value={selectedContentType}
+          options={getWidgetOptions(getRawWidgetOptionsForTab("visualization"))}
+          ariaLabel="可视化选择组件"
+          placeholder="请选择组件"
+          size="md"
+          onValueChange={handleContentTypeChange}
+        />
       </div>
       <!-- 动态内容区域 -->
-      <div class="dynamic-content-area">
+      {#if isContentTypeInTab(selectedContentType, activeTab)}
+        <div class="dynamic-content-area">
         {#if selectedContentType === "heatmap"}
           <HeatmapSet
             {advancedEnabled}
@@ -1218,28 +1267,30 @@
             bind:customSQLCount
           />
         {/if}
-      </div>
+        </div>
+      {:else}
+        <div class="content-type-empty-state">
+          <SiyuanIcon name="iconInfo" size={16} />
+          <span>请从当前分类选择一个组件</span>
+        </div>
+      {/if}
     {:else if activeTab === "tool"}
       <!-- 日常工具 -->
       <div class="content-type-select">
-        <label for="content-type">选择组件：</label>
-        <select id="content-type" bind:value={selectedContentType}>
-          <option value="focus">高级番茄钟👑</option>
-          <option value="habitTracker">习惯打卡👑</option>
-          <option value="countdown">纪念日👑</option>
-          <option value="weather">今日天气</option>
-          <option value="timedate">时钟</option>
-          <option value="musicPlayer">音乐播放器👑</option>
-          <option value="almanac">黄历👑</option>
-          <option value="PicCaro">图片轮播👑</option>
-          <option value="CYBMOK">赛博木鱼👑</option>
-          <option value="countdownTimer">倒计时👑</option>
-          <option value="fixedAssets">固定资产👑</option>
-          <option value="accounting">记账👑</option>
-        </select>
+        <label for="content-type-tool">选择组件：</label>
+        <PremiumSelect
+          id="content-type-tool"
+          bind:value={selectedContentType}
+          options={getWidgetOptions(getRawWidgetOptionsForTab("tool"))}
+          ariaLabel="日常工具选择组件"
+          placeholder="请选择组件"
+          size="md"
+          onValueChange={handleContentTypeChange}
+        />
       </div>
       <!-- 动态内容区域 -->
-      <div class="dynamic-content-area">
+      {#if isContentTypeInTab(selectedContentType, activeTab)}
+        <div class="dynamic-content-area">
         {#if selectedContentType === "countdown"}
           <CountdownSet
             {advancedEnabled}
@@ -1258,6 +1309,7 @@
             bind:customWeatherCityName
             bind:customWeatherCityCode
             bind:weatherStyle
+            {advancedEnabled}
           />
         {:else if selectedContentType === "timedate"}
           <TimedateSet
@@ -1372,19 +1424,30 @@
             bind:accountingShowRecentRecords
           />
         {/if}
-      </div>
+        </div>
+      {:else}
+        <div class="content-type-empty-state">
+          <SiyuanIcon name="iconInfo" size={16} />
+          <span>请从当前分类选择一个组件</span>
+        </div>
+      {/if}
     {:else if activeTab === "custom"}
       <!-- 自定义 -->
       <div class="content-type-select">
-        <label for="content-type">选择组件：</label>
-        <select id="content-type" bind:value={selectedContentType}>
-          <option value="custom-protyle">文档编辑器</option>
-          <option value="custom-text">文字内容</option>
-          <option value="custom-web">网页浏览器</option>
-        </select>
+        <label for="content-type-custom">选择组件：</label>
+        <PremiumSelect
+          id="content-type-custom"
+          bind:value={selectedContentType}
+          options={getWidgetOptions(getRawWidgetOptionsForTab("custom"))}
+          ariaLabel="自定义选择组件"
+          placeholder="请选择组件"
+          size="md"
+          onValueChange={handleContentTypeChange}
+        />
       </div>
       <!-- 动态内容区域 -->
-      <div class="dynamic-content-area">
+      {#if isContentTypeInTab(selectedContentType, activeTab)}
+        <div class="dynamic-content-area">
         {#if selectedContentType === "custom-text"}
           <CustomTextSet bind:customTextInputValue />
         {:else if selectedContentType === "custom-web"}
@@ -1402,7 +1465,13 @@
             bind:innerCard={protyleInnerCard}
           />
         {/if}
-      </div>
+        </div>
+      {:else}
+        <div class="content-type-empty-state">
+          <SiyuanIcon name="iconInfo" size={16} />
+          <span>请从当前分类选择一个组件</span>
+        </div>
+      {/if}
     {/if}
   </div>
 
@@ -1413,6 +1482,11 @@
       disabled={isSaving}
       onclick={async () => {
         if (isSaving) return;
+        if (!isContentTypeInTab(selectedContentType, activeTab)) {
+          showMessage("请先从当前分类选择一个组件", 3000);
+          return;
+        }
+        const effectiveActiveTab = resolveActiveTabForContentType(selectedContentType);
         if (["globalCalendar", "habitTracker", "focus", "visualChart"].includes(selectedContentType) && !advancedEnabled) {
           const label = selectedContentType === "globalCalendar"
             ? "全局日历"
@@ -1421,18 +1495,18 @@
               : selectedContentType === "visualChart"
                 ? "可视化图表"
                 : "高级番茄钟";
-          showMessage(`${label}为高级会员专属组件，请开通后再配置`, 4000);
+          showMessage(`${label}需要高级功能，请开通后再配置`, 4000);
           return;
         }
         if (selectedContentType === "countdown" && !advancedEnabled) {
           showMessage(
-            "纪念日组件为高级会员专属功能，请在「主页设置」→「会员服务」中开通后使用",
+            "纪念日组件需要高级功能，请在「主页设置」→「会员服务」中开通后使用",
             4000,
           );
           return;
         }
         if (selectedContentType === "reviewDocs" && !advancedEnabled) {
-          showMessage("复习文档为高级会员专属组件，请开通后再配置", 4000);
+          showMessage("复习文档需要高级功能，请开通后再配置", 4000);
           return;
         }
 
@@ -1452,7 +1526,7 @@
             .map((item) => item.value)
             .join(",");
           contentTypeJson = {
-            activeTab: activeTab,
+            activeTab: effectiveActiveTab,
             type: "latest-docs",
             instanceId: currentBlockId,
             data: [
@@ -1476,7 +1550,7 @@
             .map((item) => item.value)
             .join(",");
           contentTypeJson = {
-            activeTab: activeTab,
+            activeTab: effectiveActiveTab,
             type: "favorites",
             instanceId: currentBlockId,
             data: {
@@ -1494,7 +1568,7 @@
           };
         } else if (selectedContentType === "heatmap") {
           contentTypeJson = {
-            activeTab: activeTab,
+            activeTab: effectiveActiveTab,
             type: "heatmap",
             instanceId: currentBlockId,
             data: {
@@ -1509,7 +1583,7 @@
           };
         } else if (selectedContentType === "recent-journals") {
           contentTypeJson = {
-            activeTab: activeTab,
+            activeTab: effectiveActiveTab,
             type: "recent-journals",
             instanceId: currentBlockId,
             data: {
@@ -1528,7 +1602,7 @@
             .map((item) => item.value)
             .join(",");
           contentTypeJson = {
-            activeTab: activeTab,
+            activeTab: effectiveActiveTab,
             type: "TaskMan",
             instanceId: currentBlockId,
             data: {
@@ -1540,7 +1614,7 @@
           };
         } else if (selectedContentType === "countdown") {
           contentTypeJson = {
-            activeTab: activeTab,
+            activeTab: effectiveActiveTab,
             type: "countdown",
             instanceId: currentBlockId,
             data: {
@@ -1556,7 +1630,7 @@
           };
         } else if (selectedContentType === "weather") {
           contentTypeJson = {
-            activeTab: activeTab,
+            activeTab: effectiveActiveTab,
             type: "weather",
             instanceId: currentBlockId,
             data: {
@@ -1567,21 +1641,21 @@
           };
         } else if (selectedContentType === "custom-text") {
           contentTypeJson = {
-            activeTab: activeTab,
+            activeTab: effectiveActiveTab,
             type: "custom-text",
             instanceId: currentBlockId,
             data: [{ customText: customTextInputValue }],
           };
         } else if (selectedContentType === "custom-web") {
           contentTypeJson = {
-            activeTab: activeTab,
+            activeTab: effectiveActiveTab,
             type: "custom-web",
             instanceId: currentBlockId,
             data: [{ url: customWebUrl }],
           };
         } else if (selectedContentType === "HOT") {
           contentTypeJson = {
-            activeTab: activeTab,
+            activeTab: effectiveActiveTab,
             type: "HOT",
             instanceId: currentBlockId,
             data: {
@@ -1590,7 +1664,7 @@
           };
         } else if (selectedContentType === "custom-protyle") {
           contentTypeJson = {
-            activeTab: activeTab,
+            activeTab: effectiveActiveTab,
             type: "custom-protyle",
             instanceId: currentBlockId,
             data: [
@@ -1609,7 +1683,7 @@
           };
         } else if (selectedContentType === "timedate") {
           contentTypeJson = {
-            activeTab: activeTab,
+            activeTab: effectiveActiveTab,
             type: "timedate",
             instanceId: currentBlockId,
             data: {
@@ -1668,7 +1742,7 @@
           };
         } else if (selectedContentType === "focus") {
           contentTypeJson = {
-            activeTab: activeTab,
+            activeTab: effectiveActiveTab,
             type: "focus",
             instanceId: currentBlockId,
             data: {
@@ -1683,7 +1757,7 @@
           };
         } else if (selectedContentType === "sql") {
           contentTypeJson = {
-            activeTab: activeTab,
+            activeTab: effectiveActiveTab,
             type: "sql",
             instanceId: currentBlockId,
             data: {
@@ -1695,7 +1769,7 @@
           };
         } else if (selectedContentType === "TaskManPlus") {
           contentTypeJson = {
-            activeTab: activeTab,
+            activeTab: effectiveActiveTab,
             type: "TaskManPlus",
             instanceId: currentBlockId,
             data: {
@@ -1709,14 +1783,14 @@
           };
         } else if (selectedContentType === "quick-notes") {
           contentTypeJson = {
-            activeTab: activeTab,
+            activeTab: effectiveActiveTab,
             type: "quick-notes",
             instanceId: currentBlockId,
             data: { quickNotesTitle, quickNotesSort },
           };
         } else if (selectedContentType === "dailyQuote") {
           contentTypeJson = {
-            activeTab: activeTab,
+            activeTab: effectiveActiveTab,
             type: "dailyQuote",
             instanceId: currentBlockId,
             data: {
@@ -1742,7 +1816,7 @@
             ? visualChartConfigFromWidgetContent(loadedWidgetConfig)
             : createDefaultVisualChartConfig();
           contentTypeJson = {
-            activeTab: activeTab,
+            activeTab: effectiveActiveTab,
             type: "visualChart",
             instanceId: currentBlockId,
             data: {
@@ -1755,7 +1829,7 @@
           };
         } else if (selectedContentType === "globalCalendar") {
           contentTypeJson = {
-            activeTab: activeTab,
+            activeTab: effectiveActiveTab,
             type: "globalCalendar",
             instanceId: currentBlockId,
             data: {
@@ -1765,7 +1839,7 @@
           };
         } else if (selectedContentType === "habitTracker") {
           contentTypeJson = {
-            activeTab: activeTab,
+            activeTab: effectiveActiveTab,
             type: "habitTracker",
             instanceId: currentBlockId,
             data: { title: habitTrackerTitle.trim() || "习惯打卡", maxVisible: Math.max(2, Math.min(10, Number(habitTrackerMaxVisible) || 5)) },
@@ -1778,7 +1852,7 @@
               ? loadedWidgetConfig.data
               : {};
           contentTypeJson = {
-            activeTab: activeTab,
+            activeTab: effectiveActiveTab,
             type: "musicPlayer",
             instanceId: currentBlockId,
             data: {
@@ -1797,28 +1871,28 @@
           };
         } else if (selectedContentType === "almanac") {
           contentTypeJson = {
-            activeTab: activeTab,
+            activeTab: effectiveActiveTab,
             type: "almanac",
             instanceId: currentBlockId,
             data: { almanacStyle },
           };
         } else if (selectedContentType === "stikynot") {
           contentTypeJson = {
-            activeTab: activeTab,
+            activeTab: effectiveActiveTab,
             type: "stikynot",
             instanceId: currentBlockId,
             data: { stikynotStyle },
           };
         } else if (selectedContentType === "News") {
           contentTypeJson = {
-            activeTab: activeTab,
+            activeTab: effectiveActiveTab,
             type: "News",
             instanceId: currentBlockId,
             data: { NewsType },
           };
         } else if (selectedContentType === "childDocs") {
           contentTypeJson = {
-            activeTab: activeTab,
+            activeTab: effectiveActiveTab,
             type: "childDocs",
             instanceId: currentBlockId,
             data: {
@@ -1834,7 +1908,7 @@
           };
         } else if (selectedContentType === "constellation") {
           contentTypeJson = {
-            activeTab: activeTab,
+            activeTab: effectiveActiveTab,
             type: "constellation",
             instanceId: currentBlockId,
             data: {
@@ -1843,7 +1917,7 @@
           };
         } else if (selectedContentType === "historyDays") {
           contentTypeJson = {
-            activeTab: activeTab,
+            activeTab: effectiveActiveTab,
             type: "historyDays",
             instanceId: currentBlockId,
             data: {
@@ -1852,7 +1926,7 @@
           };
         } else if (selectedContentType === "statisticalCard") {
           contentTypeJson = {
-            activeTab: activeTab,
+            activeTab: effectiveActiveTab,
             type: "statisticalCard",
             instanceId: currentBlockId,
             data: {
@@ -1867,7 +1941,7 @@
           };
         } else if (selectedContentType === "PicCaro") {
           contentTypeJson = {
-            activeTab: activeTab,
+            activeTab: effectiveActiveTab,
             type: "PicCaro",
             instanceId: currentBlockId,
             data: {
@@ -1886,7 +1960,7 @@
           };
         } else if (selectedContentType === "CYBMOK") {
           contentTypeJson = {
-            activeTab: activeTab,
+            activeTab: effectiveActiveTab,
             type: "CYBMOK",
             instanceId: currentBlockId,
             data: {
@@ -1895,7 +1969,7 @@
           };
         } else if (selectedContentType === "countdownTimer") {
           contentTypeJson = {
-            activeTab: activeTab,
+            activeTab: effectiveActiveTab,
             type: "countdownTimer",
             instanceId: currentBlockId,
             data: {
@@ -1905,7 +1979,7 @@
           };
         } else if (selectedContentType === "fixedAssets") {
           contentTypeJson = {
-            activeTab: activeTab,
+            activeTab: effectiveActiveTab,
             type: "fixedAssets",
             instanceId: currentBlockId,
             data: {
@@ -1922,7 +1996,7 @@
           };
         } else if (selectedContentType === "accounting") {
           contentTypeJson = {
-            activeTab: activeTab,
+            activeTab: effectiveActiveTab,
             type: "accounting",
             instanceId: currentBlockId,
             data: {
@@ -1934,7 +2008,7 @@
           };
         } else if (selectedContentType === "reviewDocs") {
           contentTypeJson = {
-            activeTab: activeTab,
+            activeTab: effectiveActiveTab,
             type: "reviewDocs",
             instanceId: currentBlockId,
             data: {
@@ -1957,7 +2031,7 @@
           };
         } else if (selectedContentType === "conditionDocs") {
           contentTypeJson = {
-            activeTab: activeTab,
+            activeTab: effectiveActiveTab,
             type: "conditionDocs",
             instanceId: currentBlockId,
             data: {
@@ -1974,7 +2048,7 @@
           };
         } else if (selectedContentType === "enhancedDiary") {
           contentTypeJson = {
-            activeTab: activeTab,
+            activeTab: effectiveActiveTab,
             type: "enhancedDiary",
             instanceId: currentBlockId,
             data: {},

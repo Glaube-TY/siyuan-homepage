@@ -14,7 +14,7 @@ export const definition: HomepageThemeDefinition = {
     surfaces: ["desktop-homepage"],
     renderer: TechnologyTheme,
     widgetPresentation: technologyWidgetPresentation,
-    preview: { tags: ["VIP", "科技", "HUD", "深海"] },
+    preview: { tags: ["科技", "HUD", "深海"] },
     features: { banner: true, widgetAppearance: "theme-controlled" },
 };
 

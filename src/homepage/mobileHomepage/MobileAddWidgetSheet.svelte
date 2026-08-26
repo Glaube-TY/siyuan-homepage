@@ -1,5 +1,6 @@
 <script lang="ts">
     import { onMount } from "svelte";
+    import PremiumMark from "@/components/utils/shared/PremiumMark.svelte";
     import SiyuanIcon from "@/components/utils/shared/SiyuanIcon.svelte";
     import {
         MOBILE_WIDGET_CATEGORIES,
@@ -73,7 +74,7 @@
         <div class="mobile-add-widget-grid">
             {#each filteredWidgets as item}
                 <button type="button" class="mobile-add-widget-card" onclick={() => onSelect(item.type)}>
-                    <strong>{item.label}</strong>
+                    <strong>{item.label}{#if item.requiresAdvanced}<PremiumMark />{/if}</strong>
                     <span>{item.description}</span>
                     <small>{item.type}</small>
                 </button>

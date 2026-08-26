@@ -2,6 +2,11 @@ import { getMobileWidgetActiveTab } from "../../../../../../homepage/mobileHomep
 import { assertHomepagePatchContainsNoSensitiveFields } from "./homepage-agent-widget-sanitizer";
 import { getHomepageAgentWidgetDescriptor } from "./homepage-agent-widget-catalog";
 import {
+  isPremiumDailyQuoteMode,
+  isPremiumTimedateMode,
+  isPremiumWeatherStyle,
+} from "../../../../../../features/entitlement/homepage-premium-features";
+import {
   DAILY_QUOTE_AI_PROMPT_MAX_LENGTH,
   DEFAULT_DAILY_QUOTE_AI_PROMPT,
 } from "../../../../../../components/utils/widgetBlock/widget/dailyQuote/dailyQuoteAiConfig";
@@ -107,8 +112,9 @@ export function validateAndNormalizeHomepageWidgetPatch(
   }
   if (!options.advancedEnabled) {
     if (type === "favorites" && ("favoritesGroupingEnabled" in patch || "favoritesGroupIds" in patch)) throw new Error("收藏分组展示设置需要高级功能");
-    if (type === "dailyQuote" && (patch.dailyQuoteMode === "remote" || patch.dailyQuoteMode === "ai" || "dailyQuoteSource" in patch || "dailyQuoteAiPrompt" in patch || "dailyQuoteAiUseMemory" in patch)) throw new Error("AI/远程每日一句设置需要高级功能");
-    if (type === "timedate" && ["dial3", "dial4", "dial5", "dial6", "dial7", "dial8", "dial9"].includes(String(patch.timeType ?? ""))) throw new Error("该时间日期样式需要高级功能");
+    if (type === "dailyQuote" && (isPremiumDailyQuoteMode(String(patch.dailyQuoteMode ?? "")) || "dailyQuoteSource" in patch || "dailyQuoteAiPrompt" in patch || "dailyQuoteAiUseMemory" in patch)) throw new Error("AI/远程每日一句设置需要高级功能");
+    if (type === "timedate" && isPremiumTimedateMode(String(patch.timeType ?? ""))) throw new Error("该时间日期样式需要高级功能");
+    if (type === "weather" && "weatherStyle" in patch && isPremiumWeatherStyle(String(patch.weatherStyle ?? ""))) throw new Error("该天气样式需要高级功能");
   }
   assertHomepagePatchContainsNoSensitiveFields(patch);
   const allowed = new Set(descriptor.editableFields);

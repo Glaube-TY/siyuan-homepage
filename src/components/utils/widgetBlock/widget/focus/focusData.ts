@@ -70,6 +70,12 @@ export interface FocusStoreStatus {
 
 const pendingFocusSessions = new Map<string, FocusSessionRecord>();
 let focusSessionFlushPromise: Promise<FocusStatistics | null> | null = null;
+let unregisterFocusPendingSafetyFlusher: (() => void) | null = null;
+type FocusDataRuntimeLease = { released: boolean };
+const focusDataRuntimeLeases = new Set<FocusDataRuntimeLease>();
+let focusDataRuntimeRefCount = 0;
+let focusDataRuntimeListening = false;
+let unregisterFocusDataSharedCleanup: (() => void) | null = null;
 
 function finiteCount(value: unknown): number {
     const count = Number(value);
@@ -435,41 +441,59 @@ export async function appendFocusSession(session: FocusSessionRecord): Promise<F
     });
 }
 
+function releaseFocusPendingSafetyFlusherIfIdle(): void {
+    if (pendingFocusSessions.size > 0 || focusSessionFlushPromise !== null) return;
+    unregisterFocusPendingSafetyFlusher?.();
+    unregisterFocusPendingSafetyFlusher = null;
+}
+
+function ensureFocusPendingSafetyFlusher(): void {
+    if (pendingFocusSessions.size === 0 || unregisterFocusPendingSafetyFlusher) return;
+    unregisterFocusPendingSafetyFlusher = registerSharedWidgetFlusher(async () => {
+        try {
+            await flushPendingFocusSessions();
+        } finally {
+            releaseFocusPendingSafetyFlusherIfIdle();
+        }
+    });
+}
+
 export function queueFocusSession(session: FocusSessionRecord): void {
     const year = Number(session.localDate.slice(0, 4));
     const normalized = normalizeFocusSession(session, year);
     if (!pendingFocusSessions.has(normalized.id)) pendingFocusSessions.set(normalized.id, normalized);
+    ensureFocusPendingSafetyFlusher();
 }
 
 export async function flushPendingFocusSessions(): Promise<FocusStatistics | null> {
     let latest: FocusStatistics | null = null;
-    while (pendingFocusSessions.size > 0 || focusSessionFlushPromise) {
-        if (!focusSessionFlushPromise) {
-            const snapshot = Array.from(pendingFocusSessions.values());
-            focusSessionFlushPromise = (async () => {
-                let snapshotLatest: FocusStatistics | null = null;
-                for (const session of snapshot) {
-                    snapshotLatest = await appendFocusSession(session);
-                    pendingFocusSessions.delete(session.id);
-                }
-                return snapshotLatest;
-            })().finally(() => {
-                focusSessionFlushPromise = null;
-            });
+    try {
+        while (pendingFocusSessions.size > 0 || focusSessionFlushPromise) {
+            if (!focusSessionFlushPromise) {
+                const snapshot = Array.from(pendingFocusSessions.values());
+                focusSessionFlushPromise = (async () => {
+                    let snapshotLatest: FocusStatistics | null = null;
+                    for (const session of snapshot) {
+                        snapshotLatest = await appendFocusSession(session);
+                        pendingFocusSessions.delete(session.id);
+                    }
+                    return snapshotLatest;
+                })().finally(() => {
+                    focusSessionFlushPromise = null;
+                });
+            }
+            const result = await focusSessionFlushPromise;
+            if (result) latest = result;
         }
-        const result = await focusSessionFlushPromise;
-        if (result) latest = result;
+        return latest;
+    } finally {
+        releaseFocusPendingSafetyFlusherIfIdle();
     }
-    return latest;
 }
 
 function reportFocusFlushFailure(error: unknown): void {
     console.warn("[focusData] 番茄钟待写会话保存失败，已保留待重试", error);
 }
-
-registerSharedWidgetFlusher(async () => {
-    await flushPendingFocusSessions();
-});
 
 const handleFocusVisibilityChange = () => {
     if (document.visibilityState === "hidden") void flushPendingFocusSessions().catch(reportFocusFlushFailure);
@@ -477,9 +501,39 @@ const handleFocusVisibilityChange = () => {
 const handleFocusPageHide = () => {
     void flushPendingFocusSessions().catch(reportFocusFlushFailure);
 };
-if (typeof document !== "undefined") document.addEventListener("visibilitychange", handleFocusVisibilityChange);
-if (typeof window !== "undefined") window.addEventListener("pagehide", handleFocusPageHide);
-registerSharedWidgetCleanup(() => {
-    if (typeof document !== "undefined") document.removeEventListener("visibilitychange", handleFocusVisibilityChange);
-    if (typeof window !== "undefined") window.removeEventListener("pagehide", handleFocusPageHide);
-});
+
+function stopFocusDataRuntimeCompletely(): void {
+    if (focusDataRuntimeListening) {
+        if (typeof document !== "undefined") document.removeEventListener("visibilitychange", handleFocusVisibilityChange);
+        if (typeof window !== "undefined") window.removeEventListener("pagehide", handleFocusPageHide);
+        focusDataRuntimeListening = false;
+    }
+    unregisterFocusDataSharedCleanup?.();
+    unregisterFocusDataSharedCleanup = null;
+    for (const lease of focusDataRuntimeLeases) lease.released = true;
+    focusDataRuntimeLeases.clear();
+    focusDataRuntimeRefCount = 0;
+}
+
+export function acquireFocusDataRuntime(): () => void {
+    const lease: FocusDataRuntimeLease = { released: false };
+    focusDataRuntimeLeases.add(lease);
+    focusDataRuntimeRefCount += 1;
+    if (focusDataRuntimeRefCount === 1) {
+        if (typeof document !== "undefined") document.addEventListener("visibilitychange", handleFocusVisibilityChange);
+        if (typeof window !== "undefined") window.addEventListener("pagehide", handleFocusPageHide);
+        unregisterFocusDataSharedCleanup = registerSharedWidgetCleanup(stopFocusDataRuntimeCompletely);
+        focusDataRuntimeListening = true;
+    }
+    return () => {
+        if (lease.released) return;
+        lease.released = true;
+        focusDataRuntimeLeases.delete(lease);
+        focusDataRuntimeRefCount -= 1;
+        if (focusDataRuntimeRefCount < 0) {
+            console.warn("[focusData] runtime refCount 出现负数，已恢复为 0");
+            focusDataRuntimeRefCount = 0;
+        }
+        if (focusDataRuntimeRefCount === 0) stopFocusDataRuntimeCompletely();
+    };
+}

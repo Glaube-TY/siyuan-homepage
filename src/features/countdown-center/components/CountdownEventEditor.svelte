@@ -23,6 +23,7 @@
   } from "@/features/kb/services/siyuan/search-docs-for-chat";
   import CountdownIcon from "./CountdownIcon.svelte";
   import CountdownIconButton from "./CountdownIconButton.svelte";
+  import PremiumMark from "@/components/utils/shared/PremiumMark.svelte";
   interface Props {
     event?: CountdownEventRecord;
     categories: CountdownCategoryRecord[];
@@ -514,7 +515,7 @@
             onChange={(value) => (override = value)}
           />{/if}
         {:else}<div class="shp-countdown-editor-locked">
-          <strong>纪念日通知为 VIP 专属</strong><span
+          <strong>纪念日通知 <PremiumMark /></strong><span
             >开通后可使用桌面、手机和外联提醒。事件其他字段仍可正常保存。</span
           >
         </div>{/if}
