@@ -35,5 +35,5 @@
 - Svelte：按影响范围执行 `pnpm build:app`、`pnpm build:kernel`。
 - TypeScript：`pnpm typecheck`；需要时可用 `pnpm exec tsc --noEmit` 或 `npx tsc --noEmit`。
 - 语法与静态检查：`pnpm lint`。
-- 功能回归：执行相关的 `verify:*` 脚本和已有测试。
+- 功能回归：执行任务相关的已有测试或手工检查。
 - 最终打包：代码、依赖或构建改动执行 `pnpm build`；发布任务检查实际产物。

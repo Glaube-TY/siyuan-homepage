@@ -529,9 +529,10 @@ async function restoreVersionFiles(files, originals) {
             commitMessagePath,
             tagMessagePath,
         } = await writeReleaseGitMessageFiles(releaseLabels, releaseNotes);
-        run('git', ['commit', '-F', commitMessagePath]);
+        run('git', ['commit', '--cleanup=verbatim', '-F', commitMessagePath]);
         committed = true;
-        run('git', ['tag', '-a', `v${newVersion}`, '-F', tagMessagePath]);
+        // Preserve Markdown headings in the annotated tag consumed by GitHub Actions.
+        run('git', ['tag', '--cleanup=verbatim', '-a', `v${newVersion}`, '-F', tagMessagePath]);
         run('git', ['push', 'origin', 'main']);
         run('git', ['push', 'origin', `v${newVersion}`]);
 

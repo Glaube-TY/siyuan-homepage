@@ -1,6 +1,6 @@
 /**
  * 主页设置 Agent 工具的字段白名单与纯校验逻辑。
- * 零导入：保证可在 Node 验证脚本中直接加载；主题与内置按钮判定由调用方注入。
+ * 零导入：可在不依赖 UI 的环境中直接加载；主题与内置按钮判定由调用方注入。
  */
 
 const HEX_COLOR = /^#[0-9a-f]{6}$/i;
@@ -224,7 +224,7 @@ function assertIntegerInRange(value: unknown, min: number, max: number, field: s
 }
 
 /**
- * 校验并规范化设置 patch。纯函数，可在 Node 验证脚本中直接测试。
+ * 校验并规范化设置 patch。纯函数，可独立进行单元测试。
  * preferredThemeId 通过注入的 validateTheme 校验（生产环境注入主题注册表检查）。
  */
 export function normalizeSettingsPatch(
@@ -382,7 +382,7 @@ function assertButtonLabel(value: unknown): string {
 }
 
 /**
- * 校验并应用快捷按钮操作序列。纯函数，可在 Node 验证脚本中直接测试。
+ * 校验并应用快捷按钮操作序列。纯函数，可独立进行单元测试。
  * 内置核心按钮只允许切换显示，不允许重命名或删除；isCore 由调用方注入真实判定。
  */
 export function normalizeButtonOps(

@@ -60,7 +60,7 @@ export interface RobotAllowanceResolution {
 /**
  * 解析聚合工具（或直接工具）的远程策略。优先级：
  * 完整子工具策略（homepage_components.<prefix>）→ 顶层工具策略 → 默认策略。
- * 零依赖纯函数，可在 Node 验证脚本中直接测试。
+ * 零依赖纯函数，可独立进行单元测试。
  */
 export function resolveRobotAllowance(
   policy: RobotToolPolicy,

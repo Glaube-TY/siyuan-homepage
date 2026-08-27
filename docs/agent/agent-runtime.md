@@ -63,4 +63,4 @@
 - 机器人会话只显示当前默认/活跃 Provider 对应的 QQ、微信或飞书会话，不混用渠道路由。Runner 离线时按策略跳过或只补最新一次，不批量回放错过任务。
 - 跨端边界：桌面/Electron 仅承诺应用运行期间的桌面、QQ、飞书能力；Kernel/Docker 仅承诺 Kernel-safe Agent、Sensor 和外联出站；移动端仅承诺任务管理、结果查看和已注册固定通知；普通浏览器仅承诺标签页打开期间运行。没有在线 Runner 时不能伪装成准时执行。
 
-涉及 Agent runtime 的改动只运行覆盖该链路的既有 verifier；再按影响范围运行 typecheck/build。不要因为修改普通 UI 而加载或验证本文件。
+涉及 Agent runtime 的改动按影响范围运行 typecheck/build 和相关功能检查；不要因为修改普通 UI 而加载本文件。

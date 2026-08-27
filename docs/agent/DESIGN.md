@@ -801,8 +801,8 @@ Agent 在项目已经存在实际 Token 时，应以真实代码为基础填写�
 * 主题访问级别、经典主题优先、名称、预览和无远程资源要求以设计契约为准；切换主题不得改变布局数据。
 * 需要具体色值、间距、动效和主题契约时，再读取 docs/design/homepage-technology-theme/，不要把设计数值复制到根规则或每个组件。
 
-## 验证
+## 验收边界
 
-主题相关改动运行 pnpm verify:homepage-theme；涉及 Svelte、TypeScript 或打包边界时再运行 pnpm typecheck 和生产构建。只改其他领域时不要运行这些检查。
+主题相关改动按影响范围运行 `pnpm typecheck`、`pnpm lint` 和生产构建；只改其他领域时不要运行这些检查。
 
 UI 规则文档的更新本身只需执行 git diff --check；不要因为文档修改触发无关的 UI 构建。
