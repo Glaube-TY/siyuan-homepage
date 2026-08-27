@@ -8,6 +8,7 @@
   import { requestAutomationRunNow } from "@/features/agent-platform/automation/automation-control";
   import { decodeAutomationRobotRoute } from "@/features/agent-platform/automation/automation-robot-route";
   import { confirmDialogBoolean, safeConfirmContent, svelteDialog } from "@/libs/dialog";
+  import { mapWithConcurrency } from "@/utils/async/mapWithConcurrency";
   import AutomationJobEditor from "./AutomationJobEditor.svelte";
 
   type Kind = "agent" | "monitor";
@@ -22,6 +23,12 @@
   const visibleRows = $derived(rows.filter((row) => filter === "all" || row.job.task.kind === filter));
   const enabledCount = $derived(rows.filter((row) => row.job.enabled).length);
   const failedCount = $derived(rows.filter((row) => row.state?.status === "failed" || row.state?.status === "blocked").length);
+  const AUTOMATION_PANEL_READ_CONCURRENCY = 4;
+  let destroyed = false;
+  let refreshGeneration = 0;
+  let refreshInFlight: Promise<void> | null = null;
+  let refreshRequested = false;
+  let refreshScheduled = false;
 
   function formatDate(timestamp?: number): string {
     return timestamp ? new Intl.DateTimeFormat("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" }).format(timestamp) : "—";
@@ -41,16 +48,59 @@
     } catch { return "机器人会话"; }
   }
 
+  function scheduleRefreshIfIdle(): void {
+    if (destroyed) return;
+    if (refreshInFlight || refreshScheduled) return;
+    refreshScheduled = true;
+    queueMicrotask(() => {
+      refreshScheduled = false;
+      if (!destroyed) void refresh();
+    });
+  }
+
+  function requestRefresh(): void {
+    if (destroyed) return;
+    refreshGeneration += 1;
+    refreshRequested = true;
+    scheduleRefreshIfIdle();
+  }
+
   async function refresh(): Promise<void> {
-    loading = true; error = "";
+    if (destroyed) return;
+    if (refreshInFlight) return refreshInFlight;
+    const generation = refreshGeneration;
+    refreshRequested = false;
+    loading = true;
+    error = "";
+    const request = (async (): Promise<void> => {
+      try {
+        const jobs = await automationJobStore.listJobs();
+        const [nextRows, nextRuns] = await Promise.all([
+          mapWithConcurrency(
+            jobs,
+            AUTOMATION_PANEL_READ_CONCURRENCY,
+            async (job) => ({ job, state: await automationJobStore.getState(job.jobId) }),
+          ),
+          automationJobStore.listRecentRuns(50),
+        ]);
+        if (destroyed || generation !== refreshGeneration) return;
+        rows = nextRows;
+        runs = nextRuns;
+      } catch (cause) {
+        if (destroyed || generation !== refreshGeneration) return;
+        error = cause instanceof Error ? cause.message : String(cause);
+      } finally {
+        if (!destroyed && generation === refreshGeneration) loading = false;
+      }
+    })();
+    refreshInFlight = request;
     try {
-      const jobs = await automationJobStore.listJobs();
-      [rows, runs] = await Promise.all([
-        Promise.all(jobs.map(async (job) => ({ job, state: await automationJobStore.getState(job.jobId) }))),
-        automationJobStore.listRecentRuns(50),
-      ]);
-    } catch (cause) { error = cause instanceof Error ? cause.message : String(cause); }
-    finally { loading = false; }
+      await request;
+    } finally {
+      if (refreshInFlight !== request) return;
+      refreshInFlight = null;
+      if (!destroyed && refreshRequested) scheduleRefreshIfIdle();
+    }
   }
 
   function openEditor(job?: AutomationJobDefinition, copyFrom?: AutomationJobDefinition): void {
@@ -61,7 +111,7 @@
       height: "min(720px, calc(100vh - 48px))",
       constructor: (container) => mount(AutomationJobEditor, {
         target: container,
-        props: { job, copyFrom, onCancel: () => close(), onSaved: async () => { close(); await refresh(); } },
+        props: { job, copyFrom, onCancel: () => close(), onSaved: () => close() },
       }),
     });
     close = result.close;
@@ -71,27 +121,30 @@
   async function toggle(row: Row): Promise<void> {
     const job = row.job;
     await automationJobStore.saveJob({ ...job, revision: job.revision + 1, enabled: !job.enabled, updatedAt: Date.now() }, job.revision);
-    await refresh();
   }
   async function remove(row: Row): Promise<void> {
     if (!await confirmDialogBoolean({ title: "删除自动化任务", content: safeConfirmContent(`确定删除“${row.job.name}”？运行历史会保留。`) })) return;
     await automationJobStore.deleteJob(row.job.jobId, row.job.revision);
-    await refresh();
   }
   async function runNow(row: Row): Promise<void> {
     try {
       await requestAutomationRunNow(row.job.jobId);
       showMessage(`“${row.job.name}”已加入执行队列`, 2500);
-      await refresh();
+      requestRefresh();
     } catch (cause) { error = cause instanceof Error ? cause.message : String(cause); }
   }
-  function onChanged(): void { void refresh(); }
+  function onChanged(): void { requestRefresh(); }
 
   onMount(() => {
-    void refresh();
+    destroyed = false;
+    requestRefresh();
     window.addEventListener(AUTOMATION_JOBS_CHANGED_EVENT, onChanged);
     window.addEventListener(AUTOMATION_RUNTIME_CHANGED_EVENT, onChanged);
     return () => {
+      destroyed = true;
+      refreshGeneration += 1;
+      refreshRequested = false;
+      refreshScheduled = false;
       window.removeEventListener(AUTOMATION_JOBS_CHANGED_EVENT, onChanged);
       window.removeEventListener(AUTOMATION_RUNTIME_CHANGED_EVENT, onChanged);
     };
@@ -101,7 +154,7 @@
 <section class="automation-center" aria-labelledby="automation-heading">
   <header class="center-header">
     <h3 id="automation-heading">Agent 自动任务</h3>
-    <div class="header-actions"><button type="button" class="icon-button" aria-label="刷新自动化中心" title="刷新" onclick={() => void refresh()}><SiyuanIcon name="iconRefresh" size={15} /></button><button type="button" class="b3-button b3-button--small" onclick={() => openEditor()}>新建任务</button></div>
+    <div class="header-actions"><button type="button" class="icon-button" aria-label="刷新自动化中心" title="刷新" onclick={() => requestRefresh()}><SiyuanIcon name="iconRefresh" size={15} /></button><button type="button" class="b3-button b3-button--small" onclick={() => openEditor()}>新建任务</button></div>
   </header>
   <div class="summary-strip" aria-label="自动化概览"><span><strong>{rows.length}</strong> 全部任务</span><span><strong>{enabledCount}</strong> 已启用</span><span class:error-text={failedCount > 0}><strong>{failedCount}</strong> 需要处理</span></div>
   <div class="view-tabs"><button type="button" class:active={view === "jobs"} onclick={() => view = "jobs"}>任务</button><button type="button" class:active={view === "runs"} onclick={() => view = "runs"}>运行记录</button></div>

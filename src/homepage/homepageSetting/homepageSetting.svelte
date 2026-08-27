@@ -40,6 +40,9 @@
     import { svelteDialog, confirmDialogBoolean, safeConfirmContent } from "../../libs/dialog"
     import MobileHomepagePreviewDialog from "../mobileHomepage/MobileHomepagePreviewDialog.svelte"
     import { resetCurrentDesktopHomepageLayout } from "../deviceView/resetCurrentDesktopHomepageLayout"
+    import { getCurrentDeviceViewContext } from "../deviceView/deviceViewContext"
+    import { ensureCurrentDeviceViewReady } from "../deviceView/deviceViewReadiness"
+    import { readDeviceViewSettings } from "../deviceView/deviceViewStorage"
     import { getSafeDeviceViewErrorMessage } from "../deviceView/deviceViewErrors"
     import AboutSection from "./sections/AboutSection.svelte"
     import VipSection from "./sections/VipSection.svelte"
@@ -105,7 +108,11 @@
         resolveMobileAutoOpenConfig,
         type MobileQuickActionSetting,
     } from "../mobileQuickActions/mobileQuickActionsConfig";
-    import { readHomepageSharedSettingsSnapshot } from "../sharedSettings/homepageSharedSettings";
+    import {
+        pickHomepageSharedSettings,
+        readHomepageSharedSettingsSnapshot,
+        type HomepageSharedSettingsSnapshot,
+    } from "../sharedSettings/homepageSharedSettings";
     import { registerBuiltinHomepageThemes } from "../theme/registry/builtinThemeDiscovery";
     import { homepageThemeRegistry } from "../theme/registry/themeRegistry";
     import {
@@ -249,7 +256,30 @@
     let aiKbDockEnabled = $state(true);
     let aiKbTabEnabled = $state(true);
 
+    type MobileSettingsLoadState = "loading" | "ready" | "missing" | "error";
+    interface MobileSettingsLoadResult {
+        state: Exclude<MobileSettingsLoadState, "loading">;
+        config: Record<string, unknown> | null;
+        sharedSnapshot: HomepageSharedSettingsSnapshot | null;
+        error?: unknown;
+    }
+
+    const MOBILE_SETTINGS_KEYS = [
+        "mobileAutoOpenEnabled",
+        "mobileAutoOpenTarget",
+        "mobileQuickActionsEnabled",
+        "mobileQuickActionsButtonSize",
+        "mobileQuickActionItems",
+    ] as const;
+
     let settingsLoaded = $state(false);
+    let settingsDestroyed = false;
+    let settingsInitializationGeneration = 0;
+    let mobileSettingsLoadState = $state<MobileSettingsLoadState>("loading");
+    let mobileSettingsErrorMessage = $state("");
+    let mobileSettingsWriteSafe = $state(false);
+    let mobileSharedSettingsTrusted = false;
+    let trustedMobileSettingsKeys = new Set<string>();
     let statusAiModelSummaryState = $state<StatusAiModelSummaryState>("idle");
     let statusAiModelSummaryGeneration = 0;
     let statusAiModelSummaryAppliedGeneration = -1;
@@ -734,22 +764,137 @@
         lastLoadedMobileSignature = captureMobileSettingsSignature();
     }
 
+    function isSettingsAlive(generation?: number): boolean {
+        return !settingsDestroyed
+            && (generation === undefined || generation === settingsInitializationGeneration);
+    }
+
+    function updateTrustedMobileSettingsKeys(config: Record<string, unknown> | null): void {
+        trustedMobileSettingsKeys = new Set(
+            MOBILE_SETTINGS_KEYS.filter((key) => Boolean(
+                config && Object.prototype.hasOwnProperty.call(config, key),
+            )),
+        );
+    }
+
+    function withTrustedMobileSettings(config: Record<string, unknown>): Record<string, unknown> {
+        const safeConfig = { ...config };
+        if (mobileSettingsWriteSafe) return safeConfig;
+        for (const key of MOBILE_SETTINGS_KEYS) {
+            if (!mobileSharedSettingsTrusted || !trustedMobileSettingsKeys.has(key)) {
+                delete safeConfig[key];
+            }
+        }
+        return safeConfig;
+    }
+
+    async function loadMobileSettingsForEditor(): Promise<MobileSettingsLoadResult> {
+        const mobileContext = getCurrentDeviceViewContext(plugin, "mobile-homepage");
+        const mobileRead = (async () => {
+            await ensureCurrentDeviceViewReady(mobileContext);
+            return readDeviceViewSettings(mobileContext);
+        })();
+        const [mobileResult, sharedResult] = await Promise.allSettled([
+            mobileRead,
+            readHomepageSharedSettingsSnapshot(plugin),
+        ]);
+        if (sharedResult.status === "rejected") {
+            return {
+                state: "error",
+                config: null,
+                sharedSnapshot: null,
+                error: sharedResult.reason,
+            };
+        }
+        const sharedSnapshot = sharedResult.value;
+        if (mobileResult.status === "rejected") {
+            return {
+                state: "error",
+                config: sharedSnapshot ? pickHomepageSharedSettings(sharedSnapshot.config) : null,
+                sharedSnapshot,
+                error: mobileResult.reason,
+            };
+        }
+        const mobileSettings = mobileResult.value;
+        if (!mobileSettings) return { state: "missing", config: null, sharedSnapshot };
+        const rawConfig = mobileSettings.config as unknown as Record<string, unknown>;
+        return {
+            state: "ready",
+            config: {
+                ...rawConfig,
+                ...(sharedSnapshot ? pickHomepageSharedSettings(sharedSnapshot.config) : {}),
+            },
+            sharedSnapshot,
+        };
+    }
+
+    function applyMobileLoadResult(
+        result: MobileSettingsLoadResult,
+        desktopConfig?: Record<string, unknown>,
+    ): void {
+        mobileSettingsLoadState = result.state;
+        mobileSettingsErrorMessage = result.state === "error"
+            ? getSafeDeviceViewErrorMessage(result.error)
+            : "";
+        mobileSettingsWriteSafe = result.state === "ready";
+        mobileSharedSettingsTrusted = result.state === "ready" || result.sharedSnapshot !== null;
+        updateTrustedMobileSettingsKeys(
+            result.state === "ready"
+                ? result.config
+                : result.sharedSnapshot?.config ?? null,
+        );
+
+        if (result.state === "ready" && result.config) {
+            applyMobileSettingsConfig({ ...(desktopConfig ?? {}), ...result.config });
+        } else if (result.state === "missing") {
+            applyMobileSettingsConfig({
+                ...(desktopConfig ?? {}),
+                ...pickHomepageSharedSettings(result.sharedSnapshot?.config ?? {}),
+            });
+        } else if (result.state === "error" && result.sharedSnapshot) {
+            applyMobileSettingsConfig(pickHomepageSharedSettings(result.sharedSnapshot.config));
+        } else {
+            lastLoadedMobileSignature = captureMobileSettingsSignature();
+        }
+        observedSharedSettingsToken = result.sharedSnapshot
+            ? `${result.sharedSnapshot.revision}:${result.sharedSnapshot.updatedAt}`
+            : "";
+    }
+
+    async function reloadMobileSettings(): Promise<void> {
+        if (!isSettingsAlive() || mobileSettingsLoadState === "loading") return;
+        const generation = settingsInitializationGeneration;
+        mobileSettingsLoadState = "loading";
+        mobileSettingsErrorMessage = "";
+        mobileSettingsWriteSafe = false;
+        mobileSharedSettingsTrusted = false;
+        trustedMobileSettingsKeys = new Set();
+        const result = await loadMobileSettingsForEditor();
+        if (!isSettingsAlive(generation)) return;
+        applyMobileLoadResult(result);
+    }
+
     async function refreshSharedMobileSettings(): Promise<void> {
         if (
-            !settingsLoaded
+            !isSettingsAlive()
+            || !settingsLoaded
             || document.visibilityState === "hidden"
             || autoSavePending
             || autoSaveStatus === "saving"
             || sharedSettingsRefreshInFlight
         ) return;
 
+        const generation = settingsInitializationGeneration;
         sharedSettingsRefreshInFlight = true;
         try {
             const snapshot = await readHomepageSharedSettingsSnapshot(plugin);
+            if (!isSettingsAlive(generation)) return;
             if (!snapshot) return;
             const token = `${snapshot.revision}:${snapshot.updatedAt}`;
             if (token === observedSharedSettingsToken) return;
             observedSharedSettingsToken = token;
+            mobileSharedSettingsTrusted = true;
+            updateTrustedMobileSettingsKeys(snapshot.config);
 
             const before = captureMobileSettingsSignature();
             applyingExternalSharedSettings = true;
@@ -781,7 +926,8 @@
     }
 
     function isStatusAiSummaryVisible(): boolean {
-        return settingsLoaded
+        return isSettingsAlive()
+            && settingsLoaded
             && advancedEnabled
             && activeTab === "homepage"
             && settingsActiveTab === "title"
@@ -789,7 +935,7 @@
     }
 
     function scheduleAutoSave(): void {
-        if (!settingsLoaded || applyingExternalSharedSettings) return;
+        if (!isSettingsAlive() || !settingsLoaded || applyingExternalSharedSettings) return;
         if (autoSaveTimer) clearTimeout(autoSaveTimer);
         autoSavePending = true;
         autoSaveStatus = "pending";
@@ -871,7 +1017,8 @@
     }
 
     async function ensureStatusAiModelSummaryLoaded(): Promise<void> {
-        if (!isStatusAiSummaryVisible()) return;
+        const initializationGeneration = settingsInitializationGeneration;
+        if (!isSettingsAlive(initializationGeneration) || !isStatusAiSummaryVisible()) return;
         if (statusAiModelSummaryRequest) {
             await statusAiModelSummaryRequest;
             return;
@@ -886,14 +1033,20 @@
             try {
                 const settings = await getKbSettings();
                 const options = buildChatModelOptions(settings);
-                if (requestGeneration !== statusAiModelSummaryGeneration) return;
+                if (
+                    !isSettingsAlive(initializationGeneration)
+                    || requestGeneration !== statusAiModelSummaryGeneration
+                ) return;
                 statusAiModelOptions = options;
                 syncStatusAiModelSummary(options);
                 statusAiModelSummaryState = "ready";
                 statusAiModelSummaryAppliedGeneration = requestGeneration;
                 settingsOpenTrace?.checkpoint("ai-model-summary-ready");
             } catch {
-                if (requestGeneration !== statusAiModelSummaryGeneration) return;
+                if (
+                    !isSettingsAlive(initializationGeneration)
+                    || requestGeneration !== statusAiModelSummaryGeneration
+                ) return;
                 statusAiModelSummaryState = "error";
                 statusAiModelSummaryAppliedGeneration = requestGeneration;
             }
@@ -902,7 +1055,7 @@
         try {
             await request;
         } finally {
-            if (statusAiModelSummaryRequest !== request) return;
+            if (!isSettingsAlive(initializationGeneration) || statusAiModelSummaryRequest !== request) return;
             statusAiModelSummaryRequest = null;
             if (
                 requestGeneration !== statusAiModelSummaryGeneration
@@ -1048,33 +1201,33 @@
         currentDeviceInfo = getCurrentDeviceInfo();
     }
 
-    // 设置页面加载时读取配置信息
-    onMount(async () => {
+    async function initializeSettings(initializationGeneration: number): Promise<void> {
         const trace = createRuntimePerformanceTrace("homepage-settings-open");
         settingsOpenTrace = trace;
         trace.checkpoint("start");
         window.addEventListener(HOMEPAGE_THEME_TRANSITION_EVENT, handleHomepageThemeTransition);
         const desktopConfigPromise = loadHomepageSettingConfig(plugin);
-        const mobileConfigPromise = loadHomepageSettingConfig(plugin, "mobile-homepage")
-            .then((config) => (config || {}) as unknown as Record<string, unknown>)
-            .catch(() => ({}));
+        const mobileConfigPromise = loadMobileSettingsForEditor();
         const layoutSettingsPromise = loadWidgetLayoutSettings(plugin);
         const [savedConfig, mobileConfig, layoutSettings] = await Promise.all([
             desktopConfigPromise,
             mobileConfigPromise,
             layoutSettingsPromise,
         ]);
+        if (!isSettingsAlive(initializationGeneration)) return;
         if (savedConfig) {
-            applyMobileSettingsConfig({
-                ...(savedConfig as unknown as Record<string, unknown>),
-                ...mobileConfig,
-            });
             applyDesktopDraftFromPersistedConfig(savedConfig, layoutSettings);
         }
+        applyMobileLoadResult(
+            mobileConfig,
+            savedConfig as unknown as Record<string, unknown> | undefined,
+        );
+        if (!isSettingsAlive(initializationGeneration)) return;
         trace.checkpoint("core-config-loaded");
 
         // 同步到临时变量
         advancedEnabled = getHomepageEntitlementSnapshot().advanced;
+        if (!isSettingsAlive(initializationGeneration)) return;
 
         window.addEventListener(KB_SETTINGS_CHANGED_EVENT, handleKbSettingsChanged);
         window.addEventListener("homepage-settings-saved", handleHomepageSettingsSavedEvent);
@@ -1094,14 +1247,25 @@
             cancelStatusAiSummaryIdle = null;
             if (isStatusAiSummaryVisible()) void ensureStatusAiModelSummaryLoaded();
         }, { timeout: 1200 });
+    }
+
+    // 设置页面加载时读取配置信息
+    onMount(() => {
+        settingsDestroyed = false;
+        const initializationGeneration = ++settingsInitializationGeneration;
+        void initializeSettings(initializationGeneration);
     });
 
     onMount(() => subscribeHomepageEntitlement((snapshot) => {
+        if (!isSettingsAlive()) return;
         advancedEnabled = snapshot.advanced;
         activated = snapshot.advanced;
     }));
 
     onDestroy(() => {
+        settingsDestroyed = true;
+        settingsInitializationGeneration += 1;
+        statusAiModelSummaryGeneration += 1;
         cancelStatusAiSummaryIdle?.();
         cancelStatusAiSummaryIdle = null;
         settingsOpenTrace?.finish("destroyed");
@@ -1379,7 +1543,7 @@
         const existingConfig = (await loadHomepageSettingConfig(plugin)) || {} as HomepageSettingConfig;
         const mobileSettingsChangedLocally =
             captureMobileSettingsSignature() !== lastLoadedMobileSignature;
-        if (!mobileSettingsChangedLocally) {
+        if (!mobileSettingsChangedLocally && mobileSettingsWriteSafe) {
             applyingExternalSharedSettings = true;
             try {
                 applyMobileSettingsConfig(existingConfig as unknown as Record<string, unknown>);
@@ -1506,6 +1670,7 @@
             FallingSpeed: FallingSpeed,
 
         };
+        const configToSave = withTrustedMobileSettings(config);
 
         const appearanceOnly = appearanceOnlyBaseSignature !== null
             && captureHomepageNonAppearanceSignature() === appearanceOnlyBaseSignature
@@ -1514,7 +1679,7 @@
         if (appearanceOnly) {
             try {
                 await saveHomepageSettingConfig(plugin, {
-                    ...existingConfig,
+                    ...withTrustedMobileSettings(existingConfig as unknown as Record<string, unknown>),
                     homepageAppearance: normalizeHomepageAppearanceConfig(homepageAppearance),
                 } as HomepageSettingConfig);
                 appearanceOnlyBaseSignature = null;
@@ -1552,7 +1717,7 @@
         let result;
         try {
             result = await saveHomepageSettingsCoordinated(plugin, {
-                config,
+                config: configToSave,
                 sectionsEnabled: effectiveComponentSectionsEnabled,
                 sections: normalizedComponentSections,
                 deletedSectionIds: deletedComponentSectionIds,
@@ -1571,12 +1736,12 @@
                 const reloaded = await loadHomepageSettingConfig(plugin, "desktop-homepage");
                 if (!reloaded) throw new Error("重新读取桌面主页设置返回空结果");
                 const layoutSettings = await loadWidgetLayoutSettings(plugin);
-                const mobileConfig = (await loadHomepageSettingConfig(plugin, "mobile-homepage") || {}) as unknown as Record<string, unknown>;
-                applyMobileSettingsConfig({
-                    ...(reloaded as unknown as Record<string, unknown>),
-                    ...mobileConfig,
-                });
                 applyDesktopDraftFromPersistedConfig(reloaded, layoutSettings);
+                const mobileConfig = await loadMobileSettingsForEditor();
+                applyMobileLoadResult(
+                    mobileConfig,
+                    reloaded as unknown as Record<string, unknown>,
+                );
                 lastLoadedMobileSignature = captureMobileSettingsSignature();
                 lastPersistedDraftSignature = captureHomepageSettingsSignature();
                 deletedComponentSectionIds = [];
@@ -1599,19 +1764,21 @@
             setSelectionAiToolbarSettingsSnapshot(config.selectionAiToolbar);
 
             // 保存移动端专属字段到 mobile-homepage
-            try {
-                const mobileConfig = (await loadHomepageSettingConfig(plugin, "mobile-homepage")) || {} as HomepageSettingConfig;
-                const target = normalizeMobileAutoOpenTarget(mobileAutoOpenTarget);
-                await saveHomepageSettingConfig(plugin, {
-                    ...mobileConfig,
-                    mobileAutoOpenEnabled,
-                    mobileAutoOpenTarget: target,
-                    mobileQuickActionsEnabled,
-                    mobileQuickActionsButtonSize: normalizeMobileQuickActionButtonSize(mobileQuickActionsButtonSize),
-                    mobileQuickActionItems: normalizeMobileQuickActionItems(mobileQuickActionItems),
-                } as HomepageSettingConfig, "mobile-homepage");
-            } catch (mobileError) {
-                showMessage("桌面主页设置已保存，但移动端设置保存失败。", 5000, "error");
+            if (mobileSettingsWriteSafe) {
+                try {
+                    const mobileConfig = (await loadHomepageSettingConfig(plugin, "mobile-homepage")) || {} as HomepageSettingConfig;
+                    const target = normalizeMobileAutoOpenTarget(mobileAutoOpenTarget);
+                    await saveHomepageSettingConfig(plugin, {
+                        ...mobileConfig,
+                        mobileAutoOpenEnabled,
+                        mobileAutoOpenTarget: target,
+                        mobileQuickActionsEnabled,
+                        mobileQuickActionsButtonSize: normalizeMobileQuickActionButtonSize(mobileQuickActionsButtonSize),
+                        mobileQuickActionItems: normalizeMobileQuickActionItems(mobileQuickActionItems),
+                    } as HomepageSettingConfig, "mobile-homepage");
+                } catch {
+                    showMessage("桌面主页设置已保存，但移动端设置保存失败。", 5000, "error");
+                }
             }
 
             window.dispatchEvent(new CustomEvent("homepage-settings-saved"));
@@ -1739,6 +1906,9 @@
                     {#if settingsActiveTab === "mobile"}
                         <MobileSettingsTab
                             advancedEnabled={advancedEnabled}
+                            mobileSettingsLoadState={mobileSettingsLoadState}
+                            mobileSettingsError={mobileSettingsErrorMessage}
+                            onRetryMobileSettings={() => void reloadMobileSettings()}
                             mobileAutoOpenEnabled={mobileAutoOpenEnabled}
                             mobileAutoOpenTarget={mobileAutoOpenTarget}
                             mobileQuickActionsEnabled={mobileQuickActionsEnabled}

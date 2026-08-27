@@ -19,6 +19,9 @@
 
     interface Props {
         advancedEnabled?: boolean;
+        mobileSettingsLoadState?: "loading" | "ready" | "missing" | "error";
+        mobileSettingsError?: string;
+        onRetryMobileSettings?: () => void;
         mobileAutoOpenEnabled: boolean;
         mobileAutoOpenTarget: string;
         mobileQuickActionsEnabled: boolean;
@@ -35,6 +38,9 @@
 
     let {
         advancedEnabled = false,
+        mobileSettingsLoadState = "ready",
+        mobileSettingsError = "",
+        onRetryMobileSettings,
         mobileAutoOpenEnabled,
         mobileAutoOpenTarget,
         mobileQuickActionsEnabled,
@@ -52,7 +58,9 @@
     let actionListEl: HTMLDivElement | null = $state(null);
     let actionSortable: Sortable | null = null;
 
-    const mobileSettingsEditable = $derived(advancedEnabled === true);
+    const mobileSettingsEditable = $derived(
+        advancedEnabled === true && mobileSettingsLoadState === "ready",
+    );
     const normalizedButtonSize = $derived(normalizeMobileQuickActionButtonSize(mobileQuickActionsButtonSize));
     const sortedActionItems = $derived(normalizeMobileQuickActionItems(mobileQuickActionItems));
     const normalizedAutoOpenTarget = $derived(normalizeMobileAutoOpenTarget(mobileAutoOpenTarget));
@@ -138,7 +146,19 @@
 </script>
 
 <SettingSection title="移动端主页" premium>
-    {#if !mobileSettingsEditable}
+    {#if mobileSettingsLoadState === "loading"}
+        <div class="shp-mobile-settings-state" aria-live="polite">正在读取移动端设置…</div>
+    {:else if mobileSettingsLoadState === "error"}
+        <div class="shp-mobile-settings-state error" role="alert">
+            <span>{mobileSettingsError || "移动端设置暂时无法读取，当前不会使用桌面设置覆盖移动端数据。"}</span>
+            {#if onRetryMobileSettings}
+                <button type="button" class="b3-button b3-button--text" onclick={() => onRetryMobileSettings?.()}>重试</button>
+            {/if}
+        </div>
+    {:else if mobileSettingsLoadState === "missing"}
+        <div class="shp-mobile-settings-state">未找到独立的移动端设置视图，当前显示兼容性占位值；读取成功后才能保存移动端设置。</div>
+    {/if}
+    {#if !advancedEnabled}
         <div class="shp-mobile-settings-lock-tip">当前不可用，开通后可配置和使用；已有设置会继续保留。</div>
     {/if}
 
@@ -279,6 +299,24 @@
         background: color-mix(in srgb, var(--b3-theme-primary) 6%, var(--b3-theme-surface));
         font-size: 12px;
         line-height: 1.5;
+    }
+
+    .shp-mobile-settings-state {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        margin: 0 0 8px;
+        padding: 8px 10px;
+        border: 1px dashed var(--b3-border-color);
+        border-radius: 6px;
+        color: var(--b3-theme-on-surface-light);
+        font-size: 12px;
+        line-height: 1.5;
+    }
+
+    .shp-mobile-settings-state.error {
+        color: var(--b3-theme-error);
     }
 
     .shp-mobile-settings-size-control {

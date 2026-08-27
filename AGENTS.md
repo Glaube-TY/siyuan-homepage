@@ -1,6 +1,6 @@
 # 项目 AI 规范
 
-本文件只管理仓库级边界、按需规则路由和本地交接，不承载主题、Agent、SQL、通知或性能的具体实现规则。功能规则放在 `docs/agent/`，只在任务涉及对应领域时读取；不要把它们复制回本文件，也不要再建立新的 `first-principles` 文档。
+本文件只管理仓库级边界、按需规则路由和本地交接，不承载具体实现规则。功能规则放在 `docs/agent/`，只在任务涉及对应领域时读取。
 
 ## 工作前提
 
@@ -19,7 +19,7 @@
 
 开始修改前按任务范围读取对应文件：
 
-- UI、Svelte、CSS/SCSS、布局、主题、响应式或无障碍：[`docs/agent/ui-design.md`](docs/agent/ui-design.md)。
+- 所有的前端UI、布局、主题、响应式或无障碍：[`docs/agent/DESIGN.md`](docs/agent/DESIGN.md)。
 - Agent、MCP、Skills、Provider、工具、Profile、会话、上下文、记忆、工作台、机器人或自动化：[`docs/agent/agent-runtime.md`](docs/agent/agent-runtime.md)。
 - SQL、索引、SQLite、业务数据、视图 scope、JSON 存储、schema/version 或迁移：[`docs/agent/data-and-indexing.md`](docs/agent/data-and-indexing.md)。
 - 系统/移动通知、Webhook、飞书、通知规则、历史或移动计划：[`docs/agent/notification-center.md`](docs/agent/notification-center.md)。

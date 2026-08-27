@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import { mapWithConcurrency } from "../src/utils/async/mapWithConcurrency";
+import * as typescript from "typescript";
 
 const root = resolve(import.meta.dirname, "..");
 const read = (path: string) => readFile(resolve(root, path), "utf8");
@@ -18,6 +20,148 @@ async function verifyBoundedConcurrency(): Promise<void> {
     });
     assert.deepEqual(result, [2, 4, 6, 8, 10, 12]);
     assert.equal(maxActive, 3);
+}
+
+async function verifyBackgroundSchedulerSingleFlight(): Promise<void> {
+    type Listener = (event: { type: string }) => void;
+    type Deferred = { promise: Promise<void>; resolve: () => void };
+    const makeDeferred = (): Deferred => {
+        let resolve!: () => void;
+        const promise = new Promise<void>((resolvePromise) => { resolve = resolvePromise; });
+        return { promise, resolve };
+    };
+    const waitFor = async (condition: () => boolean, message: string): Promise<void> => {
+        for (let attempt = 0; attempt < 100; attempt += 1) {
+            if (condition()) return;
+            await Promise.resolve();
+        }
+        assert.fail(message);
+    };
+
+    const originalWindow = (globalThis as Record<string, unknown>).window;
+    const originalDocument = (globalThis as Record<string, unknown>).document;
+    const originalDateNow = Date.now;
+    let fakeNow = 0;
+    let nextTimerId = 0;
+    const timers = new Map<number, { at: number; callback: () => void }>();
+    const listeners = new Map<string, Set<Listener>>();
+    const addListener = (type: string, listener: Listener): void => {
+        const registered = listeners.get(type) ?? new Set<Listener>();
+        registered.add(listener);
+        listeners.set(type, registered);
+    };
+    const removeListener = (type: string, listener: Listener): void => {
+        listeners.get(type)?.delete(listener);
+    };
+    const fakeWindow = {
+        addEventListener: addListener,
+        removeEventListener: removeListener,
+        dispatchEvent: (event: { type: string }) => {
+            for (const listener of listeners.get(event.type) ?? []) listener(event);
+            return true;
+        },
+        setTimeout: (callback: () => void, delay = 0): number => {
+            const id = ++nextTimerId;
+            timers.set(id, { at: fakeNow + Math.max(0, delay), callback });
+            return id;
+        },
+        clearTimeout: (id: number): void => { timers.delete(id); },
+    };
+    const fakeDocument = {
+        visibilityState: "visible",
+        addEventListener: addListener,
+        removeEventListener: removeListener,
+    };
+    const runDueTimer = (): void => {
+        const next = [...timers.entries()]
+            .filter(([, timer]) => timer.at <= fakeNow)
+            .sort(([, left], [, right]) => left.at - right.at)[0];
+        assert.ok(next, "scheduler should have a due timer");
+        timers.delete(next[0]);
+        next[1].callback();
+    };
+    const waitForDueTimer = async (): Promise<void> => {
+        await waitFor(
+            () => [...timers.values()].some((timer) => timer.at <= fakeNow),
+            "scheduler should schedule a due timer",
+        );
+        runDueTimer();
+    };
+
+    (globalThis as Record<string, unknown>).window = fakeWindow;
+    (globalThis as Record<string, unknown>).document = fakeDocument;
+    Date.now = () => fakeNow;
+    const unregister: Array<() => void> = [];
+    try {
+        const schedulerSource = await read("src/features/background-runtime/background-scheduler.ts");
+        const schedulerCode = typescript.transpileModule(
+            schedulerSource.replace(
+                'from "@/utils/async/mapWithConcurrency"',
+                `from "${pathToFileURL(resolve(root, "src/utils/async/mapWithConcurrency.ts")).href}"`,
+            ),
+            {
+                compilerOptions: {
+                    module: typescript.ModuleKind.ESNext,
+                    target: typescript.ScriptTarget.ESNext,
+                },
+            },
+        ).outputText;
+        const scheduler = await import(`data:text/javascript,${encodeURIComponent(schedulerCode)}`);
+        let active = 0;
+        let maxActive = 0;
+        const runs = new Map<string, number>();
+        let gate = makeDeferred();
+        for (const id of ["scheduler-1", "scheduler-2", "scheduler-3", "scheduler-4"]) {
+            unregister.push(scheduler.registerBackgroundScanTask({
+                id,
+                resolve: async () => ({
+                    enabled: true,
+                    intervalMs: 1_000,
+                    run: async () => {
+                        active += 1;
+                        maxActive = Math.max(maxActive, active);
+                        runs.set(id, (runs.get(id) ?? 0) + 1);
+                        const runGate = gate;
+                        try {
+                            await runGate.promise;
+                        } finally {
+                            active -= 1;
+                        }
+                    },
+                }),
+            }));
+        }
+
+        await waitForDueTimer();
+        await waitFor(() => active === 2, "scheduler should start at most two tasks");
+        fakeWindow.dispatchEvent({ type: "online" });
+        scheduler.signalBackgroundScanTask("scheduler-1");
+        unregister[3]();
+        gate.resolve();
+        gate = makeDeferred();
+        await waitFor(() => runs.get("scheduler-3") === 1, "queued task should continue after a worker is released");
+        assert.equal(runs.get("scheduler-4"), undefined, "unregistered queued task must not start");
+        assert.ok(maxActive <= 2, "scheduler global concurrency must stay bounded");
+
+        gate.resolve();
+        await Promise.resolve();
+        await Promise.resolve();
+        gate = makeDeferred();
+        await waitForDueTimer();
+        await waitFor(() => active === 2 && runs.get("scheduler-1") === 2, "signal should schedule a trailing run");
+        assert.ok(maxActive <= 2, "trailing scheduler run must not create a second pump");
+        gate.resolve();
+        await waitFor(() => active === 0, "scheduler tasks should finish");
+        assert.equal(runs.get("scheduler-1"), 2);
+        assert.equal(runs.get("scheduler-2"), 2);
+    } finally {
+        for (const remove of unregister) remove();
+        Date.now = originalDateNow;
+        if (originalWindow === undefined) delete (globalThis as Record<string, unknown>).window;
+        else (globalThis as Record<string, unknown>).window = originalWindow;
+        if (originalDocument === undefined) delete (globalThis as Record<string, unknown>).document;
+        else (globalThis as Record<string, unknown>).document = originalDocument;
+    }
 }
 
 async function verifySourceContracts(): Promise<void> {
@@ -282,6 +426,42 @@ async function verifySourceContracts(): Promise<void> {
     assert.match(settings, /statusAiModelSummaryRequest: Promise<void> \| null/);
     assert.doesNotMatch(settings, /statusAiModelSummaryLoaded|statusAiModelSummaryLoading|statusAiModelSummaryDirty/);
     assert.match(settings, /async function ensureStatusAiModelSummaryLoaded/);
+    assert.match(settings, /let settingsDestroyed = false/);
+    assert.match(settings, /let settingsInitializationGeneration = 0/);
+    assert.match(settings, /function isSettingsAlive/);
+    assert.match(settings, /async function loadMobileSettingsForEditor/);
+    assert.match(settings, /mobileSettingsLoadState/);
+    assert.match(settings, /mobileSettingsWriteSafe/);
+    assert.match(settings, /withTrustedMobileSettings/);
+    assert.match(settings, /Promise\.allSettled\(\[/);
+    const mobileLoaderSource = settings.slice(
+        settings.indexOf("async function loadMobileSettingsForEditor"),
+        settings.indexOf("function applyMobileLoadResult"),
+    );
+    assert.match(mobileLoaderSource, /const mobileContext = getCurrentDeviceViewContext\(plugin, "mobile-homepage"\)/);
+    assert.match(mobileLoaderSource, /ensureCurrentDeviceViewReady\(mobileContext\)/);
+    assert.match(mobileLoaderSource, /readDeviceViewSettings\(mobileContext\)/);
+    assert.equal(
+        (mobileLoaderSource.match(/readHomepageSharedSettingsSnapshot\(plugin\)/g) || []).length,
+        1,
+        "Mobile 设置读取只能取得一次 Shared snapshot",
+    );
+    assert.doesNotMatch(
+        mobileLoaderSource,
+        /loadHomepageSettingConfig\(plugin,\s*"mobile-homepage"\)/,
+        "Mobile Editor 不应通过 loadHomepageSettingConfig 重复读取 Shared Settings",
+    );
+    assert.match(mobileLoaderSource, /if \(sharedResult\.status === "rejected"\)[\s\S]*state: "error"/);
+    assert.match(
+        mobileLoaderSource,
+        /config: \{\s*\.\.\.rawConfig,\s*\.\.\.\(sharedSnapshot \? pickHomepageSharedSettings\(sharedSnapshot\.config\) : \{\}\),\s*\}/,
+        "Mobile displayed config 必须复用同一次 Shared snapshot",
+    );
+    assert.doesNotMatch(
+        mobileLoaderSource,
+        /\.catch\(\(\) => \(\{\}\)\)/,
+        "Mobile 设置读取不能 catch-to-empty",
+    );
     assert.doesNotMatch(settings, /await refreshStatusAiModelSummary\(\)/);
     const statusSummarySource = settings.slice(
         settings.indexOf("function isStatusAiSummaryVisible"),
@@ -355,6 +535,12 @@ async function verifySourceContracts(): Promise<void> {
     assert.match(visualChart, /reloadGeneration \+= 1/);
     assert.match(backgroundScheduler, /const BACKGROUND_SCAN_CONCURRENCY = 2/);
     assert.match(backgroundScheduler, /mapWithConcurrency\(/);
+    assert.match(backgroundScheduler, /let pumpInFlight: Promise<void> \| null = null/);
+    assert.match(backgroundScheduler, /function startPump\(\)/);
+    assert.match(backgroundScheduler, /if \(pumpInFlight\) return/);
+    assert.match(backgroundScheduler, /rerunRequested/);
+    assert.match(backgroundScheduler, /cancelled/);
+    assert.match(backgroundScheduler, /isRegisteredTask\(task\)/);
     assert.doesNotMatch(backgroundScheduler, /\r\n/, "background-scheduler.ts 应保持 LF 行尾");
 
     assert.match(getImage, /const IMAGE_CACHE_MAX_ENTRIES = 32/);
@@ -422,10 +608,58 @@ async function verifySourceContracts(): Promise<void> {
         assert.match(sharedSettings, new RegExp(`"${key}"`), `${key} 必须属于共享设置快照`);
     }
 
-    const automationPanel = await read("src/homepage/homepageSetting/tabs/AutomationCenterSettingsPanel.svelte");
+    const [automationPanel, automationRuntime, automationStore] = await Promise.all([
+        read("src/homepage/homepageSetting/tabs/AutomationCenterSettingsPanel.svelte"),
+        read("src/features/agent-platform/automation/automation-runtime.ts"),
+        read("src/features/agent-platform/automation/automation-job-store.ts"),
+    ]);
     assert.match(automationPanel, /automationJobStore\.listJobs\(\)/);
     assert.match(automationPanel, /requestAutomationRunNow/);
     assert.match(automationPanel, /trigger\.kind === "once" && state\.lastCompletedAt/);
+    assert.match(automationPanel, /const AUTOMATION_PANEL_READ_CONCURRENCY = 4/);
+    assert.match(automationPanel, /refreshInFlight/);
+    assert.match(automationPanel, /refreshRequested/);
+    assert.match(automationPanel, /queueMicrotask/);
+    assert.match(automationPanel, /refreshGeneration/);
+    assert.match(automationPanel, /let destroyed = false/);
+    assert.match(automationPanel, /mapWithConcurrency\(/);
+    assert.doesNotMatch(automationPanel, /Promise\.all\(jobs\.map/);
+    assert.doesNotMatch(automationPanel, /await refresh\(\)/);
+    const refreshRequestSource = automationPanel.slice(
+        automationPanel.indexOf("function requestRefresh"),
+        automationPanel.indexOf("async function refresh"),
+    );
+    assert.match(refreshRequestSource, /refreshGeneration \+= 1/);
+    assert.match(refreshRequestSource, /refreshRequested = true/);
+    const refreshSource = automationPanel.slice(
+        automationPanel.indexOf("async function refresh"),
+        automationPanel.indexOf("function openEditor"),
+    );
+    assert.match(refreshSource, /const generation = refreshGeneration/);
+    assert.doesNotMatch(refreshSource, /const generation = \+\+refreshGeneration/);
+    assert.match(
+        refreshSource,
+        /if \(destroyed \|\| generation !== refreshGeneration\) return;[\s\S]*rows = nextRows;[\s\S]*runs = nextRuns;/,
+        "Automation refresh 提交 rows/runs 前必须校验 request generation",
+    );
+    assert.match(refreshSource, /generation === refreshGeneration\) loading = false/);
+    const openEditorSource = automationPanel.slice(
+        automationPanel.indexOf("function openEditor"),
+        automationPanel.indexOf("async function toggle"),
+    );
+    assert.match(openEditorSource, /onSaved: \(\) => close\(\)/);
+    assert.doesNotMatch(openEditorSource, /onSaved[\s\S]*requestRefresh/);
+    assert.match(automationStore, /const AUTOMATION_STORAGE_READ_CONCURRENCY = 4/);
+    assert.match(automationStore, /mapWithConcurrency\(index\.items,\s*AUTOMATION_STORAGE_READ_CONCURRENCY/);
+    assert.match(automationStore, /mapWithConcurrency\(entries,\s*AUTOMATION_STORAGE_READ_CONCURRENCY/);
+    assert.doesNotMatch(automationStore, /Promise\.all\(index\.items\.map/);
+    assert.doesNotMatch(automationStore, /Promise\.all\(entries\.map/);
+    const jobsChangedSource = automationRuntime.slice(
+        automationRuntime.indexOf("function onJobsChanged"),
+        automationRuntime.indexOf("function onRunNow"),
+    );
+    assert.match(jobsChangedSource, /signalBackgroundScanTask\(TASK_ID\)/);
+    assert.doesNotMatch(jobsChangedSource, /emitChanged\(\)/);
 
     const timedateFiles = [
         "_classic.svelte",
@@ -454,5 +688,6 @@ async function verifySourceContracts(): Promise<void> {
 }
 
 await verifyBoundedConcurrency();
+await verifyBackgroundSchedulerSingleFlight();
 await verifySourceContracts();
 console.log("global performance contracts verified");

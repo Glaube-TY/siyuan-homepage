@@ -15,6 +15,7 @@ import {
   type AutomationRunRecord,
 } from "./automation-job-contract";
 import type { AgentRunCheckpoint } from "../../kb/services/agent-core/session/agent-run-checkpoint";
+import { mapWithConcurrency } from "@/utils/async/mapWithConcurrency";
 
 const ROOT = "notebrain/agent-automation";
 const JOB_INDEX_KEY = `${ROOT}/jobs/index.json`;
@@ -24,6 +25,7 @@ const stateKey = (jobId: string) => `${ROOT}/state/${jobId}.json`;
 const runIndexKey = (month: string) => `${ROOT}/runs/${month}/index.json`;
 const runKey = (month: string, runId: string) => `${ROOT}/runs/${month}/${runId}.json`;
 const checkpointKey = (runId: string) => `${ROOT}/checkpoints/${runId}.json`;
+const AUTOMATION_STORAGE_READ_CONCURRENCY = 4;
 
 export const AUTOMATION_JOBS_CHANGED_EVENT = "automation-jobs-changed";
 
@@ -221,12 +223,12 @@ export class AutomationJobStore {
   async listJobs(): Promise<AutomationJobDefinition[]> {
     await this.mutationTail;
     const index = await this.readJobIndex();
-    const jobs = await Promise.all(index.items.map(async (entry) => {
+    const jobs = await mapWithConcurrency(index.items, AUTOMATION_STORAGE_READ_CONCURRENCY, async (entry) => {
       const result = await this.storage.load<unknown>(jobKey(entry.jobId));
       if (result.status === "error") throw new Error(`自动化任务读取失败：${entry.jobId}；${result.error}`);
       if (result.status === "missing") throw new Error(`自动化任务索引指向了缺失文件：${entry.jobId}`);
       return automationJobDefinitionSchema.parse(result.data);
-    }));
+    });
     return jobs.sort((a, b) => b.updatedAt - a.updatedAt);
   }
 
@@ -377,11 +379,11 @@ export class AutomationJobStore {
     await this.mutationTail;
     const index = await this.readRunMonth(month);
     const entries = index.items.slice(0, Math.max(1, Math.min(200, Math.round(limit))));
-    return Promise.all(entries.map(async (entry) => {
+    return mapWithConcurrency(entries, AUTOMATION_STORAGE_READ_CONCURRENCY, async (entry) => {
       const result = await this.storage.load<unknown>(runKey(month, entry.runId));
       if (result.status !== "ok") throw new Error(`自动化运行记录缺失或读取失败：${entry.runId}`);
       return automationRunRecordSchema.parse(result.data);
-    }));
+    });
   }
 
   async listRecentRuns(limit = 50): Promise<AutomationRunRecord[]> {

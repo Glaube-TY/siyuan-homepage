@@ -658,7 +658,6 @@ async function scanJobs(): Promise<void> {
 
 function onJobsChanged(): void {
   signalBackgroundScanTask(TASK_ID);
-  emitChanged();
 }
 
 function onRunNow(event: Event): void {
