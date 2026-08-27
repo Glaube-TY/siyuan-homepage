@@ -8,6 +8,12 @@
   } from "./mobile-widget-categories";
   import { normalizeCountdownWidgetView } from "../../components/utils/widgetBlock/widget/countdown/countdownCenterSettings";
   import {
+    CONSTELLATION_OPTIONS,
+    CONSTELLATION_STYLE_OPTIONS,
+    normalizeConstellationStyle,
+    normalizeConstellationValue,
+  } from "../../components/utils/widgetBlock/widget/constellation/constellationShared";
+  import {
     DEFAULT_COUNTDOWN_DISPLAY_PREFERENCES,
     loadCountdownCenterData,
     type CountdownCategoryRecord,
@@ -450,7 +456,8 @@
         NewsType: "daily-news-bulletin",
       },
       constellation: {
-        selectedConstellation: "摩羯",
+        selectedConstellation: "capricorn",
+        constellationStyle: "classic",
       },
       historyDays: {
         historyDaysType: "list",
@@ -1100,10 +1107,8 @@
         return {
           ...base,
           data: withExistingData({
-            selectedConstellation: normalizeString(
-              form.selectedConstellation,
-              "摩羯",
-            ),
+            selectedConstellation: normalizeConstellationValue(form.selectedConstellation),
+            constellationStyle: normalizeConstellationStyle(form.constellationStyle),
           }),
         };
       case "historyDays":
@@ -2173,20 +2178,13 @@
             key: "selectedConstellation",
             type: "select",
             label: "星座",
-            options: [
-              "白羊",
-              "金牛",
-              "双子",
-              "巨蟹",
-              "狮子",
-              "处女",
-              "天秤",
-              "天蝎",
-              "射手",
-              "摩羯",
-              "水瓶",
-              "双鱼",
-            ].map((item) => option(item, item)),
+            options: CONSTELLATION_OPTIONS.map((item) => option(item.value, item.label)),
+          },
+          {
+            key: "constellationStyle",
+            type: "select",
+            label: "展示样式",
+            options: CONSTELLATION_STYLE_OPTIONS.map((item) => option(item.value, item.label)),
           },
         ];
       case "historyDays":

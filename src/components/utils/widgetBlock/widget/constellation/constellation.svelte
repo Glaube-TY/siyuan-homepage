@@ -3,16 +3,29 @@
     import { onMount } from "svelte";
     import WidgetSemanticTitle from "@/homepage/theme/widgetPresentation/components/WidgetSemanticTitle.svelte";
     import AdvancedFeatureLock from "../common/AdvancedFeatureLock.svelte";
+    import ClassicConstellation from "./_classic.svelte";
+    import ElegantConstellation from "./_elegant.svelte";
+    import {
+        getConstellationApiValue,
+        getConstellationDisplayName,
+        normalizeConstellationStyle,
+        normalizeConstellationValue,
+        type ConstellationValue,
+    } from "./constellationShared";
 
     interface Props {
         plugin: any;
         contentTypeJson?: string;
     }
 
+    type LoadState = "idle" | "loading" | "ready" | "error";
+
     let { plugin, contentTypeJson = "{}" }: Props = $props();
-    function parseContentTypeJson(raw: string): any {
+
+    function parseContentTypeJson(raw: string): Record<string, any> {
         try {
-            return JSON.parse(raw || "{}");
+            const parsed = JSON.parse(raw || "{}");
+            return parsed && typeof parsed === "object" ? parsed : {};
         } catch {
             return {};
         }
@@ -20,152 +33,117 @@
 
     const parsedContent = $derived(parseContentTypeJson(contentTypeJson));
     const selectedConstellation = $derived(
-        parsedContent.data?.selectedConstellation || "摩羯"
+        normalizeConstellationValue(parsedContent.data?.selectedConstellation),
+    );
+    const constellationStyle = $derived(
+        normalizeConstellationStyle(parsedContent.data?.constellationStyle),
     );
 
-    let constellationData: any = $state(null);
+    let constellationData: Record<string, any> | null = $state(null);
     let advancedEnabled = $state(false);
+    let loadState = $state<LoadState>("idle");
+    let loadError = $state("");
+    let requestGeneration = 0;
+    let destroyed = false;
 
-    onMount(async () => {
-        advancedEnabled = plugin.ADVANCED;
-        constellationData = await getConstellationInfo();
-    });
+    async function loadConstellationInfo(value: ConstellationValue): Promise<void> {
+        const generation = ++requestGeneration;
+        loadState = "loading";
+        loadError = "";
+        constellationData = null;
 
-    const getConstellationInfo = async () => {
-        const response = await fetch(
-            `https://v2.xxapi.cn/api/horoscope?type=${selectedConstellation}&time=today`,
-        );
-        const data = await response.json();
+        try {
+            const response = await fetch(
+                `https://v2.xxapi.cn/api/horoscope?type=${encodeURIComponent(getConstellationApiValue(value))}&time=today`,
+            );
+            if (!response.ok) throw new Error(`接口返回 ${response.status}`);
 
-        if (data.code != 200) {
-            showMessage(`获取 ${getDisplayName(selectedConstellation)} 运势错误：${data.msg}`);
+            const payload = await response.json();
+            if (payload?.code != 200) {
+                throw new Error(payload?.msg || "接口返回异常");
+            }
+            if (!payload.data || typeof payload.data !== "object") {
+                throw new Error("接口返回数据为空");
+            }
+
+            if (destroyed || generation !== requestGeneration) return;
+            constellationData = payload.data;
+            loadState = "ready";
+        } catch (error) {
+            if (destroyed || generation !== requestGeneration) return;
+            loadError = error instanceof Error ? error.message : "运势接口暂不可用";
+            loadState = "error";
+            showMessage(
+                `获取 ${getConstellationDisplayName(value)} 运势错误：${loadError}`,
+                5000,
+                "error",
+            );
+        }
+    }
+
+    $effect(() => {
+        if (!advancedEnabled) {
+            requestGeneration++;
+            constellationData = null;
+            loadState = "idle";
             return;
         }
 
-        return data.data; // 返回data.data，新的API结构
-    };
+        const value = selectedConstellation;
+        void loadConstellationInfo(value);
+    });
 
-    // 字段对应的中文名称（根据新API结构更新）
-    const fieldNames = {
-        all: "整体运势",
-        work: "事业运势",
-        money: "财富运势",
-        love: "爱情运势",
-        health: "健康运势",
-        luckycolor: "幸运颜色",
-        luckynumber: "幸运数字",
-        luckyconstellation: "贵人星座",
-        shortcomment: "简短评语",
-        todo: "今日建议",
-        name: "星座名称",
-        title: "星座标题",
-        time: "时间",
-        type: "运势类型",
-        index: "运势指数",
-        fortunetext: "运势详情",
-    };
+    onMount(() => {
+        advancedEnabled = Boolean(plugin?.ADVANCED);
+        return () => {
+            destroyed = true;
+            requestGeneration++;
+        };
+    });
 
-    // 英文到中文的星座名称映射
-    const constellationNameMap = {
-        aries: "白羊",
-        taurus: "金牛",
-        gemini: "双子",
-        cancer: "巨蟹",
-        leo: "狮子",
-        virgo: "处女",
-        libra: "天秤",
-        scorpio: "天蝎",
-        sagittarius: "射手",
-        capricorn: "摩羯",
-        aquarius: "水瓶",
-        pisces: "双鱼",
-    };
-
-    // 获取显示用的中文名称
-    const getDisplayName = (englishName: string): string => {
-        return constellationNameMap[englishName] || englishName;
-    };
+    function retry(): void {
+        if (advancedEnabled) void loadConstellationInfo(selectedConstellation);
+    }
 </script>
 
 <div class="content-display" data-widget-part="root">
     {#if advancedEnabled}
-        <WidgetSemanticTitle
-            widgetType="constellation"
-            configuredTitle={constellationData?.title ? constellationData.title : getDisplayName(selectedConstellation)}
-            semanticLabel="星座运势"
-            fallbackIcon="iconGraph"
-        />
+        {#if constellationStyle === "classic"}
+            <WidgetSemanticTitle
+                widgetType="constellation"
+                configuredTitle={constellationData?.title || getConstellationDisplayName(selectedConstellation)}
+                semanticLabel="星座运势"
+                fallbackIcon="iconGraph"
+            />
+        {/if}
 
-        {#if constellationData}
-            <div class="fortune-card" data-widget-part="body">
-                <!-- 运势指数卡片 -->
-                <div class="fortune-card1">
-                    <div class="fortune-item">
-                        <span><strong>整体指数</strong>：{constellationData.index?.all || 'N/A'}</span>
-                    </div>
-                    <div class="fortune-item">
-                        <span><strong>健康指数</strong>：{constellationData.index?.health || 'N/A'}</span>
-                    </div>
-                    <div class="fortune-item">
-                        <span><strong>爱情指数</strong>：{constellationData.index?.love || 'N/A'}</span>
-                    </div>
-                    <div class="fortune-item">
-                        <span><strong>财运指数</strong>：{constellationData.index?.money || 'N/A'}</span>
-                    </div>
-                    <div class="fortune-item">
-                        <span><strong>事业指数</strong>：{constellationData.index?.work || 'N/A'}</span>
-                    </div>
+        {#if loadState === "ready" && constellationData}
+            <div class="constellation-body" data-widget-part="body">
+                {#if constellationStyle === "classic"}
+                    <ClassicConstellation data={constellationData} />
+                {:else}
+                    <ElegantConstellation
+                        data={constellationData}
+                        selectedConstellation={selectedConstellation}
+                    />
+                {/if}
+            </div>
+        {:else if loadState === "error"}
+            <div class="constellation-state constellation-state-error" data-widget-part="body" role="alert">
+                <span class="state-mark">!</span>
+                <div>
+                    <strong>运势信息暂时不可用</strong>
+                    <small>{loadError || "接口没有返回有效数据"}</small>
                 </div>
-
-                <!-- 幸运信息卡片 -->
-                <div class="fortune-card1">
-                    <div class="fortune-item">
-                        <span><strong>{fieldNames.luckycolor}</strong>：{constellationData.luckycolor}</span>
-                    </div>
-                    <div class="fortune-item">
-                        <span><strong>{fieldNames.luckynumber}</strong>：{constellationData.luckynumber}</span>
-                    </div>
-                    <div class="fortune-item">
-                        <span><strong>{fieldNames.luckyconstellation}</strong>：{constellationData.luckyconstellation}</span>
-                    </div>
-                    <div class="fortune-item">
-                        <span><strong>今日建议</strong>：宜 {constellationData.todo?.yi || 'N/A'}，忌 {constellationData.todo?.ji || 'N/A'}</span>
-                    </div>
-                    <div class="fortune-item">
-                        <span><strong>简短评语</strong>：{constellationData.shortcomment}</span>
-                    </div>
-                </div>
-
-                <!-- 详细运势卡片 -->
-                <div class="fortune-card2">
-                    <div class="fortune-item">
-                        <h4>{fieldNames.all}</h4>
-                        <p>{constellationData.fortunetext?.all}</p>
-                    </div>
-                    <div class="fortune-item">
-                        <h4>{fieldNames.health}</h4>
-                        <p>{constellationData.fortunetext?.health}</p>
-                    </div>
-                    <div class="fortune-item">
-                        <h4>{fieldNames.love}</h4>
-                        <p>{constellationData.fortunetext?.love}</p>
-                    </div>
-                    <div class="fortune-item">
-                        <h4>{fieldNames.money}</h4>
-                        <p>{constellationData.fortunetext?.money}</p>
-                    </div>
-                    <div class="fortune-item">
-                        <h4>{fieldNames.work}</h4>
-                        <p>{constellationData.fortunetext?.work}</p>
-                    </div>
-                </div>
+                <button type="button" onclick={retry}>重试</button>
             </div>
         {:else}
-            <div data-widget-part="body" style="text-align: center; padding: 2rem; color: var(--b3-theme-on-surface-light);">
-                <p>🌟 正在加载运势信息...</p>
-                <small style="font-size: 12px; margin-top: 8px; display: block;">
-                    星座: {getDisplayName(selectedConstellation)}
-                </small>
+            <div class="constellation-state" data-widget-part="body" role="status" aria-live="polite" aria-busy="true">
+                <span class="state-mark">✦</span>
+                <div>
+                    <strong>正在加载运势信息…</strong>
+                    <small>{getConstellationDisplayName(selectedConstellation)} · 今日</small>
+                </div>
             </div>
         {/if}
     {:else}
@@ -188,85 +166,101 @@
 
 <style lang="scss">
     .content-display {
-        width: 100%;
-        height: calc(100%);
         display: flex;
+        width: 100%;
+        height: 100%;
+        min-height: 0;
         flex-direction: column;
         padding: 1rem;
         box-sizing: border-box;
         border-radius: 12px;
         box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
+        container: constellation-widget / inline-size;
 
         :global(.hp-widget-title) {
-            font-size: 18px;
-            font-weight: 600;
             margin-bottom: 0.5rem;
             padding-bottom: 0.3rem;
             border-bottom: 1px solid var(--b3-border-color);
-            text-align: center;
-            display: inline-block;
+            font-size: 18px;
+            font-weight: 600;
             line-height: 1.2;
+            text-align: center;
         }
+    }
 
-        .fortune-card {
-            display: flex;
-            overflow-y: auto;
-            flex-direction: column;
-            gap: 1.5rem;
+    .constellation-body {
+        min-width: 0;
+        min-height: 0;
+    }
 
-            .fortune-card1 {
-                padding-left: 0;
-                margin: 0;
-                display: grid;
-                grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-                grid-gap: 0.8rem;
-                align-items: start;
-            }
+    .constellation-state {
+        display: flex;
+        min-width: 0;
+        align-items: center;
+        gap: 0.7rem;
+        padding: 1.25rem 0.5rem;
+        color: var(--b3-theme-on-surface-light);
+    }
 
-            .fortune-card2 {
-                display: flex;
-                flex-direction: column;
-                gap: 1.2rem;
-            }
+    .constellation-state > div {
+        display: flex;
+        min-width: 0;
+        flex: 1;
+        flex-direction: column;
+        gap: 0.2rem;
+    }
 
-            .fortune-item {
-                padding: 0.6rem 0.8rem;
-                background-color: var(--b3-theme-surface);
-                border-radius: 8px;
-                font-size: 14px;
-                transition: background-color 0.2s ease;
-                break-inside: avoid;
-                display: flex;
-                flex-direction: column;
-                border-left: 3px solid var(--b3-theme-primary);
+    .constellation-state strong,
+    .constellation-state small {
+        overflow-wrap: anywhere;
+    }
 
-                h4 {
-                    font-weight: 600;
-                    margin-bottom: 0.4rem;
-                    color: var(--b3-theme-on-surface);
-                    font-size: 15px;
-                }
+    .constellation-state strong {
+        color: var(--b3-theme-on-surface);
+        font-size: 13px;
+    }
 
-                p {
-                    margin: 0;
-                    line-height: 1.5;
-                    color: var(--b3-theme-on-surface-light);
-                }
+    .constellation-state small {
+        font-size: 12px;
+    }
 
-                span {
-                    line-height: 1.4;
-                }
-            }
-        }
+    .state-mark {
+        display: grid;
+        width: 1.6rem;
+        height: 1.6rem;
+        flex: 0 0 auto;
+        place-items: center;
+        border: 1px solid color-mix(in srgb, var(--b3-theme-primary) 30%, transparent);
+        border-radius: 50%;
+        color: var(--b3-theme-primary);
+        font-weight: 700;
+    }
 
-        .content-not-advanced {
-            width: 100%;
-            height: 100%;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            gap: 1rem;
-        }
+    .constellation-state-error .state-mark {
+        border-color: color-mix(in srgb, var(--b3-theme-error) 35%, transparent);
+        color: var(--b3-theme-error);
+    }
+
+    .constellation-state button {
+        flex: 0 0 auto;
+        padding: 0.35rem 0.65rem;
+        border: 1px solid var(--b3-theme-primary);
+        border-radius: 6px;
+        background: transparent;
+        color: var(--b3-theme-primary);
+        cursor: pointer;
+        font: inherit;
+        font-size: 12px;
+    }
+
+    .content-not-advanced {
+        display: flex;
+        width: 100%;
+        min-height: 0;
+        flex: 1;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 1rem;
     }
 </style>

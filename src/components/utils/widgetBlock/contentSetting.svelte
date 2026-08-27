@@ -7,6 +7,12 @@
   import FocusSet from "./widget/focus/focusSet.svelte";
 
   import ConstellationSet from "./widget/constellation/constellationSet.svelte";
+  import {
+    normalizeConstellationStyle,
+    normalizeConstellationValue,
+    type ConstellationStyle,
+    type ConstellationValue,
+  } from "./widget/constellation/constellationShared";
   import ChildDocsSet from "./widget/childDocs/childDocsSet.svelte";
   import CountdownSet from "./widget/countdown/countdownSet.svelte";
   import CustomTextSet from "./widget/customText/customTextSet.svelte";
@@ -240,7 +246,8 @@
   let NewsType: string = $state("daily-news-bulletin");
 
   // 星座运势相关变量
-  let selectedConstellation: string = $state("摩羯");
+  let selectedConstellation: ConstellationValue = $state("capricorn");
+  let constellationStyle: ConstellationStyle = $state("classic");
 
   // 历史上的今天相关变量
   let historyDaysType: string = $state("list");
@@ -851,8 +858,12 @@
         childDocsUseBuiltinDocIcon =
           parsedData.data?.useBuiltinDocIcon ?? false;
       } else if (parsedData.type === "constellation") {
-        selectedConstellation =
-          parsedData.data?.selectedConstellation || selectedConstellation;
+        selectedConstellation = normalizeConstellationValue(
+          parsedData.data?.selectedConstellation,
+        );
+        constellationStyle = normalizeConstellationStyle(
+          parsedData.data?.constellationStyle,
+        );
       } else if (parsedData.type === "historyDays") {
         historyDaysType = parsedData.data?.historyDaysType || historyDaysType;
       } else if (parsedData.type === "statisticalCard") {
@@ -1200,7 +1211,11 @@
         {:else if selectedContentType === "News"}
           <NewsSet {advancedEnabled} bind:NewsType />
         {:else if selectedContentType === "constellation"}
-          <ConstellationSet {advancedEnabled} bind:selectedConstellation />
+          <ConstellationSet
+            {advancedEnabled}
+            bind:selectedConstellation
+            bind:constellationStyle
+          />
         {:else if selectedContentType === "historyDays"}
           <HistoryDaysSet {advancedEnabled} bind:historyDaysType />
         {/if}
@@ -1913,6 +1928,7 @@
             instanceId: currentBlockId,
             data: {
               selectedConstellation,
+              constellationStyle,
             },
           };
         } else if (selectedContentType === "historyDays") {

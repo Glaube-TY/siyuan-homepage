@@ -244,6 +244,36 @@ for (const variantName of ["recent-journals.calendar", "countdown.timeline", "cu
     assert.ok(definitionSource.includes(variantName), `缺少主题展示变体 ${variantName}`);
 }
 
+const constellationDefinitionLine = definitionSource.split(/\r?\n/).find((line) => line.includes('defineWidget({ type: "constellation"')) ?? "";
+assert.match(constellationDefinitionLine, /variants:\s*\["constellation\.classic",\s*"constellation\.elegant"\]/, "星座运势必须注册 classic/elegant 展示变体");
+assert.match(constellationDefinitionLine, /contentVariant:\s*\(content\).*constellationStyle/, "星座运势变体必须由实例 constellationStyle 决定");
+
+const constellationSettingsSource = readFileSync("src/components/utils/widgetBlock/contentSetting.svelte", "utf8");
+assert.match(constellationSettingsSource, /let selectedConstellation: ConstellationValue\s*=\s*\$state\("capricorn"\)/, "桌面星座设置必须使用 canonical 默认值");
+assert.match(constellationSettingsSource, /let constellationStyle: ConstellationStyle\s*=\s*\$state\("classic"\)/, "桌面星座设置必须提供 classic 默认样式");
+assert.match(constellationSettingsSource, /type:\s*"constellation"[\s\S]*?data:\s*\{\s*selectedConstellation,\s*constellationStyle,\s*\}/, "桌面星座设置保存时必须同时写入星座和样式");
+assert.match(constellationSettingsSource, /<ConstellationSet[\s\S]*bind:selectedConstellation[\s\S]*bind:constellationStyle/, "桌面星座设置必须同时绑定星座和样式选择器");
+
+const mobileConstellationSettingsSource = readFileSync("src/homepage/mobileHomepage/MobileWidgetContentForm.svelte", "utf8");
+assert.match(mobileConstellationSettingsSource, /constellation:\s*\{\s*selectedConstellation:\s*"capricorn",\s*constellationStyle:\s*"classic",\s*\}/, "移动端星座设置必须提供 canonical/classic 默认值");
+assert.match(mobileConstellationSettingsSource, /case\s*"constellation":[\s\S]*?selectedConstellation:\s*normalizeConstellationValue\([\s\S]*?constellationStyle:\s*normalizeConstellationStyle/, "移动端保存必须归一化星座值和样式");
+assert.match(mobileConstellationSettingsSource, /key:\s*"constellationStyle"[\s\S]*?CONSTELLATION_STYLE_OPTIONS\.map/, "移动端星座设置必须提供样式选择器");
+
+const constellationPresentationSource = readFileSync("src/components/utils/widgetBlock/widget/constellation/constellation.svelte", "utf8");
+const constellationClassicSource = readFileSync("src/components/utils/widgetBlock/widget/constellation/_classic.svelte", "utf8");
+const constellationElegantSource = readFileSync("src/components/utils/widgetBlock/widget/constellation/_elegant.svelte", "utf8");
+assert.match(constellationPresentationSource, /getConstellationApiValue[\s\S]*normalizeConstellationStyle[\s\S]*normalizeConstellationValue/, "星座组件必须从共享层读取值、样式和 API 参数");
+assert.match(constellationPresentationSource, /requestGeneration[\s\S]*destroyed/, "星座组件请求必须防止旧请求和销毁后的结果回写");
+assert.match(constellationPresentationSource, /loadState[\s\S]*constellation-state-error[\s\S]*onclick=\{retry\}/, "星座组件必须提供 loading/error/retry 状态");
+assert.match(constellationPresentationSource, /constellationStyle === "classic"[\s\S]*<ClassicConstellation[\s\S]*<ElegantConstellation/, "星座组件必须按样式分派两个纯展示分支");
+assert.doesNotMatch(constellationPresentationSource, /\.fortune-card\s*\{[\s\S]*overflow-y\s*:/, "星座组件不得保留嵌套 fortune-card 滚动区");
+assert.match(constellationClassicSource, /fortune-card1[\s\S]*fortune-card2/, "classic 必须保留指数、幸运信息和详情分组");
+assert.doesNotMatch(constellationClassicSource, /fetch\(|onMount\(/, "classic 展示分支不得发起远程请求");
+assert.match(constellationElegantSource, /elegant-hero[\s\S]*metrics-panel[\s\S]*lucky-strip[\s\S]*reading-section/, "elegant 必须提供 hero、指数、幸运信息和详情区");
+assert.doesNotMatch(constellationElegantSource, /hero-capsule|index-card|lucky-card|highlight-card|detail-card/, "elegant 不得回到重复卡片堆叠布局");
+assert.doesNotMatch(constellationElegantSource, /\b(?:vw|vh)\b/, "elegant 不得使用 viewport 单位作为组件响应式尺寸");
+assert.doesNotMatch(constellationElegantSource, /WidgetSemanticTitle|fetch\(/, "elegant 必须无公共标题栏且不得发起远程请求");
+
 const homepageSource = readFileSync("src/homepage/homepage.svelte", "utf8");
 const syncCall = homepageSource.slice(homepageSource.indexOf("syncHomepageWidgetPresentations") - 100, homepageSource.indexOf("syncHomepageWidgetPresentations") + 220);
 assert.doesNotMatch(syncCall, /saveLayout|writeDeviceView|restoreLayout/, "切换主题同步 Presentation 不得写入或恢复布局");

@@ -50,6 +50,7 @@ import {
 } from "@/homepage/theme/widgetPresentation/types";
 import type { Component } from "svelte";
 import { getHistoricalWidgetTitles } from "@/homepage/theme/widgetPresentation/titleCompatibility";
+import { normalizeConstellationStyle } from "./widget/constellation/constellationShared";
 
 const VALID_WIDGET_PLACEMENTS: readonly WidgetPlacement[] = Object.freeze([
     "homepage", "sidebar", "mobile", "mobile-runtime", "preview", "dock",
@@ -291,7 +292,7 @@ const BUILTIN_WIDGET_DEFINITIONS: readonly WidgetDefinition[] = Object.freeze([
     } }),
     defineWidget({ type: "News", kind: "list", category: "collection", scope: "native", frame: CONTENT_SCROLL_FRAME, component: News, label: "新闻资讯", icon: "list", plugin: true }),
     defineWidget({ type: "childDocs", kind: "list", category: "collection", scope: "full", frame: TITLE_SCROLL_FRAME, component: childDocs, label: "子文档", icon: "documents", plugin: true }),
-    defineWidget({ type: "constellation", kind: "stat", category: "editorial", scope: "chrome", frame: TITLE_SCROLL_FRAME, component: constellation, label: "星座运势", icon: "stat", plugin: true }),
+    defineWidget({ type: "constellation", kind: "stat", category: "editorial", scope: "chrome", frame: TITLE_SCROLL_FRAME, component: constellation, label: "星座运势", icon: "stat", plugin: true, variants: ["constellation.classic", "constellation.elegant"], contentVariant: (content) => normalizeConstellationStyle(contentData(content).constellationStyle) === "elegant" ? "constellation.elegant" : "constellation.classic" }),
     defineWidget({ type: "historyDays", kind: "list", category: "collection", scope: "native", frame: CONTENT_SCROLL_FRAME, component: historyDays, label: "历史上的今天", icon: "list", plugin: true, variants: ["historydays.list", "historydays.image"], contentVariant: dataVariant("historyDaysType", { list: "historydays.list", img: "historydays.image" }, "historydays.list") }),
     defineWidget({ type: "statisticalCard", kind: "stat", category: "metrics", scope: "native", frame: CONTENT_CONTAINED_FRAME, component: statisticalCard, label: "统计卡片", icon: "stat", plugin: true }),
     defineWidget({ type: "almanac", kind: "calendar", category: "intrinsic", scope: "native", frame: CONTENT_CONTAINED_FRAME, component: almanac, label: "黄历", icon: "calendar", plugin: true, variants: ["almanac.classic", "almanac.traditional"], contentVariant: dataVariant("almanacStyle", { classic: "almanac.classic", tradition1: "almanac.traditional" }, "almanac.classic") }),

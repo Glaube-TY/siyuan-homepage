@@ -18,7 +18,7 @@ const EDITABLE_FIELDS: Record<string, string[]> = {
   musicPlayer: ["sourceMode", "cloudStreamQuality", "cloudTranscodeFormat", "autoPlay"],
   dailyQuote: ["dailyQuoteMode", "customDailyQuoteContent", "dailyQuoteSource", "dailyQuoteAiPrompt", "dailyQuoteAiUseMemory", "dailyQuoteFontSize", "dailyQuoteBgSelect", "dailyQuoteRemoteBg"],
   timedate: ["timeType", "showSeconds", "showDate", "showWeek", "showLunar", "showZodiac", "showSolarTerm", "dateFormat"],
-  HOT: ["source"], News: ["NewsType"], constellation: ["selectedConstellation"], historyDays: ["historyDaysType"],
+  HOT: ["source"], News: ["NewsType"], constellation: ["selectedConstellation", "constellationStyle"], historyDays: ["historyDaysType"],
   almanac: ["almanacStyle"], stikynot: ["stikynotStyle"], CYBMOK: ["CMKnockSound"],
   PicCaro: ["PicAutoPlay", "PicInterval", "PicNavigation", "PicPagination", "PicPaginationType", "PicEffect", "PicSlidesPerView", "PicRandomSwitch"],
   countdownTimer: ["countdownTimerStyle"],

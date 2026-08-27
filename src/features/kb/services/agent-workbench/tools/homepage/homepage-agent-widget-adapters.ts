@@ -15,6 +15,7 @@ import {
   PROTYLE_CONTENT_PADDING_OPTIONS,
   PROTYLE_OUTER_PADDING_OPTIONS,
 } from "../../../../../../components/utils/widgetBlock/widget/protyle/protyleDisplayConfig";
+import { CONSTELLATION_OPTIONS } from "../../../../../../components/utils/widgetBlock/widget/constellation/constellationShared";
 
 const ARRAY_DATA_TYPES = new Set(["latest-docs", "custom-text", "custom-web", "custom-protyle"]);
 const SIYUAN_ID = /^\d{14}-[a-z0-9]{7}$/i;
@@ -31,7 +32,7 @@ const DEFAULT_DATA: Record<string, Record<string, unknown>> = {
   musicPlayer: { musicFolderPath: "", sourceMode: "local", cloudStreamQuality: "original", cloudTranscodeFormat: "auto", autoPlay: false },
   dailyQuote: { dailyQuoteMode: "custom", customDailyQuoteContent: "", dailyQuoteSource: "classic", dailyQuoteAiPrompt: DEFAULT_DAILY_QUOTE_AI_PROMPT, dailyQuoteAiUseMemory: true, dailyQuoteFontSize: 1, dailyQuoteBgSelect: "remote", dailyQuoteRemoteBg: "" },
   timedate: { timeType: "classic", showSeconds: true, showDate: true, showWeek: true, showLunar: true, showZodiac: true, showSolarTerm: true, dateFormat: "YYYY年MM月DD日" },
-  HOT: { source: "bilibili" }, News: { NewsType: "daily-news-bulletin" }, constellation: { selectedConstellation: "摩羯" }, historyDays: { historyDaysType: "list" },
+  HOT: { source: "bilibili" }, News: { NewsType: "daily-news-bulletin" }, constellation: { selectedConstellation: "capricorn", constellationStyle: "classic" }, historyDays: { historyDaysType: "list" },
   almanac: { almanacStyle: "classic" }, stikynot: { stikynotStyle: "default" }, CYBMOK: { CMKnockSound: "普通" },
   PicCaro: { PicAutoPlay: false, PicInterval: 3, PicNavigation: false, PicPagination: false, PicPaginationType: "bullets", PicEffect: "slide", PicSlidesPerView: "1", PicRandomSwitch: false },
   countdownTimer: { countdownTimerStyle: "default" },
@@ -54,7 +55,7 @@ const ENUM_FIELDS: Readonly<Record<string, readonly string[]>> = {
   dateFormat: ["YYYY年MM月DD日", "YYYY-MM-DD", "YYYY/MM/DD", "YYYY.MM.DD"],
   source: ["bilibili", "acfun", "weibo", "zhihu", "douyin", "kuaishou", "douban-movie", "douban-group", "tieba", "hupu", "miyoushe", "ngabbs", "v2ex", "52pojie", "hostloc", "coolapk", "baidu", "thepaper", "toutiao", "qq-news", "sina", "sina-news", "netease-news", "huxiu", "ifanr", "sspai", "ithome", "ithome-xijiayi", "juejin", "jianshu", "guokr", "36kr", "51cto", "csdn", "nodeseek", "hellogithub", "lol", "genshin", "honkai", "starrail", "weread"],
   NewsType: ["daily-news-bulletin", "daily-news-bulletin-v2", "daily-news-bulletin-v3", "daily-news-bulletin-weather", "daily-news-zhihu", "news"],
-  selectedConstellation: ["白羊", "金牛", "双子", "巨蟹", "狮子", "处女", "天秤", "天蝎", "射手", "摩羯", "水瓶", "双鱼"],
+  selectedConstellation: CONSTELLATION_OPTIONS.map(({ value }) => value), constellationStyle: ["classic", "elegant"],
   historyDaysType: ["list", "img", "card"], almanacStyle: ["classic", "tradition1", "simple"],
   stikynotStyle: ["default", "simple", "kraftPaper", "wood", "marble", "Ink", "beach", "BlueSky", "sunsetHeart", "Stars", "waterDrop", "PinkPorcelain"],
   CMKnockSound: ["普通", "空洞", "空灵"], PicPaginationType: ["bullets", "fraction", "progressbar"], PicEffect: ["slide", "fade", "cube", "coverflow", "flip"],

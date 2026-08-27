@@ -2,37 +2,39 @@
     import SettingSection from "@/libs/components/SettingSection.svelte";
     import SettingRow from "@/libs/components/SettingRow.svelte";
     import AdvancedFeatureLock from "../common/AdvancedFeatureLock.svelte";
+    import {
+        CONSTELLATION_OPTIONS,
+        CONSTELLATION_STYLE_OPTIONS,
+        type ConstellationStyle,
+        type ConstellationValue,
+    } from "./constellationShared";
 
     interface Props {
         advancedEnabled?: boolean;
-        selectedConstellation?: string;
+        selectedConstellation?: ConstellationValue;
+        constellationStyle?: ConstellationStyle;
     }
 
-    let { advancedEnabled = false, selectedConstellation = $bindable("capricorn") }: Props = $props();
-
-    // 星座选项：显示中文，值为英文
-    const constellations = [
-        { value: "capricorn", label: "摩羯" },
-        { value: "aquarius", label: "水瓶" },
-        { value: "pisces", label: "双鱼" },
-        { value: "aries", label: "白羊" },
-        { value: "taurus", label: "金牛" },
-        { value: "gemini", label: "双子" },
-        { value: "cancer", label: "巨蟹" },
-        { value: "leo", label: "狮子" },
-        { value: "virgo", label: "处女" },
-        { value: "libra", label: "天秤" },
-        { value: "scorpio", label: "天蝎" },
-        { value: "sagittarius", label: "射手" },
-    ];
+    let {
+        advancedEnabled = false,
+        selectedConstellation = $bindable("capricorn"),
+        constellationStyle = $bindable("classic"),
+    }: Props = $props();
 </script>
 
 {#if advancedEnabled}
     <SettingSection>
         <SettingRow title="选择星座">
             <select bind:value={selectedConstellation} class="control-sm">
-                {#each constellations as constellation}
+                {#each CONSTELLATION_OPTIONS as constellation}
                     <option value={constellation.value}>{constellation.label}</option>
+                {/each}
+            </select>
+        </SettingRow>
+        <SettingRow title="展示样式">
+            <select bind:value={constellationStyle} class="control-sm">
+                {#each CONSTELLATION_STYLE_OPTIONS as style}
+                    <option value={style.value}>{style.label}</option>
                 {/each}
             </select>
         </SettingRow>
