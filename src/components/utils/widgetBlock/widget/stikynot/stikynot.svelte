@@ -4,6 +4,7 @@
     import "quill/dist/quill.snow.css";
     import AdvancedFeatureLock from "../common/AdvancedFeatureLock.svelte";
     import type { WidgetRuntimeContext } from "../../widgetMountRegistry";
+    import { resolveWidgetRuntimeInstanceId } from "../../utils/widgetRuntimeIdentity";
     import { loadWidgetInstanceConfig, saveWidgetInstanceConfig } from "@/homepage/deviceView/widgetInstanceRepository";
     import {
         getHomepageEntitlementSnapshot,
@@ -73,8 +74,10 @@
                 });
                 const toolbar = editor.getModule("toolbar")?.container as HTMLElement | undefined;
                 toolbar?.setAttribute("aria-label", "便签格式工具栏");
-                const saved = runtimeContext.deviceViewContext
-                    ? await loadWidgetInstanceConfig(runtimeContext.deviceViewContext, parsedContent.instanceId)
+                const instanceId = resolveWidgetRuntimeInstanceId(runtimeContext.instanceId, parsedContent);
+                if (runtimeContext.deviceViewContext && !instanceId) throw new Error("便签缺少运行实例 ID");
+                const saved = runtimeContext.deviceViewContext && instanceId
+                    ? await loadWidgetInstanceConfig(runtimeContext.deviceViewContext, instanceId)
                     : null;
                 if (!destroyed && editor && typeof saved?.html === "string") {
                     editor.root.innerHTML = saved.html;
@@ -136,7 +139,9 @@
                 html,
             };
             if (!runtimeContext.deviceViewContext) return;
-            await saveWidgetInstanceConfig(runtimeContext.deviceViewContext, parsedContent.instanceId, saveconf);
+            const instanceId = resolveWidgetRuntimeInstanceId(runtimeContext.instanceId, parsedContent);
+            if (!instanceId) return;
+            await saveWidgetInstanceConfig(runtimeContext.deviceViewContext, instanceId, saveconf);
         }, 1000);
     }
 </script>

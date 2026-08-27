@@ -106,10 +106,10 @@
     </div>
   </div>
   <div style="display:block;width:100%;max-width:100%;margin-top:28px;padding:24px;box-sizing:border-box;border-radius:18px;background:#fff;border:1px solid #d7e6df;text-align:center;">
-    <h2 style="margin:0 0 8px;font-size:21px;color:#285d4f;">加入讨论</h2>
-    <p style="margin:0 0 16px;color:#687a74;">反馈问题、分享布局，也欢迎交流你的主页玩法。</p>
-    <img src="https://glaube-ty.oss-cn-chengdu.aliyuncs.com/img/TCQR.jpg" alt="腾讯讨论频道二维码" style="display:block;width:300px;max-width:88%;height:auto;margin:0 auto 14px;border-radius:14px;" />
-    <a href="https://pd.qq.com/s/2ks4079x0" style="display:inline-block;padding:9px 16px;border-radius:9px;background:#338d73;color:#fff;text-decoration:none;font-weight:600;">进入腾讯讨论频道 →</a>
+    <h2 style="margin:0 0 8px;font-size:21px;color:#285d4f;">加入 QQ 群</h2>
+    <p style="margin:0 0 16px;color:#687a74;">反馈问题、分享布局，也欢迎加入思源笔记插件交流 QQ 群。群号：1080145391。</p>
+    <img src="https://glaube-ty.oss-cn-chengdu.aliyuncs.com/img/QQGroup.jpg" alt="思源笔记插件交流 QQ 群二维码" style="display:block;width:300px;max-width:88%;height:auto;margin:0 auto 14px;border-radius:14px;" />
+    <a href="https://qm.qq.com/q/uVcJ5zLyGQ" style="display:inline-block;padding:9px 16px;border-radius:9px;background:#338d73;color:#fff;text-decoration:none;font-weight:600;">加入思源笔记插件交流群 →</a>
   </div>
   <div style="display:block;width:100%;max-width:100%;margin-top:14px;padding:24px;box-sizing:border-box;border-radius:18px;background:#fff;border:1px solid #d7e6df;text-align:center;">
     <h2 style="margin:0 0 8px;font-size:21px;color:#285d4f;">支持开发</h2>

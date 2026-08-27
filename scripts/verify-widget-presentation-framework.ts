@@ -6,6 +6,12 @@ import { WIDGET_PRESENTATION_CONTRACT_VERSION, type WidgetDefinition, type Widge
 import { classifyWidgetTitle } from "../src/homepage/theme/widgetPresentation/titleCompatibility";
 import { validateWidgetPresentationManifest } from "../src/homepage/theme/widgetPresentation/presentationRegistry";
 import { resolveWidgetShellVariant, serializeWidgetShellTokens } from "../src/homepage/theme/widgetPresentation/shell";
+import { assertDeviceViewSegment } from "../src/homepage/deviceView/deviceViewPaths";
+import { resolveFocusBreakDurations } from "../src/components/utils/widgetBlock/widget/focus/focusConfig";
+import {
+    normalizeWidgetContentForRuntime,
+    resolveWidgetRuntimeInstanceId,
+} from "../src/components/utils/widgetBlock/utils/widgetRuntimeIdentity";
 
 const renderer = (() => undefined) as WidgetDefinition["component"];
 const semanticDefinition: WidgetDefinition = {
@@ -227,13 +233,67 @@ assert.match(definitionSource, /TITLE_SCROLL_FRAME[\s\S]*title: "optional"[\s\S]
 assert.match(definitionSource, /CONTENT_CONTAINED_FRAME[\s\S]*title: "none"[\s\S]*content: "contained"/, "单信息组件必须能注册为无标题填充内容区");
 
 const mountSource = readFileSync("src/components/utils/widgetBlock/widgetMountRegistry.ts", "utf8");
+const legacyFocusConfig = {
+    type: "focus",
+    blockId: "block-legacy-focus",
+    data: {
+        focusDuration: 40,
+        breakDuration: 10,
+        timerStyle: "circular-progress",
+        timerFontSize: 4,
+        showFocusInfo: true,
+    },
+};
+const runtimeFocusConfig = normalizeWidgetContentForRuntime(legacyFocusConfig, "block-runtime-focus");
+assert.equal(runtimeFocusConfig.instanceId, "block-runtime-focus", "挂载时必须优先使用真实 Widget 实例 ID");
+assert.equal(runtimeFocusConfig.blockId, "block-legacy-focus", "挂载时不得删除 legacy blockId");
+assert.equal("instanceId" in legacyFocusConfig, false, "挂载归一化不得修改原始配置对象");
+assert.equal(
+    resolveWidgetRuntimeInstanceId("block-runtime-focus", legacyFocusConfig),
+    "block-runtime-focus",
+    "运行时实例 ID 必须优先于持久化配置",
+);
+assert.equal(
+    resolveWidgetRuntimeInstanceId(undefined, legacyFocusConfig),
+    "block-legacy-focus",
+    "缺少运行时 ID 时必须回退 legacy blockId",
+);
+assert.deepEqual(
+    resolveFocusBreakDurations(legacyFocusConfig.data, { shortBreakDuration: 5, longBreakDuration: 15 }),
+    { shortBreakDuration: 10, longBreakDuration: 10 },
+    "旧版 breakDuration 必须同时恢复短休息和长休息时长",
+);
+assert.deepEqual(
+    resolveFocusBreakDurations(
+        { ...legacyFocusConfig.data, shortBreakDuration: 7, longBreakDuration: 12 },
+        { shortBreakDuration: 5, longBreakDuration: 15 },
+    ),
+    { shortBreakDuration: 7, longBreakDuration: 12 },
+    "新版休息字段必须优先于 legacy breakDuration",
+);
+assert.throws(
+    () => assertDeviceViewSegment(undefined, "组件实例 ID"),
+    /不是合法的设备视图路径段/,
+    "路径边界必须把非字符串 ID 转成项目自己的明确错误",
+);
 for (const attribute of ["widgetType", "widgetKind", "widgetPresentationCategory", "widgetPlacement", "widgetPresentation", "widgetPresentationMode", "widgetPresentationScope", "widgetPresentationVariant", "widgetContentVariant", "hpWidgetShellState", "hpWidgetShellVariant"]) {
     const combined = mountSource + readFileSync("src/homepage/theme/widgetPresentation/runtime.ts", "utf8");
     assert.match(combined, new RegExp(attribute), `挂载运行时缺少 ${attribute}`);
 }
 assert.match(mountSource, /getWidgetDefinition/, "Widget 挂载必须经过统一 Definition Registry");
 assert.match(mountSource, /frame: definition\.frame/, "Widget 挂载必须把框架注册传给公共运行时");
-assert.match(mountSource, /applyWidgetPresentation\(target, definition, placement, contentData\)/, "Widget 挂载必须把实例配置交给 Presentation 内容形态解析器");
+assert.match(mountSource, /applyWidgetPresentation\(target, definition, placement, mountContentData\)/, "Widget 挂载必须把实例配置交给 Presentation 内容形态解析器");
+assert.match(mountSource, /normalizeWidgetContentForRuntime/, "Widget 挂载必须先注入运行时 authoritative instanceId");
+assert.match(mountSource, /contentTypeJson: mountContentTypeJson/, "Widget 组件必须接收仅运行时归一化后的配置");
+assert.match(mountSource, /instanceId: runtimeContext\.instanceId/, "Widget 组件 runtimeContext 必须继续携带 authoritative instanceId");
+for (const hostPath of [
+    "src/components/utils/widgetBlock/WidgetBlock.ts",
+    "src/homepage/mobileHomepage/mobileWidgetBlock.ts",
+    "src/components/utils/sidebar/sidebarWidgetBlock.ts",
+]) {
+    const hostSource = readFileSync(hostPath, "utf8");
+    assert.match(hostSource, /\.\.\.runtimeContext,[\s\S]*instanceId: this\.id/, "Widget 宿主必须在 runtimeContext 展开后写入 this.id");
+}
 assert.match(definitionSource, /timedate\.dial/, "时间日期 Widget 必须声明表盘内容形态语义");
 const registeredCategories = [...definitionSource.matchAll(/defineWidget\(\{ type: "([^"]+)", kind: "[^"]+", category: "([^"]+)"/g)];
 assert.equal(registeredCategories.length, 37, "全部 Widget 必须显式声明主题呈现类别");

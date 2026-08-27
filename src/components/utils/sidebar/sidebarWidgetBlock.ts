@@ -215,6 +215,7 @@ export class WidgetBlock {
             placement: "sidebar",
             deviceViewContext: this.deviceViewContext,
             ...runtimeContext,
+            instanceId: this.id,
         });
         this.element.dataset.widgetMountState = this.mountedWidget ? "ready" : "failed";
 

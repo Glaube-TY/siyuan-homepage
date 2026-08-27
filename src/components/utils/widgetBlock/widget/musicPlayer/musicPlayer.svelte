@@ -40,6 +40,7 @@
     import { MusicLibraryStore } from "./musicLibraryStore";
     import { registerFloatingMiniHost, unregisterFloatingMiniHost } from "./musicFloatingMiniManager";
     import type { WidgetRuntimeContext } from "../../widgetMountRegistry";
+    import { resolveWidgetRuntimeInstanceId } from "../../utils/widgetRuntimeIdentity";
     import { MusicCloudSettingsStore } from "./musicCloudSettingsStore";
     import { SubsonicMusicProvider } from "./subsonic/subsonicProvider";
     import type { SubsonicEndpointState } from "./subsonic/subsonicEndpointManager";
@@ -97,9 +98,7 @@
     const mobileRuntime = mobileSurface || physicalMobileRuntime;
     const delegatedMobileSurface = mobileSurface && physicalMobileRuntime && !persistentMobileRuntime;
     const sourceMode = resolveMusicSourceKindForRuntime(initialConfig.sourceMode, mobileRuntime);
-    const blockId = typeof initialParsed.instanceId === "string"
-        ? String(initialParsed.instanceId)
-        : "";
+    const blockId = untrack(() => resolveWidgetRuntimeInstanceId(runtimeContext.instanceId, initialParsed) || "");
 
     let destroyed = false;
     let loadToken = 0;
@@ -904,7 +903,9 @@
         if (persistentMobileRuntime) return;
         try {
             const currentParsed = JSON.parse(contentTypeJson);
-            await saveWidgetContentPreservingSize(plugin, currentParsed.instanceId, {
+            const instanceId = resolveWidgetRuntimeInstanceId(runtimeContext.instanceId, currentParsed);
+            if (!instanceId || !runtimeContext.deviceViewContext) return;
+            await saveWidgetContentPreservingSize(plugin, instanceId, {
                 ...currentParsed,
                 data: {
                     ...currentParsed.data,
@@ -925,7 +926,7 @@
                     cloudStreamQuality,
                     cloudTranscodeFormat: cloudStreamQuality === "original" ? "auto" : "mp3",
                 },
-            }, runtimeContext.deviceViewContext!);
+            }, runtimeContext.deviceViewContext);
         } catch {
             // 保存失败时静默处理，避免阻塞播放
         }

@@ -48,6 +48,8 @@
     }: Props = $props();
 
     const TUTORIAL_URL = "https://glaube-ty.top/tutorials/siyuan-homepage/";
+    const COMMUNITY_GROUP_URL = "https://qm.qq.com/q/uVcJ5zLyGQ";
+    const COMMUNITY_GROUP_NUMBER = "1080145391";
     const MEMBER_GROUP_URL = "https://qm.qq.com/q/4ebO3QB6R2";
     const MEMBER_GROUP_NUMBER = "391403097";
     const AFDIAN_PRODUCT_URL =
@@ -1300,8 +1302,10 @@
                 <div class="question-item">
                     <SiyuanIcon name="iconInfo" size={20} className="icon" />
                     <div class="question-content">
-                        <strong>腾讯频道（订阅问题请私信管理员）</strong>
-                        <a href="https://pd.qq.com/s/2ks4079x0" target="_blank" rel="noopener noreferrer">SY 插件交流频道</a>
+                        <strong>通用 QQ 群（订阅问题请私信管理员）</strong>
+                        <a href={COMMUNITY_GROUP_URL} target="_blank" rel="noopener noreferrer">
+                            思源笔记插件交流群（群号：{COMMUNITY_GROUP_NUMBER}）
+                        </a>
                     </div>
                 </div>
             </div>

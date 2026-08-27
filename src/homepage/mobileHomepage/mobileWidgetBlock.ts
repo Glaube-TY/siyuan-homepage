@@ -254,6 +254,7 @@ export class WidgetBlock {
             previewMode: this.previewMode,
             deviceViewContext: this.deviceViewContext,
             ...runtimeContext,
+            instanceId: this.id,
         });
         this.element.dataset.widgetMountState = this.mountedWidget ? "ready" : "failed";
         this.element.dataset.widgetContextActions = this.getContextMenuActions().length ? "true" : "false";

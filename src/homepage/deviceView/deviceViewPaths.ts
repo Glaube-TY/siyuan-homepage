@@ -2,8 +2,14 @@ import type { DeviceViewContext, DeviceViewSurface } from "./deviceViewTypes";
 
 const SAFE_SEGMENT_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,159}$/;
 
-export function assertDeviceViewSegment(value: string, label: string): string {
-    if (value !== value.trim() || value === "." || value === ".." || !SAFE_SEGMENT_PATTERN.test(value)) {
+export function assertDeviceViewSegment(value: unknown, label: string): string {
+    if (
+        typeof value !== "string"
+        || value !== value.trim()
+        || value === "."
+        || value === ".."
+        || !SAFE_SEGMENT_PATTERN.test(value)
+    ) {
         throw new Error(`${label} 不是合法的设备视图路径段`);
     }
     return value;

@@ -14,7 +14,9 @@
   import { subscribeSharedWidgetDataUpdated } from "../sharedLocalStorage/sharedWidgetDataEvents";
   import { sendBreakCompletedNotification, sendFocusCompletedNotification } from "@/features/focus-notify";
   import type { WidgetRuntimeContext } from "../../widgetMountRegistry";
+  import { resolveWidgetRuntimeInstanceId } from "../../utils/widgetRuntimeIdentity";
   import FocusCenterDialog, { type FocusTimerConfig } from "./FocusCenterDialog.svelte";
+  import { resolveFocusBreakDurations } from "./focusConfig";
   import {
     acquireFocusDataRuntime, flushPendingFocusSessions, getLocalFocusDate, loadFocusStatistics, queueFocusSession, toFocusSecondTimestamp,
     type FocusBindingSnapshot, type FocusSegmentType, type FocusSessionRecord,
@@ -171,12 +173,14 @@
     }
   }
   async function saveRuntimeConfig(): Promise<void> {
-    if (!runtimeContext.deviceViewContext || !content.instanceId) throw new Error("番茄钟缺少设备视图上下文");
+    const instanceId = resolveWidgetRuntimeInstanceId(runtimeContext.instanceId, content);
+    if (!runtimeContext.deviceViewContext) throw new Error("番茄钟缺少设备视图上下文");
+    if (!instanceId) throw new Error("番茄钟缺少运行实例 ID");
     content.data = { ...savedWidgetData, ...$state.snapshot(content.data), ...config };
     if (binding) content.data.focusBinding = { ...binding };
     else delete content.data.focusBinding;
     savedWidgetData = structuredClone($state.snapshot(content.data));
-    await saveWidgetInstanceConfig(runtimeContext.deviceViewContext, content.instanceId, $state.snapshot(content));
+    await saveWidgetInstanceConfig(runtimeContext.deviceViewContext, instanceId, $state.snapshot(content));
   }
   function openCenter(): void {
     if (!advancedEnabled) return;
@@ -192,11 +196,17 @@
     focusImageType = data.focusImageType || focusImageType; breakImageType = data.breakImageType || breakImageType;
     focusBgImage = data.focusBgImage || focusBgImage; breakBgImage = data.breakBgImage || breakBgImage;
     focusLocalImage = data.focusLocalImage || focusLocalImage; breakLocalImage = data.breakLocalImage || breakLocalImage;
-    const saved = runtimeContext.deviceViewContext ? await loadWidgetInstanceConfig(runtimeContext.deviceViewContext, content.instanceId) : null;
+    let saved = null;
+    if (runtimeContext.deviceViewContext) {
+      const instanceId = resolveWidgetRuntimeInstanceId(runtimeContext.instanceId, content);
+      if (!instanceId) throw new Error("番茄钟缺少运行实例 ID");
+      saved = await loadWidgetInstanceConfig(runtimeContext.deviceViewContext, instanceId);
+    }
     if (destroyed) return;
     savedWidgetData = saved?.data && typeof saved.data === "object" ? structuredClone(saved.data) : {};
     const source = { ...data, ...(saved?.data || {}) };
-    config = { focusDuration: Number(source.focusDuration) || defaultConfig.focusDuration, shortBreakDuration: Number(source.shortBreakDuration) || defaultConfig.shortBreakDuration, longBreakDuration: Number(source.longBreakDuration) || defaultConfig.longBreakDuration, longBreakEvery: Number(source.longBreakEvery) || defaultConfig.longBreakEvery, autoStartBreak: source.autoStartBreak !== false, autoStartFocus: source.autoStartFocus === true, timerStyle: String(source.timerStyle || defaultConfig.timerStyle), timerFontSize: Number(source.timerFontSize) || defaultConfig.timerFontSize, showFocusInfo: source.showFocusInfo === true };
+    const breakDurations = resolveFocusBreakDurations(source, defaultConfig);
+    config = { focusDuration: Number(source.focusDuration) || defaultConfig.focusDuration, ...breakDurations, longBreakEvery: Number(source.longBreakEvery) || defaultConfig.longBreakEvery, autoStartBreak: source.autoStartBreak !== false, autoStartFocus: source.autoStartFocus === true, timerStyle: String(source.timerStyle || defaultConfig.timerStyle), timerFontSize: Number(source.timerFontSize) || defaultConfig.timerFontSize, showFocusInfo: source.showFocusInfo === true };
     binding = normalizeFocusBinding(source.focusBinding);
     reset("focus");
     if (advancedEnabled) await refreshStats().catch((error) => console.warn("[focus] 统计读取失败", error));

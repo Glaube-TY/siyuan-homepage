@@ -5,6 +5,7 @@ import type { WidgetPlacement } from "@/homepage/theme/widgetPresentation/types"
 import { resolveWidgetPremiumRequirement } from "@/features/entitlement/homepage-premium-features";
 import { getWidgetDefinition } from "./widgetDefinitionRegistry";
 import WidgetRuntimeHost from "./WidgetRuntimeHost.svelte";
+import { normalizeWidgetContentForRuntime } from "./utils/widgetRuntimeIdentity";
 
 export interface WidgetRuntimeContext {
     placement?: WidgetPlacement;
@@ -13,6 +14,7 @@ export interface WidgetRuntimeContext {
     forceIndexRefresh?: boolean;
     refreshReason?: "initial" | "manual" | "settings";
     deviceViewContext?: DeviceViewContext;
+    instanceId?: string;
 }
 
 function sanitizeWidgetTypeClass(widgetType: string): string {
@@ -34,7 +36,11 @@ export function mountWidgetContent(
         return null;
     }
 
-    const widgetType = contentData.type;
+    const mountContentData = normalizeWidgetContentForRuntime(contentData, runtimeContext.instanceId) as Record<string, any>;
+    const mountContentTypeJson = mountContentData === contentData
+        ? contentTypeJson
+        : JSON.stringify(mountContentData);
+    const widgetType = mountContentData.type;
     const definition = typeof widgetType === "string" ? getWidgetDefinition(widgetType) : undefined;
     if (!definition) {
         console.warn(`未知的 widget 类型: ${String(widgetType)}`);
@@ -54,10 +60,10 @@ export function mountWidgetContent(
         .filter((className) => className.startsWith("widget-type-"))
         .forEach((className) => target.classList.remove(className));
     target.classList.add(`widget-type-${sanitizeWidgetTypeClass(widgetType)}`);
-    const presentation = applyWidgetPresentation(target, definition, placement, contentData);
+    const presentation = applyWidgetPresentation(target, definition, placement, mountContentData);
     const premiumRequired = resolveWidgetPremiumRequirement(widgetType, contentData);
 
-    const props: Record<string, any> = { contentTypeJson };
+    const props: Record<string, any> = { contentTypeJson: mountContentTypeJson };
     if (definition.requiresPlugin) props.plugin = plugin;
     props.placement = widgetType === "notebrain" ? (runtimeContext.placement || "dock") : placement;
     props.runtimeContext = {
@@ -66,6 +72,7 @@ export function mountWidgetContent(
         forceIndexRefresh: runtimeContext.forceIndexRefresh === true,
         refreshReason: runtimeContext.refreshReason || "initial",
         deviceViewContext: runtimeContext.deviceViewContext,
+        instanceId: runtimeContext.instanceId,
     };
     props.previewMode = runtimeContext.previewMode ?? false;
 

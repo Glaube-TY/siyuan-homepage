@@ -3,6 +3,7 @@
     import AdvancedFeatureLock from "../common/AdvancedFeatureLock.svelte";
     import { loadWidgetInstanceConfig } from "@/homepage/deviceView/widgetInstanceRepository";
     import type { WidgetRuntimeContext } from "../../widgetMountRegistry";
+    import { resolveWidgetRuntimeInstanceId } from "../../utils/widgetRuntimeIdentity";
     import { visualChartConfigFromWidgetContent } from "@/features/visual-chart/visual-chart-config";
     import { loadVisualChartData, transformVisualChartData } from "@/features/visual-chart/visual-chart-data";
     import type { VisualChartConfig, VisualChartDataset } from "@/features/visual-chart/visual-chart-types";
@@ -155,7 +156,7 @@
             visibilityObserver.observe(rootElement);
         }
         void (async () => {
-            const instanceId = String(widgetContent.instanceId || "");
+            const instanceId = resolveWidgetRuntimeInstanceId(runtimeContext.instanceId, widgetContent) || "";
             if (instanceId && runtimeContext.deviceViewContext) {
                 const stored = await loadWidgetInstanceConfig(runtimeContext.deviceViewContext, instanceId).catch(() => null);
                 if (!destroyed && stored) { widgetContent = stored; config = visualChartConfigFromWidgetContent(stored); }

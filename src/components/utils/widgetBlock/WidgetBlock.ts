@@ -718,6 +718,7 @@ export class WidgetBlock {
             this.mountedWidget = mountWidgetContent(this.element, this.plugin, contentTypeJson, {
                 deviceViewContext: this.runtimeOptions.deviceViewContext,
                 ...runtimeContext,
+                instanceId: this.id,
             });
             this.element.dataset.widgetMountState = this.mountedWidget ? "ready" : "failed";
         } catch (error) {
