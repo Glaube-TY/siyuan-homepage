@@ -612,7 +612,7 @@ export async function ensureDesktopHomepageSectionsMigrated(
         ...(targetActiveSectionId !== undefined ? { activeSectionId: targetActiveSectionId } : {}),
         componentSectionsModeEnabled: effectiveEnabled,
         componentSectionsModelVersion: DESKTOP_HOMEPAGE_SECTION_MODEL_VERSION,
-        sections: Object.keys(targetDeviceSections).length > 0 ? targetDeviceSections : undefined,
+        ...(Object.keys(targetDeviceSections).length > 0 ? { sections: targetDeviceSections } : {}),
     };
 
     assertDesktopHomepageLayoutInvariants(migratedLayout, context);
