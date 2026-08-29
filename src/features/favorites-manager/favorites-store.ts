@@ -7,11 +7,12 @@
  * 3. 每次写入前重新严格读取最新 payload
  * 4. 保留所有未知根字段和 item 未知字段
  * 5. 写后读回验证，失败不得宣称成功
- * 6. 只接受当前 version:2 schema，异常数据只报告、不覆盖
+ * 6. 已知历史格式只读兼容，只有真实写操作发生时才升级到 v2
  */
 
 import { getFileOrNullChecked, putFileChecked } from "@/api";
 import { dispatchFavoritesUpdated } from "./favorites-events";
+import { parseFavoritesIndexPayload } from "./favorites-index-parser";
 import {
     VIRTUAL_UNGROUPED_ID,
     FavoritesWriteError,
@@ -82,42 +83,7 @@ export async function readFavoritesIndexStrict(): Promise<StrictReadResult> {
         return { kind: "corrupt", reason: `解析收藏索引 JSON 失败: ${error instanceof Error ? error.message : String(error)}` };
     }
 
-    if (parsed === undefined || parsed === null || typeof parsed !== "object") {
-        return { kind: "corrupt", reason: "收藏索引文件内容为空或不是有效 JSON 对象" };
-    }
-
-    if (Array.isArray(parsed)) {
-        return { kind: "corrupt", reason: "收藏索引不是当前 version:2 对象" };
-    }
-    const obj = parsed as Record<string, unknown>;
-    if (obj.version !== 2) {
-        return { kind: "corrupt", reason: "收藏索引 version 不是当前版本 2" };
-    }
-    if (!Array.isArray(obj.items)) {
-        return { kind: "corrupt", reason: "收藏索引 items 不是数组" };
-    }
-    if (!Array.isArray(obj.groups)) {
-        return { kind: "corrupt", reason: "收藏索引 groups 不是数组" };
-    }
-    if (typeof obj.updatedAt !== "string" || !obj.updatedAt) {
-        return { kind: "corrupt", reason: "收藏索引 updatedAt 无效" };
-    }
-
-    const payload: FavoritesIndexPayloadV2 = {
-        version: 2,
-        updatedAt: obj.updatedAt,
-        items: obj.items.filter(Boolean) as FavoriteItemRecord[],
-        groups: obj.groups as FavoriteGroupRecord[],
-    };
-
-    // 保留当前 schema 的未知扩展字段。
-    for (const key of Object.keys(obj)) {
-        if (!(key in payload)) {
-            (payload as Record<string, unknown>)[key] = obj[key];
-        }
-    }
-
-    return { kind: "ok", payload };
+    return parseFavoritesIndexPayload(parsed);
 }
 
 // ---- 写队列串行化 ----

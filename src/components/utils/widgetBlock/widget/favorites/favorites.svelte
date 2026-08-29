@@ -447,6 +447,11 @@
                         {plugin}
                         hint="从文档树右键重新收藏，或到主页设置 > 检索管理中刷新收藏索引。"
                     />
+                {:else if favoritesDataStatus === "error"}
+                    <div class="mobile-favorites-empty" data-widget-part="error">
+                        <strong>收藏索引暂不可用</strong>
+                        <span>{favoritesStatusMessage}</span>
+                    </div>
                 {:else}
                     <div class="mobile-favorites-empty">{favoritesStatusMessage}</div>
                 {/if}
@@ -611,6 +616,11 @@
                 {#if favoritesDataStatus === "disabled"}
                     <LocalIndexEmptyState title="本地索引为空" message="收藏本地索引为空，请重新收藏文档或刷新索引。" {plugin}
                         hint="从文档树右键重新收藏，或到主页设置 > 检索管理中刷新收藏索引。" />
+                {:else if favoritesDataStatus === "error"}
+                    <div class="favorites-empty-state" data-widget-part="error">
+                        <strong>收藏索引暂不可用</strong>
+                        <span>{favoritesStatusMessage}</span>
+                    </div>
                 {:else}
                     <div class="favorites-empty-state" data-widget-part="empty"><strong>收藏索引为空</strong><span>{favoritesStatusMessage}</span></div>
                 {/if}
