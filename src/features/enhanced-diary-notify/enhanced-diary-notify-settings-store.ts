@@ -32,6 +32,19 @@ function normalizeTime(value: unknown): string | undefined {
   return `${match[1].padStart(2, "0")}:${match[2]}`;
 }
 
+function migrateChannelIds(value: unknown): NotificationDeliveryTarget[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const ids = [...new Set(
+    value
+      .filter((item): item is string => typeof item === "string")
+      .map((item) => item.trim())
+      .filter(Boolean),
+  )];
+  return ids.length > 0
+    ? ids.map((channelId) => ({ kind: "external", channelId }))
+    : [{ kind: "external-default" }];
+}
+
 function normalizeRuleType(value: unknown): EnhancedDiaryNotifyRuleType | null {
   const types: EnhancedDiaryNotifyRuleType[] = [
     "today_diary_missing", "yesterday_review_missing", "unmigrated_tasks_digest", "weekly_review_reminder",
@@ -68,7 +81,7 @@ function normalizeRule(raw: unknown): EnhancedDiaryNotifyRule | null {
         : undefined,
     deliveryTargets: Array.isArray(value.deliveryTargets)
       ? normalizeNotificationDeliveryTargets(value.deliveryTargets)
-      : [{ kind: "external-default" }],
+      : (migrateChannelIds(value.channelIds) ?? [{ kind: "external-default" }]),
   };
 }
 

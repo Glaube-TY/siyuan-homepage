@@ -109,6 +109,27 @@ export const DEFAULT_SELECTION_AI_TOOLBAR_SETTINGS: SelectionAiToolbarSettings =
   confirmBeforeReplace: true,
 };
 
+const MIGRATION_DEFAULT_ENABLED_ACTIONS: SelectionAiAction[] = ["ask", "explain", "translate", "polish"];
+
+function migrateEnabledActions(value: unknown, hasLegacyField: boolean): SelectionAiAction[] {
+  if (!hasLegacyField) return [...MIGRATION_DEFAULT_ENABLED_ACTIONS];
+  if (!Array.isArray(value)) return [];
+
+  const valid = new Set(SELECTION_AI_ACTIONS);
+  return [...new Set(value.filter((item): item is SelectionAiAction =>
+    typeof item === "string" && valid.has(item as SelectionAiAction)
+  ))];
+}
+
+interface LegacyGlobalConfig {
+  providerId?: string;
+  modelId?: string;
+  temperature?: number;
+  maxOutputChars?: number;
+  maxSelectedTextChars?: number;
+  stream?: boolean;
+}
+
 function normalizeOptionalString(value: unknown): string | undefined {
   if (typeof value !== "string") return undefined;
   const trimmed = value.trim();
@@ -127,6 +148,7 @@ function normalizeOptionalBoolean(value: unknown): boolean | undefined {
 function normalizeSkill(
   item: Record<string, unknown>,
   defaultSkill: SelectionAiSkill | undefined,
+  legacyGlobal: LegacyGlobalConfig,
 ): SelectionAiSkill | null {
   const id = typeof item.id === "string" && item.id.trim() ? item.id.trim() : undefined;
   if (!id) return null;
@@ -160,16 +182,22 @@ function normalizeSkill(
       : (defaultSkill?.placement ?? "menu");
 
   const modelProviderId = normalizeOptionalString(item.modelProviderId)
+    ?? normalizeOptionalString(legacyGlobal.providerId)
     ?? normalizeOptionalString(defaultSkill?.modelProviderId);
   const modelId = normalizeOptionalString(item.modelId)
+    ?? normalizeOptionalString(legacyGlobal.modelId)
     ?? normalizeOptionalString(defaultSkill?.modelId);
   const temperature = normalizeOptionalNumber(item.temperature, 0, 2)
+    ?? normalizeOptionalNumber(legacyGlobal.temperature, 0, 2)
     ?? normalizeOptionalNumber(defaultSkill?.temperature, 0, 2);
   const maxSelectedTextChars = normalizeOptionalNumber(item.maxSelectedTextChars, 1, 30000)
+    ?? normalizeOptionalNumber(legacyGlobal.maxSelectedTextChars, 1, 30000)
     ?? normalizeOptionalNumber(defaultSkill?.maxSelectedTextChars, 1, 30000);
   const maxOutputChars = normalizeOptionalNumber(item.maxOutputChars, 256, 20000)
+    ?? normalizeOptionalNumber(legacyGlobal.maxOutputChars, 256, 20000)
     ?? normalizeOptionalNumber(defaultSkill?.maxOutputChars, 256, 20000);
   const stream = normalizeOptionalBoolean(item.stream)
+    ?? normalizeOptionalBoolean(legacyGlobal.stream)
     ?? normalizeOptionalBoolean(defaultSkill?.stream);
 
   return {
@@ -192,12 +220,24 @@ function normalizeSkill(
   };
 }
 
-function normalizeSkills(raw: unknown): SelectionAiSkill[] {
+const DEPRECATED_BUILTIN_IDS = new Set([
+  "builtin:grammar",
+  "builtin:tone",
+  "builtin:summary",
+]);
+
+function normalizeSkills(raw: unknown, enabledActions: SelectionAiAction[], legacyGlobal: LegacyGlobalConfig): SelectionAiSkill[] {
   const defaults = DEFAULT_SELECTION_AI_SKILLS;
   const defaultsById = new Map(defaults.map((s) => [s.id, s]));
+  const createDefaultSkill = (defaultSkill: SelectionAiSkill): SelectionAiSkill => normalizeSkill({
+    id: defaultSkill.id,
+    builtin: true,
+    enabled: enabledActions.includes(defaultSkill.builtInAction!),
+    order: defaultSkill.order,
+  }, defaultSkill, legacyGlobal)!;
 
   if (!Array.isArray(raw) || raw.length === 0) {
-    return defaults.map((s) => ({ ...s }));
+    return defaults.map(createDefaultSkill);
   }
 
   const seen = new Set<string>();
@@ -206,7 +246,8 @@ function normalizeSkills(raw: unknown): SelectionAiSkill[] {
   for (const item of raw) {
     if (!item || typeof item !== "object") continue;
     const itemId = (item as Record<string, unknown>).id;
-    const skill = normalizeSkill(item as Record<string, unknown>, defaultsById.get(itemId as string));
+    if (typeof itemId === "string" && DEPRECATED_BUILTIN_IDS.has(itemId)) continue;
+    const skill = normalizeSkill(item as Record<string, unknown>, defaultsById.get(itemId as string), legacyGlobal);
     if (!skill || seen.has(skill.id)) continue;
     seen.add(skill.id);
     skill.order = result.length;
@@ -216,9 +257,7 @@ function normalizeSkills(raw: unknown): SelectionAiSkill[] {
   // 补齐缺失的内置技能
   for (const defaultSkill of defaults) {
     if (!seen.has(defaultSkill.id)) {
-      result.push({
-        ...defaultSkill,
-      });
+      result.push(createDefaultSkill(defaultSkill));
     }
   }
 
@@ -234,7 +273,18 @@ export function normalizeSelectionAiToolbarSettings(
   }
 
   const value = raw as Record<string, unknown>;
-  const skills = normalizeSkills(value.skills);
+  const hasLegacyEnabledActions = Object.prototype.hasOwnProperty.call(value, "enabledActions");
+  const migratedEnabledActions = migrateEnabledActions(value.enabledActions, hasLegacyEnabledActions);
+  const legacyGlobal: LegacyGlobalConfig = {
+    providerId: normalizeOptionalString(value.modelProviderId)
+      ?? normalizeOptionalString(value.providerId),
+    modelId: normalizeOptionalString(value.modelId),
+    temperature: normalizeOptionalNumber(value.temperature, 0, 2),
+    maxOutputChars: normalizeOptionalNumber(value.maxOutputChars, 256, 20000),
+    maxSelectedTextChars: normalizeOptionalNumber(value.maxSelectedTextChars, 1, 30000),
+    stream: normalizeOptionalBoolean(value.stream),
+  };
+  const skills = normalizeSkills(value.skills, migratedEnabledActions, legacyGlobal);
 
   return {
     enabled: typeof value.enabled === "boolean" ? value.enabled : defaults.enabled,

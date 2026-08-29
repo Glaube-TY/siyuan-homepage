@@ -66,12 +66,23 @@ function strings(value: unknown): string[] {
       ]
     : [];
 }
+function migrateChannelIds(
+  value: unknown,
+): NotificationDeliveryTarget[] | undefined {
+  const ids = strings(value);
+  return ids.length
+    ? ids.map((channelId) => ({ kind: "external", channelId }))
+    : Array.isArray(value)
+      ? [{ kind: "external-default" }]
+      : undefined;
+}
 function targets(
   value: unknown,
+  channelIds?: unknown,
 ): NotificationDeliveryTarget[] {
   return Array.isArray(value)
     ? normalizeNotificationDeliveryTargets(value)
-    : [{ kind: "external-default" }];
+    : (migrateChannelIds(channelIds) ?? [{ kind: "external-default" }]);
 }
 function scope(value: unknown): CountdownNotifyRuleScope {
   const raw =
@@ -128,7 +139,7 @@ function normalizeRule(raw: unknown): CountdownNotifyRule | null {
       value.upcomingDays == null
         ? undefined
         : clamp(value.upcomingDays, 7, 1, 365),
-    deliveryTargets: targets(value.deliveryTargets),
+    deliveryTargets: targets(value.deliveryTargets, value.channelIds),
     scope: scope(value.scope),
   };
 }

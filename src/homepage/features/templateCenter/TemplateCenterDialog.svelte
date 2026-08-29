@@ -15,6 +15,7 @@
         buildUserLayoutTemplatePreview,
         buildUserLayoutTemplateItemStyle,
         resolveCurrentLayoutTarget,
+        isLegacyUserLayoutTemplate,
         type UserLayoutTemplate,
         type UserLayoutTemplateAvailability,
         type UserLayoutTemplatePreview,
@@ -60,7 +61,7 @@
         }
         loadingPreview = true;
         try {
-            selectedPreview = await buildUserLayoutTemplatePreview(template);
+            selectedPreview = await buildUserLayoutTemplatePreview(plugin, template);
         } catch (error) {
             previewError = error instanceof Error ? error.message : "加载布局模板预览失败";
             selectedPreview = null;
@@ -389,7 +390,11 @@
                             >
                                 <div class="template-list-header">
                                     <span class="template-list-name">{t.name}</span>
-                                    <span class="custom-badge">自定义</span>
+                                    {#if isLegacyUserLayoutTemplate(t)}
+                                        <span class="custom-badge legacy-badge">旧版布局模板</span>
+                                    {:else}
+                                        <span class="custom-badge">自定义</span>
+                                    {/if}
                                 </div>
                                 {#if t.description}
                                     <div class="template-list-desc">{t.description}</div>
@@ -477,10 +482,15 @@
                     </div>
                 {:else if selectedTemplate}
                     {@const t = selectedTemplate}
+                    {@const availability = userLayoutAvailabilityMap[t.id]}
                     <div class="detail-header">
                         <div class="detail-title-row">
                             <h3 class="detail-title">{t.name}</h3>
-                            <span class="custom-badge">自定义</span>
+                            {#if isLegacyUserLayoutTemplate(t)}
+                                <span class="custom-badge legacy-badge">旧版布局模板</span>
+                            {:else}
+                                <span class="custom-badge">自定义</span>
+                            {/if}
                         </div>
                         {#if t.description}
                             <p class="detail-desc">{t.description}</p>
@@ -491,7 +501,7 @@
                         <div class="detail-info-row">
                             <span class="detail-info-label">模板类型：</span>
                             <span class="detail-info-value">
-                                自定义布局模板
+                                {isLegacyUserLayoutTemplate(t) ? "旧版布局模板" : "自定义布局模板"}
                             </span>
                         </div>
                         <div class="detail-info-row">
@@ -516,6 +526,16 @@
                             <span class="detail-info-label">包含组件：</span>
                             <span class="detail-info-value">{t.layoutItems.length} 个</span>
                         </div>
+                        {#if isLegacyUserLayoutTemplate(t) && availability}
+                            <div class="detail-info-row">
+                                <span class="detail-info-label">当前可恢复：</span>
+                                <span class="detail-info-value">{availability.recoverableCount ?? 0} 个</span>
+                            </div>
+                            <div class="detail-info-row">
+                                <span class="detail-info-label">当前会跳过：</span>
+                                <span class="detail-info-value">{availability.skippedCount ?? 0} 个</span>
+                            </div>
+                        {/if}
                     </div>
 
                     <p class="template-light-note">该模板只保存普通组件布局和组件实例配置副本，不复制任务、项目、记账等共享业务数据。新组件将追加到当前布局末尾。</p>
