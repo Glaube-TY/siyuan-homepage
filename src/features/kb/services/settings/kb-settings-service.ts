@@ -732,7 +732,7 @@ export function getKbPlugin(): any {
 }
 
 function normalizeKbSettingsStorageRoot(value: unknown): Record<string, unknown> {
-  if (value == null) return {};
+  if (value == null || value === "") return {};
   if (typeof value !== "object" || Array.isArray(value)) {
     throw new Error("KB settings storage format invalid");
   }

@@ -237,12 +237,24 @@ async function verifyKbSettings() {
                 }
             `,
             "./kb-sensitive-secret-crypto": `
-                export function createEmptySecretDecryptDiagnostics() { return {}; }
+                export function createEmptySecretDecryptDiagnostics() {
+                    return {
+                        hasDecryptFailure: false,
+                        failedChatProviderIds: [],
+                        failedLocations: [],
+                        encryptedSecretCount: 0,
+                        plaintextSecretCount: 0,
+                        secretStoragePresent: false,
+                        secretStorageValidLength: 0,
+                    };
+                }
                 export function setKbSensitiveSecretCryptoPlugin() {}
                 export function isEncryptedSecret() { return false; }
                 export function normalizeSensitiveSecretsFromRuntime(value) { return value; }
                 export function encryptSensitiveSecretsForStorage(value) { return value; }
-                export async function decryptSensitiveSecretsFromStorage(value) { return { settings: value, diagnostics: {} }; }
+                export async function decryptSensitiveSecretsFromStorage(value) {
+                    return { settings: value, diagnostics: createEmptySecretDecryptDiagnostics() };
+                }
             `,
             "../agent-workbench/debug/workbench-debug": "export function pushAgentDebugEvent() {}",
         },
@@ -312,6 +324,52 @@ async function verifyKbSettings() {
         },
     });
     assert.equal(dangerousCurrentWins.toolSettings.toolActionConfirmOverrides?.siyuan_doc_edit.create_doc, true);
+
+    let storedValue = "";
+    let loadError = null;
+    let saveCalls = 0;
+    const plugin = {
+        async loadData(key) {
+            assert.equal(key, "kb-settings");
+            if (loadError) throw loadError;
+            return storedValue;
+        },
+        async saveData(key, value) {
+            assert.equal(key, "kb-settings");
+            saveCalls += 1;
+            storedValue = value;
+        },
+    };
+    kb.setKbSettingsPlugin(plugin);
+
+    // Storage root: only null, undefined, and exact empty string are missing.
+    for (const missing of [null, undefined, ""]) {
+        storedValue = missing;
+        saveCalls = 0;
+        assert.equal(typeof (await kb.getKbSettings()), "object");
+        assert.equal(saveCalls, 0);
+    }
+    for (const invalid of [" ", "\n", "{}", "abc", "null", [], 0, 123, true, false]) {
+        storedValue = invalid;
+        await assert.rejects(
+            () => kb.getKbSettings(),
+            (error) => error instanceof Error && error.message === "KB settings storage format invalid",
+        );
+    }
+    storedValue = { enabled: true };
+    assert.equal(typeof (await kb.getKbSettings()), "object");
+    loadError = new Error("I/O failure");
+    await assert.rejects(() => kb.getKbSettings(), { message: "I/O failure" });
+    loadError = null;
+
+    // Missing storage remains read-only, while the first real save creates current data.
+    storedValue = "";
+    saveCalls = 0;
+    const saved = await kb.saveKbSettings({ agentThinkingEnabled: false });
+    assert.equal(saveCalls, 1);
+    assert.equal(typeof storedValue, "object");
+    assert.equal(saved.agentThinkingEnabled, false);
+    assert.equal((await kb.getKbSettings()).agentThinkingEnabled, false);
 }
 
 async function verifyProviderPreset() {
