@@ -203,10 +203,8 @@
     display: grid !important;
     grid-template-columns:
         minmax(0, 1fr)
-        minmax(0, 460px)
         clamp(24px, 3vw, 48px)
-        minmax(0, 460px)
-        minmax(0, 1fr) !important;
+        auto !important;
     align-items: center;
     row-gap: clamp(10px, 1.2vw, 16px);
     column-gap: 0;
@@ -225,14 +223,20 @@
     flex-direction: column !important;
 }
 .homepage-container[data-hp-theme] .hp-top-banner { min-width: 0; }
-.homepage-container[data-hp-theme] .hp-top-primary { grid-column: 2 !important; grid-row: 1 !important; }
-.homepage-container[data-hp-theme] .hp-top-actions { grid-column: 4 !important; grid-row: 1 !important; }
+.homepage-container[data-hp-theme] .hp-top-primary { grid-column: 1 !important; grid-row: 1 !important; }
+.homepage-container[data-hp-theme] .hp-top-actions { grid-column: 3 !important; grid-row: 1 !important; }
 .homepage-container[data-hp-theme] .hp-top-banner { grid-column: 1 / -1 !important; grid-row: 2 !important; width: 100%; }
 
 .homepage-container[data-hp-theme] .hp-top-layout[data-banner-position="before"] .hp-top-banner { grid-row: 1 !important; }
 .homepage-container[data-hp-theme] .hp-top-layout[data-banner-position="before"] :is(.hp-top-primary, .hp-top-actions) { grid-row: 2 !important; }
-.homepage-container[data-hp-theme] .hp-top-layout[data-primary-position="actions-first"] .hp-top-primary { grid-column: 4 !important; }
-.homepage-container[data-hp-theme] .hp-top-layout[data-primary-position="actions-first"] .hp-top-actions { grid-column: 2 !important; }
+.homepage-container[data-hp-theme] .hp-top-layout[data-primary-position="actions-first"] {
+    grid-template-columns:
+        auto
+        clamp(24px, 3vw, 48px)
+        minmax(0, 1fr) !important;
+}
+.homepage-container[data-hp-theme] .hp-top-layout[data-primary-position="actions-first"] .hp-top-primary { grid-column: 3 !important; }
+.homepage-container[data-hp-theme] .hp-top-layout[data-primary-position="actions-first"] .hp-top-actions { grid-column: 1 !important; }
 
 .homepage-container[data-hp-theme] .hp-top-layout[data-content-layout="inline"] .hp-top-primary {
     display: flex !important;
@@ -269,21 +273,9 @@
 .homepage-container[data-hp-theme] .hp-top-layout[data-content-layout="inline"][data-align="center"] .hp-top-primary { justify-content: center; }
 .homepage-container[data-hp-theme] .hp-top-layout[data-content-layout="inline"][data-align="right"] .hp-top-primary { justify-content: flex-end; }
 
-.homepage-container[data-hp-theme] .hp-top-layout[data-banner-content="all"] {
-    grid-template-columns:
-        minmax(0, 1fr)
-        minmax(0, 460px)
-        clamp(24px, 3vw, 48px)
-        minmax(0, 460px)
-        minmax(0, 1fr) !important;
-}
 .homepage-container[data-hp-theme] .hp-top-layout[data-banner-content="all"][data-content-layout="stacked"] { grid-template-columns: minmax(0, 1fr) !important; }
 .homepage-container[data-hp-theme] .hp-top-layout[data-banner-content="all"] .hp-top-banner { grid-column: 1 / -1 !important; grid-row: 1 !important; z-index: 0; align-self: stretch; }
 .homepage-container[data-hp-theme] .hp-top-layout[data-banner-content="all"] :is(.hp-top-primary, .hp-top-actions) { grid-row: 1 !important; z-index: 2; align-self: center; margin: clamp(12px, 2vw, 28px); }
-.homepage-container[data-hp-theme] .hp-top-layout[data-banner-content="all"] .hp-top-primary { grid-column: 2 !important; }
-.homepage-container[data-hp-theme] .hp-top-layout[data-banner-content="all"] .hp-top-actions { grid-column: 4 !important; }
-.homepage-container[data-hp-theme] .hp-top-layout[data-banner-content="all"][data-primary-position="actions-first"] .hp-top-primary { grid-column: 4 !important; }
-.homepage-container[data-hp-theme] .hp-top-layout[data-banner-content="all"][data-primary-position="actions-first"] .hp-top-actions { grid-column: 2 !important; }
 .homepage-container[data-hp-theme] .hp-top-layout[data-banner-content="all"][data-content-layout="stacked"] :is(.hp-top-primary, .hp-top-actions) { grid-column: 1 !important; }
 .homepage-container[data-hp-theme] .hp-top-layout[data-banner-content="all"][data-content-layout="stacked"] .hp-top-primary { align-self: start; }
 .homepage-container[data-hp-theme] .hp-top-layout[data-banner-content="all"][data-content-layout="stacked"] .hp-top-actions { align-self: end; }
