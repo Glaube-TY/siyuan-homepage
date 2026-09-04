@@ -7,7 +7,7 @@ import type { RobotAdmissionSettings } from "../contracts/robot-pairing";
 import type { RobotProviderRuntimeStatus } from "../contracts/robot-provider";
 import { decideRobotAdmission } from "./robot-admission";
 import { RobotDedupCache } from "./robot-dedup";
-import { parseRobotCommand, type RobotInternalCommand } from "./robot-command-service";
+import { parseRobotCommand, parseRobotConfirmationReply, type RobotInternalCommand } from "./robot-command-service";
 import { splitRobotReply } from "./robot-reply-splitter";
 import { RobotSessionService } from "../session/robot-session-service";
 import { RobotHistoryService, maskIdentity, buildRobotHistoryItem } from "../history/robot-history-service";
@@ -146,10 +146,9 @@ export class RobotCore {
    */
   async handleIncomingMessage(message: NormalizedRobotMessage): Promise<void> {
     const ingressKey = this.chatKeyFor(message, true);
-    const command = parseRobotCommand(message.text);
     const pendingAtArrival = this.pendingByChat.has(ingressKey);
-    const isPendingControl = pendingAtArrival
-      && (command?.kind === "confirm" || command?.kind === "cancel");
+    const confirmationReply = parseRobotConfirmationReply(message.text);
+    const isPendingControl = pendingAtArrival && confirmationReply !== null;
     const queues = isPendingControl ? this.confirmationIngressQueues : this.ingressQueues;
     let queue = queues.get(ingressKey);
     if (!queue) {
@@ -262,7 +261,8 @@ export class RobotCore {
     const chatKey = this.chatKeyFor(message, true);
     const pending = this.pendingByChat.get(chatKey);
     const command = parseRobotCommand(message.text);
-    if (pending && command?.kind === "confirm" && pending.confirmation.senderId === message.senderId) {
+    const confirmationReply = parseRobotConfirmationReply(message.text);
+    if (pending && confirmationReply === "confirm" && pending.confirmation.senderId === message.senderId) {
       // 先启动回执发送，再释放 Agent 的工具调用；用户能立即看到确认已被接收，
       // 同时不让回复接口的耗时继续卡住原始 turn。
       const acknowledgement = this.replyText(message, "已确认，正在执行…", "status");
@@ -271,19 +271,19 @@ export class RobotCore {
       await record("executed", { resultSummary: "confirmation_approved" });
       return;
     }
-    if (pending && command?.kind === "cancel" && pending.confirmation.senderId === message.senderId) {
+    if (pending && confirmationReply === "cancel" && pending.confirmation.senderId === message.senderId) {
       this.resolvePending(pending, "rejected");
       await this.replyText(message, "已取消该操作。", "status");
       await record("ignored", { resultSummary: "confirmation_rejected" });
       return;
     }
 
-    // 等待确认期间只接受严格的“确认/取消”。其他内容既不授权写操作，也不偷偷排到后面执行。
+    // 等待确认期间只接受严格的确认回复。其他内容既不授权写操作，也不偷偷排到后面执行。
     if (pending || pendingAtArrival) {
       if (this.shouldReply(this.lastInvalidConfirmationReplyAt, chatKey, INVALID_CONFIRMATION_REPLY_INTERVAL_MS)) {
         await this.replyText(
           message,
-          "当前操作正在等待确认。请只回复「确认」继续或「取消」放弃；刚才的消息未加入执行队列。",
+          "当前操作正在等待确认。请回复「确认 / 1 / Y」继续或「取消 / 0 / F」放弃；刚才的消息未加入执行队列。",
           "status",
         );
       }
@@ -298,7 +298,7 @@ export class RobotCore {
     }
 
     // 平台或用户可能重复发送确认/取消。短时间内返回上次结果，保证命令幂等。
-    if (command?.kind === "confirm" || command?.kind === "cancel") {
+    if (confirmationReply) {
       const recent = this.getRecentlyResolvedConfirmation(chatKey);
       if (recent) {
         const text = recent.outcome === "approved"
@@ -807,4 +807,3 @@ export class RobotCore {
 }
 
 type RobotHistoryItemStatus = "received" | "ignored" | "rejected" | "executed" | "failed" | "sent";
-

@@ -67,7 +67,7 @@ export class RobotConfirmationBridge implements ToolConfirmationBridge {
     const prompt = [
       "AI 准备执行：",
       confirmation.safePreview,
-      "回复「确认」继续，2 分钟内有效；回复「取消」放弃。",
+      "回复「确认 / 1 / Y」继续，2 分钟内有效；回复「取消 / 0 / F」放弃。",
     ].join("\n");
 
     const outcome = await this.ctx.requestConfirmation(confirmation, prompt);

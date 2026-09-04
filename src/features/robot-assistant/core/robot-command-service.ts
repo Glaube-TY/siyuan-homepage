@@ -28,3 +28,12 @@ export function parseRobotCommand(text: string): RobotInternalCommand | null {
   }
   return null;
 }
+
+export type RobotConfirmationReply = "confirm" | "cancel";
+
+export function parseRobotConfirmationReply(text: string): RobotConfirmationReply | null {
+  const normalized = typeof text === "string" ? text.trim().toLowerCase() : "";
+  if (normalized === "确认" || normalized === "1" || normalized === "y") return "confirm";
+  if (normalized === "取消" || normalized === "0" || normalized === "f") return "cancel";
+  return null;
+}

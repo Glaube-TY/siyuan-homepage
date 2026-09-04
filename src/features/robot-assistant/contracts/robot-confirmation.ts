@@ -15,7 +15,7 @@ export interface RobotConfirmation {
   resumeState: Record<string, unknown>;
   createdAt: number;
   expiresAt: number;
-  /** 收到「确认」后置为 resolved；过期自动取消。 */
+  /** 收到有效确认回复后置为 resolved；过期自动取消。 */
   resolved?: boolean;
 }
 

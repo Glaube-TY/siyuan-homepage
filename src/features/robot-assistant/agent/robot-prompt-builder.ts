@@ -62,5 +62,6 @@ export function buildRobotHelpReply(context: RobotPromptContext): string {
     `- 当前渠道：${context.provider}；当前时间：${context.nowIso}`,
     "- 直接发送自然语言即可调用 AI Agent（记账、纪念日、收藏、复习、知识库、日记等）。",
     "- 内部命令：帮助 / 状态 / 新会话 / 取消 / 确认。",
+    "- 写操作等待确认时：确认可回复「确认 / 1 / Y」，取消可回复「取消 / 0 / F」。",
   ].join("\n");
 }
