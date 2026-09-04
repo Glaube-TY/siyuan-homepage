@@ -298,7 +298,7 @@ export class RobotCore {
     }
 
     // 平台或用户可能重复发送确认/取消。短时间内返回上次结果，保证命令幂等。
-    if (confirmationReply) {
+    if (command?.kind === "confirm" || command?.kind === "cancel") {
       const recent = this.getRecentlyResolvedConfirmation(chatKey);
       if (recent) {
         const text = recent.outcome === "approved"
