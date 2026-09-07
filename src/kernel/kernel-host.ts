@@ -1,4 +1,5 @@
 import type { RobotDebugLogger } from "../features/robot-assistant/core/robot-logger";
+import type { HomepageMcpAgent } from "./mcp-server/homepage-mcp-types";
 
 /**
  * Robot Kernel 运行时宿主抽象。
@@ -14,9 +15,12 @@ import type { RobotDebugLogger } from "../features/robot-assistant/core/robot-lo
 export interface RobotKernelHost {
   storage: {
     get(key: string): Promise<string | null>;
+    getStrict?(key: string): Promise<string | null>;
     set(key: string, value: string): Promise<void>;
     remove(key: string): Promise<void>;
   };
+  /** 官方 `siyuan.agent` 能力注册接口；缺失时外部 MCP 服务不可用。 */
+  agent?: HomepageMcpAgent | null;
   /** 调用当前 SiYuan Kernel 的本机 JSON API（非外部 forwardProxy）。 */
   siyuanPost(path: string, payload: unknown): Promise<{ code: number; msg?: string; data?: unknown }>;
   /** 读取工作区文件；404/其他错误保留 Kernel 返回的错误 envelope。 */

@@ -57,6 +57,7 @@
   import { detachTemporaryWorkbenchUsages } from "../../services/agent-workbench/tools/homepage/temporary-workbench-store";
 
   export let placement: "dock" | "tab" | "mobile" = "dock";
+  export let plugin: unknown = undefined;
   export let onOpenSettings: (() => void) | undefined = undefined;
   export let onClose: (() => void) | undefined = undefined;
   let sessionHydrationReady = false;
@@ -1696,7 +1697,7 @@
 
   {#if placement === "mobile" && mobileSettingsOpen}
     <div class="mobile-settings-overlay">
-      <KbSettingsPanel mobile={true} close={handleCloseMobileSettings} />
+      <KbSettingsPanel mobile={true} close={handleCloseMobileSettings} {plugin} />
     </div>
   {/if}
 </div>

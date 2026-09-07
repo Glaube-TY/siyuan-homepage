@@ -27,7 +27,7 @@
 </script>
 
 {#if advanced}
-    <KbMainPanel {placement} {onOpenSettings} {onClose} />
+    <KbMainPanel {plugin} {placement} {onOpenSettings} {onClose} />
 {:else}
     <div class="kb-premium-gate" class:dock={placement === "dock"} class:mobile={placement === "mobile"}>
         {#if placement === "mobile" && onClose}

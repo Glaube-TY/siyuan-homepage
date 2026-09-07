@@ -5,6 +5,7 @@ import type {
   RobotProviderStatus,
   RobotProviderAvailability,
 } from "../features/robot-assistant/contracts/robot-provider";
+import type { HomepageMcpServerSnapshot } from "./mcp-server/homepage-mcp-runtime-controller";
 
 const ROBOT_PROVIDER_STATUSES = new Set<string>([
   "disabled",
@@ -33,6 +34,11 @@ export interface RobotKernelRpcOptions {
     getLoginState?(): Promise<unknown>;
     submitVerifyCode?(payload: unknown): Promise<unknown>;
     logout?(): Promise<unknown>;
+  };
+  homepageMcp?: {
+    getState(): HomepageMcpServerSnapshot;
+    setEnabled(enabled: boolean): Promise<HomepageMcpServerSnapshot>;
+    reconcile(): Promise<HomepageMcpServerSnapshot>;
   };
 }
 
@@ -466,5 +472,29 @@ export async function registerRobotKernelRpc(
     () =>
       options.wechat?.logout?.() ?? { ok: false, errorCode: "not_implemented" },
   );
+  rpc("homepageMcp.getState", () => {
+    const snapshot = options.homepageMcp?.getState();
+    return snapshot
+      ? { ok: true, snapshot }
+      : { ok: false, errorCode: "not_implemented" };
+  });
+  rpc("homepageMcp.setEnabled", async (payload) => {
+    const value = payload && typeof payload === "object" && !Array.isArray(payload)
+      ? payload as Record<string, unknown>
+      : null;
+    if (!value || Object.keys(value).length !== 1 || typeof value.enabled !== "boolean") {
+      return { ok: false, errorCode: "invalid_homepage_mcp_settings" };
+    }
+    const snapshot = await options.homepageMcp?.setEnabled(value.enabled);
+    return snapshot
+      ? { ok: true, snapshot }
+      : { ok: false, errorCode: "not_implemented" };
+  });
+  rpc("homepageMcp.reconcile", async () => {
+    const snapshot = await options.homepageMcp?.reconcile();
+    return snapshot
+      ? { ok: true, snapshot }
+      : { ok: false, errorCode: "not_implemented" };
+  });
   await Promise.all(bindings);
 }

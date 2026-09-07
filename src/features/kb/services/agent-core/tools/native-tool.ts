@@ -1,5 +1,5 @@
 import type { JsonSchemaObject } from "./native-tool-schema";
-import type { ToolSafetyInfo, ToolSource } from "../../agent-workbench/contracts/tool-contract";
+import type { AggregateActionHelp, ToolSafetyInfo, ToolSource } from "../../agent-workbench/contracts/tool-contract";
 
 export interface ToolExecutionContext {
   question: string;
@@ -47,7 +47,7 @@ export interface NativeTool {
   source: ToolSource;
   safety: ToolSafetyInfo;
   /** 聚合工具的 action 级只读/确认元数据（dotted action 名 → 元数据）。 */
-  aggregateActionHelp?: Record<string, { readOnly?: boolean; requiresConfirmation?: boolean }>;
+  aggregateActionHelp?: Record<string, AggregateActionHelp>;
   execute(args: Record<string, unknown>, ctx: ToolExecutionContext): Promise<ToolExecutionResult>;
   preflightValidate?(args: Record<string, unknown>): ToolArgsValidationResult | Promise<ToolArgsValidationResult>;
   isReadOnlyCall?(args: Record<string, unknown>): boolean;

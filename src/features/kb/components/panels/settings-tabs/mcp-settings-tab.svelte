@@ -13,8 +13,10 @@
   import { pushAgentDebugEvent } from "../../../services/agent-workbench/debug/workbench-debug";
   import { getNotebrainRuntimeEnvironment } from "../../../services/agent-workbench/workspace/notebrain-runtime-env";
   import { isEncryptedSecret } from "../../../services/settings/kb-sensitive-secret-crypto";
+  import HomepageMcpServerSection from "./homepage-mcp-server-section.svelte";
 
   export let settings: KbSettings;
+  export let plugin: unknown = undefined;
   export let mobile = false;
 
   let servers: McpServerConfig[] = [];
@@ -769,9 +771,11 @@
 </script>
 
 <div class="mcp-settings-tab">
+  <HomepageMcpServerSection {plugin} {mobile} />
+
   <section class="settings-section">
     <div class="section-header">
-      <h2 class="section-title">MCP Client</h2>
+      <h2 class="section-title">外部 MCP Server</h2>
       <p class="section-description">连接外部 MCP Server 后，工具会以 `mcp__server__tool` 形式进入 Agent 工具索引。</p>
     </div>
 

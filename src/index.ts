@@ -74,6 +74,7 @@ import { saveData, loadData, removeData } from "@/features/kb/services/agent-wor
 import { setPluginStorage } from "@/features/kb/services/agent-workbench/runtime/in-flight-turn-journal";
 import { RobotClientRuntime } from "@/features/robot-assistant/runtime/robot-client-runtime";
 import { RobotKernelBridge } from "@/features/robot-assistant/runtime/robot-kernel-bridge";
+import { reconcileHomepageMcpServer } from "@/features/kb/services/mcp-server/homepage-mcp-server-client";
 import { syncRobotAgentRuntimeConfig } from "@/features/robot-assistant/runtime/robot-agent-config-sync";
 import {
     destroyNotificationCenterRuntime,
@@ -720,6 +721,9 @@ export default class PluginHomepage extends Plugin {
     }
 
     private async handleHomepageAdvancedReady(): Promise<void> {
+        void reconcileHomepageMcpServer(this).catch((error) => {
+            console.debug("[Homepage] MCP server entitlement reconciliation skipped", error);
+        });
         const surface: DeviceViewSurface = this.isMobileFrontend() ? "mobile-homepage" : "desktop-homepage";
         try {
             await this.startHomepagePremiumBackgroundRuntimes();
@@ -765,6 +769,9 @@ export default class PluginHomepage extends Plugin {
     }
 
     private async handleHomepageAdvancedUnavailable(): Promise<void> {
+        void reconcileHomepageMcpServer(this).catch((error) => {
+            console.debug("[Homepage] MCP server entitlement reconciliation skipped", error);
+        });
         this.stopSelectionAiPremiumRuntime();
         this.unregisterMobileQuickActionsForegroundListeners();
         this.destroyMobileQuickActions();
@@ -2293,6 +2300,7 @@ export default class PluginHomepage extends Plugin {
                 return mount(KbSettingsPanel as any, {
                     target: containerEl,
                     props: {
+                        plugin: this,
                         close: () => {
                             dialog.close();
                         },

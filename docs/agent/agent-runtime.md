@@ -63,4 +63,14 @@
 - 机器人会话只显示当前默认/活跃 Provider 对应的 QQ、微信或飞书会话，不混用渠道路由。Runner 离线时按策略跳过或只补最新一次，不批量回放错过任务。
 - 跨端边界：桌面/Electron 仅承诺应用运行期间的桌面、QQ、飞书能力；Kernel/Docker 仅承诺 Kernel-safe Agent、Sensor 和外联出站；移动端仅承诺任务管理、结果查看和已注册固定通知；普通浏览器仅承诺标签页打开期间运行。没有在线 Runner 时不能伪装成准时执行。
 
+### 对外 MCP 服务
+
+- 外部 MCP 能力只通过官方 `siyuan.agent.registerCapability` / `unregisterCapability` 注册和清理；不在插件内另起 HTTP、SSE 或 stdio Server。
+- Robot 与外部 MCP 共享同一份 Kernel `NativeToolRegistry`；外部服务只按固定的顶层工具和 action 白名单生成过滤后的 Schema，不复制业务实现。
+- 首期能力全部只读。每次调用仍在 Kernel 重新检查服务 active、当前会员状态、精确 action 白名单、action 级 `isReadOnlyCall` 和 `preflightValidate`，不能仅信任客户端 Schema。
+- 设置使用独立的 `homepage-mcp-server-settings` 严格 schema；缺失按关闭处理，损坏只进入错误状态且不覆盖原值。会员失效时注销能力但保留开启偏好，恢复后再注册。
+- 注册失败必须回滚已成功注册的能力；注销按逆序执行并保留失败项。输出只返回有界结构化数据或固定错误，不返回原始 envelope、堆栈、密钥、令牌、身份标识或绝对路径。
+- 前端只通过 Kernel 控制 RPC 读取和修改状态，不在前端伪造关闭状态；会员事件触发轻量 reconcile，Kernel 以低频定时器补偿，并在 shutdown 清理定时器和能力。
+- 既有外部 MCP Client 继续使用 `settings.mcp`，与主页对外 MCP 服务的开关、状态和生命周期完全分离。
+
 涉及 Agent runtime 的改动按影响范围运行 typecheck/build 和相关功能检查；不要因为修改普通 UI 而加载本文件。

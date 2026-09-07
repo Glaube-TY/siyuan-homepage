@@ -14,6 +14,7 @@
  */
 
 import type * as kernel from "siyuan/kernel";
+import type { HomepageMcpAgent } from "./mcp-server/homepage-mcp-types";
 
 function utf8Bytes(value: string): Uint8Array {
   if (typeof globalThis.TextEncoder === "function") return new globalThis.TextEncoder().encode(value);
@@ -68,6 +69,7 @@ export interface SiyuanKernelHostOptions {
 export function createSiyuanKernelHost(api: kernel.ISiyuan, options: SiyuanKernelHostOptions = {}) {
   const prefix = options.prefix ?? "[robot-kernel]";
   const boundMethods: string[] = [];
+  const agent = (api as kernel.ISiyuan & { agent?: HomepageMcpAgent | null }).agent ?? null;
 
   const log = {
     info: (entry: Record<string, unknown>) => void api.logger.info(prefix, entry),
@@ -85,6 +87,12 @@ export function createSiyuanKernelHost(api: kernel.ISiyuan, options: SiyuanKerne
           return null;
         }
       },
+      async getStrict(key: string): Promise<string | null> {
+        const entries = await api.storage.list(".");
+        if (!entries.some((entry) => entry.name === key && !entry.isDir)) return null;
+        const data = await api.storage.get(key);
+        return await data.text();
+      },
       async set(key: string, value: string): Promise<void> {
         await api.storage.put(key, value);
       },
@@ -92,6 +100,7 @@ export function createSiyuanKernelHost(api: kernel.ISiyuan, options: SiyuanKerne
         await api.storage.remove(key);
       },
     },
+    agent,
     async siyuanPost(path: string, payload: unknown): Promise<{ code: number; msg?: string; data?: unknown }> {
       const response = await api.client.fetch(path as `/${string}`, {
         method: "POST",

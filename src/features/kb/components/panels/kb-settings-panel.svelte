@@ -16,6 +16,7 @@
   import SiyuanIcon from "@/components/utils/shared/SiyuanIcon.svelte";
 
   export let close: (() => void) | undefined = undefined;
+  export let plugin: unknown = undefined;
   export let mobile = false;
   export let modelOnly = false;
 
@@ -273,7 +274,7 @@
             {:else if activeTab === "agentWorkspace"}
               <AgentWorkspaceSettingsTab bind:settings />
             {:else if activeTab === "mcp"}
-              <McpSettingsTab bind:settings mobile={mobile} />
+              <McpSettingsTab bind:settings mobile={mobile} {plugin} />
             {:else if activeTab === "quickPrompts"}
               <QuickPromptsSettingsTab bind:settings />
             {/if}

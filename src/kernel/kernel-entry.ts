@@ -8,6 +8,7 @@ import { buildRobotKernelToolRegistry } from "../features/robot-assistant/agent/
 import { KernelEntitlementService } from "./kernel-entitlement";
 import { setSiyuanRuntimePort } from "../runtime/siyuan-runtime-port";
 import { createWebSearchSettingsBinding } from "../features/kb/services/agent-workbench/tools/web-search/web-search-router";
+import { HomepageMcpRuntimeController } from "./mcp-server/homepage-mcp-runtime-controller";
 
 /**
  * Kernel entry：只负责组装，不写业务逻辑。
@@ -31,13 +32,24 @@ export async function createRobotKernel(host: RobotKernelHost, options: RobotKer
   });
   const entitlement = new KernelEntitlementService(host);
   const webSearchSettingsBinding = createWebSearchSettingsBinding();
+  const toolRegistry = options.toolRegistry ?? await buildRobotKernelToolRegistry({ host, webSearchSettingsBinding });
+  const homepageMcpServer = new HomepageMcpRuntimeController({
+    agent: host.agent,
+    registry: toolRegistry,
+    storage: host.storage,
+    isEntitlementAvailable: () => entitlement.isAvailable(),
+    timeout: (fn, ms) => host.timeout(fn, ms),
+    log: host.log,
+  });
   const runtime = new RobotKernelRuntime(host, {
-    toolRegistry: options.toolRegistry ?? await buildRobotKernelToolRegistry({ host, webSearchSettingsBinding }),
+    toolRegistry,
     webSearchSettingsBinding,
     ...(options.getModelApiKey ? { getModelApiKey: options.getModelApiKey } : {}),
     isEntitlementAvailable: options.isEntitlementAvailable ?? (() => entitlement.isAvailable()),
+    homepageMcpServer,
   });
   await runtime.initialize();
+  await homepageMcpServer.initialize();
 
   // 挂载微信 Kernel Provider（微信是主渠道，Kernel 常驻）。
   const wechat = options.wechatProviderFactory
@@ -91,7 +103,14 @@ export async function createRobotKernel(host: RobotKernelHost, options: RobotKer
       });
     },
   };
-  await registerRobotKernelRpc(host, runtime, { wechat: wechatRpc });
+  await registerRobotKernelRpc(host, runtime, {
+    wechat: wechatRpc,
+    homepageMcp: {
+      getState: () => homepageMcpServer.getSnapshot(),
+      setEnabled: (enabled) => homepageMcpServer.setEnabled(enabled),
+      reconcile: () => homepageMcpServer.reconcile(),
+    },
+  });
   return runtime;
 }
 

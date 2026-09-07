@@ -49,6 +49,7 @@ import { RobotSessionService } from "../features/robot-assistant/session/robot-s
 import type { WeChatKernelProvider } from "../features/robot-assistant/providers/wechat/wechat-kernel-provider";
 import { createRobotId } from "../features/robot-assistant/contracts/robot-id";
 import type { WebSearchSettingsBinding } from "../features/kb/services/agent-workbench/tools/web-search/web-search-router";
+import type { HomepageMcpRuntimeController } from "./mcp-server/homepage-mcp-runtime-controller";
 
 export const ROBOT_MODEL_API_KEY_SECRET = "model-api-key";
 
@@ -59,6 +60,7 @@ export interface RobotKernelRuntimeOptions {
   providerManager?: RobotProviderManager;
   isEntitlementAvailable?(): Promise<boolean>;
   webSearchSettingsBinding?: WebSearchSettingsBinding;
+  homepageMcpServer?: HomepageMcpRuntimeController;
 }
 
 export class RobotKernelRuntime {
@@ -74,6 +76,7 @@ export class RobotKernelRuntime {
   private readonly toolRegistry: NativeToolRegistry;
   private readonly webSearchSettingsBinding?: WebSearchSettingsBinding;
   private readonly isEntitlementAvailable: () => Promise<boolean>;
+  private readonly homepageMcpServer?: HomepageMcpRuntimeController;
   /** Electron Provider（飞书 / QQ）状态注册表：由前端 RPC 上报，Kernel 只记录状态不运行。 */
   private readonly electronProviderStatuses = new Map<
     RobotProviderId,
@@ -94,6 +97,7 @@ export class RobotKernelRuntime {
   ) {
     this.toolRegistry = options.toolRegistry;
     this.webSearchSettingsBinding = options.webSearchSettingsBinding;
+    this.homepageMcpServer = options.homepageMcpServer;
     const secretStorage = createKernelSecretStoragePort(host);
     this.secretVault = new RobotSecretVaultStore(secretStorage);
     this.settingsStore = createRobotSettingsKernelStore(host);
@@ -919,6 +923,14 @@ export class RobotKernelRuntime {
     this.disposed = true;
     this.cancelOwnershipCheck?.();
     this.cancelOwnershipCheck = null;
+    try {
+      await this.homepageMcpServer?.shutdown();
+    } catch (error) {
+      this.host.log.error({
+        status: "homepage_mcp_shutdown_failed",
+        message: error instanceof Error ? error.message.slice(0, 200) : String(error).slice(0, 200),
+      });
+    }
     await this.stop();
     await this.providerManager.dispose();
     await this.host.dispose?.();
