@@ -104,7 +104,6 @@ function buildInputSchema(
 ): HomepageMcpJsonSchema {
   return {
     type: "object",
-    additionalProperties: false,
     oneOf: actions.map(({ name, argsSchema }) => ({
       type: "object",
       additionalProperties: false,

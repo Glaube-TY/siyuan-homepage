@@ -1,4 +1,5 @@
 import { build } from "esbuild";
+import Ajv from "ajv";
 import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
@@ -27,6 +28,11 @@ function assert(condition, message) {
 
 function assertEqual(actual, expected, message) {
   assert(JSON.stringify(actual) === JSON.stringify(expected), `${message}: ${JSON.stringify(actual)}`);
+}
+
+function assertSchemaValue(validate, value, expected, message) {
+  const actual = validate(value);
+  assert(actual === expected, `${message}: ${JSON.stringify(validate.errors ?? [])}`);
 }
 
 async function verifyProductBoundary() {
@@ -203,11 +209,41 @@ async function main() {
     diaryPolicy.actions,
     "聚合 Schema action const 错误",
   );
-  assert(diaryBranches.every((branch) => branch.additionalProperties === false), "每个 action 分支必须拒绝额外字段");
+  assert(
+    policies.every((policy) => !Object.hasOwn(policy.inputSchema, "additionalProperties")),
+    "外层 Schema 不得禁止 oneOf 字段",
+  );
+  assert(
+    policies.every((policy) => policy.inputSchema.oneOf.every((branch) => branch.additionalProperties === false)),
+    "每个 action 分支必须拒绝额外字段",
+  );
   assert(!diaryBranches.some((branch) => branch.properties.action.const === writeActions.diary_task), "写 action 不得进入 Schema");
   const homepagePolicy = policies.find((policy) => policy.name === "homepage_components");
   assert(homepagePolicy, "homepage_components 策略缺失");
   assert(!homepagePolicy.actions.some((action) => action === writeActions.homepage_components), "主页写 action 不得进入白名单");
+
+  const ajv = new Ajv({ strict: false });
+  const validators = new Map(policies.map((policy) => [policy.name, ajv.compile(policy.inputSchema)]));
+  const diaryValidate = validators.get("diary_task");
+  const kbValidate = validators.get("siyuan_kb");
+  const databaseValidate = validators.get("siyuan_database");
+  const homepageValidate = validators.get("homepage_components");
+  assert(diaryValidate && kbValidate && databaseValidate && homepageValidate, "四项能力 Schema validator 缺失");
+
+  const queryTasksArgsSchema = diaryPolicy.tool.aggregateActionHelp?.query_tasks?.argsSchema;
+  assert(queryTasksArgsSchema && typeof queryTasksArgsSchema === "object", "query_tasks argsSchema 缺失");
+  const validateQueryTasksArgs = ajv.compile(queryTasksArgsSchema);
+  const queryTasksArgs = {};
+  assertSchemaValue(validateQueryTasksArgs, queryTasksArgs, true, "query_tasks 最小 args 必须符合真实 argsSchema");
+  assertSchemaValue(diaryValidate, { action: "overview", args: {} }, true, "diary_task.overview 合法输入必须通过");
+  assertSchemaValue(diaryValidate, { action: "query_tasks", args: queryTasksArgs }, true, "diary_task.query_tasks 合法输入必须通过");
+  assertSchemaValue(kbValidate, { action: "list_map", args: {} }, true, "siyuan_kb.list_map 合法输入必须通过");
+  assertSchemaValue(databaseValidate, { action: "list", args: {} }, true, "siyuan_database.list 合法输入必须通过");
+  assertSchemaValue(homepageValidate, { action: "quick_note.status", args: {} }, true, "homepage_components.quick_note.status 合法输入必须通过");
+  assertSchemaValue(diaryValidate, { action: writeActions.diary_task, args: {} }, false, "diary_task 写 action 必须拒绝");
+  assertSchemaValue(diaryValidate, { action: "query_tasks", args: {}, unexpected: true }, false, "action 分支必须拒绝额外字段");
+  assertSchemaValue(diaryValidate, { action: "not_exists", args: {} }, false, "未知 action 必须拒绝");
+  assertSchemaValue(diaryValidate, { args: {} }, false, "缺少 action 必须拒绝");
 
   const fixture = ({ member = true, raw = undefined, failAt = -1 } = {}) => {
     const storage = new FakeStorage();
