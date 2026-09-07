@@ -24,8 +24,10 @@
     import MemoryCenterSettingsPanel from "./MemoryCenterSettingsPanel.svelte";
     import AutomationCenterSettingsPanel from "./AutomationCenterSettingsPanel.svelte";
     import WebSearchCenterSettingsPanel from "./WebSearchCenterSettingsPanel.svelte";
+    import HomepageMcpServerSettingsPanel from "./HomepageMcpServerSettingsPanel.svelte";
 
     interface Props {
+        plugin: unknown;
         activeSubTab: AiKnowledgeBaseSubTab;
         aiKbDockEnabled: boolean;
         aiKbTabEnabled: boolean;
@@ -42,6 +44,7 @@
     }
 
     let {
+        plugin,
         activeSubTab,
         aiKbDockEnabled,
         aiKbTabEnabled,
@@ -98,6 +101,13 @@
             icon: "globe",
             features: ["全局搜索策略", "网页读取设置"],
             highlights: ["联网检索", "网页读取"],
+        },
+        mcpServer: {
+            title: "对外 MCP 服务",
+            subtitle: "将主页插件的只读 Agent 能力开放给 WorkBuddy、Claude、Codex 等 MCP 客户端。",
+            icon: "cloud",
+            features: ["向外部 Agent 提供主页插件能力", "当前仅开放经过审核的只读工具"],
+            highlights: ["MCP", "外部 Agent"],
         },
         workbenches: {
             title: "临时工作台",
@@ -734,6 +744,8 @@
 </SettingSection>
 {:else if activeSubTab === "webSearch"}
     <WebSearchCenterSettingsPanel />
+{:else if activeSubTab === "mcpServer"}
+    <HomepageMcpServerSettingsPanel {plugin} />
 {:else if activeSubTab === "workbenches"}
     <TemporaryWorkbenchSettingsPanel />
 {:else if activeSubTab === "memory"}

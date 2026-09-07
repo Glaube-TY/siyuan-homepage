@@ -74,7 +74,7 @@ import { saveData, loadData, removeData } from "@/features/kb/services/agent-wor
 import { setPluginStorage } from "@/features/kb/services/agent-workbench/runtime/in-flight-turn-journal";
 import { RobotClientRuntime } from "@/features/robot-assistant/runtime/robot-client-runtime";
 import { RobotKernelBridge } from "@/features/robot-assistant/runtime/robot-kernel-bridge";
-import { reconcileHomepageMcpServer } from "@/features/kb/services/mcp-server/homepage-mcp-server-client";
+import { reconcileHomepageMcpServer } from "@/features/agent-platform/mcp-server/homepage-mcp-server-client";
 import { syncRobotAgentRuntimeConfig } from "@/features/robot-assistant/runtime/robot-agent-config-sync";
 import {
     destroyNotificationCenterRuntime,

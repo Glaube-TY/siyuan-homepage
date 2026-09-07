@@ -1,4 +1,6 @@
 import { build } from "esbuild";
+import { existsSync } from "node:fs";
+import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -25,6 +27,30 @@ function assert(condition, message) {
 
 function assertEqual(actual, expected, message) {
   assert(JSON.stringify(actual) === JSON.stringify(expected), `${message}: ${JSON.stringify(actual)}`);
+}
+
+async function verifyProductBoundary() {
+  const readProjectFile = (...parts) => readFile(resolve(root, ...parts), "utf8");
+  const mcpClient = await readProjectFile("src", "features", "kb", "components", "panels", "settings-tabs", "mcp-settings-tab.svelte");
+  const kbSettings = await readProjectFile("src", "features", "kb", "components", "panels", "kb-settings-panel.svelte");
+  const tabs = await readProjectFile("src", "homepage", "homepageSetting", "aiKnowledgeBaseTabs.ts");
+  const aiCenter = await readProjectFile("src", "homepage", "homepageSetting", "tabs", "AiKnowledgeBaseSettingsTab.svelte");
+  const homepageSettings = await readProjectFile("src", "homepage", "homepageSetting", "homepageSetting.svelte");
+  const globalPanel = await readProjectFile("src", "homepage", "homepageSetting", "tabs", "HomepageMcpServerSettingsPanel.svelte");
+  const index = await readProjectFile("src", "index.ts");
+
+  assert(!mcpClient.includes("HomepageMcpServer") && !mcpClient.includes("homepageMcp"), "KB MCP Client 不得引用主页对外 MCP 服务");
+  assert(!kbSettings.includes("export let plugin"), "KbSettingsPanel 不得为全局 MCP 服务传递 plugin");
+  assert(tabs.includes('"mcpServer"') && tabs.includes('label: "MCP 服务"'), "AI 中心导航缺少 MCP 服务页签");
+  assert(aiCenter.includes('import HomepageMcpServerSettingsPanel') && aiCenter.includes('<HomepageMcpServerSettingsPanel {plugin} />'), "AI 中心未挂载全局 MCP 服务面板");
+  assert(homepageSettings.includes('<AiKnowledgeBaseSettingsTab') && homepageSettings.includes("plugin={plugin}"), "主页设置未向 AI 中心传递 Plugin Context");
+  assert(globalPanel.includes("@/features/agent-platform/mcp-server/homepage-mcp-server-client"), "全局 MCP 面板未使用 Agent Platform service");
+  assert(index.includes("@/features/agent-platform/mcp-server/homepage-mcp-server-client"), "全局会员生命周期未使用 Agent Platform service");
+
+  const oldServiceDirectory = resolve(root, "src", "features", "kb", "services", ["mcp", "server"].join("-"));
+  const oldPanelFile = resolve(root, "src", "features", "kb", "components", "panels", "settings-tabs", ["homepage", "mcp", "server", "section.svelte"].join("-"));
+  assert(!existsSync(oldServiceDirectory), "旧 KB MCP service 目录仍然存在");
+  assert(!existsSync(oldPanelFile), "旧 KB 主页 MCP 面板文件仍然存在");
 }
 
 class FakeStorage {
@@ -139,6 +165,7 @@ function createFixtureTool(name, actions, writeAction) {
 let executeCount = 0;
 
 async function main() {
+  await verifyProductBoundary();
   const registration = await loadBundle("src/kernel/mcp-server/register-homepage-mcp-capabilities.ts");
   const controllerModule = await loadBundle("src/kernel/mcp-server/homepage-mcp-runtime-controller.ts");
   const {

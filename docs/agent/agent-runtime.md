@@ -72,5 +72,6 @@
 - 注册失败必须回滚已成功注册的能力；注销按逆序执行并保留失败项。输出只返回有界结构化数据或固定错误，不返回原始 envelope、堆栈、密钥、令牌、身份标识或绝对路径。
 - 前端只通过 Kernel 控制 RPC 读取和修改状态，不在前端伪造关闭状态；会员事件触发轻量 reconcile，Kernel 以低频定时器补偿，并在 shutdown 清理定时器和能力。
 - 既有外部 MCP Client 继续使用 `settings.mcp`，与主页对外 MCP 服务的开关、状态和生命周期完全分离。
+- 对外 MCP 服务属于主页设置 → AI 中心的全局 Agent Platform 设置；不得挂载到 AI 知识库对话自身的 MCP Client 设置页。
 
 涉及 Agent runtime 的改动按影响范围运行 typecheck/build 和相关功能检查；不要因为修改普通 UI 而加载本文件。

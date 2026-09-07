@@ -2098,6 +2098,7 @@
                     <div class="ai-kb-settings-loading">正在加载 AI 中心设置...</div>
                 {:else}
                     <AiKnowledgeBaseSettingsTab
+                        plugin={plugin}
                         activeSubTab={aiKnowledgeBaseActiveTab}
                         aiKbDockEnabled={aiKbDockEnabled}
                         aiKbTabEnabled={aiKbTabEnabled}

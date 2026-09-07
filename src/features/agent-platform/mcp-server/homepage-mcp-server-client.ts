@@ -4,8 +4,8 @@ import {
   RobotKernelClient,
 } from "@/features/robot-assistant/runtime/robot-kernel-client";
 
-export const HOMEPAGE_MCP_UNSUPPORTED_MESSAGE = "当前环境不支持主页 MCP 服务";
-export const HOMEPAGE_MCP_RPC_ERROR_MESSAGE = "主页 MCP 服务 RPC 不可用";
+export const HOMEPAGE_MCP_UNSUPPORTED_MESSAGE = "当前环境不支持对外 MCP 服务";
+export const HOMEPAGE_MCP_RPC_ERROR_MESSAGE = "对外 MCP 服务 RPC 不可用";
 
 export type HomepageMcpServerStatus =
   | "disabled"
