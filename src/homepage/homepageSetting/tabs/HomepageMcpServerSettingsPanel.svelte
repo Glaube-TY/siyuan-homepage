@@ -118,7 +118,10 @@
     </header>
 
     <SettingSection title="服务设置">
-        <SettingRow title="启用 MCP 服务" description="当前仅开放经过审核的只读能力。">
+        <SettingRow
+            title="启用 MCP 服务"
+            description="当前仅开放经过审核的只读能力。外部 Agent 连接时需携带有效的思源 API Token 进行鉴权，请先在「思源设置 → 鉴权」中获取，并在对应 MCP 客户端中配置。"
+        >
             <input
                 class="b3-switch"
                 type="checkbox"
