@@ -113,7 +113,7 @@
     <header class="center-header">
         <div>
             <h3 id="homepage-mcp-heading">对外 MCP 服务 <PremiumMark size={13} /></h3>
-            <p>允许 WorkBuddy、Claude、Codex 等外部 MCP 客户端读取主页插件开放的知识库、强化日记、任务和部分业务数据。</p>
+            <p>允许外部 MCP 客户端读取主页插件开放的部分业务数据。</p>
         </div>
     </header>
 
