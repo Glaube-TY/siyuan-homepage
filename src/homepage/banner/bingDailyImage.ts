@@ -1,4 +1,4 @@
-import { forwardProxyChecked } from "@/api";
+import { httpProxyGetText } from "@/api";
 
 const BING_DAILY_IMAGE_SUFFIXES = {
     POD_UHD: "_UHD.jpg",
@@ -10,11 +10,11 @@ const BING_DAILY_IMAGE_SUFFIXES = {
 } as const;
 
 const BING_METADATA_ORIGINS = ["https://cn.bing.com", "https://www.bing.com"] as const;
-const BING_METADATA_HEADERS: Record<string, string>[] = [{
+const BING_METADATA_HEADERS: Record<string, string> = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
     Accept: "application/json,text/plain,*/*",
     "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
-}];
+};
 
 type BingDailyImageType = keyof typeof BING_DAILY_IMAGE_SUFFIXES;
 type BingMetadataRequest = (url: string) => Promise<unknown>;
@@ -151,16 +151,7 @@ function buildFallbackImageUrl(origin: string, image: BingImageMetadataItem): st
 }
 
 async function requestBingMetadata(url: string): Promise<unknown> {
-    return forwardProxyChecked(
-        url,
-        "GET",
-        {},
-        BING_METADATA_HEADERS,
-        10000,
-        "application/json",
-        "json",
-        "text",
-    );
+    return httpProxyGetText(url, BING_METADATA_HEADERS, 10000);
 }
 
 function parseBingMetadataResponse(origin: string, responseValue: unknown): BingImageMetadataItem[] {
