@@ -15,7 +15,7 @@ interface OpenAICompatibleAdapterOptions {
   temperature?: number;
   maxTokens?: number;
   tokenParamStrategy?: "max_tokens" | "max_completion_tokens";
-  providerOptions?: Record<string, Record<string, unknown>>;
+  requestBodyExtras?: Record<string, unknown>;
   /** 可注入 HTTP 传输（默认浏览器 fetch）。 */
   transport?: AgentHttpTransport;
   /** 是否流式（浏览器默认 true；Kernel 传 false 走非流式 JSON）。 */
@@ -64,10 +64,9 @@ function toOpenAIMessage(message: AgentMessage): Record<string, unknown> {
   };
 }
 
-function mergeProviderOptions(body: Record<string, unknown>, providerOptions: Record<string, Record<string, unknown>> | undefined): void {
-  const openaiOptions = providerOptions?.openai;
-  if (!openaiOptions) return;
-  for (const [key, value] of Object.entries(openaiOptions)) {
+function mergeRequestBodyExtras(body: Record<string, unknown>, requestBodyExtras: Record<string, unknown> | undefined): void {
+  if (!requestBodyExtras) return;
+  for (const [key, value] of Object.entries(requestBodyExtras)) {
     body[key] = value;
   }
 }
@@ -289,8 +288,8 @@ export class OpenAICompatibleAdapter implements ProviderAdapter {
       body[this.options.tokenParamStrategy ?? "max_tokens"] = this.options.maxTokens;
     }
 
-    mergeProviderOptions(body, this.options.providerOptions);
-    // A runtime recovery requirement must not be weakened by providerOptions.
+    mergeRequestBodyExtras(body, this.options.requestBodyExtras);
+    // A runtime recovery requirement must not be weakened by requestBodyExtras.
     if (tools.length > 0 && request.toolChoice === "required") {
       body.tool_choice = "required";
     }

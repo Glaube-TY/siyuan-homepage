@@ -99,7 +99,7 @@ export async function runSelectionAiAction(
     maxOutputTokens: resolveMaxOutputTokens(maxOutputChars),
     temperature,
     abortSignal: callbacks.signal,
-    purpose: "generic",
+    purpose: "selection_ai",
     stream: useStream,
     onToken: callbacks.onToken,
   });

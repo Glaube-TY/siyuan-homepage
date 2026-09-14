@@ -2,6 +2,7 @@
 import type { ThinkingMode } from "../../../types/session";
 import { resolveOpenAICompatibleBaseUrlForProvider, resolveProviderFamily } from "./provider-url-resolver";
 import { resolveModelTemperatureForRequest, resolveProviderProfile } from "../../qa/provider-profile";
+import { buildOpenAICompatibleThinkingBodyOptions } from "../../qa/openai-compatible-request-config";
 import { normalizeOpenAICompatibleEndpoint } from "./provider-url-normalizer";
 import { pushAgentDebugEvent } from "../../agent-workbench/debug/workbench-debug";
 import { OpenAICompatibleAdapter } from "./openai-compatible-adapter";
@@ -23,12 +24,12 @@ export interface ProviderFactoryOverrides {
   requestTimeoutMs?: number;
 }
 
-function buildProviderOptions(params: {
+function buildRequestBodyExtras(params: {
   thinkingMode: ThinkingMode;
   agentThinkingEnabled: boolean;
   provider: KbChatProviderConfig;
   model: KbChatModelConfig;
-}): Record<string, Record<string, unknown>> | undefined {
+}): Record<string, unknown> | undefined {
   const profile = resolveProviderProfile(params.provider.type, {
     providerNativeAgentCompatibility: params.provider.providerNativeAgentCompatibility,
     modelNativeAgentCompatibility: params.model.providerNativeAgentCompatibility,
@@ -41,23 +42,7 @@ function buildProviderOptions(params: {
         ? "off"
         : params.agentThinkingEnabled ? "on" : "off";
 
-  if (effectiveThinkingMode === "on") {
-    if (cp?.thinkingOnStrategy === "openai_thinking_enabled") {
-      return { openai: { thinking: { type: "enabled" } } };
-    }
-    if (cp?.thinkingOnStrategy === "enable_thinking_true") {
-      return { openai: { enable_thinking: true } };
-    }
-    return undefined;
-  }
-
-  if (cp?.thinkingOffStrategy === "openai_thinking_disabled") {
-    return { openai: { thinking: { type: "disabled" } } };
-  }
-  if (cp?.thinkingOffStrategy === "enable_thinking_false") {
-    return { openai: { enable_thinking: false } };
-  }
-  return undefined;
+  return buildOpenAICompatibleThinkingBodyOptions(effectiveThinkingMode, cp);
 }
 
 export function createProviderAdapterForKbModel(params: {
@@ -135,7 +120,7 @@ export function createProviderAdapterForKbModel(params: {
     temperature,
     maxTokens: params.model.maxTokens,
     tokenParamStrategy: profile.providerNativeAgentCompatibility?.tokenParamStrategy,
-    providerOptions: buildProviderOptions(params),
+    requestBodyExtras: buildRequestBodyExtras(params),
     transport,
     requestTimeoutMs,
     ...(params.overrides?.stream !== undefined ? { stream: params.overrides.stream } : {}),

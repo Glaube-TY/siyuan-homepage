@@ -20,12 +20,12 @@ import { DEFAULT_TEMPERATURE } from "../../constants/default-settings";
 import { pushAgentDebugEvent, getIsVerboseStreamDebugEnabled } from "../agent-workbench/debug/workbench-debug";
 import { resolveProviderProfile, resolveModelTemperatureForRequest } from "./provider-profile";
 import { AgentProviderError } from "../agent-core/providers/provider-error";
+import { resolveOpenAICompatibleTokenParamStrategy } from "./openai-compatible-request-config";
 
-export class AiProviderUnavailableError extends Error {
+export class AiProviderUnavailableError extends AgentProviderError {
   providerType: string;
   providerLabel: string;
   modelId: string;
-  status: number;
   errorType: string;
   safeMessage: string;
 
@@ -37,18 +37,33 @@ export class AiProviderUnavailableError extends Error {
     errorType: string;
     safeMessage: string;
   }) {
-    super(`AI 提供商不可用 [${params.providerLabel} / ${params.modelId}]: ${params.safeMessage}`);
+    super(`AI 提供商不可用 [${params.providerLabel} / ${params.modelId}]: ${params.safeMessage}`, {
+      code: providerCodeForStatus(params.status) ?? "provider_error",
+      status: params.status || undefined,
+      retryable: params.status === 429 || params.status >= 500,
+      userAction: params.status === 401 || params.status === 403
+        ? "check_credentials"
+        : params.status === 429 || params.status >= 500 ? "retry" : "inspect_provider",
+    });
     this.name = "AiProviderUnavailableError";
     this.providerType = params.providerType;
     this.providerLabel = params.providerLabel;
     this.modelId = params.modelId;
-    this.status = params.status;
     this.errorType = params.errorType;
     this.safeMessage = params.safeMessage;
   }
 }
 
 const PROVIDER_UNAVAILABLE_STATUSES = new Set([400, 401, 403, 404, 429]);
+
+function providerCodeForStatus(status: unknown): string | undefined {
+  if (typeof status !== "number" || !Number.isFinite(status)) return undefined;
+  if (status === 401 || status === 403) return "provider_auth_failed";
+  if (status === 429) return "provider_rate_limited";
+  if (status >= 500) return "provider_network_error";
+  if (status >= 400) return "provider_http_error";
+  return undefined;
+}
 
 export interface ProviderRejectionInfo {
   rejected: boolean;
@@ -269,15 +284,9 @@ export function getProviderRejectionInfo(err: unknown): ProviderRejectionInfo {
 
 function isProviderUnavailableError(err: unknown): boolean {
   if (err instanceof AiProviderUnavailableError) return true;
-  if (!(err instanceof Error)) return false;
-  const msg = err.message || "";
-  const hasStatus = PROVIDER_UNAVAILABLE_STATUSES.has(
-    parseInt((err as any)?.statusCode || (err as any)?.status || "0", 10)
-  );
-  if (hasStatus) return true;
-  if (msg.includes("401") || msg.includes("403") || msg.includes("404") || msg.includes("429")) return true;
-  if (msg.includes("Unauthorized") || msg.includes("Forbidden") || msg.includes("Not Found") || msg.includes("Permission denied")) return true;
-  return false;
+  const value = err as Record<string, unknown> | null;
+  const status = value?.statusCode ?? value?.status;
+  return typeof status === "number" && PROVIDER_UNAVAILABLE_STATUSES.has(status);
 }
 
 /**
@@ -297,7 +306,7 @@ export interface LlmCallOptions {
   /** 预构建的 providerOptions（由 kb-model-call 统一构造） */
   providerOptions?: Record<string, Record<string, unknown>>;
   /** 调用目的，用于日志区分 */
-  purpose?: "analyze" | "compose" | "generic";
+  purpose?: "analyze" | "homepage_status" | "daily_quote" | "selection_ai" | "compose" | "generic";
   /** 已解析的 selected model（由 kb-model-call 传入，避免重复 getKbSettings + createSelectedChatModel） */
   selectedChatModel?: SelectedChatModelInfo;
 }
@@ -328,6 +337,68 @@ export async function runWithChatModelSelection<T>(
 
 export interface LlmResponse {
   content: string;
+}
+
+interface StructuredProviderErrorInfo {
+  code?: string;
+  status?: number;
+  category?: AgentProviderError["category"];
+  retryable?: boolean;
+  userAction?: AgentProviderError["userAction"];
+}
+
+function readStructuredProviderErrorInfo(error: unknown): StructuredProviderErrorInfo {
+  if (error instanceof AgentProviderError) {
+    return {
+      code: error.code,
+      status: error.status,
+      category: error.category,
+      retryable: error.retryable,
+      userAction: error.userAction,
+    };
+  }
+
+  const value = error as Record<string, unknown> | null;
+  const rawStatus = value?.statusCode ?? value?.status;
+  const status = typeof rawStatus === "number" && Number.isFinite(rawStatus) ? rawStatus : undefined;
+  const code = typeof value?.code === "string" ? value.code : providerCodeForStatus(status);
+  const retryable = typeof value?.isRetryable === "boolean"
+    ? value.isRetryable
+    : typeof value?.retryable === "boolean"
+      ? value.retryable
+      : status === 429 || (status !== undefined && status >= 500)
+        ? true
+        : undefined;
+  return {
+    code,
+    status,
+    retryable,
+    userAction: status === 401 || status === 403
+      ? "check_credentials"
+      : status === 429 || (status !== undefined && status >= 500) ? "retry" : undefined,
+  };
+}
+
+function createStructuredProviderError(
+  message: string,
+  cause: unknown,
+  selected: ReturnType<typeof createSelectedChatModel>,
+  overrides: Partial<StructuredProviderErrorInfo> = {},
+): AgentProviderError {
+  const source = readStructuredProviderErrorInfo(cause);
+  const error = new AgentProviderError(message, {
+    code: overrides.code ?? source.code ?? "provider_error",
+    status: overrides.status ?? source.status,
+    category: overrides.category ?? source.category,
+    retryable: overrides.retryable ?? source.retryable ?? false,
+    userAction: overrides.userAction ?? source.userAction,
+    errorName: cause instanceof Error ? cause.name : undefined,
+  });
+  (error as any).cause = cause;
+  (error as any).providerType = selected.providerConfig.type;
+  (error as any).providerLabel = selected.providerLabel;
+  (error as any).modelLabel = selected.modelLabel;
+  return error;
 }
 
 /**
@@ -368,6 +439,13 @@ export async function callLlm(
     providerNativeAgentCompatibility: mergedCp,
     fallbackTemperature: DEFAULT_TEMPERATURE,
   });
+  const outputParameterStrategy = resolveOpenAICompatibleTokenParamStrategy(mergedCp);
+  const purpose = options.purpose ?? "generic";
+  const providerBodyExtras = options.providerOptions?.[selected.aiSdkProviderName];
+  const requestedOutputBudget = options.maxOutputTokens
+    ?? (selected.modelConfig.maxTokens !== undefined && selected.modelConfig.maxTokens > 0
+      ? selected.modelConfig.maxTokens
+      : undefined);
 
   const generateOptions: Parameters<typeof generateText>[0] = {
     model: selected.model,
@@ -384,17 +462,35 @@ export async function callLlm(
     generateOptions.temperature = temperature;
   }
 
-  if (selected.modelConfig.maxTokens !== undefined && selected.modelConfig.maxTokens > 0) {
-    generateOptions.maxOutputTokens = selected.modelConfig.maxTokens;
-  }
+  if (outputParameterStrategy === "max_tokens") {
+    if (selected.modelConfig.maxTokens !== undefined && selected.modelConfig.maxTokens > 0) {
+      generateOptions.maxOutputTokens = selected.modelConfig.maxTokens;
+    }
 
-  if (options.maxOutputTokens !== undefined && options.maxOutputTokens > 0) {
-    generateOptions.maxOutputTokens = options.maxOutputTokens;
+    if (options.maxOutputTokens !== undefined && options.maxOutputTokens > 0) {
+      generateOptions.maxOutputTokens = options.maxOutputTokens;
+    }
   }
 
   if (options.providerOptions) {
     generateOptions.providerOptions = options.providerOptions as typeof generateOptions.providerOptions;
   }
+
+  pushAgentDebugEvent("PLAIN_TEXT_REQUEST_PLAN_SAFE", {
+    purpose,
+    providerType: selected.providerConfig.type,
+    providerId: selected.providerConfig.id,
+    modelId: selected.modelConfig.id,
+    thinkingProviderNamespace: selected.aiSdkProviderName,
+    outputParameterStrategy,
+    outputParameterName: outputParameterStrategy,
+    requestedOutputBudget,
+    effectiveOutputBudget: outputParameterStrategy === "max_completion_tokens"
+      ? providerBodyExtras?.max_completion_tokens
+      : generateOptions.maxOutputTokens,
+    hasTemperature: temperature !== undefined,
+    hasThinking: providerBodyExtras?.thinking !== undefined || providerBodyExtras?.enable_thinking !== undefined,
+  }, "info");
 
   try {
     const { text } = await generateText(generateOptions);
@@ -404,8 +500,16 @@ export async function callLlm(
     if (!content) {
       const durationMs = Date.now() - startTime;
       pushAgentDebugEvent("LLM_CALL_TIMING", {
-        purpose: "compose",
+        purpose,
         providerType: selected.providerConfig.type,
+        providerId: selected.providerConfig.id,
+        modelId: selected.modelConfig.id,
+        thinkingProviderNamespace: selected.aiSdkProviderName,
+        outputParameterStrategy,
+        outputParameterName: outputParameterStrategy,
+        hasTemperature: temperature !== undefined,
+        providerErrorCode: "empty_stream",
+        providerErrorCategory: "protocol",
         modelLabel: selected.modelLabel,
         durationMs,
         success: false,
@@ -418,8 +522,14 @@ export async function callLlm(
 
     const durationMs = Date.now() - startTime;
     pushAgentDebugEvent("LLM_CALL_TIMING", {
-      purpose: "compose",
+      purpose,
       providerType: selected.providerConfig.type,
+      providerId: selected.providerConfig.id,
+      modelId: selected.modelConfig.id,
+      thinkingProviderNamespace: selected.aiSdkProviderName,
+      outputParameterStrategy,
+      outputParameterName: outputParameterStrategy,
+      hasTemperature: temperature !== undefined,
       modelLabel: selected.modelLabel,
       durationMs,
       success: true,
@@ -428,9 +538,20 @@ export async function callLlm(
     return { content };
   } catch (err: any) {
     const durationMs = Date.now() - startTime;
+    const providerError = readStructuredProviderErrorInfo(err);
     pushAgentDebugEvent("LLM_CALL_TIMING", {
-      purpose: "compose",
+      purpose,
       providerType: selected.providerConfig.type,
+      providerId: selected.providerConfig.id,
+      modelId: selected.modelConfig.id,
+      thinkingProviderNamespace: selected.aiSdkProviderName,
+      outputParameterStrategy,
+      outputParameterName: outputParameterStrategy,
+      hasTemperature: temperature !== undefined,
+      providerErrorCode: providerError.code,
+      providerErrorStatus: providerError.status,
+      providerErrorCategory: providerError.category,
+      providerErrorRetryable: providerError.retryable,
       modelLabel: selected.modelLabel,
       durationMs,
       success: false,
@@ -448,7 +569,8 @@ export async function callLlm(
     }
 
     if (isProviderUnavailableError(err)) {
-      const statusCode = parseInt(err?.statusCode || err?.status || "0", 10) || 0;
+      const rawStatus = err?.statusCode ?? err?.status;
+      const statusCode = typeof rawStatus === "number" && Number.isFinite(rawStatus) ? rawStatus : 0;
       throw new AiProviderUnavailableError({
         providerType: selected.providerConfig.type,
         providerLabel: selected.providerLabel,
@@ -461,33 +583,20 @@ export async function callLlm(
 
     const rejectionInfo = getProviderRejectionInfo(err);
     if (rejectionInfo.rejected) {
-      const wrappedError = new Error(`AI 调用被提供商拒绝 [${providerInfo}]: ${rejectionInfo.message.substring(0, 200)}`);
-      (wrappedError as any).cause = err;
-      (wrappedError as any).statusCode = rejectionInfo.statusCode;
-      (wrappedError as any).status = rejectionInfo.statusCode;
+      const wrappedError = createStructuredProviderError(
+        `AI 调用被提供商拒绝 [${providerInfo}]: ${rejectionInfo.message.substring(0, 200)}`,
+        err,
+        selected,
+        { code: "provider_http_error", status: rejectionInfo.statusCode, userAction: "inspect_provider" },
+      );
       (wrappedError as any).originalName = rejectionInfo.name;
-      (wrappedError as any).providerType = selected.providerConfig.type;
-      (wrappedError as any).providerLabel = selected.providerLabel;
-      (wrappedError as any).modelLabel = selected.modelLabel;
       (wrappedError as any).providerRejected = true;
       (wrappedError as any).providerRejectionInfo = rejectionInfo;
       throw wrappedError;
     }
 
-    if (message.includes("404") || message.includes("Not Found")) {
-      throw new Error(
-        `AI 调用失败 [${providerInfo}]: ${message}\n` +
-        `请检查模型服务是否正常运行`
-      );
-    }
-
-    const wrappedError = new Error(`AI 调用失败 [${providerInfo}]: ${message}`);
-    (wrappedError as any).cause = err;
-    (wrappedError as any).statusCode = err?.statusCode ?? err?.status;
+    const wrappedError = createStructuredProviderError(`AI 调用失败 [${providerInfo}]: ${message}`, err, selected);
     (wrappedError as any).originalName = err?.name;
-    (wrappedError as any).providerType = selected.providerConfig.type;
-    (wrappedError as any).providerLabel = selected.providerLabel;
-    (wrappedError as any).modelLabel = selected.modelLabel;
     (wrappedError as any).providerRejected = false;
     (wrappedError as any).providerRejectionInfo = getProviderRejectionInfo(err);
     throw wrappedError;
@@ -589,16 +698,20 @@ function buildLlmStreamError(
   err: unknown,
   selected: ReturnType<typeof createSelectedChatModel>,
   fullContent: string,
-): Error {
+): AgentProviderError {
   const message = err instanceof Error ? err.message : String(err);
   const providerInfo = `${selected.providerLabel} / ${selected.modelLabel}`;
   const rejectionInfo = getProviderRejectionInfo(err);
+  const providerError = readStructuredProviderErrorInfo(err);
 
   pushAgentDebugEvent("LLM_STREAM_ERROR_NORMALIZED_SAFE", {
     providerType: selected.providerConfig.type,
     providerLabel: selected.providerLabel,
     modelLabel: selected.modelLabel,
     statusCode: rejectionInfo.statusCode,
+    providerErrorCode: providerError.code,
+    providerErrorCategory: providerError.category,
+    providerErrorRetryable: providerError.retryable,
     name: (err as any)?.name,
     rejected: rejectionInfo.rejected,
     fullContentChars: fullContent.length,
@@ -608,15 +721,14 @@ function buildLlmStreamError(
     ? `AI 调用被拒绝 [${providerInfo}]: ${rejectionInfo.message.substring(0, 200)}`
     : `AI 流式调用失败 [${providerInfo}]: ${message}`;
 
-  const wrappedError = new Error(rejectionMessagePrefix);
-  (wrappedError as any).cause = err;
-  (wrappedError as any).statusCode = (err as any)?.statusCode ?? (err as any)?.status;
-  (wrappedError as any).status = (err as any)?.status ?? (err as any)?.statusCode;
+  const wrappedError = createStructuredProviderError(
+    rejectionMessagePrefix,
+    err,
+    selected,
+    rejectionInfo.rejected ? { code: "provider_http_error", status: rejectionInfo.statusCode } : {},
+  );
   (wrappedError as any).originalName = (err as any)?.name;
   (wrappedError as any).name = (err as any)?.name;
-  (wrappedError as any).providerType = selected.providerConfig.type;
-  (wrappedError as any).providerLabel = selected.providerLabel;
-  (wrappedError as any).modelLabel = selected.modelLabel;
   (wrappedError as any).providerRejected = rejectionInfo.rejected;
   (wrappedError as any).providerRejectionInfo = rejectionInfo;
 
@@ -662,6 +774,13 @@ export async function streamLlm(
     providerNativeAgentCompatibility: mergedCp,
     fallbackTemperature: DEFAULT_TEMPERATURE,
   });
+  const outputParameterStrategy = resolveOpenAICompatibleTokenParamStrategy(mergedCp);
+  const purpose = options.purpose ?? "generic";
+  const providerBodyExtras = options.providerOptions?.[selected.aiSdkProviderName];
+  const requestedOutputBudget = options.maxOutputTokens
+    ?? (selected.modelConfig.maxTokens !== undefined && selected.modelConfig.maxTokens > 0
+      ? selected.modelConfig.maxTokens
+      : undefined);
 
   // 构建 streamText 参数
   const streamOptions: Parameters<typeof streamText>[0] = {
@@ -679,14 +798,16 @@ export async function streamLlm(
     streamOptions.temperature = temperature;
   }
 
-  // 如果 modelConfig.maxTokens 有值，则映射到 maxOutputTokens
-  if (selected.modelConfig.maxTokens !== undefined && selected.modelConfig.maxTokens > 0) {
-    streamOptions.maxOutputTokens = selected.modelConfig.maxTokens;
-  }
+  if (outputParameterStrategy === "max_tokens") {
+    // 如果 modelConfig.maxTokens 有值，则映射到 maxOutputTokens
+    if (selected.modelConfig.maxTokens !== undefined && selected.modelConfig.maxTokens > 0) {
+      streamOptions.maxOutputTokens = selected.modelConfig.maxTokens;
+    }
 
-  // 如果 options.maxOutputTokens 有值，覆盖 modelConfig 的值
-  if (options.maxOutputTokens !== undefined && options.maxOutputTokens > 0) {
-    streamOptions.maxOutputTokens = options.maxOutputTokens;
+    // 如果 options.maxOutputTokens 有值，覆盖 modelConfig 的值
+    if (options.maxOutputTokens !== undefined && options.maxOutputTokens > 0) {
+      streamOptions.maxOutputTokens = options.maxOutputTokens;
+    }
   }
 
   if (options.providerOptions) {
@@ -694,16 +815,30 @@ export async function streamLlm(
   }
 
   const hasProviderOptions = !!streamOptions.providerOptions;
-  const openaiOptions = (streamOptions.providerOptions as any)?.openai ?? {};
-  const hasThinkingParam = !!openaiOptions.thinking;
-  const thinkingType = openaiOptions.thinking?.type ?? undefined;
+  const hasThinkingParam = providerBodyExtras?.thinking !== undefined;
+  const thinkingType = (providerBodyExtras?.thinking as Record<string, unknown> | undefined)?.type ?? undefined;
 
   pushAgentDebugEvent("LLM_ADAPTER_REQUEST_BODY_FEATURES_SAFE", {
-    purpose: options.purpose ?? "generic",
+    purpose,
     mode: "stream",
     hasThinkingParam,
     thinkingType: thinkingType ?? null,
     hasProviderOptions,
+  }, "info");
+  pushAgentDebugEvent("PLAIN_TEXT_REQUEST_PLAN_SAFE", {
+    purpose,
+    providerType: selected.providerConfig.type,
+    providerId: selected.providerConfig.id,
+    modelId: selected.modelConfig.id,
+    thinkingProviderNamespace: selected.aiSdkProviderName,
+    outputParameterStrategy,
+    outputParameterName: outputParameterStrategy,
+    requestedOutputBudget,
+    effectiveOutputBudget: outputParameterStrategy === "max_completion_tokens"
+      ? providerBodyExtras?.max_completion_tokens
+      : streamOptions.maxOutputTokens,
+    hasTemperature: temperature !== undefined,
+    hasThinking: hasThinkingParam || providerBodyExtras?.enable_thinking !== undefined,
   }, "info");
 
   // fullContent 提升到 try 外部，保证各分支都能安全访问

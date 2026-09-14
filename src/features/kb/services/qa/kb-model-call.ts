@@ -18,6 +18,11 @@ import type { ThinkingMode } from "../../types/session";
 import { pushAgentDebugEvent } from "../agent-workbench/debug/workbench-debug";
 import { getKbSettings } from "../settings/kb-settings-service";
 import { resolveProviderProfile } from "./provider-profile";
+import {
+  buildOpenAICompatibleTextRequestPlan,
+  resolveOpenAICompatibleAiSdkProviderName,
+  type OpenAICompatibleRequestBodyExtras,
+} from "./openai-compatible-request-config";
 
 // 内部 llm-client 函数 — 外部不得直接导入
 import {
@@ -47,7 +52,7 @@ export interface ModelCallCommonOptions {
 }
 
 export interface CallModelTextOptions extends ModelCallCommonOptions {
-  purpose?: "compose" | "generic";
+  purpose?: "homepage_status" | "daily_quote" | "selection_ai" | "generic" | "compose";
 }
 
 export interface StreamModelTextCallbacks {
@@ -62,7 +67,7 @@ export interface StreamModelTextCallbacks {
 }
 
 export interface StreamModelTextOptions extends ModelCallCommonOptions {
-  purpose?: "compose" | "generic";
+  purpose?: "homepage_status" | "daily_quote" | "selection_ai" | "generic" | "compose";
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -71,7 +76,7 @@ export interface StreamModelTextOptions extends ModelCallCommonOptions {
 
 const THINKING_MIN_OUTPUT_TOKENS = 4096;
 
-interface BuildModelCallConfigInput {
+export interface BuildModelCallConfigInput {
   thinkingMode: ThinkingMode;
   agentThinkingEnabled: boolean;
   requestedMaxOutputTokens: number;
@@ -81,8 +86,11 @@ interface BuildModelCallConfigInput {
   selectedModel?: SelectedChatModelInfo;
 }
 
-interface BuildModelCallConfigOutput {
+export interface BuildModelCallConfigOutput {
   providerOptions: Record<string, Record<string, unknown>> | undefined;
+  rawBodyExtras: OpenAICompatibleRequestBodyExtras | undefined;
+  maxOutputTokens: number | undefined;
+  actualOutputParameter: "max_tokens" | "max_completion_tokens";
   effectiveMaxOutputTokens: number;
   debug: {
     inputThinkingMode: ThinkingMode;
@@ -99,7 +107,10 @@ interface BuildModelCallConfigOutput {
     effectiveMaxOutputTokens: number;
     adjustedForThinking: boolean;
     providerType: string;
+    aiSdkProviderName: string;
     thinkingParamStrategy: string;
+    tokenParamStrategy: "max_tokens" | "max_completion_tokens";
+    actualOutputParameter: "max_tokens" | "max_completion_tokens";
   };
 }
 
@@ -115,15 +126,15 @@ interface BuildModelCallConfigOutput {
  *
  * thinking 参数策略由 profile.providerNativeAgentCompatibility 决定：
  * - off + omit：不传任何思考参数
- * - off + openai_thinking_disabled：{ openai: { thinking: { type: "disabled" } } }
- * - off + enable_thinking_false：{ openai: { enable_thinking: false } }
+ * - off + openai_thinking_disabled：{ thinking: { type: "disabled" } }
+ * - off + enable_thinking_false：{ enable_thinking: false }
  * - on + omit：不传任何思考参数
- * - on + openai_thinking_enabled：{ openai: { thinking: { type: "enabled" } } }
- * - on + enable_thinking_true：{ openai: { enable_thinking: true } }
+ * - on + openai_thinking_enabled：{ thinking: { type: "enabled" } }
+ * - on + enable_thinking_true：{ enable_thinking: true }
  *
  * off 时绝不发送 enabled / reasoning_effort。
  */
-function buildModelCallConfig(input: BuildModelCallConfigInput): BuildModelCallConfigOutput {
+export function buildModelCallConfig(input: BuildModelCallConfigInput): BuildModelCallConfigOutput {
   const { thinkingMode, agentThinkingEnabled, requestedMaxOutputTokens, purpose, mode, selectedModel } = input;
 
   const providerType = selectedModel?.providerConfig?.type ?? "openai-compatible";
@@ -149,48 +160,6 @@ function buildModelCallConfig(input: BuildModelCallConfigInput): BuildModelCallC
     // profile 解析失败，使用默认值
   }
 
-  // 根据 native Agent compatibility 构造 thinking 参数
-  let providerOptions: Record<string, Record<string, unknown>> | undefined;
-  let thinkingParamStrategy = "omit";
-
-  if (effectiveThinkingMode === "on") {
-    const strategy = providerCompatibilityMerged?.thinkingOnStrategy ?? "omit";
-    thinkingParamStrategy = strategy;
-    if (strategy === "openai_thinking_enabled") {
-      providerOptions = { openai: { thinking: { type: "enabled" } } };
-    } else if (strategy === "enable_thinking_true") {
-      providerOptions = { openai: { enable_thinking: true } };
-    }
-    // omit: 不传任何思考参数
-  } else {
-    // effectiveThinkingMode === "off"
-    const strategy = providerCompatibilityMerged?.thinkingOffStrategy ?? "omit";
-    thinkingParamStrategy = strategy;
-    if (strategy === "openai_thinking_disabled") {
-      providerOptions = { openai: { thinking: { type: "disabled" } } };
-    } else if (strategy === "enable_thinking_false") {
-      providerOptions = { openai: { enable_thinking: false } };
-    }
-    // omit: 不传任何思考参数
-  }
-
-  // 开发期断言：输入框 thinkingMode=off 时 providerOptions 绝不允许 enabled
-  if (thinkingMode === "off" && providerOptions) {
-    const thinkingType = (providerOptions?.openai?.thinking as Record<string, unknown> | undefined)?.type;
-    const enableThinking = providerOptions?.openai?.enable_thinking;
-    if (thinkingType === "enabled" || enableThinking === true) {
-      pushAgentDebugEvent("THINKING_MODE_VIOLATION_SAFE", {
-        inputThinkingMode: thinkingMode,
-        effectiveThinkingMode,
-        purpose,
-        mode,
-        action: "force_clear_providerOptions",
-      }, "error");
-      providerOptions = undefined;
-      thinkingParamStrategy = "force_cleared";
-    }
-  }
-
   let effectiveMaxOutputTokens = requestedMaxOutputTokens;
   let adjustedForThinking = false;
   if (effectiveThinkingMode === "on" && requestedMaxOutputTokens < THINKING_MIN_OUTPUT_TOKENS) {
@@ -198,10 +167,29 @@ function buildModelCallConfig(input: BuildModelCallConfigInput): BuildModelCallC
     adjustedForThinking = true;
   }
 
-  const thinkingType = (providerOptions?.openai?.thinking as Record<string, unknown> | undefined)?.type ?? null;
+  const aiSdkProviderName = selectedModel?.aiSdkProviderName
+    ?? resolveOpenAICompatibleAiSdkProviderName(providerType);
+  const requestPlan = buildOpenAICompatibleTextRequestPlan({
+    aiSdkProviderName,
+    thinkingMode: effectiveThinkingMode,
+    compatibility: providerCompatibilityMerged,
+    maxOutputTokens: effectiveMaxOutputTokens,
+  });
+  const rawBodyExtras = requestPlan.bodyExtras;
+  const thinkingOptions = rawBodyExtras?.thinking as Record<string, unknown> | undefined;
+  const thinkingType = thinkingOptions?.type ?? null;
+  const hasThinkingParam = thinkingOptions !== undefined;
+  const hasThinkingEnableParam = rawBodyExtras?.enable_thinking === true;
+  const hasThinkingDisableParam = rawBodyExtras?.enable_thinking === false;
+  const thinkingParamStrategy = effectiveThinkingMode === "on"
+    ? providerCompatibilityMerged?.thinkingOnStrategy ?? "omit"
+    : providerCompatibilityMerged?.thinkingOffStrategy ?? "omit";
 
   return {
-    providerOptions,
+    providerOptions: requestPlan.providerOptions,
+    rawBodyExtras,
+    maxOutputTokens: requestPlan.maxOutputTokens,
+    actualOutputParameter: requestPlan.actualOutputParameter,
     effectiveMaxOutputTokens,
     debug: {
       inputThinkingMode: thinkingMode,
@@ -209,16 +197,19 @@ function buildModelCallConfig(input: BuildModelCallConfigInput): BuildModelCallC
       agentThinkingEnabled,
       purpose,
       mode,
-      hasThinkingParam: !!providerOptions,
+      hasThinkingParam,
       thinkingParamType: thinkingType as "enabled" | "disabled" | null,
-      hasThinkingEnableParam: thinkingType === "enabled",
-      hasThinkingDisableParam: thinkingType === "disabled",
+      hasThinkingEnableParam,
+      hasThinkingDisableParam,
       thinkingType,
       requestedMaxOutputTokens,
       effectiveMaxOutputTokens,
       adjustedForThinking,
       providerType: resolvedProviderType,
+      aiSdkProviderName,
       thinkingParamStrategy,
+      tokenParamStrategy: requestPlan.actualOutputParameter,
+      actualOutputParameter: requestPlan.actualOutputParameter,
     },
   };
 }
@@ -253,7 +244,7 @@ export async function callModelText(
   const llmOptions: LlmCallOptions = {
     abortSignal: options.abortSignal,
     purpose: options.purpose ?? "generic",
-    maxOutputTokens: config.effectiveMaxOutputTokens,
+    maxOutputTokens: config.maxOutputTokens,
     temperature: options.temperature,
     chatModelSelection: options.chatModelSelection,
     providerOptions: config.providerOptions,
@@ -357,7 +348,7 @@ export async function streamModelText(
   const llmOptions: LlmCallOptions = {
     abortSignal: options.abortSignal,
     purpose: options.purpose ?? "compose",
-    maxOutputTokens: config.effectiveMaxOutputTokens,
+    maxOutputTokens: config.maxOutputTokens,
     temperature: options.temperature,
     chatModelSelection: options.chatModelSelection,
     providerOptions: config.providerOptions,

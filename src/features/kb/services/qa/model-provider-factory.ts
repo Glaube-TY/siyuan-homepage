@@ -15,23 +15,34 @@ import {
   normalizeText,
   resolveOpenAICompatibleBaseUrlForProvider,
 } from "../agent-core/providers/provider-url-resolver";
+import { resolveOpenAICompatibleAiSdkProviderName } from "./openai-compatible-request-config";
 
 export { normalizeText, resolveOpenAICompatibleBaseUrlForProvider } from "../agent-core/providers/provider-url-resolver";
+export { resolveOpenAICompatibleAiSdkProviderName } from "./openai-compatible-request-config";
 
 /**
  * 选中的模型信息
  */
 export interface SelectedChatModelInfo {
   /** AI SDK language model 实例 */
-  model: AnyLanguageModel;
+  readonly model: AnyLanguageModel;
   /** 提供商配置 */
-  providerConfig: KbChatProviderConfig;
+  readonly providerConfig: KbChatProviderConfig;
   /** 模型配置 */
-  modelConfig: KbChatModelConfig;
+  readonly modelConfig: KbChatModelConfig;
   /** 提供商显示标签 */
-  providerLabel: string;
+  readonly providerLabel: string;
   /** 模型显示标签 */
-  modelLabel: string;
+  readonly modelLabel: string;
+  /** createOpenAICompatible 使用的稳定 providerOptions namespace */
+  readonly aiSdkProviderName: string;
+}
+
+class ChatModelConfigurationError extends Error {
+  constructor(message: string, readonly code: "no_model" | "provider_config_invalid") {
+    super(message);
+    this.name = "ChatModelConfigurationError";
+  }
 }
 
 import type { ChatModelSelection } from "../../types/chat-model-selection";
@@ -47,7 +58,7 @@ export function createSelectedChatModel(
   selection?: ChatModelSelection | null
 ): SelectedChatModelInfo {
   if (!Array.isArray(settings.chatProviders)) {
-    throw new Error("settings.chatProviders 不是数组，请检查配置");
+    throw new ChatModelConfigurationError("settings.chatProviders 不是数组，请检查配置", "provider_config_invalid");
   }
 
   const { chatProviders } = settings;
@@ -59,7 +70,7 @@ export function createSelectedChatModel(
   const resolved = resolveChatModelSelection(chatProviders, preferredProviderId, preferredModelId);
 
   if (!resolved.providerId || !resolved.modelId) {
-    throw new Error("未找到可用的模型提供商，请检查设置");
+    throw new ChatModelConfigurationError("未找到可用的模型提供商，请检查设置", "no_model");
   }
 
   const normalizedResolvedProviderId = normalizeId(resolved.providerId);
@@ -67,17 +78,18 @@ export function createSelectedChatModel(
 
   const provider = chatProviders.find((p) => normalizeId(p.id) === normalizedResolvedProviderId);
   if (!provider) {
-    throw new Error("未找到选中的提供商配置");
+    throw new ChatModelConfigurationError("未找到选中的提供商配置", "no_model");
   }
 
   const providerModels = Array.isArray(provider.models) ? provider.models : [];
   const modelConfig = providerModels.find((m) => normalizeId(m.id) === normalizedResolvedModelId);
   if (!modelConfig) {
-    throw new Error(`提供商 "${provider.name || provider.id}" 下未找到模型 "${resolved.modelId}"`);
+    throw new ChatModelConfigurationError(`提供商 "${provider.name || provider.id}" 下未找到模型 "${resolved.modelId}"`, "no_model");
   }
 
   // 根据 provider 类型创建 model
   const model = createChatModelFromProvider(provider, modelConfig);
+  const aiSdkProviderName = resolveOpenAICompatibleAiSdkProviderName(provider);
 
   return {
     model,
@@ -85,6 +97,7 @@ export function createSelectedChatModel(
     modelConfig,
     providerLabel: normalizeText(provider.name) || normalizeText(provider.id) || "Unknown",
     modelLabel: normalizeText(modelConfig.name) || normalizeText(modelConfig.id) || "Unknown",
+    aiSdkProviderName,
   };
 }
 
@@ -115,24 +128,26 @@ export function createChatModelFromProvider(
   const apiKey = normalizeText(provider.apiKey);
 
   if (!modelId) {
-    throw new Error(`提供商 "${providerName}" 的模型 ID 为空`);
+    throw new ChatModelConfigurationError(`提供商 "${providerName}" 的模型 ID 为空`, "no_model");
   }
 
   if (["kimi-api", "kimi-coding", "mimo-api", "mimo-coding-plan", "deepseek-api", "opencode-go", "opencode-zen", "openai-compatible"].includes(providerType) && !apiKey) {
-    throw new Error(`${PROVIDER_DISPLAY_NAMES[providerType] || providerType} API Key 不能为空`);
+    throw new ChatModelConfigurationError(`${PROVIDER_DISPLAY_NAMES[providerType] || providerType} API Key 不能为空`, "provider_config_invalid");
   }
 
   if ((providerType === "openai-compatible") && !normalizeText(provider.baseUrl)) {
-    throw new Error(
+    throw new ChatModelConfigurationError(
       `${PROVIDER_DISPLAY_NAMES[providerType] || providerName} 未配置 baseUrl。` +
-      `提示：baseURL 通常应填到 /v1，例如 https://api.xxx.com/v1`
+      `提示：baseURL 通常应填到 /v1，例如 https://api.xxx.com/v1`,
+      "provider_config_invalid",
     );
   }
 
   const baseURL = resolveOpenAICompatibleBaseUrlForProvider(provider);
+  const aiSdkProviderName = resolveOpenAICompatibleAiSdkProviderName(provider);
 
   const compatible = createOpenAICompatible({
-    name: providerType === "openai-compatible" ? (normalizeText(provider.id) || normalizeText(provider.name) || "openai-compatible") : providerType,
+    name: aiSdkProviderName,
     baseURL,
     apiKey,
     includeUsage: true,

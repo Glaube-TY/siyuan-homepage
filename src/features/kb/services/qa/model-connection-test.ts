@@ -16,6 +16,10 @@ import type { ProviderAdapter } from "../agent-core/providers/provider-adapter";
 import type { NativeTool } from "../agent-core/tools/native-tool";
 import { createChatModelFromProvider, normalizeText } from "./model-provider-factory";
 import { resolveModelTemperatureForRequest, resolveProviderProfile } from "./provider-profile";
+import {
+  buildOpenAICompatibleTextRequestPlan,
+  resolveOpenAICompatibleAiSdkProviderName,
+} from "./openai-compatible-request-config";
 
 export interface ModelConnectionTestResult {
   success: boolean;
@@ -69,6 +73,7 @@ export async function testChatModelConnection(
 
   try {
     const model = createChatModelFromProvider(provider, modelConfig);
+    const aiSdkProviderName = resolveOpenAICompatibleAiSdkProviderName(provider);
     let mergedCompatibility: ProviderNativeAgentCompatibility | undefined;
     try {
       const profile = resolveProviderProfile(provider.type, {
@@ -91,9 +96,16 @@ export async function testChatModelConnection(
     const options: Parameters<typeof generateText>[0] = {
       model,
       prompt: "你是连接测试助手。请只输出 OK 两个字母，不要解释。",
-      maxOutputTokens: 128,
       abortSignal: abortController.signal,
     };
+    const requestPlan = buildOpenAICompatibleTextRequestPlan({
+      aiSdkProviderName,
+      thinkingMode: "off",
+      compatibility: mergedCompatibility,
+      maxOutputTokens: 128,
+    });
+    if (requestPlan.maxOutputTokens !== undefined) options.maxOutputTokens = requestPlan.maxOutputTokens;
+    if (requestPlan.providerOptions) options.providerOptions = requestPlan.providerOptions as typeof options.providerOptions;
     if (temperature !== undefined) options.temperature = temperature;
 
     const result = await generateText(options);

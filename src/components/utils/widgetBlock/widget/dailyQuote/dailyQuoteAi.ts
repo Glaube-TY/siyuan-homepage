@@ -156,7 +156,7 @@ async function generateDailyQuoteAiOnce(
         maxOutputTokens: 192,
         temperature: 0.9,
         abortSignal: params.abortSignal,
-        purpose: "generic",
+        purpose: "daily_quote",
     });
     if (result.ok === false) {
         return { ok: false, reason: mapPlainTextFailure(result.reason), message: result.message };
