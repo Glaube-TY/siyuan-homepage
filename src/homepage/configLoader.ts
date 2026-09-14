@@ -1,5 +1,10 @@
 import { getImage } from "@/components/tools/getImage";
+import { isElectronRuntime } from "@/components/tools/runtimeEnv";
 import { scheduleIdleTask } from "@/utils/runtime/idleTask";
+import {
+    BingDailyImageMetadataUnavailableError,
+    resolveBingDailyImage,
+} from "./banner/bingDailyImage";
 import { getCurrentDeviceViewContext } from "./deviceView/deviceViewContext";
 import { ensureCurrentDeviceViewReady } from "./deviceView/deviceViewReadiness";
 import { deriveDesktopHomepageConfig } from "./deviceView/desktopHomepageSectionModel";
@@ -525,20 +530,35 @@ export async function resolveBannerImage(
         if (!advanced) {
             return { bannerImgSrc, remoteBannerImageData, fallbackReason: "premium_required" };
         }
-        const bingUrlMap: Record<string, string> = {
-            POD_UHD: "https://bing.img.run/uhd.php",
-            POD_1K: "https://bing.img.run/1920x1080.php",
-            POD_Normal: "https://bing.img.run/1366x768.php",
-            rand_uhd: "https://bing.img.run/rand_uhd.php",
-            rand_1K: "https://bing.img.run/rand.php",
-            rand_Normal: "https://bing.img.run/rand_1366x768.php",
+        const legacyBingUrlMap: Record<string, string> = {
             ECY1: "https://www.dmoe.cc/random.php",
             RAND1: "https://api.btstu.cn/sjbz/api.php",
         };
-        const bingImageUrl = bingUrlMap[config.bingApiType];
-        if (bingImageUrl) {
-            remoteBannerImageData = await getImage(bingImageUrl);
-            bannerImgSrc = remoteBannerImageData || bingImageUrl;
+        const legacyBingImageUrl = legacyBingUrlMap[config.bingApiType];
+        if (legacyBingImageUrl) {
+            remoteBannerImageData = await getImage(legacyBingImageUrl);
+            bannerImgSrc = remoteBannerImageData || legacyBingImageUrl;
+        } else {
+            try {
+                const bingImage = await resolveBingDailyImage(config.bingApiType);
+                if (bingImage) {
+                    remoteBannerImageData = await getImage(bingImage.imageUrl);
+                    if (
+                        !isElectronRuntime()
+                        && bingImage.fallbackImageUrl
+                        && remoteBannerImageData === bingImage.imageUrl
+                    ) {
+                        remoteBannerImageData = await getImage(bingImage.fallbackImageUrl);
+                    }
+                    bannerImgSrc = remoteBannerImageData || bingImage.imageUrl;
+                }
+            } catch (error) {
+                const message = error instanceof Error ? error.message : "未知错误";
+                const failures = error instanceof BingDailyImageMetadataUnavailableError
+                    ? error.failures
+                    : undefined;
+                console.warn("[Homepage] Bing 每日一图元数据暂时不可用:", { message, failures });
+            }
         }
     }
 

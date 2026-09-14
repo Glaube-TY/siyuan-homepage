@@ -29,7 +29,8 @@
     "typecheck": "tsc --noEmit --pretty false",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
-    "verify:openai-compatible-text-call": "node --no-warnings ./scripts/verify-openai-compatible-text-call.mjs"
+    "verify:openai-compatible-text-call": "node --no-warnings ./scripts/verify-openai-compatible-text-call.mjs",
+    "verify:bing-banner-source": "node --no-warnings ./scripts/verify-bing-banner-source.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^9.17.0",
