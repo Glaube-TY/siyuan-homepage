@@ -94,7 +94,7 @@ assert.match(source, /insertBlockChecked/);
 
 {
   const fixture = createFixture({
-    shared: sharedSettings({ quickNotesPosition: "  shared-doc  " }),
+    shared: sharedSettings({ quickNotesPosition: "  shared-doc  ", quickNotesTimestampEnabled: true, quickNotesAddPosition: "bottom" }),
     legacy: { quickNotesPosition: "" },
   });
   const result = await runtime.resolveQuickNoteRuntimeConfig(fixture.storage);
@@ -104,8 +104,8 @@ assert.match(source, /insertBlockChecked/);
 
 {
   const fixture = createFixture({
-    shared: sharedSettings({ quickNotesPosition: "new-doc" }),
-    legacy: { quickNotesPosition: "old-doc" },
+    shared: sharedSettings({ quickNotesPosition: "new-doc", quickNotesTimestampEnabled: true, quickNotesAddPosition: "bottom" }),
+    legacy: { quickNotesPosition: "old-doc", quickNotesTimestampEnabled: false, quickNotesAddPosition: "top" },
   });
   const result = await runtime.resolveQuickNoteRuntimeConfig(fixture.storage);
   assert.equal(result.quickNotesPosition, "new-doc", "shared settings must beat a stale legacy snapshot");
@@ -113,8 +113,8 @@ assert.match(source, /insertBlockChecked/);
 
 {
   const fixture = createFixture({
-    shared: sharedSettings({ quickNotesPosition: "old-doc" }),
-    legacy: { quickNotesPosition: "legacy-doc" },
+    shared: sharedSettings({ quickNotesPosition: "old-doc", quickNotesTimestampEnabled: true, quickNotesAddPosition: "bottom" }),
+    legacy: { quickNotesPosition: "legacy-doc", quickNotesTimestampEnabled: false, quickNotesAddPosition: "top" },
     post: (path) => path === "/api/block/appendBlock"
       ? { code: 0, data: [{ id: "runtime-block" }] }
       : { code: 0, data: [] },
@@ -131,6 +131,64 @@ assert.match(source, /insertBlockChecked/);
   assert.equal(second.ok, true);
   const appendCalls = fixture.calls.filter((call) => call.kind === "post" && call.path === "/api/block/appendBlock");
   assert.equal(appendCalls.at(-1).payload.parentID, "new-doc", "the same runtime must read the updated target");
+}
+
+{
+  const fixture = createFixture({
+    shared: sharedSettings({ mobileAutoOpenEnabled: true }),
+    legacy: { quickNotesPosition: "legacy-doc", quickNotesTimestampEnabled: false, quickNotesAddPosition: "top" },
+  });
+  const result = await runtime.resolveQuickNoteRuntimeConfig(fixture.storage);
+  assert.deepEqual(result, {
+    quickNotesPosition: "legacy-doc",
+    quickNotesTimestampEnabled: false,
+    quickNotesAddPosition: "top",
+  }, "a valid shared file with no quick note fields must use all legacy fields");
+}
+
+{
+  const fixture = createFixture({
+    shared: sharedSettings({ quickNotesPosition: "shared-doc" }),
+    legacy: { quickNotesPosition: "legacy-doc", quickNotesTimestampEnabled: false, quickNotesAddPosition: "top" },
+  });
+  const result = await runtime.resolveQuickNoteRuntimeConfig(fixture.storage);
+  assert.deepEqual(result, {
+    quickNotesPosition: "shared-doc",
+    quickNotesTimestampEnabled: false,
+    quickNotesAddPosition: "top",
+  }, "missing shared fields must be filled one field at a time");
+}
+
+{
+  const fixture = createFixture({
+    shared: sharedSettings({ quickNotesPosition: "" }),
+    legacy: { quickNotesPosition: "old-doc" },
+  });
+  const result = await runtime.resolveQuickNoteRuntimeConfig(fixture.storage);
+  assert.equal(result.quickNotesPosition, "", "an explicit empty shared position must not restore legacy");
+}
+
+{
+  const fixture = createFixture({
+    shared: sharedSettings({ quickNotesTimestampEnabled: false }),
+    legacy: { quickNotesTimestampEnabled: true },
+  });
+  const result = await runtime.resolveQuickNoteRuntimeConfig(fixture.storage);
+  assert.equal(result.quickNotesTimestampEnabled, false, "an explicit false shared timestamp setting must win");
+}
+
+{
+  const fixture = createFixture({
+    shared: sharedSettings({ quickNotesPosition: "shared-doc", quickNotesTimestampEnabled: false, quickNotesAddPosition: "top" }),
+    legacy: { quickNotesPosition: "legacy-doc", quickNotesTimestampEnabled: true, quickNotesAddPosition: "bottom" },
+  });
+  const result = await runtime.resolveQuickNoteRuntimeConfig(fixture.storage);
+  assert.deepEqual(result, {
+    quickNotesPosition: "shared-doc",
+    quickNotesTimestampEnabled: false,
+    quickNotesAddPosition: "top",
+  });
+  assert.equal(fixture.calls.filter((call) => call.kind === "loadData").length, 0, "complete shared config must not read legacy");
 }
 
 {

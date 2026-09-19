@@ -10,6 +10,16 @@ export interface QuickNoteRuntimeConfig extends Record<string, unknown> {
   quickNotesAddPosition: "top" | "bottom";
 }
 
+const QUICK_NOTE_RUNTIME_CONFIG_KEYS = [
+  "quickNotesPosition",
+  "quickNotesTimestampEnabled",
+  "quickNotesAddPosition",
+] as const;
+
+function hasOwnConfigValue(config: Record<string, unknown>, key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(config, key);
+}
+
 function normalizeQuickNoteRuntimeConfig(config: Record<string, unknown>): QuickNoteRuntimeConfig {
   return {
     quickNotesPosition: typeof config.quickNotesPosition === "string" ? config.quickNotesPosition.trim() : "",
@@ -20,16 +30,34 @@ function normalizeQuickNoteRuntimeConfig(config: Record<string, unknown>): Quick
   };
 }
 
+function mergeQuickNoteRuntimeConfig(
+  sharedConfig: Record<string, unknown>,
+  legacyConfig: Record<string, unknown>,
+): QuickNoteRuntimeConfig {
+  const merged: Record<string, unknown> = {};
+  for (const key of QUICK_NOTE_RUNTIME_CONFIG_KEYS) {
+    merged[key] = hasOwnConfigValue(sharedConfig, key) ? sharedConfig[key] : legacyConfig[key];
+  }
+  return normalizeQuickNoteRuntimeConfig(merged);
+}
+
+async function loadLegacyQuickNoteConfig(storage: PluginLikeStorage): Promise<Record<string, unknown>> {
+  const legacy = await storage.loadData(ROBOT_QUICK_NOTE_CONFIG_KEY);
+  if (legacy === null || legacy === undefined) return {};
+  if (typeof legacy !== "object" || Array.isArray(legacy)) {
+    throw new Error("快速笔记旧配置快照格式无效。");
+  }
+  return legacy as Record<string, unknown>;
+}
+
 export async function resolveQuickNoteRuntimeConfig(
   storage: PluginLikeStorage,
 ): Promise<QuickNoteRuntimeConfig> {
   const shared = await readHomepageSharedSettingsSnapshot(storage);
-  if (shared !== null) return normalizeQuickNoteRuntimeConfig(shared.config);
+  if (shared === null) return normalizeQuickNoteRuntimeConfig(await loadLegacyQuickNoteConfig(storage));
 
-  const legacy = await storage.loadData(ROBOT_QUICK_NOTE_CONFIG_KEY);
-  if (legacy === null || legacy === undefined) return normalizeQuickNoteRuntimeConfig({});
-  if (typeof legacy !== "object" || Array.isArray(legacy)) {
-    throw new Error("快速笔记旧配置快照格式无效。");
-  }
-  return normalizeQuickNoteRuntimeConfig(legacy as Record<string, unknown>);
+  const hasAllSharedFields = QUICK_NOTE_RUNTIME_CONFIG_KEYS.every((key) => hasOwnConfigValue(shared.config, key));
+  if (hasAllSharedFields) return normalizeQuickNoteRuntimeConfig(shared.config);
+
+  return mergeQuickNoteRuntimeConfig(shared.config, await loadLegacyQuickNoteConfig(storage));
 }
