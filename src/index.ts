@@ -1568,6 +1568,15 @@ export default class PluginHomepage extends Plugin {
                 "membership identity",
             );
             if (!this.isHomepageEntitlementLifecycleActive(generation)) return;
+            const currentEntitlement = getHomepageEntitlementSnapshot();
+            if (
+                currentEntitlement.advanced
+                && currentEntitlement.userId
+                && vipInfo.USER_ID
+                && currentEntitlement.userId !== vipInfo.USER_ID
+            ) {
+                this.invalidateHomepageEntitlementForIdentityChange(currentEntitlement.userId);
+            }
             const userName = vipInfo.USER_NAME;
             const userId = vipInfo.USER_ID;
             const licenseResult = await withEntitlementTimeout(
@@ -1699,6 +1708,21 @@ export default class PluginHomepage extends Plugin {
         return !this.homepageEntitlementDisposed && this.homepageEntitlementGeneration === generation;
     }
 
+    private invalidateHomepageEntitlementForIdentityChange(previousUserId: string): void {
+        const snapshot = getHomepageEntitlementSnapshot();
+        if (snapshot.advanced && snapshot.userId === previousUserId) {
+            resetHomepageEntitlement(this);
+        }
+        this.homepageEntitlementFailureCount = 0;
+        this.homepageEntitlementReminderKey = "";
+        this.homepageServerSyncAt = 0;
+        this.homepageServerRevokedLicense = "";
+    }
+
+    private hasConfirmedHomepageIdentityChange(expectedUserId: string, actualUserId: string): boolean {
+        return Boolean(expectedUserId && actualUserId && expectedUserId !== actualUserId);
+    }
+
     private isWithinHomepageEntitlementSyncGrace(): boolean {
         return this.homepageSyncInProgress || (
             this.homepageEntitlementStartupAt > 0 &&
@@ -1775,7 +1799,8 @@ export default class PluginHomepage extends Plugin {
 
         if (outcome.kind === "identity_changed") {
             console.debug("[Homepage] entitlement", { state: "identity_changed" });
-            this.handleHomepageEntitlementCheckFailure("当前思源账号已变化");
+            this.invalidateHomepageEntitlementForIdentityChange(identity.USER_ID);
+            this.scheduleHomepageEntitlementCheck(null, 250);
             return;
         }
 
@@ -1858,10 +1883,20 @@ export default class PluginHomepage extends Plugin {
             pluginVersion: pluginManifest.version || "unknown",
         });
 
+        const responseIdentity = await advanced.updateVIP();
+        if (!responseIdentity.USER_ID) return;
+        if (this.hasConfirmedHomepageIdentityChange(identity.USER_ID, responseIdentity.USER_ID)) {
+            this.invalidateHomepageEntitlementForIdentityChange(identity.USER_ID);
+            this.scheduleHomepageEntitlementCheck(null, 250);
+            return;
+        }
+
         if (response.status === "active" && response.changed) {
             const liveIdentity = await advanced.updateVIP();
-            if (liveIdentity.USER_ID !== identity.USER_ID) {
-                this.handleHomepageEntitlementCheckFailure("当前思源账号已变化", 250);
+            if (!liveIdentity.USER_ID) return;
+            if (this.hasConfirmedHomepageIdentityChange(identity.USER_ID, liveIdentity.USER_ID)) {
+                this.invalidateHomepageEntitlementForIdentityChange(identity.USER_ID);
+                this.scheduleHomepageEntitlementCheck(null, 250);
                 return;
             }
             const result = await advanced.activateLicense(
@@ -1881,8 +1916,20 @@ export default class PluginHomepage extends Plugin {
             }
             if (result.valid && result.userInfo) {
                 const confirmedIdentity = await advanced.updateVIP();
-                if (confirmedIdentity.USER_ID !== identity.USER_ID) {
-                    this.handleHomepageEntitlementCheckFailure("当前思源账号已变化", 250);
+                if (!confirmedIdentity.USER_ID) return;
+                if (this.hasConfirmedHomepageIdentityChange(identity.USER_ID, confirmedIdentity.USER_ID)) {
+                    this.invalidateHomepageEntitlementForIdentityChange(identity.USER_ID);
+                    try {
+                        const deleted = await advanced.deleteLicense(this, response.license);
+                        if (deleted === "license_changed") {
+                            this.scheduleHomepageEntitlementCheck(null, 250);
+                            return;
+                        }
+                        this.scheduleHomepageEntitlementCheck(null, 250);
+                    } catch (error) {
+                        console.debug("[Homepage] 账号切换后旧同步授权条件清理失败", error);
+                        this.handleHomepageEntitlementCheckFailure("账号切换后旧授权条件清理失败", 250);
+                    }
                     return;
                 }
                 this.homepageServerRevokedLicense = "";
@@ -1906,6 +1953,8 @@ export default class PluginHomepage extends Plugin {
             if (deleted === "deleted" || deleted === "already_missing") {
                 this.homepageEntitlementReminderKey = "";
                 this.scheduleHomepageEntitlementCheck(null);
+            } else if (deleted === "license_changed") {
+                this.scheduleHomepageEntitlementCheck(null, 250);
             }
         }
     }

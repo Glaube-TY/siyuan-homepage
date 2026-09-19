@@ -7,7 +7,17 @@ import { fileURLToPath } from "node:url";
 const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const bundled = await build({
     stdin: {
-        contents: `export { recoverHomepageMembershipByIdentity } from "./src/features/entitlement/homepage-membership-recovery";`,
+        contents: `
+            export { recoverHomepageMembershipByIdentity } from "./src/features/entitlement/homepage-membership-recovery";
+            export {
+                denyHomepageEntitlement,
+                failHomepageEntitlementCheck,
+                getHomepageEntitlementSnapshot,
+                grantHomepageEntitlement,
+                markHomepageEntitlementPending,
+                resetHomepageEntitlement,
+            } from "./src/features/entitlement/homepage-entitlement";
+        `,
         loader: "ts",
         resolveDir: root,
         sourcefile: "verify-mobile-entitlement-sync.ts",
@@ -50,6 +60,9 @@ assert.match(indexSource, /verifyLicense\(\{ syncServer: false \}\)/);
 assert.match(indexSource, /startHomepageMembershipRecovery\(\s*vipInfo,\s*null/);
 assert.match(indexSource, /startHomepageMembershipRecovery\(\s*vipInfo,\s*saved\.code/);
 assert.match(indexSource, /if \(!this\.isMobileFrontend\(\)\)/);
+assert.match(indexSource, /getHomepageEntitlementSnapshot\(\)/);
+assert.match(indexSource, /resetHomepageEntitlement\(this\)/);
+assert.match(indexSource, /advanced\.deleteLicense\(this, response\.license\)/);
 for (const code of [
     "ACTIVE_MEMBERSHIP_NOT_FOUND",
     "RECOVERY_LICENSE_UNAVAILABLE",
@@ -177,9 +190,14 @@ function serviceError(code) {
     return Object.assign(new Error(code), { code });
 }
 
+function hasConfirmedIdentityChange(expected, actual) {
+    return Boolean(expected?.USER_ID && actual?.USER_ID && expected.USER_ID !== actual.USER_ID);
+}
+
 function createFixture({
     mobile = true,
     initialLicense = null,
+    initialEntitlementUserId = "",
     recovery = { license: "server-license" },
     deleteFailure = null,
     deleteReplacement = null,
@@ -204,9 +222,29 @@ function createFixture({
         deleteCalls: 0,
         deleteExpected: [],
         lastOutcome: null,
+        userId: "",
+        degraded: false,
+        serverSyncCalls: 0,
+        serverResyncDelays: [],
         messages: [],
     };
+    const entitlementPlugin = { ADVANCED: false };
     const startupAt = clock;
+
+    function syncEntitlementState() {
+        const snapshot = recoveryModule.getHomepageEntitlementSnapshot();
+        state.status = snapshot.status;
+        state.advanced = snapshot.advanced;
+        state.userId = snapshot.userId;
+        state.degraded = snapshot.degraded;
+    }
+
+    if (initialEntitlementUserId) {
+        recoveryModule.grantHomepageEntitlement(entitlementPlugin, userInfo(initialEntitlementUserId));
+    } else {
+        recoveryModule.resetHomepageEntitlement(entitlementPlugin);
+    }
+    syncEntitlementState();
 
     function identity() {
         const entry = identities[Math.min(identityIndex, identities.length - 1)];
@@ -228,21 +266,29 @@ function createFixture({
     }
 
     function setGranted(info) {
-        state.status = "granted";
-        state.advanced = true;
+        recoveryModule.grantHomepageEntitlement(entitlementPlugin, info);
+        syncEntitlementState();
         state.messages.push(`granted:${info.userId}`);
     }
 
     function setError(message) {
-        state.status = "error";
-        state.advanced = false;
+        recoveryModule.failHomepageEntitlementCheck(entitlementPlugin, message);
+        syncEntitlementState();
         state.messages.push(`error:${message}`);
     }
 
     function setDenied(message) {
-        state.status = "denied";
-        state.advanced = false;
+        recoveryModule.denyHomepageEntitlement(entitlementPlugin, message);
+        syncEntitlementState();
         state.messages.push(`denied:${message}`);
+    }
+
+    function invalidateForIdentityChange(previousUserId) {
+        const snapshot = recoveryModule.getHomepageEntitlementSnapshot();
+        if (snapshot.advanced && snapshot.userId === previousUserId) {
+            recoveryModule.resetHomepageEntitlement(entitlementPlugin);
+        }
+        syncEntitlementState();
     }
 
     async function recover() {
@@ -280,6 +326,7 @@ function createFixture({
     }
 
     async function verifySaved(_plugin, userName, userId) {
+        if (!userName || !userId) return { valid: false, code: 1, error: "identity" };
         const result = localResult();
         if (result.valid) return { ...result, userInfo: { ...result.userInfo, name: userName, userId } };
         return result;
@@ -338,9 +385,83 @@ function createFixture({
         return result;
     }
 
+    async function runServerSync(responsePromise, { afterActivate = null } = {}) {
+        state.serverSyncCalls += 1;
+        const requestedIdentity = identity();
+        const saved = await readSaved();
+        if (saved.status !== "found" || !saved.code.startsWith("SH.")) return;
+        const expectedLicense = saved.code;
+        const response = await responsePromise;
+        const responseIdentity = identity();
+        if (!responseIdentity.USER_ID) return;
+        if (hasConfirmedIdentityChange(requestedIdentity, responseIdentity)) {
+            invalidateForIdentityChange(requestedIdentity.USER_ID);
+            state.serverResyncDelays.push(250);
+            return;
+        }
+
+        if (response.status === "active" && response.changed) {
+            const liveIdentity = identity();
+            if (!liveIdentity.USER_ID) return;
+            if (hasConfirmedIdentityChange(requestedIdentity, liveIdentity)) {
+                invalidateForIdentityChange(requestedIdentity.USER_ID);
+                state.serverResyncDelays.push(250);
+                return;
+            }
+            const result = await activate(
+                {},
+                response.license,
+                requestedIdentity.USER_NAME,
+                requestedIdentity.USER_ID,
+                { expectedCurrentLicense: expectedLicense },
+            );
+            if (result.code === 53) {
+                state.serverResyncDelays.push(250);
+                return;
+            }
+            if (result.valid && result.userInfo) {
+                if (afterActivate) await afterActivate();
+                const confirmedIdentity = identity();
+                if (!confirmedIdentity.USER_ID) return;
+                if (hasConfirmedIdentityChange(requestedIdentity, confirmedIdentity)) {
+                    invalidateForIdentityChange(requestedIdentity.USER_ID);
+                    try {
+                        const deleted = await deleteLicense({}, response.license);
+                        state.serverResyncDelays.push(250);
+                        if (deleted === "license_changed") return;
+                    } catch {
+                        setError("账号切换后旧授权条件清理失败");
+                        state.serverResyncDelays.push(250);
+                    }
+                    return;
+                }
+                setGranted(result.userInfo);
+            }
+            return;
+        }
+
+        if (response.status === "revoked") {
+            setDenied("revoked");
+            if (!response.clearLocalLicense) return;
+            const deleted = await deleteLicense({}, expectedLicense);
+            state.serverResyncDelays.push(deleted === "license_changed" ? 250 : 0);
+        }
+    }
+
     async function check() {
         state.refreshCount += 1;
+        recoveryModule.markHomepageEntitlementPending(entitlementPlugin);
+        syncEntitlementState();
         const identitySnapshot = identity();
+        const currentEntitlement = recoveryModule.getHomepageEntitlementSnapshot();
+        if (
+            currentEntitlement.advanced
+            && currentEntitlement.userId
+            && identitySnapshot.USER_ID
+            && currentEntitlement.userId !== identitySnapshot.USER_ID
+        ) {
+            invalidateForIdentityChange(currentEntitlement.userId);
+        }
         const result = await verifySaved({}, identitySnapshot.USER_NAME, identitySnapshot.USER_ID);
         if (result.valid && result.code === 0 && result.userInfo) {
             setGranted(result.userInfo);
@@ -392,7 +513,10 @@ function createFixture({
             setGranted(outcome.userInfo);
         } else if (outcome.kind === "license_changed") {
             await check();
-        } else if (outcome.kind === "identity_changed" || outcome.kind === "cancelled") {
+        } else if (outcome.kind === "identity_changed") {
+            invalidateForIdentityChange(identitySnapshot.USER_ID);
+            state.serverResyncDelays.push(250);
+        } else if (outcome.kind === "cancelled") {
             setError(outcome.kind);
         } else if (outcome.kind === "cooldown") {
             setError("cooldown");
@@ -409,6 +533,7 @@ function createFixture({
         get currentLicense() { return currentLicense; },
         setCurrentLicense(value) { currentLicense = value; },
         setActivationRace(value) { activationRace = value; },
+        setIdentityIndex(value) { identityIndex = value; },
         advance(ms) { clock += ms; },
         syncStart() { syncInProgress = true; },
         syncEnd() { syncInProgress = false; externalRefreshPending = true; },
@@ -422,6 +547,7 @@ function createFixture({
             await check();
         },
         check,
+        runServerSync,
         unload() { disposed = true; },
         openMessage() {
             return state.advanced ? "" : state.status === "error" || state.status === "pending"
@@ -607,7 +733,7 @@ function createFixture({
     const fixture = createFixture({ initialLicense: null, identities: [{ id: "user-a" }, { id: "user-b" }], now: 100_000 });
     fixture.advance(GRACE_MS);
     await fixture.check();
-    assert.equal(fixture.state.status, "error");
+    assert.ok(["pending", "error"].includes(fixture.state.status));
     assert.equal(fixture.state.activationCalls, 0);
 }
 
@@ -690,7 +816,7 @@ function createFixture({
     assert.equal(fixture.state.activationCalls, 0);
     assert.equal(fixture.state.deleteCalls, 0);
     assert.equal(fixture.state.lastOutcome, "identity_changed");
-    assert.equal(fixture.state.status, "error");
+    assert.equal(fixture.state.status, "pending");
 }
 
 // Y: an identity change after activate conditionally deletes the recovery SH.
@@ -711,7 +837,7 @@ function createFixture({
     assert.deepEqual(fixture.state.deleteExpected, ["server-license"]);
     assert.equal(fixture.currentLicense, null);
     assert.equal(fixture.state.lastOutcome, "identity_changed");
-    assert.equal(fixture.state.status, "error");
+    assert.equal(fixture.state.status, "pending");
     assert.equal(fixture.state.advanced, false);
 }
 
@@ -780,4 +906,142 @@ function createFixture({
     assert.equal(fixture.state.status, "granted");
 }
 
-console.log("mobile entitlement sync verification passed (A-AB)");
+// AC: an existing A grant is cleared before B's mobile grace path can fail.
+{
+    const fixture = createFixture({
+        initialEntitlementUserId: "user-a",
+        initialLicense: null,
+        identities: [{ id: "user-b" }],
+    });
+    await fixture.check();
+    assert.equal(fixture.state.userId, "");
+    assert.equal(fixture.state.advanced, false);
+    assert.ok(["pending", "error"].includes(fixture.state.status));
+    assert.equal(fixture.state.recoveryCalls, 0);
+}
+
+// AD: after the grace window, B's transient recovery error cannot degrade A's grant.
+{
+    const fixture = createFixture({
+        initialEntitlementUserId: "user-a",
+        initialLicense: null,
+        identities: [{ id: "user-b" }],
+        recovery: new Error("network"),
+    });
+    fixture.advance(GRACE_MS);
+    await fixture.check();
+    assert.equal(fixture.state.userId, "");
+    assert.equal(fixture.state.advanced, false);
+    assert.equal(fixture.state.status, "error");
+    assert.equal(fixture.state.recoveryCalls, 1);
+    assert.notEqual(fixture.state.status, "denied");
+}
+
+// AE: the same account keeps its valid grant through a transient local read error.
+{
+    const fixture = createFixture({
+        initialEntitlementUserId: "user-a",
+        initialLicense: "valid-local",
+        identities: [{ id: "user-a" }],
+    });
+    await fixture.check();
+    fixture.setCurrentLicense("read-error");
+    await fixture.check();
+    assert.equal(fixture.state.userId, "user-a");
+    assert.equal(fixture.state.advanced, true);
+    assert.equal(fixture.state.status, "granted");
+    assert.equal(fixture.state.degraded, true);
+}
+
+// AF: an unknown current USER_ID is not treated as an account switch.
+{
+    const fixture = createFixture({
+        initialEntitlementUserId: "user-a",
+        initialLicense: "valid-local",
+        identities: [{ id: "" }],
+    });
+    await fixture.check();
+    assert.equal(fixture.state.userId, "user-a");
+    assert.equal(fixture.state.advanced, true);
+    assert.equal(fixture.state.status, "granted");
+}
+
+// AG: an old revoked response cannot deny B or delete B's license.
+{
+    let release;
+    const response = new Promise((resolve) => { release = resolve; });
+    const fixture = createFixture({
+        initialEntitlementUserId: "user-a",
+        initialLicense: "SH.license-a",
+        identities: [{ id: "user-a" }, { id: "user-b" }],
+    });
+    const syncPromise = fixture.runServerSync(response);
+    fixture.setIdentityIndex(1);
+    fixture.setCurrentLicense("SH.license-b");
+    release({ status: "revoked", clearLocalLicense: true });
+    await syncPromise;
+    assert.equal(fixture.state.advanced, false);
+    assert.notEqual(fixture.state.status, "denied");
+    assert.equal(fixture.state.deleteCalls, 0);
+    assert.equal(fixture.currentLicense, "SH.license-b");
+    assert.deepEqual(fixture.state.serverResyncDelays, [250]);
+}
+
+// AH: a post-activate account switch conditionally deletes the response SH.
+{
+    const fixture = createFixture({
+        initialEntitlementUserId: "user-a",
+        initialLicense: "SH.old-license",
+        identities: [{ id: "user-a" }, { id: "user-b" }],
+    });
+    const syncPromise = fixture.runServerSync(
+        Promise.resolve({ status: "active", license: "SH.response-license", changed: true }),
+        { afterActivate: async () => fixture.setIdentityIndex(1) },
+    );
+    await syncPromise;
+    assert.equal(fixture.state.deleteCalls, 1);
+    assert.deepEqual(fixture.state.deleteExpected, ["SH.response-license"]);
+    assert.equal(fixture.currentLicense, null);
+    assert.equal(fixture.state.advanced, false);
+    assert.notEqual(fixture.state.status, "granted");
+    assert.deepEqual(fixture.state.serverResyncDelays, [250]);
+}
+
+// AI: a replacement license wins the post-activate conditional delete.
+{
+    const fixture = createFixture({
+        deleteReplacement: "SH.new-license",
+        initialEntitlementUserId: "user-a",
+        initialLicense: "SH.old-license",
+        identities: [{ id: "user-a" }, { id: "user-b" }],
+    });
+    const syncPromise = fixture.runServerSync(
+        Promise.resolve({ status: "active", license: "SH.response-license", changed: true }),
+        { afterActivate: async () => fixture.setIdentityIndex(1) },
+    );
+    await syncPromise;
+    assert.equal(fixture.state.deleteCalls, 1);
+    assert.deepEqual(fixture.state.deleteExpected, ["SH.response-license"]);
+    assert.equal(fixture.currentLicense, "SH.new-license");
+    assert.equal(fixture.state.advanced, false);
+    assert.deepEqual(fixture.state.serverResyncDelays, [250]);
+}
+
+// AJ: an unchanged account applies a normal active server sync and grants.
+{
+    const fixture = createFixture({
+        initialEntitlementUserId: "user-a",
+        initialLicense: "SH.old-license",
+        identities: [{ id: "user-a" }],
+    });
+    await fixture.runServerSync(
+        Promise.resolve({ status: "active", license: "SH.response-license", changed: true }),
+    );
+    assert.equal(fixture.state.deleteCalls, 0);
+    assert.equal(fixture.currentLicense, "SH.response-license");
+    assert.equal(fixture.state.userId, "user-a");
+    assert.equal(fixture.state.advanced, true);
+    assert.equal(fixture.state.status, "granted");
+}
+
+console.log("mobile entitlement sync verification passed (A-AJ)");

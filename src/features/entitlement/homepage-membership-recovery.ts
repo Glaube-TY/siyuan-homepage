@@ -45,7 +45,7 @@ export interface HomepageMembershipRecoveryDependencies {
 }
 
 function isSameIdentity(left: VIPIdentity, right: VIPIdentity): boolean {
-    return Boolean(left.USER_ID) && left.USER_ID === right.USER_ID;
+    return Boolean(left.USER_ID && right.USER_ID) && left.USER_ID === right.USER_ID;
 }
 
 async function readCurrentLicense(
@@ -99,6 +99,9 @@ export async function recoverHomepageMembershipByIdentity(
         if (!dependencies.isCurrent()) return { kind: "cancelled" };
 
         const liveIdentity = await dependencies.updateVIP();
+        if (!liveIdentity.USER_ID) {
+            return { kind: "error", error: new Error("当前思源账号暂时无法确认") };
+        }
         if (!isSameIdentity(dependencies.identity, liveIdentity)) {
             return { kind: "identity_changed" };
         }
@@ -108,6 +111,9 @@ export async function recoverHomepageMembershipByIdentity(
         if (!dependencies.isCurrent()) return { kind: "cancelled" };
 
         const latestIdentity = await dependencies.updateVIP();
+        if (!latestIdentity.USER_ID) {
+            return { kind: "error", error: new Error("当前思源账号暂时无法确认") };
+        }
         if (!isSameIdentity(dependencies.identity, latestIdentity)) {
             return { kind: "identity_changed" };
         }
@@ -139,6 +145,9 @@ export async function recoverHomepageMembershipByIdentity(
         }
 
         const confirmedIdentity = await dependencies.updateVIP();
+        if (!confirmedIdentity.USER_ID) {
+            return { kind: "error", error: new Error("账号切换后当前身份暂时无法确认") };
+        }
         if (!isSameIdentity(dependencies.identity, confirmedIdentity)) {
             try {
                 const cleanupResult = await dependencies.deleteLicense(
