@@ -125,8 +125,17 @@ import { openAccountingDetailDialogFromPlugin } from "./components/utils/widgetB
 import { requestOpenMobileMusicPlayer } from "./components/utils/widgetBlock/widget/musicPlayer/musicMobilePlayerBridge";
 import MusicPlayerRuntime from "./components/utils/widgetBlock/widget/musicPlayer/musicPlayer.svelte";
 import { syncLicenseStatus } from "@/services/licenseStatusService";
-import { DEFAULT_BASE_URL } from "@/services/membershipService";
+import {
+    DEFAULT_BASE_URL,
+    MembershipServiceError,
+    recoverMembershipByIdentity,
+    type MembershipServiceErrorCode,
+} from "@/services/membershipService";
 import pluginManifest from "../plugin.json";
+import {
+    recoverHomepageMembershipByIdentity,
+    type HomepageMembershipRecoveryOutcome,
+} from "@/features/entitlement/homepage-membership-recovery";
 import {
     denyHomepageEntitlement,
     failHomepageEntitlementCheck,
@@ -140,6 +149,20 @@ import {
 } from "@/features/entitlement/homepage-entitlement";
 
 let notificationPlanUnregisters: Array<() => void> = [];
+
+type TPluginDataChangeReason = "sync" | "overwrite";
+type HomepageEntitlementVerificationOptions = { syncServer: boolean };
+
+const MOBILE_ENTITLEMENT_SYNC_GRACE_MS = 8_000;
+const HOMEPAGE_ENTITLEMENT_EXTERNAL_REFRESH_DEBOUNCE_MS = 300;
+const HOMEPAGE_ENTITLEMENT_RECOVERY_COOLDOWN_MS = 5 * 60_000;
+const HOMEPAGE_MEMBERSHIP_ABSENCE_CODES: ReadonlySet<MembershipServiceErrorCode> = new Set([
+    "ACTIVE_MEMBERSHIP_NOT_FOUND",
+    "RECOVERY_LICENSE_UNAVAILABLE",
+    "MEMBERSHIP_REVOKED",
+    "LICENSE_EXPIRED",
+    "LICENSE_NOT_ACTIVE",
+]);
 
 type HomepageMenuItem = {
     icon?: string;
@@ -322,8 +345,15 @@ export default class PluginHomepage extends Plugin {
     private homepageEntitlementReady = false;
     private homepageEntitlementVerification: Promise<void> | null = null;
     private homepageEntitlementCheckTimer: number | null = null;
+    private homepageEntitlementExternalRefreshTimer: number | null = null;
     private homepageEntitlementFailureCount = 0;
     private homepageEntitlementReminderKey = "";
+    private homepageEntitlementStartupAt = 0;
+    private homepageEntitlementDisposed = false;
+    private homepageEntitlementGeneration = 0;
+    private homepageEntitlementRecoveryInFlight: Promise<HomepageMembershipRecoveryOutcome> | null = null;
+    private readonly homepageEntitlementRecoveryCooldownByUser = new Map<string, number>();
+    private homepageSyncInProgress = false;
     private homepageServerSyncAt = 0;
     private homepageServerSyncInFlight: Promise<void> | null = null;
     private homepageServerRevokedLicense = "";
@@ -343,6 +373,9 @@ export default class PluginHomepage extends Plugin {
     private homepageSettingsSavedBindThis = this.handleHomepageSettingsSaved.bind(this);
     private homepageAdvancedReadyBindThis = this.handleHomepageAdvancedReady.bind(this);
     private homepageAdvancedUnavailableBindThis = this.handleHomepageAdvancedUnavailable.bind(this);
+    private homepageSyncStartBindThis = this.handleHomepageSyncStart.bind(this);
+    private homepageSyncEndBindThis = this.handleHomepageSyncEnd.bind(this);
+    private homepageSyncFailBindThis = this.handleHomepageSyncFail.bind(this);
 
     // 全局背景异步刷新版本号：防止旧请求覆盖新状态
     private globalBackgroundApplyVersion = 0;
@@ -370,10 +403,10 @@ export default class PluginHomepage extends Plugin {
     private baseEventListenersRegistered = false;
     private contentMenuListenerRegistered = false;
     private sidebarDockRegistered = false;
-    public override onDataChanged(): void {
-        // 安全空实现：不调用基类实现，不卸载插件，不启动迁移，不重建主页。
-        // 标签重新打开时通过标准init读取当前设备视图。
-        console.debug("[Homepage] onDataChanged 触发，当前版本不做处理");
+    public override onDataChanged(reason?: TPluginDataChangeReason): void {
+        if (reason !== undefined && reason !== "sync" && reason !== "overwrite") return;
+        // 只刷新会员快照；不调用基类实现，不卸载插件，不重建主页或设备视图。
+        this.scheduleHomepageEntitlementExternalRefresh(reason ?? "unknown");
     }
 
     private ensureDeviceIdentityForRuntime(): Promise<void> {
@@ -447,6 +480,10 @@ export default class PluginHomepage extends Plugin {
         }));
         const frontEnd = getFrontend();
         this.isMobile = frontEnd === "mobile" || frontEnd === "browser-mobile";
+        this.homepageEntitlementDisposed = false;
+        this.homepageEntitlementGeneration += 1;
+        this.homepageEntitlementStartupAt = Date.now();
+        this.homepageSyncInProgress = false;
         resetHomepageEntitlement(this);
         document.addEventListener("visibilitychange", this.homepageEntitlementVisibilityBindThis);
 
@@ -539,10 +576,40 @@ export default class PluginHomepage extends Plugin {
         this.eventBus.on("open-menu-doctree", this.docTreeMenuEventBindThis);
         this.eventBus.on("click-editortitleicon", this.editorTitleIconMenuEventBindThis);
         this.eventBus.on("click-blockicon", this.blockIconMenuEventBindThis);
+        this.eventBus.on("sync-start", this.homepageSyncStartBindThis);
+        this.eventBus.on("sync-end", this.homepageSyncEndBindThis);
+        this.eventBus.on("sync-fail", this.homepageSyncFailBindThis);
         window.addEventListener("homepage-settings-saved", this.homepageSettingsSavedBindThis);
         window.addEventListener("homepage-advanced-ready", this.homepageAdvancedReadyBindThis);
         window.addEventListener("homepage-advanced-unavailable", this.homepageAdvancedUnavailableBindThis);
         this.baseEventListenersRegistered = true;
+    }
+
+    private handleHomepageSyncStart(): void {
+        this.homepageSyncInProgress = true;
+        console.debug("[Homepage] entitlement", { state: "sync_start" });
+    }
+
+    private handleHomepageSyncEnd(): void {
+        this.homepageSyncInProgress = false;
+        console.debug("[Homepage] entitlement", { state: "sync_end" });
+        this.scheduleHomepageEntitlementExternalRefresh("sync-end");
+    }
+
+    private handleHomepageSyncFail(): void {
+        this.homepageSyncInProgress = false;
+        console.debug("[Homepage] entitlement", { state: "sync_fail" });
+        this.scheduleHomepageEntitlementExternalRefresh("sync-fail");
+    }
+
+    private scheduleHomepageEntitlementExternalRefresh(reason: string): void {
+        if (this.homepageEntitlementDisposed || this.homepageEntitlementExternalRefreshTimer !== null) return;
+        console.debug("[Homepage] entitlement", { state: "external_refresh_scheduled", reason });
+        this.homepageEntitlementExternalRefreshTimer = window.setTimeout(() => {
+            this.homepageEntitlementExternalRefreshTimer = null;
+            if (this.homepageEntitlementDisposed) return;
+            void this.verifyLicense({ syncServer: false });
+        }, HOMEPAGE_ENTITLEMENT_EXTERNAL_REFRESH_DEBOUNCE_MS);
     }
 
     private syncHomepageConfigDependentListeners(config: PluginConfig | null): void {
@@ -814,11 +881,18 @@ export default class PluginHomepage extends Plugin {
     }
 
     async onunload() {
+        this.homepageEntitlementDisposed = true;
+        this.homepageEntitlementGeneration += 1;
+        this.homepageSyncInProgress = false;
         this.cancelDeferredBackgroundStartup?.();
         this.cancelDeferredBackgroundStartup = null;
         if (this.homepageEntitlementCheckTimer !== null) {
             window.clearTimeout(this.homepageEntitlementCheckTimer);
             this.homepageEntitlementCheckTimer = null;
+        }
+        if (this.homepageEntitlementExternalRefreshTimer !== null) {
+            window.clearTimeout(this.homepageEntitlementExternalRefreshTimer);
+            this.homepageEntitlementExternalRefreshTimer = null;
         }
         document.removeEventListener("visibilitychange", this.homepageEntitlementVisibilityBindThis);
         this.destroyMobileMusicRuntime();
@@ -861,6 +935,9 @@ export default class PluginHomepage extends Plugin {
         this.eventBus.off("open-menu-content", this.contentMenuEventBindThis);
         this.eventBus.off("click-editortitleicon", this.editorTitleIconMenuEventBindThis);
         this.eventBus.off("click-blockicon", this.blockIconMenuEventBindThis);
+        this.eventBus.off("sync-start", this.homepageSyncStartBindThis);
+        this.eventBus.off("sync-end", this.homepageSyncEndBindThis);
+        this.eventBus.off("sync-fail", this.homepageSyncFailBindThis);
         window.removeEventListener("homepage-settings-saved", this.homepageSettingsSavedBindThis);
         window.removeEventListener("homepage-advanced-ready", this.homepageAdvancedReadyBindThis);
         window.removeEventListener("homepage-advanced-unavailable", this.homepageAdvancedUnavailableBindThis);
@@ -1459,13 +1536,19 @@ export default class PluginHomepage extends Plugin {
         return this.verifyLicense();
     }
 
-    private verifyLicense(): Promise<void> {
+    private verifyLicense(
+        options: HomepageEntitlementVerificationOptions = { syncServer: true },
+    ): Promise<void> {
         if (this.homepageEntitlementVerification) return this.homepageEntitlementVerification;
+        if (this.homepageEntitlementDisposed) return Promise.resolve();
 
         markHomepageEntitlementPending(this);
-        const verification = this.runLicenseVerification();
+        const generation = this.homepageEntitlementGeneration;
+        const verification = this.runLicenseVerification(generation, options);
         const trackedVerification = verification.finally(() => {
-            this.homepageEntitlementReady = true;
+            if (this.homepageEntitlementGeneration === generation) {
+                this.homepageEntitlementReady = true;
+            }
             if (this.homepageEntitlementVerification === trackedVerification) {
                 this.homepageEntitlementVerification = null;
             }
@@ -1474,13 +1557,17 @@ export default class PluginHomepage extends Plugin {
         return trackedVerification;
     }
 
-    private async runLicenseVerification(): Promise<void> {
+    private async runLicenseVerification(
+        generation: number,
+        options: HomepageEntitlementVerificationOptions,
+    ): Promise<void> {
         try {
             const vipInfo = await withEntitlementTimeout(
                 advanced.updateVIP(),
                 8_000,
                 "membership identity",
             );
+            if (!this.isHomepageEntitlementLifecycleActive(generation)) return;
             const userName = vipInfo.USER_NAME;
             const userId = vipInfo.USER_ID;
             const licenseResult = await withEntitlementTimeout(
@@ -1488,15 +1575,18 @@ export default class PluginHomepage extends Plugin {
                 8_000,
                 "saved membership license",
             );
+            if (!this.isHomepageEntitlementLifecycleActive(generation)) return;
 
             if (licenseResult.valid && licenseResult.code === 0 && licenseResult.userInfo) {
+                console.debug("[Homepage] entitlement", { state: "local_valid" });
                 if (this.homepageServerRevokedLicense) {
                     const saved = await advanced.readSavedActivationCodeState(this);
+                    if (!this.isHomepageEntitlementLifecycleActive(generation)) return;
                     if (saved.status === "found" && saved.code === this.homepageServerRevokedLicense) {
                         denyHomepageEntitlement(this, "会员授权已由服务器撤销");
                         this.homepageServerSyncAt = 0;
                         this.scheduleHomepageEntitlementCheck(null);
-                        void this.syncHomepageServerLicense(vipInfo);
+                        if (options.syncServer) void this.syncHomepageServerLicense(vipInfo);
                         return;
                     }
                     if (saved.status === "found" && saved.code !== this.homepageServerRevokedLicense) {
@@ -1506,7 +1596,7 @@ export default class PluginHomepage extends Plugin {
                 const snapshot = grantHomepageEntitlement(this, licenseResult.userInfo);
                 this.homepageEntitlementFailureCount = 0;
                 this.scheduleHomepageEntitlementCheck(snapshot.validUntil);
-                void this.syncHomepageServerLicense(vipInfo);
+                if (options.syncServer) void this.syncHomepageServerLicense(vipInfo);
 
                 const remainingDays = licenseResult.userInfo.remainingDays;
                 const isLifetime = licenseResult.userInfo.isLifetime === true;
@@ -1529,28 +1619,184 @@ export default class PluginHomepage extends Plugin {
                     );
                     return;
                 }
+
+                if (licenseResult.code === 2) {
+                    if (this.isMobile && this.isWithinHomepageEntitlementSyncGrace()) {
+                        console.debug("[Homepage] entitlement", { state: "local_missing_waiting_sync" });
+                        this.handleHomepageEntitlementCheckFailure("本地会员授权正在等待思源同步");
+                        return;
+                    }
+                    if (!vipInfo.USER_ID || !vipInfo.USER_CODE_V2) {
+                        this.handleHomepageEntitlementCheckFailure("思源账号身份尚未就绪");
+                        return;
+                    }
+
+                    console.debug("[Homepage] entitlement", { state: "local_missing_after_sync" });
+                    const outcome = await this.startHomepageMembershipRecovery(
+                        vipInfo,
+                        null,
+                        generation,
+                    );
+                    this.applyHomepageMembershipRecoveryOutcome(outcome, vipInfo, generation);
+                    return;
+                }
+
+                if (licenseResult.code === 31) {
+                    const saved = await advanced.readSavedActivationCodeState(this);
+                    if (!this.isHomepageEntitlementLifecycleActive(generation)) return;
+                    if (saved.status !== "found") {
+                        this.handleHomepageEntitlementCheckFailure("本地会员授权在校验期间发生变化");
+                        return;
+                    }
+                    if (!vipInfo.USER_ID || !vipInfo.USER_CODE_V2) {
+                        this.handleHomepageEntitlementCheckFailure("思源账号身份尚未就绪");
+                        return;
+                    }
+
+                    console.debug("[Homepage] entitlement", { state: "local_expired_trying_recovery" });
+                    const outcome = await this.startHomepageMembershipRecovery(
+                        vipInfo,
+                        saved.code,
+                        generation,
+                    );
+                    this.applyHomepageMembershipRecoveryOutcome(outcome, vipInfo, generation);
+                    return;
+                }
+
                 denyHomepageEntitlement(this, licenseResult.error || "会员授权无效");
                 this.homepageEntitlementFailureCount = 0;
                 this.homepageEntitlementReminderKey = "";
                 this.scheduleHomepageEntitlementCheck(null);
-
-                if (licenseResult.code === 31 && licenseResult.error) {
-                    showMessage(licenseResult.error);
-                }
             }
         } catch (error) {
-            console.error("会员校验失败:", error);
+            if (!this.isHomepageEntitlementLifecycleActive(generation)) return;
+            console.debug("[Homepage] entitlement", {
+                state: "local_check_error",
+                reason: error instanceof Error ? error.name : "unknown",
+            });
             this.handleHomepageEntitlementCheckFailure(
                 error instanceof Error ? error.message : "会员校验异常",
             );
         }
     }
 
-    private handleHomepageEntitlementCheckFailure(reason: string): void {
+    private isHomepageEntitlementLifecycleActive(generation: number): boolean {
+        return !this.homepageEntitlementDisposed && this.homepageEntitlementGeneration === generation;
+    }
+
+    private isWithinHomepageEntitlementSyncGrace(): boolean {
+        return this.homepageSyncInProgress || (
+            this.homepageEntitlementStartupAt > 0 &&
+            Date.now() - this.homepageEntitlementStartupAt < MOBILE_ENTITLEMENT_SYNC_GRACE_MS
+        );
+    }
+
+    private startHomepageMembershipRecovery(
+        identity: advanced.VIPIdentity,
+        expectedCurrentLicense: string | null,
+        generation: number,
+    ): Promise<HomepageMembershipRecoveryOutcome> {
+        if (this.homepageEntitlementRecoveryInFlight) return this.homepageEntitlementRecoveryInFlight;
+
+        const cooldownUntil = this.homepageEntitlementRecoveryCooldownByUser.get(identity.USER_ID) ?? 0;
+        if (cooldownUntil > Date.now()) {
+            console.debug("[Homepage] entitlement", { state: "recovery_skipped_cooldown" });
+            return Promise.resolve({ kind: "cooldown", retryAt: cooldownUntil });
+        }
+
+        const retryAt = Date.now() + HOMEPAGE_ENTITLEMENT_RECOVERY_COOLDOWN_MS;
+        this.homepageEntitlementRecoveryCooldownByUser.set(identity.USER_ID, retryAt);
+        console.debug("[Homepage] entitlement", { state: "recovery_started" });
+        const operation = recoverHomepageMembershipByIdentity({
+            plugin: this,
+            identity,
+            expectedCurrentLicense,
+            pluginVersion: pluginManifest.version || "unknown",
+            serviceOrigin: DEFAULT_BASE_URL,
+            isCurrent: () => this.isHomepageEntitlementLifecycleActive(generation),
+            updateVIP: () => advanced.updateVIP(),
+            readSavedActivationCodeState: (plugin) => advanced.readSavedActivationCodeState(plugin),
+            verifySavedSignedLicenseReadOnly: (plugin, userName, userId) =>
+                advanced.verifySavedSignedLicenseReadOnly(plugin, userName, userId),
+            recoverMembershipByIdentity,
+            activateLicense: (plugin, activationCode, userName, userId, serverManagement) =>
+                advanced.activateLicense(plugin, activationCode, userName, userId, serverManagement),
+        });
+        const tracked = operation.finally(() => {
+            if (this.homepageEntitlementRecoveryInFlight === tracked) {
+                this.homepageEntitlementRecoveryInFlight = null;
+            }
+        });
+        this.homepageEntitlementRecoveryInFlight = tracked;
+        return tracked;
+    }
+
+    private applyHomepageMembershipRecoveryOutcome(
+        outcome: HomepageMembershipRecoveryOutcome,
+        identity: advanced.VIPIdentity,
+        generation: number,
+    ): void {
+        if (!this.isHomepageEntitlementLifecycleActive(generation)) return;
+
+        if (outcome.kind === "recovered" || outcome.kind === "local_valid") {
+            this.homepageEntitlementRecoveryCooldownByUser.delete(identity.USER_ID);
+            console.debug("[Homepage] entitlement", {
+                state: outcome.kind === "recovered" ? "recovery_success" : "recovery_local_license_appeared",
+            });
+            const snapshot = grantHomepageEntitlement(this, outcome.userInfo);
+            this.homepageEntitlementFailureCount = 0;
+            this.scheduleHomepageEntitlementCheck(snapshot.validUntil);
+            return;
+        }
+
+        if (outcome.kind === "cancelled") return;
+
+        if (outcome.kind === "license_changed") {
+            console.debug("[Homepage] entitlement", { state: "recovery_license_changed" });
+            this.scheduleHomepageEntitlementCheck(null, 250);
+            return;
+        }
+
+        if (outcome.kind === "identity_changed") {
+            console.debug("[Homepage] entitlement", { state: "identity_changed" });
+            this.handleHomepageEntitlementCheckFailure("当前思源账号已变化");
+            return;
+        }
+
+        if (outcome.kind === "cooldown") {
+            this.handleHomepageEntitlementCheckFailure(
+                "会员恢复冷却中",
+                Math.max(250, outcome.retryAt - Date.now()),
+            );
+            return;
+        }
+
+        if (outcome.error instanceof MembershipServiceError && HOMEPAGE_MEMBERSHIP_ABSENCE_CODES.has(outcome.error.code)) {
+            console.debug("[Homepage] entitlement", {
+                state: "recovery_no_membership",
+                reason: outcome.error.code,
+            });
+            denyHomepageEntitlement(this, outcome.error.message);
+            this.homepageEntitlementFailureCount = 0;
+            this.homepageEntitlementReminderKey = "";
+            this.scheduleHomepageEntitlementCheck(null);
+            return;
+        }
+
+        console.debug("[Homepage] entitlement", {
+            state: "recovery_transient_error",
+            reason: outcome.error instanceof MembershipServiceError
+                ? outcome.error.code
+                : outcome.verification?.code ?? "unknown",
+        });
+        this.handleHomepageEntitlementCheckFailure("会员恢复暂时无法确认");
+    }
+
+    private handleHomepageEntitlementCheckFailure(reason: string, delayOverride?: number): void {
         const snapshot = failHomepageEntitlementCheck(this, reason);
         this.homepageEntitlementFailureCount += 1;
         const retryDelays = [2_000, 5_000, 15_000, 60_000, 5 * 60_000];
-        const delay = retryDelays[Math.min(this.homepageEntitlementFailureCount - 1, retryDelays.length - 1)];
+        const delay = delayOverride ?? retryDelays[Math.min(this.homepageEntitlementFailureCount - 1, retryDelays.length - 1)];
         this.scheduleHomepageEntitlementCheck(snapshot.validUntil, delay);
     }
 
@@ -1599,8 +1845,7 @@ export default class PluginHomepage extends Plugin {
         if (response.status === "active" && response.changed) {
             const liveIdentity = await advanced.updateVIP();
             if (liveIdentity.USER_ID !== identity.USER_ID) {
-                denyHomepageEntitlement(this, "当前思源账号已变化");
-                this.scheduleHomepageEntitlementCheck(null, 250);
+                this.handleHomepageEntitlementCheckFailure("当前思源账号已变化", 250);
                 return;
             }
             const result = await advanced.activateLicense(
@@ -1614,11 +1859,14 @@ export default class PluginHomepage extends Plugin {
                     expectedCurrentLicense: expectedLicense,
                 },
             );
+            if (result.code === 53) {
+                this.scheduleHomepageEntitlementCheck(null, 250);
+                return;
+            }
             if (result.valid && result.userInfo) {
                 const confirmedIdentity = await advanced.updateVIP();
                 if (confirmedIdentity.USER_ID !== identity.USER_ID) {
-                    denyHomepageEntitlement(this, "当前思源账号已变化");
-                    this.scheduleHomepageEntitlementCheck(null, 250);
+                    this.handleHomepageEntitlementCheckFailure("当前思源账号已变化", 250);
                     return;
                 }
                 this.homepageServerRevokedLicense = "";

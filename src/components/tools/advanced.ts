@@ -266,7 +266,8 @@ export interface ActivateLicenseServerManagementOptions {
     serverManagedServiceOrigin: string;
     redemptionCodeHash?: string;
     redemptionCodeHint?: string;
-    expectedCurrentLicense?: string;
+    /** undefined = no CAS; string = current ActivationCode must match; null = no current ActivationCode. */
+    expectedCurrentLicense?: string | null;
 }
 
 export interface SavedLicenseManagementState {
@@ -429,11 +430,18 @@ export async function activateLicense(
         await runLicenseMutation(async () => {
             // 获取写入权后读取最新数据，避免旧登记任务覆盖刚兑换的新 SH。
             const oldData = (await plugin.loadData("license.syhomepage")) || {};
-            const expectedCurrentLicense = String(serverManagement?.expectedCurrentLicense || "").trim();
             const currentLicense = typeof oldData?.ActivationCode === "string"
                 ? oldData.ActivationCode.trim()
                 : "";
-            if (expectedCurrentLicense && currentLicense !== expectedCurrentLicense) {
+            const hasExpectedCurrentLicense = serverManagement !== undefined &&
+                Object.prototype.hasOwnProperty.call(serverManagement, "expectedCurrentLicense");
+            const expectedCurrentLicense = serverManagement?.expectedCurrentLicense;
+            const licenseMatchesExpected = expectedCurrentLicense === null
+                ? !currentLicense
+                : typeof expectedCurrentLicense === "string"
+                    ? currentLicense === expectedCurrentLicense.trim()
+                    : true;
+            if (hasExpectedCurrentLicense && !licenseMatchesExpected) {
                 licenseChangedWhileQueued = true;
                 return;
             }
