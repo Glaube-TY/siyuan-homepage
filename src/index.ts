@@ -1621,7 +1621,14 @@ export default class PluginHomepage extends Plugin {
                 }
 
                 if (licenseResult.code === 2) {
-                    if (this.isMobile && this.isWithinHomepageEntitlementSyncGrace()) {
+                    if (!this.isMobileFrontend()) {
+                        denyHomepageEntitlement(this, licenseResult.error || "会员授权无效");
+                        this.homepageEntitlementFailureCount = 0;
+                        this.homepageEntitlementReminderKey = "";
+                        this.scheduleHomepageEntitlementCheck(null);
+                        return;
+                    }
+                    if (this.isWithinHomepageEntitlementSyncGrace()) {
                         console.debug("[Homepage] entitlement", { state: "local_missing_waiting_sync" });
                         this.handleHomepageEntitlementCheckFailure("本地会员授权正在等待思源同步");
                         return;
@@ -1642,6 +1649,14 @@ export default class PluginHomepage extends Plugin {
                 }
 
                 if (licenseResult.code === 31) {
+                    if (!this.isMobileFrontend()) {
+                        denyHomepageEntitlement(this, licenseResult.error || "会员授权无效");
+                        this.homepageEntitlementFailureCount = 0;
+                        this.homepageEntitlementReminderKey = "";
+                        this.scheduleHomepageEntitlementCheck(null);
+                        if (licenseResult.error) showMessage(licenseResult.error);
+                        return;
+                    }
                     const saved = await advanced.readSavedActivationCodeState(this);
                     if (!this.isHomepageEntitlementLifecycleActive(generation)) return;
                     if (saved.status !== "found") {

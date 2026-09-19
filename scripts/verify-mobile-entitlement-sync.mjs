@@ -49,6 +49,7 @@ assert.match(indexSource, /clearTimeout\(this\.homepageEntitlementExternalRefres
 assert.match(indexSource, /verifyLicense\(\{ syncServer: false \}\)/);
 assert.match(indexSource, /startHomepageMembershipRecovery\(\s*vipInfo,\s*null/);
 assert.match(indexSource, /startHomepageMembershipRecovery\(\s*vipInfo,\s*saved\.code/);
+assert.match(indexSource, /if \(!this\.isMobileFrontend\(\)\)/);
 for (const code of [
     "ACTIVE_MEMBERSHIP_NOT_FOUND",
     "RECOVERY_LICENSE_UNAVAILABLE",
@@ -330,7 +331,11 @@ function createFixture({
             return;
         }
         if (result.code === 2) {
-            if (mobile && (syncInProgress || clock - startupAt < GRACE_MS)) {
+            if (!mobile) {
+                setDenied(result.error || "invalid");
+                return;
+            }
+            if (syncInProgress || clock - startupAt < GRACE_MS) {
                 setError("暂时无法打开移动端主页");
                 return;
             }
@@ -343,6 +348,10 @@ function createFixture({
             return;
         }
         if (result.code === 31) {
+            if (!mobile) {
+                setDenied(result.error || "invalid");
+                return;
+            }
             const saved = await readSaved();
             if (saved.status !== "found") {
                 setError("license changed");
@@ -597,4 +606,55 @@ function createFixture({
     assert.equal(fixture.state.recoveryCalls, 0);
 }
 
-console.log("mobile entitlement sync verification passed (A-R)");
+// S: desktop missing local SH is denied immediately without recovery.
+{
+    const fixture = createFixture({ mobile: false, initialLicense: null });
+    await fixture.check();
+    assert.equal(fixture.state.status, "denied");
+    assert.equal(fixture.state.advanced, false);
+    assert.equal(fixture.state.recoveryCalls, 0);
+    assert.equal(fixture.state.activationCalls, 0);
+}
+
+// T: desktop expired local SH is denied without background recovery.
+{
+    const fixture = createFixture({ mobile: false, initialLicense: "expired-old" });
+    await fixture.check();
+    assert.equal(fixture.state.status, "denied");
+    assert.equal(fixture.state.recoveryCalls, 0);
+    assert.equal(fixture.state.activationCalls, 0);
+}
+
+// U: desktop valid local SH remains granted without recovery.
+{
+    const fixture = createFixture({ mobile: false, initialLicense: "valid-local" });
+    await fixture.check();
+    assert.equal(fixture.state.status, "granted");
+    assert.equal(fixture.state.recoveryCalls, 0);
+}
+
+// V: desktop sync can still grant a local SH after the initial denial.
+{
+    const fixture = createFixture({ mobile: false, initialLicense: null });
+    await fixture.check();
+    assert.equal(fixture.state.status, "denied");
+    assert.equal(fixture.state.recoveryCalls, 0);
+    fixture.syncEnd();
+    fixture.onDataChanged("sync");
+    fixture.setCurrentLicense("valid-local");
+    await fixture.flushExternal();
+    assert.equal(fixture.state.status, "granted");
+    assert.equal(fixture.state.recoveryCalls, 0);
+}
+
+// W: mobile missing local SH still uses identity recovery after the grace window.
+{
+    const fixture = createFixture({ mobile: true, initialLicense: null, now: 100_000 });
+    fixture.advance(GRACE_MS);
+    await fixture.check();
+    assert.equal(fixture.state.recoveryCalls, 1);
+    assert.equal(fixture.state.activationCalls, 1);
+    assert.equal(fixture.state.status, "granted");
+}
+
+console.log("mobile entitlement sync verification passed (A-W)");
