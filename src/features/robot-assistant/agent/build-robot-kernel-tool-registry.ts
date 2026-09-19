@@ -12,10 +12,10 @@ import { createNativeToolRegistryFromWorkbench } from "../../../features/kb/serv
 import { setNotebrainPlugin } from "../../../features/kb/services/agent-workbench/storage/notebrain-plugin-storage";
 import { setSharedWidgetStoragePlugin } from "../../../components/utils/widgetBlock/widget/sharedLocalStorage/sharedLocalStorage";
 import {
-  ROBOT_QUICK_NOTE_CONFIG_KEY,
   setQuickNoteConfigLoader,
   setQuickNoteWritePlugin,
 } from "../../../features/quick-note/quick-note-write-service";
+import { resolveQuickNoteRuntimeConfig } from "../../../features/quick-note/quick-note-runtime-config";
 import { registerDocContentEditConfirmationHandler } from "../../../features/kb/services/doc-content-edit/doc-content-edit-confirmation-bridge";
 import { registerSystemTools } from "../../../features/kb/services/agent-workbench/composition/register-system-tools";
 import { registerWebTools } from "../../../features/kb/services/agent-workbench/composition/register-web-tools";
@@ -61,10 +61,7 @@ async function registerKernelDataTools(
   setNotificationCenterPlugin(storage as never);
   setSharedWidgetStoragePlugin(storage);
   setQuickNoteWritePlugin(storage);
-  setQuickNoteConfigLoader(async () => {
-    const snapshot = await storage.loadData(ROBOT_QUICK_NOTE_CONFIG_KEY);
-    return snapshot && typeof snapshot === "object" ? snapshot as Record<string, unknown> : {};
-  });
+  setQuickNoteConfigLoader(async () => resolveQuickNoteRuntimeConfig(storage));
 
   const toolRegistry = new ToolRegistry();
   const confirmationRoute = {

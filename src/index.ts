@@ -497,11 +497,7 @@ export default class PluginHomepage extends Plugin {
             await identityPromise;
             startupTrace.checkpoint("device-identity-ready");
             const config = await this.recoverDeviceViewRuntimeAfterIdentityReady();
-            void this.saveData(ROBOT_QUICK_NOTE_CONFIG_KEY, {
-                quickNotesPosition: config.quickNotesPosition ?? "",
-                quickNotesTimestampEnabled: config.quickNotesTimestampEnabled ?? true,
-                quickNotesAddPosition: config.quickNotesAddPosition ?? "bottom",
-            }).catch((error) => console.warn("[Homepage] 快速笔记 Kernel 配置快照同步失败", error));
+            this.syncRobotQuickNoteLegacySnapshot(config);
             this.syncHomepageConfigDependentListeners(config);
             startupTrace.finish("device-view-ready");
         } catch (error) {
@@ -586,6 +582,17 @@ export default class PluginHomepage extends Plugin {
         }
     }
 
+    /** 仅同步旧快照供缺失共享设置文件的老用户兼容，Kernel 当前优先读取共享设置。 */
+    private syncRobotQuickNoteLegacySnapshot(config: PluginConfig): void {
+        void this.saveData(ROBOT_QUICK_NOTE_CONFIG_KEY, {
+            quickNotesPosition: typeof config.quickNotesPosition === "string" ? config.quickNotesPosition : "",
+            quickNotesTimestampEnabled: typeof config.quickNotesTimestampEnabled === "boolean"
+                ? config.quickNotesTimestampEnabled
+                : true,
+            quickNotesAddPosition: config.quickNotesAddPosition === "top" ? "top" : "bottom",
+        }).catch((error) => console.warn("[Homepage] 快速笔记旧配置快照同步失败", error));
+    }
+
     private async handleHomepageSettingsSaved(): Promise<void> {
         invalidateFloatingDocDefaultModeCache();
         const surface: DeviceViewSurface = this.isMobileFrontend() ? "mobile-homepage" : "desktop-homepage";
@@ -596,6 +603,7 @@ export default class PluginHomepage extends Plugin {
         }
         try {
             const config = await this.getPluginConfig();
+            this.syncRobotQuickNoteLegacySnapshot(config);
             this.clearHomepageSurfaceReadErrors(surface);
             this.readyDeviceViewSurfaces.add(surface);
             await this.initializeHomepageSurface(config);

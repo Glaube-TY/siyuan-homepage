@@ -24,6 +24,7 @@
     "make-link-win": "pnpm dev:setup",
     "update-version": "node --no-warnings ./scripts/update_version.js",
     "verify:homepage-mcp-server": "node --no-warnings ./scripts/verify-homepage-mcp-server.mjs",
+    "verify:robot-quick-note": "node --no-warnings ./scripts/verify-robot-quick-note.mjs",
     "release": "node --no-warnings ./scripts/release.js",
     "make-install": "pnpm build && node --no-warnings ./scripts/make_install.js",
     "typecheck": "tsc --noEmit --pretty false",

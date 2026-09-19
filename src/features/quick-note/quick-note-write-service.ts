@@ -1,6 +1,6 @@
-import { appendBlock, getChildBlocks, insertBlock } from "@/api";
+import { appendBlockChecked, getChildBlocksChecked, insertBlockChecked } from "@/api";
 
-export const ROBOT_QUICK_NOTE_CONFIG_KEY = "robot-quick-note-config-v1";
+export { ROBOT_QUICK_NOTE_CONFIG_KEY } from "./quick-note-runtime-config";
 
 export type QuickNoteSource = "local" | "feishu" | "quicker" | "external" | "agent";
 
@@ -109,10 +109,10 @@ export async function writeQuickNote(input: QuickNoteWriteInput): Promise<QuickN
 
   try {
     if (options.quickNotesAddPosition === "top") {
-      const docChildren = await getChildBlocks(targetId);
+      const docChildren = await getChildBlocksChecked(targetId);
       const firstChildId = Array.isArray(docChildren) && docChildren.length > 0 ? docChildren[0]?.id : "";
       if (firstChildId) {
-        const result = await insertBlock("markdown", contentToAdd, firstChildId);
+        const result = await insertBlockChecked("markdown", contentToAdd, firstChildId);
         return {
           ok: true,
           changed: true,
@@ -122,7 +122,7 @@ export async function writeQuickNote(input: QuickNoteWriteInput): Promise<QuickN
       }
     }
 
-    const result = await appendBlock("markdown", contentToAdd, targetId);
+    const result = await appendBlockChecked("markdown", contentToAdd, targetId);
     return {
       ok: true,
       changed: true,
