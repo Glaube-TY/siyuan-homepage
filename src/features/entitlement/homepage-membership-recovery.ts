@@ -1,5 +1,6 @@
 import type {
     ActivateLicenseServerManagementOptions,
+    DeleteLicenseResult,
     SavedActivationCodeState,
     VIPIdentity,
 } from "@/components/tools/advanced";
@@ -40,6 +41,7 @@ export interface HomepageMembershipRecoveryDependencies {
         userId: string,
         serverManagement?: ActivateLicenseServerManagementOptions,
     ) => Promise<LicenseVerifyResult>;
+    deleteLicense: (plugin: any, expectedLicense?: string) => Promise<DeleteLicenseResult>;
 }
 
 function isSameIdentity(left: VIPIdentity, right: VIPIdentity): boolean {
@@ -138,7 +140,22 @@ export async function recoverHomepageMembershipByIdentity(
 
         const confirmedIdentity = await dependencies.updateVIP();
         if (!isSameIdentity(dependencies.identity, confirmedIdentity)) {
-            return { kind: "identity_changed" };
+            try {
+                const cleanupResult = await dependencies.deleteLicense(
+                    dependencies.plugin,
+                    recovery.license,
+                );
+                return cleanupResult === "license_changed"
+                    ? { kind: "license_changed" }
+                    : { kind: "identity_changed" };
+            } catch (error) {
+                return {
+                    kind: "error",
+                    error: new Error(
+                        `账号切换后旧授权条件清理失败${error instanceof Error && error.message ? `: ${error.message}` : ""}`,
+                    ),
+                };
+            }
         }
 
         return { kind: "recovered", userInfo: result.userInfo };

@@ -1736,6 +1736,7 @@ export default class PluginHomepage extends Plugin {
             recoverMembershipByIdentity,
             activateLicense: (plugin, activationCode, userName, userId, serverManagement) =>
                 advanced.activateLicense(plugin, activationCode, userName, userId, serverManagement),
+            deleteLicense: (plugin, expectedLicense) => advanced.deleteLicense(plugin, expectedLicense),
         });
         const tracked = operation.finally(() => {
             if (this.homepageEntitlementRecoveryInFlight === tracked) {

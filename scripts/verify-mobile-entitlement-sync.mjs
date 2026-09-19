@@ -181,6 +181,8 @@ function createFixture({
     mobile = true,
     initialLicense = null,
     recovery = { license: "server-license" },
+    deleteFailure = null,
+    deleteReplacement = null,
     identities = [{ id: "user-a" }],
     now = 100_000,
 } = {}) {
@@ -199,6 +201,9 @@ function createFixture({
         refreshCount: 0,
         recoveryCalls: 0,
         activationCalls: 0,
+        deleteCalls: 0,
+        deleteExpected: [],
+        lastOutcome: null,
         messages: [],
     };
     const startupAt = clock;
@@ -292,6 +297,20 @@ function createFixture({
         return { valid: true, code: 0, userInfo: userInfo(userId) };
     }
 
+    async function deleteLicense(_plugin, expectedLicense) {
+        state.deleteCalls += 1;
+        state.deleteExpected.push(expectedLicense);
+        if (deleteFailure) throw deleteFailure;
+        if (deleteReplacement) {
+            currentLicense = deleteReplacement;
+            deleteReplacement = null;
+        }
+        if (!currentLicense) return "already_missing";
+        if (currentLicense !== expectedLicense) return "license_changed";
+        currentLicense = null;
+        return "deleted";
+    }
+
     async function runRecovery(expectedCurrentLicense) {
         if (recoveryInFlight) return recoveryInFlight;
         if (cooldownUntil > clock) return { kind: "cooldown", retryAt: cooldownUntil };
@@ -312,6 +331,7 @@ function createFixture({
             verifySavedSignedLicenseReadOnly: verifySaved,
             recoverMembershipByIdentity: recover,
             activateLicense: activate,
+            deleteLicense,
         });
         const result = await recoveryInFlight;
         recoveryInFlight = null;
@@ -366,6 +386,7 @@ function createFixture({
 
     async function applyOutcome(outcome, identitySnapshot) {
         if (disposed) return;
+        state.lastOutcome = outcome.kind;
         if (outcome.kind === "recovered" || outcome.kind === "local_valid") {
             cooldownUntil = 0;
             setGranted(outcome.userInfo);
@@ -657,4 +678,106 @@ function createFixture({
     assert.equal(fixture.state.status, "granted");
 }
 
-console.log("mobile entitlement sync verification passed (A-W)");
+// X: an identity change before activate preserves the existing no-mutation guard.
+{
+    const fixture = createFixture({
+        identities: [{ id: "user-a" }, { id: "user-b" }],
+        initialLicense: null,
+        now: 100_000,
+    });
+    fixture.advance(GRACE_MS);
+    await fixture.check();
+    assert.equal(fixture.state.activationCalls, 0);
+    assert.equal(fixture.state.deleteCalls, 0);
+    assert.equal(fixture.state.lastOutcome, "identity_changed");
+    assert.equal(fixture.state.status, "error");
+}
+
+// Y: an identity change after activate conditionally deletes the recovery SH.
+{
+    const fixture = createFixture({
+        identities: [
+            { id: "user-a" },
+            { id: "user-a" },
+            { id: "user-a" },
+            { id: "user-b" },
+        ],
+        initialLicense: null,
+        now: 100_000,
+    });
+    fixture.advance(GRACE_MS);
+    await fixture.check();
+    assert.equal(fixture.state.deleteCalls, 1);
+    assert.deepEqual(fixture.state.deleteExpected, ["server-license"]);
+    assert.equal(fixture.currentLicense, null);
+    assert.equal(fixture.state.lastOutcome, "identity_changed");
+    assert.equal(fixture.state.status, "error");
+    assert.equal(fixture.state.advanced, false);
+}
+
+// Z: a replacement license wins the conditional delete and triggers revalidation.
+{
+    const fixture = createFixture({
+        identities: [
+            { id: "user-a" },
+            { id: "user-a" },
+            { id: "user-a" },
+            { id: "user-b" },
+        ],
+        deleteReplacement: "new-license",
+        initialLicense: null,
+        now: 100_000,
+    });
+    fixture.advance(GRACE_MS);
+    await fixture.check();
+    assert.equal(fixture.state.deleteCalls, 1);
+    assert.deepEqual(fixture.state.deleteExpected, ["server-license"]);
+    assert.equal(fixture.currentLicense, "new-license");
+    assert.equal(fixture.state.lastOutcome, "license_changed");
+    assert.equal(fixture.state.status, "granted");
+}
+
+// AA: a cleanup failure is an error and never grants or denies the old SH.
+{
+    const fixture = createFixture({
+        deleteFailure: new Error("storage error"),
+        identities: [
+            { id: "user-a" },
+            { id: "user-a" },
+            { id: "user-a" },
+            { id: "user-b" },
+        ],
+        initialLicense: null,
+        now: 100_000,
+    });
+    fixture.advance(GRACE_MS);
+    await fixture.check();
+    assert.equal(fixture.state.deleteCalls, 1);
+    assert.equal(fixture.currentLicense, "server-license");
+    assert.equal(fixture.state.lastOutcome, "error");
+    assert.equal(fixture.state.status, "error");
+    assert.equal(fixture.state.advanced, false);
+    assert.match(fixture.state.messages.at(-1), /账号切换后旧授权条件清理失败/);
+}
+
+// AB: an unchanged identity keeps the normal recovery grant and does not delete.
+{
+    const fixture = createFixture({
+        identities: [
+            { id: "user-a" },
+            { id: "user-a" },
+            { id: "user-a" },
+            { id: "user-a" },
+        ],
+        initialLicense: null,
+        now: 100_000,
+    });
+    fixture.advance(GRACE_MS);
+    await fixture.check();
+    assert.equal(fixture.state.deleteCalls, 0);
+    assert.equal(fixture.currentLicense, "server-license");
+    assert.equal(fixture.state.lastOutcome, "recovered");
+    assert.equal(fixture.state.status, "granted");
+}
+
+console.log("mobile entitlement sync verification passed (A-AB)");
