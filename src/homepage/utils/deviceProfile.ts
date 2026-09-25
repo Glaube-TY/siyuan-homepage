@@ -56,6 +56,10 @@ export interface DeviceInfo {
     osPlatform: string;
     /** 前端类型，来自 getFrontend() */
     frontend: string;
+    /** 当前 Desktop 是否连接 Remote Kernel。 */
+    isRemoteKernel?: boolean;
+    /** 旧版 Remote Desktop 共享 scope，仅供 Device View 恢复读取。 */
+    legacyRemotePhysicalDeviceId?: string;
 }
 
 let cachedDeviceInfo: DeviceInfo | null = null;
@@ -287,6 +291,10 @@ async function initializeDeviceIdentity(): Promise<DeviceInfo> {
         os,
         osPlatform,
         frontend,
+        isRemoteKernel: isRemoteDesktopKernel,
+        ...(isRemoteDesktopKernel
+            ? { legacyRemotePhysicalDeviceId: `desktop-${stableHardwareHash(systemConfig!.id)}` }
+            : {}),
     };
 
     return cachedDeviceInfo;

@@ -1,10 +1,12 @@
 import {
     getFileOrNullChecked,
     putFileChecked,
+    readDirOrNullChecked,
     removeFileChecked,
 } from "@/api";
 import {
     getDeviceDescriptorPath,
+    getSurfaceRoot,
     getSurfaceLayoutPath,
     getSurfaceManifestPath,
     getSurfaceViewPath,
@@ -24,7 +26,11 @@ import {
     type DeviceViewSettings,
     type DeviceWidgetDocument,
 } from "./deviceViewTypes";
-import { createDeviceViewBlockedError, DeviceViewRevisionConflictError } from "./deviceViewErrors";
+import {
+    createDeviceViewBlockedError,
+    DeviceViewRevisionConflictError,
+    DeviceViewTemporarilyIncompleteError,
+} from "./deviceViewErrors";
 import { dispatchDeviceViewChanged } from "./deviceViewEvents";
 import { assertDesktopHomepageLayoutInvariants } from "./desktopHomepageSectionModel";
 import { cloneJsonSafe, hasSameJsonSemantic, isJsonSafe, isPlainJsonObject } from "./jsonSafe";
@@ -649,6 +655,7 @@ export async function writeInitialDeviceViewFiles(
         settings?: DeviceViewSettings;
         widgets: DeviceWidgetDocument[];
     },
+    options: { migrationSource?: "fresh" | "recovered-target"; requireEmpty?: boolean } = {},
 ): Promise<void> {
     assertStorageContext(context);
     const normalizedLayout = validateLayout(input.layout, context, getSurfaceLayoutPath(context));
@@ -671,6 +678,13 @@ export async function writeInitialDeviceViewFiles(
     const manifestPath = getSurfaceManifestPath(context);
     await inWriteQueue(manifestPath, async () => {
         if (await readDeviceViewManifest(context)) return;
+        if (options.requireEmpty && await readDirOrNullChecked(getSurfaceRoot(context)) !== null) {
+            throw new DeviceViewTemporarilyIncompleteError({
+                deviceId: context.scopeId,
+                surface: context.surface,
+                missingType: "manifest",
+            });
+        }
         const existingLayout = await readDeviceViewLayout(context);
         if (existingLayout) {
             if (!hasSameDocumentContent(existingLayout, normalizedLayout)) throw new Error("初始化目标 layout.json 已存在冲突内容");
@@ -708,7 +722,7 @@ export async function writeInitialDeviceViewFiles(
             status: "complete",
             migration: {
                 state: "complete",
-                source: "fresh",
+                source: options.migrationSource ?? "fresh",
                 completedAt: new Date().toISOString(),
             },
         };

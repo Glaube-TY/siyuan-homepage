@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import vm from "node:vm";
 import { readFile, stat } from "node:fs/promises";
 import { builtinModules } from "node:module";
@@ -169,6 +170,377 @@ function stableHash(value) {
   return (hash >>> 0).toString(16).padStart(8, "0");
 }
 
+const deviceViewRoot = "/data/storage/petal/siyuan-homepage/device-views";
+
+function viewPath(scope, surface, file) {
+  return `${deviceViewRoot}/${scope}/${surface}/${file}`;
+}
+
+function viewMetadata(scope, surface, revision = 8) {
+  return {
+    schema: "siyuan-homepage-device-view",
+    version: 2,
+    revision,
+    updatedAt: "2026-08-01T00:00:00.000Z",
+    deviceId: scope,
+    surface,
+  };
+}
+
+function seedDeviceView(scope, surface, { homepageSplit = false, missingWidget = false } = {}) {
+  const files = new Map();
+  const widgetId = surface === "desktop-homepage" ? "home-widget" : "sidebar-widget";
+  const metadata = viewMetadata(scope, surface);
+  const layout = {
+    ...metadata,
+    order: [{ id: widgetId, style: "width: 2fr", index: 0 }],
+    ...(surface === "desktop-homepage" && homepageSplit ? {
+      componentSectionsModeEnabled: true,
+      sections: {
+        main: { widgetIds: [widgetId], name: "Old section", createdAt: 10, updatedAt: 11 },
+      },
+    } : surface === "desktop-homepage" ? { componentSectionsModelVersion: 1 } : {}),
+  };
+  const settings = surface === "desktop-homepage" ? {
+    ...metadata,
+    config: {
+      theme: "legacy-theme",
+      preserved: { density: "comfortable" },
+      ...(homepageSplit ? {
+        componentSectionsEnabled: true,
+        componentSections: [{ id: "main", name: "Main section", createdAt: 10, updatedAt: 11 }],
+      } : {}),
+    },
+  } : undefined;
+  files.set(viewPath(scope, surface, "manifest.json"), JSON.stringify({
+    ...metadata,
+    status: "complete",
+    migration: { state: "complete", source: "legacy-root", completedAt: "2026-08-01T00:00:00.000Z" },
+  }));
+  files.set(viewPath(scope, surface, "layout.json"), JSON.stringify(layout));
+  if (settings) files.set(viewPath(scope, surface, "view.json"), JSON.stringify(settings));
+  if (!missingWidget) {
+    files.set(viewPath(scope, surface, `widgets/${widgetId}.json`), JSON.stringify({
+      ...metadata,
+      instanceId: widgetId,
+      config: { type: "fixture-widget", options: { retained: true } },
+    }));
+  }
+  files.set(`${deviceViewRoot}/${scope}/device.json`, JSON.stringify({
+    schema: "siyuan-homepage-device",
+    version: 2,
+    revision: 8,
+    updatedAt: metadata.updatedAt,
+    physicalDeviceId: scope,
+    deviceName: "Remote Kernel host",
+    platform: "linux",
+    arch: "unknown",
+    hostname: "Remote Kernel host",
+    isMobile: false,
+  }));
+  return files;
+}
+
+function fixtureDeviceInfo(info, id) {
+  return { ...info, physicalDeviceId: id };
+}
+
+function deviceViewContext(info, surface) {
+  return {
+    plugin: { name: "siyuan-homepage" },
+    physicalDeviceId: info.physicalDeviceId,
+    scopeId: surface === "mobile-homepage" ? "mobile-shared" : info.physicalDeviceId,
+    surface,
+    isMobileShared: surface === "mobile-homepage",
+  };
+}
+
+function createDeviceViewFixture(info, initialFiles = new Map(), shareFiles = false) {
+  const files = shareFiles ? initialFiles : new Map(initialFiles);
+  const calls = { reads: [], directoryReads: [], writes: [] };
+  const api = {
+    async getFileOrNullChecked(filePath) {
+      calls.reads.push(filePath);
+      return files.has(filePath) ? files.get(filePath) : null;
+    },
+    async putFileChecked(filePath, isDir, file) {
+      assert.equal(isDir, false);
+      files.set(filePath, await file.text());
+      calls.writes.push(filePath);
+    },
+    async removeFileChecked(filePath) {
+      files.delete(filePath);
+      calls.writes.push(filePath);
+    },
+    async readDirOrNullChecked(directoryPath) {
+      calls.directoryReads.push(directoryPath);
+      const prefix = `${directoryPath.replace(/\/+$/, "")}/`;
+      const children = new Set();
+      for (const filePath of files.keys()) {
+        if (filePath.startsWith(prefix)) children.add(filePath.slice(prefix.length).split("/")[0]);
+      }
+      return children.size ? [...children].map((name) => ({ name })) : null;
+    },
+  };
+  const mocks = new Map([
+    ["@/api", api],
+    ["@/homepage/utils/deviceProfile", { getCurrentDeviceInfo: () => info }],
+    ["@/homepage/homepageSetting/config", { normalizeComponentSectionsNavAlign: (value) => value ?? "left" }],
+  ]);
+  const context = vm.createContext({
+    Blob: globalThis.Blob,
+    TextDecoder,
+    ArrayBuffer,
+    window: { dispatchEvent() {} },
+    CustomEvent: class CustomEvent {
+      constructor(type, init) { this.type = type; this.detail = init?.detail; }
+    },
+  });
+  const cache = new Map();
+  const resolveFixtureImport = (importer, specifier) => {
+    const base = specifier.startsWith("@/")
+      ? path.join(root, "src", specifier.slice(2))
+      : specifier.startsWith(".") ? path.resolve(path.dirname(importer), specifier) : null;
+    if (!base) throw new Error(`Unexpected Device View fixture import: ${specifier}`);
+    const extension = path.extname(base);
+    const candidates = extension ? [base] : [".ts", ".tsx", ".js", ".mjs"].map((suffix) => `${base}${suffix}`);
+    for (const candidate of candidates) {
+      try {
+        readFileSync(candidate);
+        return candidate;
+      } catch {
+        // Try the next project source extension.
+      }
+    }
+    throw new Error(`Device View fixture module not found: ${specifier} from ${importer}`);
+  };
+  const load = (filePath) => {
+    const normalizedPath = path.resolve(filePath);
+    if (cache.has(normalizedPath)) return cache.get(normalizedPath).exports;
+    const module = { exports: {} };
+    cache.set(normalizedPath, module);
+    const source = readFileSync(normalizedPath, "utf8");
+    const js = ts.transpileModule(source, {
+      compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 },
+    }).outputText;
+    const localRequire = (specifier) => {
+      if (mocks.has(specifier)) return mocks.get(specifier);
+      return load(resolveFixtureImport(normalizedPath, specifier));
+    };
+    const wrapper = new vm.Script(`(function (module, exports, require) {\n${js}\n})`, {
+      filename: normalizedPath,
+    }).runInContext(context);
+    wrapper(module, module.exports, localRequire);
+    return module.exports;
+  };
+  const readiness = load(path.join(root, "src/homepage/deviceView/deviceViewReadiness.ts"));
+  const storage = load(path.join(root, "src/homepage/deviceView/deviceViewStorage.ts"));
+  return { files, calls, readiness, storage };
+}
+
+function assertNoLegacyReads(fixture, legacyId) {
+  const legacyRoot = `${deviceViewRoot}/${legacyId}/`;
+  assert.ok(![...fixture.calls.reads, ...fixture.calls.directoryReads]
+    .some((filePath) => filePath.startsWith(legacyRoot)), `unexpected legacy read under ${legacyRoot}`);
+}
+
+function assertOnlyDeviceViewScopes(fixture, scopeIds) {
+  const allowed = new Set(scopeIds);
+  const prefix = `${deviceViewRoot}/`;
+  for (const filePath of [...fixture.calls.reads, ...fixture.calls.directoryReads, ...fixture.calls.writes]) {
+    assert.ok(filePath.startsWith(prefix), `unexpected fixture storage path: ${filePath}`);
+    const [scope, surface, ...rest] = filePath.slice(prefix.length).split("/");
+    assert.ok(allowed.has(scope), `unexpected Device View scope access: ${scope}`);
+    if (fixture.calls.directoryReads.includes(filePath)) {
+      assert.ok(["desktop-homepage", "desktop-sidebar", "mobile-homepage"].includes(surface));
+      assert.equal(rest.length, 0, `directory listing escaped the exact surface: ${filePath}`);
+    }
+  }
+}
+
+function assertMetadata(document, scope, surface) {
+  assert.equal(document.schema, "siyuan-homepage-device-view");
+  assert.equal(document.deviceId, scope);
+  assert.equal(document.surface, surface);
+  assert.equal(document.version, 2);
+  assert.equal(document.revision, 1);
+  assert.ok(Number.isFinite(Date.parse(document.updatedAt)));
+}
+
+async function assertIncomplete(promise, missingType) {
+  let error;
+  try {
+    await promise;
+  } catch (caught) {
+    error = caught;
+  }
+  assert.ok(error, "expected incomplete Device View recovery to fail");
+  assert.equal(error.name, "DeviceViewTemporarilyIncompleteError");
+  assert.equal(error.missingType, missingType);
+}
+
+async function verifyRemoteDeviceViewRecoveryFixtures({ remoteA, remoteB, localDesktop, browserDesktop, nativeMobile }) {
+  const legacyId = remoteA.info.legacyRemotePhysicalDeviceId;
+  assert.equal(remoteA.info.isRemoteKernel, true);
+  assert.equal(remoteB.info.legacyRemotePhysicalDeviceId, legacyId);
+
+  // A: copy a complete old split-model homepage, normalize metadata/revisions, retain the source.
+  const homepageSource = seedDeviceView(legacyId, "desktop-homepage", { homepageSplit: true });
+  const homepageSnapshot = [...homepageSource.entries()];
+  const homepage = createDeviceViewFixture(remoteA.info, homepageSource);
+  const homepageContext = deviceViewContext(remoteA.info, "desktop-homepage");
+  await homepage.readiness.ensureCurrentDeviceViewReady(homepageContext);
+  const homepageManifest = await homepage.storage.readDeviceViewManifest(homepageContext);
+  const homepageLayout = await homepage.storage.readDeviceViewLayout(homepageContext);
+  const homepageSettings = await homepage.storage.readDeviceViewSettings(homepageContext);
+  const homepageWidget = await homepage.storage.readDeviceWidget(homepageContext, "home-widget");
+  const homepageDescriptor = await homepage.storage.readDeviceDescriptor(homepageContext);
+  assert.equal(homepageManifest.migration.source, "recovered-target");
+  assertMetadata(homepageManifest, remoteA.info.physicalDeviceId, "desktop-homepage");
+  assertMetadata(homepageLayout, remoteA.info.physicalDeviceId, "desktop-homepage");
+  assertMetadata(homepageSettings, remoteA.info.physicalDeviceId, "desktop-homepage");
+  assertMetadata(homepageWidget, remoteA.info.physicalDeviceId, "desktop-homepage");
+  assert.equal(homepageDescriptor.physicalDeviceId, remoteA.info.physicalDeviceId);
+  assert.equal(homepageLayout.componentSectionsModelVersion, 1);
+  assert.equal(homepageLayout.sections.main.name, "Main section");
+  assert.equal(homepageLayout.order[0].style, "width: 2fr");
+  assert.equal(homepageSettings.config.theme, "legacy-theme");
+  assert.deepEqual(JSON.parse(JSON.stringify(homepageSettings.config.preserved)), { density: "comfortable" });
+  assert.equal("componentSections" in homepageSettings.config, false);
+  assert.deepEqual(JSON.parse(JSON.stringify(homepageWidget.config)), {
+    type: "fixture-widget", options: { retained: true },
+  });
+  assert.equal(homepage.files.get(`${deviceViewRoot}/${remoteA.info.physicalDeviceId}/device.json`) !== undefined, true);
+  assert.deepEqual([...homepage.files.entries()].filter(([filePath]) => filePath.startsWith(`${deviceViewRoot}/${legacyId}/`)), homepageSnapshot);
+  assertOnlyDeviceViewScopes(homepage, [remoteA.info.physicalDeviceId, legacyId]);
+
+  // A: sidebar layout/widgets recover independently, with no synthesized settings file.
+  const sidebarSource = seedDeviceView(legacyId, "desktop-sidebar");
+  const sidebarSnapshot = [...sidebarSource.entries()];
+  const sidebar = createDeviceViewFixture(remoteA.info, sidebarSource);
+  const sidebarContext = deviceViewContext(remoteA.info, "desktop-sidebar");
+  await sidebar.readiness.ensureCurrentDeviceViewReady(sidebarContext);
+  const sidebarManifest = await sidebar.storage.readDeviceViewManifest(sidebarContext);
+  const sidebarLayout = await sidebar.storage.readDeviceViewLayout(sidebarContext);
+  const sidebarWidget = await sidebar.storage.readDeviceWidget(sidebarContext, "sidebar-widget");
+  assert.equal(sidebarManifest.migration.source, "recovered-target");
+  assertMetadata(sidebarManifest, remoteA.info.physicalDeviceId, "desktop-sidebar");
+  assertMetadata(sidebarLayout, remoteA.info.physicalDeviceId, "desktop-sidebar");
+  assertMetadata(sidebarWidget, remoteA.info.physicalDeviceId, "desktop-sidebar");
+  assert.equal(sidebar.files.has(viewPath(remoteA.info.physicalDeviceId, "desktop-sidebar", "view.json")), false);
+  assert.deepEqual([...sidebar.files.entries()].filter(([filePath]) => filePath.startsWith(`${deviceViewRoot}/${legacyId}/`)), sidebarSnapshot);
+  assert.ok(!sidebar.calls.reads.includes(viewPath(legacyId, "desktop-sidebar", "view.json")));
+  assertOnlyDeviceViewScopes(sidebar, [remoteA.info.physicalDeviceId, legacyId]);
+
+  // B: no deterministic legacy surface means ordinary empty initialization.
+  const missingInfo = fixtureDeviceInfo(remoteA.info, "desktop-front-b");
+  const missingLegacy = createDeviceViewFixture(missingInfo);
+  const missingContext = deviceViewContext(missingInfo, "desktop-homepage");
+  await missingLegacy.readiness.ensureCurrentDeviceViewReady(missingContext);
+  assert.equal((await missingLegacy.storage.readDeviceViewManifest(missingContext)).migration.source, "fresh");
+  assert.equal((await missingLegacy.storage.readDeviceViewLayout(missingContext)).order.length, 0);
+  assertOnlyDeviceViewScopes(missingLegacy, [missingInfo.physicalDeviceId, legacyId]);
+
+  // C: current manifest is authoritative; no legacy path is touched or overwritten.
+  const currentId = "desktop-front-current";
+  const existingCurrent = seedDeviceView(currentId, "desktop-homepage");
+  const oldSource = seedDeviceView(legacyId, "desktop-homepage", { homepageSplit: true });
+  const currentSnapshot = [...existingCurrent.entries()];
+  const current = createDeviceViewFixture(
+    fixtureDeviceInfo(remoteA.info, currentId),
+    new Map([...oldSource.entries(), ...existingCurrent.entries()]),
+  );
+  await current.readiness.ensureCurrentDeviceViewReady(deviceViewContext(fixtureDeviceInfo(remoteA.info, currentId), "desktop-homepage"));
+  assertNoLegacyReads(current, legacyId);
+  assert.deepEqual([...current.files.entries()].filter(([filePath]) => filePath.startsWith(`${deviceViewRoot}/${currentId}/`)), currentSnapshot);
+  assertOnlyDeviceViewScopes(current, [currentId]);
+
+  // D: an orphan current-scope widget is partial state, not an empty target.
+  const partialId = "desktop-front-partial";
+  const partialFiles = seedDeviceView(legacyId, "desktop-homepage", { homepageSplit: true });
+  partialFiles.set(viewPath(partialId, "desktop-homepage", "widgets/orphan.json"), "not read");
+  const partialInfo = fixtureDeviceInfo(remoteA.info, partialId);
+  const partial = createDeviceViewFixture(partialInfo, partialFiles);
+  await assertIncomplete(partial.readiness.ensureCurrentDeviceViewReady(deviceViewContext(partialInfo, "desktop-homepage")), "manifest");
+  assertNoLegacyReads(partial, legacyId);
+  assert.equal(partial.files.has(viewPath(partialId, "desktop-homepage", "manifest.json")), false);
+  assertOnlyDeviceViewScopes(partial, [partialId]);
+
+  // E: a committed source manifest with a missing referenced widget blocks recovery.
+  const missingWidgetSource = seedDeviceView(legacyId, "desktop-homepage", { homepageSplit: true, missingWidget: true });
+  const missingWidgetSnapshot = [...missingWidgetSource.entries()];
+  const missingWidgetInfo = fixtureDeviceInfo(remoteA.info, "desktop-front-missing-widget");
+  const missingWidget = createDeviceViewFixture(missingWidgetInfo, missingWidgetSource);
+  await assertIncomplete(missingWidget.readiness.ensureCurrentDeviceViewReady(deviceViewContext(missingWidgetInfo, "desktop-homepage")), "widget");
+  assert.equal(missingWidget.files.has(viewPath(missingWidgetInfo.physicalDeviceId, "desktop-homepage", "manifest.json")), false);
+  assert.deepEqual([...missingWidget.files.entries()], missingWidgetSnapshot);
+  assertOnlyDeviceViewScopes(missingWidget, [missingWidgetInfo.physicalDeviceId, legacyId]);
+
+  // E: a legacy layout without its manifest is an incomplete source, not absence.
+  const unmanifestedSource = seedDeviceView(legacyId, "desktop-homepage", { homepageSplit: true });
+  unmanifestedSource.delete(viewPath(legacyId, "desktop-homepage", "manifest.json"));
+  const unmanifestedSnapshot = [...unmanifestedSource.entries()];
+  const unmanifestedInfo = fixtureDeviceInfo(remoteA.info, "desktop-front-unmanifested");
+  const unmanifested = createDeviceViewFixture(unmanifestedInfo, unmanifestedSource);
+  await assertIncomplete(unmanifested.readiness.ensureCurrentDeviceViewReady(deviceViewContext(unmanifestedInfo, "desktop-homepage")), "manifest");
+  assert.equal(unmanifested.files.has(viewPath(unmanifestedInfo.physicalDeviceId, "desktop-homepage", "manifest.json")), false);
+  assert.deepEqual([...unmanifested.files.entries()], unmanifestedSnapshot);
+  assertOnlyDeviceViewScopes(unmanifested, [unmanifestedInfo.physicalDeviceId, legacyId]);
+
+  // F: corrupt legacy JSON remains untouched and is never replaced by a fresh target.
+  const corruptSource = seedDeviceView(legacyId, "desktop-homepage", { homepageSplit: true });
+  corruptSource.set(viewPath(legacyId, "desktop-homepage", "layout.json"), "{broken-json");
+  const corruptSnapshot = [...corruptSource.entries()];
+  const corruptInfo = fixtureDeviceInfo(remoteA.info, "desktop-front-corrupt");
+  const corrupt = createDeviceViewFixture(corruptInfo, corruptSource);
+  await assert.rejects(corrupt.readiness.ensureCurrentDeviceViewReady(deviceViewContext(corruptInfo, "desktop-homepage")));
+  assert.equal(corrupt.files.has(viewPath(corruptInfo.physicalDeviceId, "desktop-homepage", "manifest.json")), false);
+  assert.deepEqual([...corrupt.files.entries()], corruptSnapshot);
+  assertOnlyDeviceViewScopes(corrupt, [corruptInfo.physicalDeviceId, legacyId]);
+
+  // G: separate frontend-local scopes can both recover the same preserved source.
+  const sharedSource = seedDeviceView(legacyId, "desktop-homepage", { homepageSplit: true });
+  const sharedSnapshot = [...sharedSource.entries()];
+  const sharedStorage = new Map(sharedSource);
+  const remoteAStore = createDeviceViewFixture(remoteA.info, sharedStorage, true);
+  const remoteBStore = createDeviceViewFixture(remoteB.info, sharedStorage, true);
+  await remoteAStore.readiness.ensureCurrentDeviceViewReady(deviceViewContext(remoteA.info, "desktop-homepage"));
+  await remoteBStore.readiness.ensureCurrentDeviceViewReady(deviceViewContext(remoteB.info, "desktop-homepage"));
+  assert.notEqual(remoteA.info.physicalDeviceId, remoteB.info.physicalDeviceId);
+  for (const [fixture, info] of [[remoteAStore, remoteA.info], [remoteBStore, remoteB.info]]) {
+    const context = deviceViewContext(info, "desktop-homepage");
+    assert.equal((await fixture.storage.readDeviceViewManifest(context)).migration.source, "recovered-target");
+    assertMetadata(await fixture.storage.readDeviceViewLayout(context), info.physicalDeviceId, "desktop-homepage");
+  }
+  assert.deepEqual([...remoteAStore.files.entries()].filter(([filePath]) => filePath.startsWith(`${deviceViewRoot}/${legacyId}/`)), sharedSnapshot);
+  assertMetadata(
+    await remoteAStore.storage.readDeviceViewLayout(deviceViewContext(remoteA.info, "desktop-homepage")),
+    remoteA.info.physicalDeviceId,
+    "desktop-homepage",
+  );
+  assertOnlyDeviceViewScopes(remoteAStore, [remoteA.info.physicalDeviceId, legacyId]);
+  assertOnlyDeviceViewScopes(remoteBStore, [remoteB.info.physicalDeviceId, legacyId]);
+
+  // H/I/J: Local Desktop, Browser Desktop, and Mobile never consult the remote legacy scope.
+  for (const [name, info, surface] of [
+    ["local", localDesktop.info, "desktop-homepage"],
+    ["browser", browserDesktop.info, "desktop-homepage"],
+    ["mobile", nativeMobile.info, "mobile-homepage"],
+  ]) {
+    const source = seedDeviceView(legacyId, "desktop-homepage", { homepageSplit: true });
+    const fixture = createDeviceViewFixture(info, source);
+    const context = deviceViewContext(info, surface);
+    await fixture.readiness.ensureCurrentDeviceViewReady(context);
+    assertNoLegacyReads(fixture, legacyId);
+    const manifest = await fixture.storage.readDeviceViewManifest(context);
+    assert.equal(manifest.migration.source, "fresh", `${name} must use ordinary initialization`);
+    assert.equal((await fixture.storage.readDeviceViewLayout(context)).order.length, 0);
+    assertOnlyDeviceViewScopes(fixture, [context.scopeId, info.physicalDeviceId]);
+  }
+
+  console.log("Remote Desktop Device View recovery fixtures: PASS (A-J, legacy missing-manifest, homepage/sidebar, split-model, metadata, revision, preservation, incomplete/corrupt, multi-frontend, local/browser/mobile isolation)");
+}
+
 async function main() {
   const plugin = JSON.parse(await read("plugin.json"));
   assert.equal(plugin.minAppVersion, "3.8.0", "minAppVersion must remain 3.8.0");
@@ -259,10 +631,14 @@ async function main() {
   const localDesktop = await testIdentityModule(deviceSource, "desktop", "", "local-system-id", "unused-local");
   assert.equal(localDesktop.info.physicalDeviceId, `desktop-${stableHash("local-system-id")}`,
     "Local Desktop identity changed");
+  assert.equal(localDesktop.info.isRemoteKernel, false);
+  assert.equal(localDesktop.info.legacyRemotePhysicalDeviceId, undefined);
   const remoteA = await testIdentityModule(deviceSource, "desktop", "?remote=1", "remote-kernel-system-id", "front-a", identityStore);
   const remoteB = await testIdentityModule(deviceSource, "desktop", "?remote=1", "remote-kernel-system-id", "front-b");
   assert.equal(remoteA.info.physicalDeviceId, "desktop-front-a");
   assert.equal(remoteB.info.physicalDeviceId, "desktop-front-b");
+  assert.equal(remoteA.info.isRemoteKernel, true);
+  assert.equal(remoteA.info.legacyRemotePhysicalDeviceId, oldRemoteSharedId);
   assert.notEqual(remoteA.info.physicalDeviceId, remoteB.info.physicalDeviceId,
     "Different Desktop frontends connected to one Kernel must have separate Device View scopes");
   assert.equal(identityStore.get("syhomepage-device-id-desktop"), oldRemoteSharedId,
@@ -276,6 +652,7 @@ async function main() {
   assert.ok(browserDesktop.info.physicalDeviceId.startsWith("browser-"));
   assert.ok(browserMobile.info.physicalDeviceId.startsWith("browser-mobile-"));
   assert.equal(nativeMobile.info.physicalDeviceId, `mobile-${stableHash("mobile-kernel-id")}`);
+  await verifyRemoteDeviceViewRecoveryFixtures({ remoteA, remoteB, localDesktop, browserDesktop, nativeMobile });
   assertText(devicePaths.includes('return "mobile-shared"') && devicePaths.includes("return physicalDeviceId"),
     "Device View scope no longer preserves mobile-shared and per-physical-desktop separation");
 
