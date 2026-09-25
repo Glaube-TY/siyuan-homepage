@@ -25,6 +25,7 @@
     "update-version": "node --no-warnings ./scripts/update_version.js",
     "verify:homepage-mcp-server": "node --no-warnings ./scripts/verify-homepage-mcp-server.mjs",
     "verify:mobile-entitlement-sync": "node --no-warnings ./scripts/verify-mobile-entitlement-sync.mjs",
+    "verify:siyuan-api-compat": "node --no-warnings ./scripts/verify-siyuan-plugin-api-compat.mjs",
     "verify:entitlement": "pnpm verify:mobile-entitlement-sync",
     "verify:robot-quick-note": "node --no-warnings ./scripts/verify-robot-quick-note.mjs",
     "release": "node --no-warnings ./scripts/release.js",
@@ -55,7 +56,7 @@
     "npm-run-all": "^4.1.5",
     "rollup-plugin-livereload": "^2.0.5",
     "sass-embedded": "^1.89.2",
-    "siyuan": "1.2.2",
+    "siyuan": "1.2.8",
     "svelte": "^5.55.1",
     "typescript": "^5.9.3",
     "vite": "^6.0.0",
@@ -88,10 +89,5 @@
     "tyme4ts": "^1.3.9",
     "uapi-sdk-typescript": "0.1.4",
     "zod": "^4.4.1"
-  },
-  "pnpm": {
-    "patchedDependencies": {
-      "siyuan@1.2.2": "patches/siyuan@1.2.2.patch"
-    }
   }
 }

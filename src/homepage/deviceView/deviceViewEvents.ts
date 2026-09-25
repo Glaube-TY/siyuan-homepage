@@ -1,6 +1,7 @@
 import type { DeviceViewContext, DeviceViewSurface } from "./deviceViewTypes";
 
 export const DEVICE_VIEW_CHANGED_EVENT = "siyuan-homepage-device-view-changed";
+export const HOMEPAGE_SHARED_SETTINGS_EXTERNAL_CHANGE_EVENT = "homepage-shared-settings-external-change";
 
 export interface DeviceViewChangedDetail {
     deviceId: string;

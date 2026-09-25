@@ -4,11 +4,6 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
-patchedDependencies:
-  siyuan@1.2.2:
-    hash: 76o5q22qru6e6wk3znydsbv3ey
-    path: patches/siyuan@1.2.2.patch
-
 dependencies:
   '@ai-sdk/openai-compatible':
     specifier: ^2.0.41
@@ -145,8 +140,8 @@ devDependencies:
     specifier: ^1.89.2
     version: 1.100.0
   siyuan:
-    specifier: 1.2.2
-    version: 1.2.2(patch_hash=76o5q22qru6e6wk3znydsbv3ey)
+    specifier: 1.2.8
+    version: 1.2.8
   svelte:
     specifier: ^5.55.1
     version: 5.56.3
@@ -223,20 +218,20 @@ packages:
     resolution: {integrity: sha512-B/XlCaFIP8LOwzo+bz5uFzATYokcwCKQcghqnlfwSmM5eX/qTkvDBnDPs+gXtX/RyjxJ4DRikECcPJbyALA8FA==}
     dev: true
 
-  /@dop251/types-goja_nodejs-buffer@0.0.0-20260212111938-1f56ff5bcf14:
-    resolution: {integrity: sha512-+ZEK3z3RVSE9O7Ml8HoeLtYSI/yR2ifa7Ppabfjq5fW06Kf00PcUz6hjz2we1h9CxlhiI7pLglEy4+hTUYGsQA==}
+  /@dop251/types-goja_nodejs-buffer@0.0.0-20260918183711-b481721df8a2:
+    resolution: {integrity: sha512-RWaDBwsOPEtZhajOiOiMRIQYvQKZdtq9XrDhc49upOs3lIb5E9hj7AK90nUI9kI9qULQ4lDVvI94joTlDkH1Lg==}
     dependencies:
-      '@dop251/types-goja_nodejs-global': 0.0.0-20260212111938-1f56ff5bcf14
+      '@dop251/types-goja_nodejs-global': 0.0.0-20260918183711-b481721df8a2
     dev: true
 
-  /@dop251/types-goja_nodejs-global@0.0.0-20260212111938-1f56ff5bcf14:
-    resolution: {integrity: sha512-NYnSveyts20w79Qp+Cs6a8vyrP3+8QVisseCU/2F0rMXK/WmLvbQYmyjNFMlDbY8g3HcooTIB/2AwcwonabQEg==}
+  /@dop251/types-goja_nodejs-global@0.0.0-20260918183711-b481721df8a2:
+    resolution: {integrity: sha512-nE+7cM9ncPqboXC6jJ60AJJghVfIwN1iXT2E8lgzLJ2LM8b6BjteDU49jq03XAl+8IJG8AuID/pt3D7w5zcCjg==}
     dev: true
 
-  /@dop251/types-goja_nodejs-url@0.0.0-20260212111938-1f56ff5bcf14:
-    resolution: {integrity: sha512-RyxfUr5u0WOO0dV2/BxV+zJ2QwUqnIoSwIoPQcGHakWp8elJ/nSU86pUB9gSO77e2XHWZYAZvNN5tXa9yOXJaA==}
+  /@dop251/types-goja_nodejs-url@0.0.0-20260918183711-b481721df8a2:
+    resolution: {integrity: sha512-o4k1jM2mA4lvmdPYYbDeslXQlfFb+ezk5T4HplpRW0lBTmABDIgBV/tbdXAhIkcEtL5jcQJ3Kgnw+N9E/WMFQw==}
     dependencies:
-      '@dop251/types-goja_nodejs-global': 0.0.0-20260212111938-1f56ff5bcf14
+      '@dop251/types-goja_nodejs-global': 0.0.0-20260918183711-b481721df8a2
     dev: true
 
   /@epic-web/invariant@1.0.0:
@@ -3816,15 +3811,14 @@ packages:
       svelte: 4.2.20
     dev: false
 
-  /siyuan@1.2.2(patch_hash=76o5q22qru6e6wk3znydsbv3ey):
-    resolution: {integrity: sha512-2Y/0rfmaXj5PKD8z2Mm/55wlAYbSdNlQrmYZWV22+2frHJEPujbqrEJWZSbl2DCGZEprjP4ByvcTt8QqEsSYjQ==}
+  /siyuan@1.2.8:
+    resolution: {integrity: sha512-44tTh1leDkrgj8wQChLjkkbBvDk2lDF0QiAfs1GXmAlAEkber4kx5TLNIGzgsDnTR+Hw3L5kPz5m6s0YckpKew==}
     dependencies:
-      '@dop251/types-goja_nodejs-buffer': 0.0.0-20260212111938-1f56ff5bcf14
-      '@dop251/types-goja_nodejs-global': 0.0.0-20260212111938-1f56ff5bcf14
-      '@dop251/types-goja_nodejs-url': 0.0.0-20260212111938-1f56ff5bcf14
-      zod: 4.4.3
+      '@dop251/types-goja_nodejs-buffer': 0.0.0-20260918183711-b481721df8a2
+      '@dop251/types-goja_nodejs-global': 0.0.0-20260918183711-b481721df8a2
+      '@dop251/types-goja_nodejs-url': 0.0.0-20260918183711-b481721df8a2
+      zod: 4.6.5
     dev: true
-    patched: true
 
   /sortablejs@1.15.7:
     resolution: {integrity: sha512-Kk8wLQPlS+yi1ZEf48a4+fzHa4yxjC30M/Sr2AnQu+f/MPwvvX9XjZ6OWejiz8crBsLwSq8GHqaxaET7u6ux0A==}
@@ -4437,6 +4431,11 @@ packages:
 
   /zod@4.4.3:
     resolution: {integrity: sha512-ytENFjIJFl2UwYglde2jchW2Hwm4GJFLDiSXWdTrJQBIN9Fcyp7n4DhxJEiWNAJMV1/BqWfW/kkg71UDcHJyTQ==}
+    dev: false
+
+  /zod@4.6.5:
+    resolution: {integrity: sha512-v5l/aFXZQeai4awLbOpSoHecE9UiMrnfx75tEXLjNonXVARxQ5mOeipTjROUchszUNCqnE+hqAMujRsRHsut2Q==}
+    dev: true
 
   /zrender@5.6.1:
     resolution: {integrity: sha512-OFXkDJKcrlx5su2XbzJvj/34Q3m6PvyCZkVPHGYpcCJ52ek4U/ymZyfuV1nKE23AyBJ51E/6Yr0mhZ7xGTO4ag==}

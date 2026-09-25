@@ -5,11 +5,11 @@ import {
     openTab,
     openMobileFileById,
     getFrontend,
-    Model,
     fetchPost,
     fetchSyncPost,
     platformUtils,
     type IMenuItem,
+    type TPluginDataChangeReason,
 } from "siyuan";
 import { setSiyuanRuntimePort } from "@/runtime/siyuan-runtime-port";
 import { scheduleIdleTask } from "@/utils/runtime/idleTask";
@@ -96,6 +96,7 @@ import { destroyTaskDataRuntime, startTaskDataRuntime } from "@/features/task-da
 import { destroyCountdownNotifyScheduler, setCountdownNotifyPlugin, startCountdownNotifyScheduler } from "@/features/countdown-notify";
 import { destroyEnhancedDiaryNotifyScheduler, setEnhancedDiaryNotifyPlugin, setEnhancedDiaryNotifyRulesPlugin, startEnhancedDiaryNotifyScheduler } from "@/features/enhanced-diary-notify";
 import { destroyReviewNotifyScheduler, setReviewNotifyPlugin, startReviewNotifyScheduler } from "@/features/review-notify";
+import { removeTopBarWithFallback, supportsDynamicToolbar } from "@/utils/siyuanPluginApiCompat";
 import { getSelectionAiToolbarSettingsSnapshot, loadSelectionAiToolbarSettingsSnapshot } from "@/features/kb/services/selection-ai/selection-ai-config";
 import { clearSelectionAskPayloadHandler } from "@/features/kb/services/selection-ai/selection-ai-chat-bridge";
 import { destroySelectionAiPopup } from "@/features/kb/services/selection-ai/selection-ai-popup-controller";
@@ -103,6 +104,7 @@ import { destroySelectionAiActionMenu } from "@/features/kb/services/selection-a
 import { createSelectionAiToolbarItems, removeSelectionAiToolbarItems } from "@/features/kb/services/selection-ai/selection-ai-menu";
 import { initSelectionAiToolbarPointerTracker, destroySelectionAiToolbarPointerTracker } from "@/features/kb/services/selection-ai/selection-ai-toolbar-pointer-tracker";
 import type { SelectionAiToolbarSettings } from "@/features/kb/services/selection-ai/selection-ai-types";
+import { HOMEPAGE_SHARED_SETTINGS_EXTERNAL_CHANGE_EVENT } from "./homepage/deviceView/deviceViewEvents";
 import { pushAgentDebugEvent } from "@/features/kb/services/agent-workbench/debug/workbench-debug";
 import Sidebar from "./components/utils/sidebar/sidebar.svelte";
 import MobileHomepage from "./homepage/mobileHomepage/mobileHomepage.svelte";
@@ -150,8 +152,9 @@ import {
 
 let notificationPlanUnregisters: Array<() => void> = [];
 
-type TPluginDataChangeReason = "sync" | "overwrite";
 type HomepageEntitlementVerificationOptions = { syncServer: boolean };
+const HOMEPAGE_TOPBAR_ID = "siyuan-homepage-homepage";
+const KB_CHAT_TOPBAR_ID = "siyuan-homepage-kb-chat";
 
 const MOBILE_ENTITLEMENT_SYNC_GRACE_MS = 8_000;
 const HOMEPAGE_ENTITLEMENT_EXTERNAL_REFRESH_DEBOUNCE_MS = 300;
@@ -311,9 +314,9 @@ interface PluginConfig {
 }
 
 export default class PluginHomepage extends Plugin {
-    customTab?: () => Model;
-    enhancedDiaryWorkspaceTab?: () => Model;
-    kbChatTab?: () => Model;
+    customTab?: ReturnType<Plugin["addTab"]>;
+    enhancedDiaryWorkspaceTab?: ReturnType<Plugin["addTab"]>;
+    kbChatTab?: ReturnType<Plugin["addTab"]>;
     isMobile = false;
     currentMobileDialog: ReturnType<typeof svelteDialog> | null = null;
     private currentMobileKbDialog: ReturnType<typeof svelteDialog> | null = null;
@@ -359,6 +362,7 @@ export default class PluginHomepage extends Plugin {
     private homepageServerRevokedLicense = "";
     private homepagePremiumBackgroundRuntimesStarted = false;
     private selectionAiPremiumRuntimeStart: Promise<void> | null = null;
+    private selectionAiToolbarItemNames = new Set<string>();
     private homepageEntitlementVisibilityBindThis = () => {
         if (document.visibilityState !== "visible") return;
         const snapshot = getHomepageEntitlementSnapshot();
@@ -407,6 +411,7 @@ export default class PluginHomepage extends Plugin {
         if (reason !== undefined && reason !== "sync" && reason !== "overwrite") return;
         // 只刷新会员快照；不调用基类实现，不卸载插件，不重建主页或设备视图。
         this.scheduleHomepageEntitlementExternalRefresh(reason ?? "unknown");
+        window.dispatchEvent(new CustomEvent(HOMEPAGE_SHARED_SETTINGS_EXTERNAL_CHANGE_EVENT));
     }
 
     private ensureDeviceIdentityForRuntime(): Promise<void> {
@@ -749,6 +754,10 @@ export default class PluginHomepage extends Plugin {
     }
 
     private stopSelectionAiPremiumRuntime(): void {
+        if (typeof this.removeToolbarItem === "function") {
+            for (const name of this.selectionAiToolbarItemNames) this.removeToolbarItem(name);
+        }
+        this.selectionAiToolbarItemNames.clear();
         destroySelectionAiPopup();
         destroySelectionAiActionMenu();
         destroySelectionAiToolbarPointerTracker();
@@ -759,9 +768,22 @@ export default class PluginHomepage extends Plugin {
             this.stopSelectionAiPremiumRuntime();
             return;
         }
-        if (!getSelectionAiToolbarSettingsSnapshot().enabled) {
+        const settings = getSelectionAiToolbarSettingsSnapshot();
+        if (!settings.enabled) {
             this.stopSelectionAiPremiumRuntime();
             return;
+        }
+        if (supportsDynamicToolbar(this)) {
+            const nextNames = new Set<string>();
+            for (const item of createSelectionAiToolbarItems({ plugin: this, settings })) {
+                if (typeof item === "string" || typeof item.name !== "string") continue;
+                this.addToolbarItem(item);
+                nextNames.add(item.name);
+            }
+            for (const name of this.selectionAiToolbarItemNames) {
+                if (!nextNames.has(name)) this.removeToolbarItem(name);
+            }
+            this.selectionAiToolbarItemNames = nextNames;
         }
         initSelectionAiToolbarPointerTracker();
     }
@@ -1006,6 +1028,7 @@ export default class PluginHomepage extends Plugin {
     }
 
     updateProtyleToolbar(toolbar: Array<string | IMenuItem>): Array<string | IMenuItem> {
+        if (supportsDynamicToolbar(this)) return toolbar;
         // SiYuan passes an empty array when it only wants to enumerate shortcut items.
         // The selection AI menu is an editor toolbar action, not a shortcut command.
         if (toolbar.length === 0) return toolbar;
@@ -2080,6 +2103,7 @@ export default class PluginHomepage extends Plugin {
         if (this.homepageTopBarElement !== null) return;
         this.removeExistingTopBar("homepage", this.homepageTopBarElement);
         const homepageTopBar = this.addTopBar({
+            id: HOMEPAGE_TOPBAR_ID,
             icon: "iconhomepage",
             title: "打开主页",
             position: "left",
@@ -2100,6 +2124,7 @@ export default class PluginHomepage extends Plugin {
             if (this.kbTopBarElement !== null) return;
             this.removeExistingTopBar("kb-chat", this.kbTopBarElement);
             const kbTopBar = this.addTopBar({
+                id: KB_CHAT_TOPBAR_ID,
                 icon: "iconNotebrain",
                 title: "打开 AI 知识库",
                 position: "left",
@@ -2114,9 +2139,12 @@ export default class PluginHomepage extends Plugin {
     }
 
     private removeExistingTopBar(kind: "homepage" | "kb-chat", currentElement: HTMLElement | null): void {
-        currentElement?.remove();
-        document.querySelectorAll(`[data-siyuan-homepage-topbar="${kind}"]`).forEach((element) => {
-            element.remove();
+        const id = kind === "homepage" ? HOMEPAGE_TOPBAR_ID : KB_CHAT_TOPBAR_ID;
+        removeTopBarWithFallback(this, id, () => {
+            currentElement?.remove();
+            document.querySelectorAll(`[data-siyuan-homepage-topbar="${kind}"]`).forEach((element) => {
+                element.remove();
+            });
         });
     }
 

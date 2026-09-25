@@ -44,6 +44,7 @@
     import { ensureCurrentDeviceViewReady } from "../deviceView/deviceViewReadiness"
     import { readDeviceViewSettings } from "../deviceView/deviceViewStorage"
     import { getSafeDeviceViewErrorMessage } from "../deviceView/deviceViewErrors"
+    import { HOMEPAGE_SHARED_SETTINGS_EXTERNAL_CHANGE_EVENT } from "../deviceView/deviceViewEvents"
     import AboutSection from "./sections/AboutSection.svelte"
     import VipSection from "./sections/VipSection.svelte"
     import HomepageGlobalSection from "./sections/HomepageGlobalSection.svelte"
@@ -581,7 +582,7 @@
     };
 
     const AUTO_SAVE_DELAY_MS = 600;
-    const SHARED_SETTINGS_POLL_MS = 10000;
+    const SHARED_SETTINGS_POLL_MS = 60000;
 
     let autoSaveStatus = $state<SettingsSaveStatus>("idle");
     let autoSaveTimer: ReturnType<typeof setTimeout> | null = null;
@@ -878,7 +879,7 @@
         if (
             !isSettingsAlive()
             || !settingsLoaded
-            || document.visibilityState === "hidden"
+            || document.visibilityState !== "visible"
             || autoSavePending
             || autoSaveStatus === "saving"
             || sharedSettingsRefreshInFlight
@@ -1231,6 +1232,7 @@
 
         window.addEventListener(KB_SETTINGS_CHANGED_EVENT, handleKbSettingsChanged);
         window.addEventListener("homepage-settings-saved", handleHomepageSettingsSavedEvent);
+        window.addEventListener(HOMEPAGE_SHARED_SETTINGS_EXTERNAL_CHANGE_EVENT, handleHomepageSettingsSavedEvent);
         window.addEventListener("focus", handleSettingsFocus);
         document.addEventListener("visibilitychange", handleSettingsVisibilityChange);
         lastLoadedMobileSignature = captureMobileSettingsSignature();
@@ -1285,6 +1287,7 @@
         }
         window.removeEventListener(KB_SETTINGS_CHANGED_EVENT, handleKbSettingsChanged);
         window.removeEventListener("homepage-settings-saved", handleHomepageSettingsSavedEvent);
+        window.removeEventListener(HOMEPAGE_SHARED_SETTINGS_EXTERNAL_CHANGE_EVENT, handleHomepageSettingsSavedEvent);
         window.removeEventListener("focus", handleSettingsFocus);
         document.removeEventListener("visibilitychange", handleSettingsVisibilityChange);
         window.removeEventListener(HOMEPAGE_THEME_TRANSITION_EVENT, handleHomepageThemeTransition);
