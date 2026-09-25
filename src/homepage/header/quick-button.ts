@@ -1,22 +1,12 @@
 import { addCustomBlock } from "../../components/utils/widgetBlock/utils/block-creator";
 import { svelteDialog } from "@/libs/dialog";
 import HomepageSetting from "../homepageSetting/homepageSetting.svelte";
-import Mousetrap from "mousetrap";
+import { globalCommand } from "siyuan";
 import { mount } from "svelte";
 import { openEmptyDocCleanerDialog } from "../features/emptyDocCleaner/openEmptyDocCleanerDialog";
 import { openTemplateCenterDialog } from "../features/templateCenter/openTemplateCenterDialog";
 import type { HomepageLayoutRuntimeOptions } from "@/components/utils/widgetBlock/utils/layout-handler";
 import type { HomepageSettingOpenOptions } from "../homepageSetting/types";
-
-type ExtendedKeyboardEvent = KeyboardEvent & {
-    keyCode: number;
-    shiftKey: boolean;
-    ctrlKey: boolean;
-    altKey: boolean;
-    metaKey: boolean;
-    preventDefault: () => void;
-    stopPropagation: () => void;
-};
 
 export type ButtonItem = {
     id: number;
@@ -26,9 +16,6 @@ export type ButtonItem = {
     order: number;
     action?: string;
 };
-
-const registeredShortcuts = new Map<string, ButtonItem>();
-const normalizedShortcuts = new Map<string, string>();
 
 // 修饰键固定顺序
 const MODIFIER_ORDER = ["ctrl", "alt", "shift", "meta"];
@@ -202,67 +189,6 @@ function isMac(): boolean {
     return /Mac|iPod|iPhone|iPad/.test(navigator.platform);
 }
 
-function checkShortcutConflict(shortcut: string): boolean {
-    const normalized = normalizeShortcut(shortcut);
-
-    if (normalizedShortcuts.has(normalized)) {
-        const originalShortcut = normalizedShortcuts.get(normalized);
-        console.warn(`快捷键 ${displayShortcut(shortcut)} 与 ${displayShortcut(originalShortcut!)} 冲突`);
-        return true;
-    }
-
-    return false;
-}
-
-function registerShortcut(shortcut: string, button: ButtonItem): boolean {
-    if (!shortcut || !button) return false;
-
-    const normalized = normalizeShortcut(shortcut);
-
-    if (checkShortcutConflict(shortcut)) {
-        return false;
-    }
-
-    Mousetrap.bind(normalized, (e: ExtendedKeyboardEvent) => {
-        // 防止递归：忽略 synthetic event（代码手动 dispatch 的事件）
-        if (!e.isTrusted) {
-            return true;
-        }
-        e.preventDefault();
-        triggerShortcut(button);
-        return false;
-    });
-
-    registeredShortcuts.set(shortcut, button);
-    normalizedShortcuts.set(normalized, shortcut);
-
-    return true;
-}
-
-function clearRegisteredShortcuts(): void {
-    // 精确解绑本文件自己注册过的快捷键
-    for (const normalized of normalizedShortcuts.keys()) {
-        Mousetrap.unbind(normalized);
-    }
-    registeredShortcuts.clear();
-    normalizedShortcuts.clear();
-}
-
-export function unregisterAllShortcuts(): void {
-    clearRegisteredShortcuts();
-}
-
-export function reRegisterAllShortcuts(buttonsList: ButtonItem[]): void {
-    clearRegisteredShortcuts();
-
-    buttonsList.forEach(item => {
-        // 所有配置了 shortcut 的按钮都参与快捷键注册，不再依赖 checked 状态
-        if (item.shortcut?.trim()) {
-            registerShortcut(item.shortcut.trim(), item);
-        }
-    });
-}
-
 export function createOpenHomepageSetting(plugin: any, options: HomepageSettingOpenOptions = {}) {
     return function OpenHomepageSetting() {
         const dialog = svelteDialog({
@@ -340,18 +266,18 @@ export function handleButtonClick(
         openTemplateCenterDialog(plugin);
     } else if (action === "aiKnowledgeBase") {
         void plugin.openKbChatTab?.();
-    } else if (action === "search" || action === "diary") {
-        // 搜索和日记按钮通过 shortcut 触发，但已有 isTrusted 保护不会递归
-        if (item.shortcut) {
-            triggerShortcut(item);
-        }
+    } else if (action === "search") {
+        globalCommand("globalSearch", plugin.app);
+    } else if (action === "diary") {
+        globalCommand("dailyNote", plugin.app);
     } else if (item.shortcut) {
         triggerShortcut(item);
     }
 }
 
 function triggerShortcut(item: ButtonItem): void {
-    const keys = item.shortcut!.toLowerCase().split("+");
+    const normalized = normalizeShortcut(item.shortcut ?? "");
+    const keys = normalized.split("+");
     const modifiers = keys.filter((k) =>
         ["ctrl", "alt", "shift", "meta"].includes(k),
     );
@@ -359,6 +285,7 @@ function triggerShortcut(item: ButtonItem): void {
 
     if (!mainKey) return;
 
+    const keyCode = keyCodeMap[mainKey] ?? 0;
     const keyEvent = new KeyboardEvent("keydown", {
         bubbles: true,
         cancelable: true,
@@ -366,20 +293,60 @@ function triggerShortcut(item: ButtonItem): void {
         altKey: modifiers.includes("alt"),
         shiftKey: modifiers.includes("shift"),
         metaKey: modifiers.includes("meta"),
-        key: mainKey === "space" ? " " : mainKey,
+        key: keyboardEventKeyFor(mainKey),
         code: codeFor(mainKey),
-        keyCode: keyCodeMap[mainKey] || 0,
-        which: keyCodeMap[mainKey] || 0,
+        keyCode,
+        which: keyCode,
     });
 
-    document.dispatchEvent(keyEvent);
+    resolveShortcutDispatchTarget().dispatchEvent(keyEvent);
+}
+
+function resolveShortcutDispatchTarget(): HTMLElement {
+    const activeElement = document.activeElement;
+    if (activeElement instanceof HTMLElement && activeElement.isConnected) {
+        return activeElement;
+    }
+    if (document.body instanceof HTMLElement) {
+        return document.body;
+    }
+    if (document.documentElement instanceof HTMLElement) {
+        return document.documentElement;
+    }
+    throw new Error("No HTMLElement is available for shortcut dispatch.");
+}
+
+const SPECIAL_KEYBOARD_EVENTS: Record<string, { key: string; code: string }> = {
+    space: { key: " ", code: "Space" },
+    enter: { key: "Enter", code: "Enter" },
+    tab: { key: "Tab", code: "Tab" },
+    backspace: { key: "Backspace", code: "Backspace" },
+    delete: { key: "Delete", code: "Delete" },
+    arrowup: { key: "ArrowUp", code: "ArrowUp" },
+    arrowdown: { key: "ArrowDown", code: "ArrowDown" },
+    arrowleft: { key: "ArrowLeft", code: "ArrowLeft" },
+    arrowright: { key: "ArrowRight", code: "ArrowRight" },
+    home: { key: "Home", code: "Home" },
+    end: { key: "End", code: "End" },
+    pageup: { key: "PageUp", code: "PageUp" },
+    pagedown: { key: "PageDown", code: "PageDown" },
+    escape: { key: "Escape", code: "Escape" },
+    insert: { key: "Insert", code: "Insert" },
+};
+
+function keyboardEventKeyFor(key: string): string {
+    if (SPECIAL_KEYBOARD_EVENTS[key]) return SPECIAL_KEYBOARD_EVENTS[key].key;
+    if (/^f(?:[1-9]|1[0-9]|20)$/.test(key)) return key.toUpperCase();
+    return key;
 }
 
 export function codeFor(key: string): string {
-    if (/[a-z]/.test(key)) return `Key${key.toUpperCase()}`;
-    if (/[0-9]/.test(key)) return `Digit${key}`;
+    if (SPECIAL_KEYBOARD_EVENTS[key]) return SPECIAL_KEYBOARD_EVENTS[key].code;
+    if (/^[a-z]$/.test(key)) return "Key" + key.toUpperCase();
+    if (/^[0-9]$/.test(key)) return "Digit" + key;
+    if (/^f(?:[1-9]|1[0-9]|20)$/.test(key)) return key.toUpperCase();
 
-    const specialKeys: Record<string, string> = {
+    const punctuationCodes: Record<string, string> = {
         "[": "BracketLeft",
         "]": "BracketRight",
         "{": "BracketLeft",
@@ -400,7 +367,7 @@ export function codeFor(key: string): string {
         "+": "Equal",
     };
 
-    return specialKeys[key] || "";
+    return punctuationCodes[key] || "";
 }
 
 // 键码映射表

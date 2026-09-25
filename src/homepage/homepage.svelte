@@ -42,8 +42,6 @@
         createOpenHomepageSetting,
         handleButtonClick,
         getButtonAction,
-        reRegisterAllShortcuts,
-        unregisterAllShortcuts,
     } from "./header/quick-button";
     import {
         updateMouseEffects,
@@ -2886,7 +2884,6 @@
                 await updateDisplayedStatsInfoText();
                 await tick();
                 await restoreVisibleComponentSections();
-                reRegisterAllShortcuts(buttonsList);
                 startFallingEffects();
                 applyMouseEffectsConfig();
             } catch (error) {
@@ -2953,7 +2950,6 @@
                     if (homepageComponentDestroyed || refreshGeneration !== externalStorageRefreshGeneration) return;
                     await restoreVisibleComponentSections();
                     if (homepageComponentDestroyed || refreshGeneration !== externalStorageRefreshGeneration) return;
-                    reRegisterAllShortcuts(buttonsList);
                     applyMouseEffectsConfig();
                     if (homepageComponentDestroyed || refreshGeneration !== externalStorageRefreshGeneration) return;
                     pendingExternalStorageRefresh = false;
@@ -3126,7 +3122,6 @@
             homepageThemeTransitionTimer = null;
         }
         abortStatusAiRequest();
-        unregisterAllShortcuts();
         cleanupFallingEffects();
         cleanupMouseEffects();
     }
@@ -3235,7 +3230,6 @@
         }
 
         // 配置加载完成后初始化特效和事件监听
-        reRegisterAllShortcuts(buttonsList);
         document.addEventListener("click", handleClickEffect);
 
         // 视觉特效不影响主页可用性，避免与首屏绘制争抢主线程。
@@ -3316,7 +3310,6 @@
             handleWidgetSectionMoved as EventListener,
         );
         document.removeEventListener("click", handleClickEffect);
-        unregisterAllShortcuts();
         cleanupMouseEffects();
         cleanupHomepageBackgroundImageStyle();
         abortStatusAiRequest();
