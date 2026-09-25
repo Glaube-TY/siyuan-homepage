@@ -1,4 +1,5 @@
 import { SubsonicError, toSubsonicTransportError } from "./subsonicErrors";
+import { fetchSubsonicFrontend } from "./subsonicFrontendRequest";
 import { parseSubsonicEnvelope } from "./subsonicResponse";
 import type { SubsonicEndpointKind, SubsonicEndpointName, SubsonicEnvelope, SubsonicRequestOptions } from "./subsonicTypes";
 import { buildSubsonicUrl } from "./subsonicUrl";
@@ -28,8 +29,14 @@ export class SubsonicClient {
         if (options.signal?.aborted) throw new SubsonicError("request_aborted", "请求已取消。" );
         const url = this.buildUrl(baseUrl, endpoint, params);
         try {
-            const proxy = this.proxy || (await import("../../../../../../api")).forwardProxyChecked;
-            const response = await proxy(url, "GET", {}, [], options.timeoutMs ?? 7000, "application/json", undefined, "text");
+            const timeoutMs = options.timeoutMs ?? 7000;
+            const response = this.proxy
+                ? await this.proxy(url, "GET", {}, [], timeoutMs, "application/json", undefined, "text")
+                : endpointKind === "local"
+                    ? await fetchSubsonicFrontend(url, timeoutMs, "text", options.signal)
+                    : await (await import("../../../../../../api")).forwardProxyChecked(
+                        url, "GET", {}, [], timeoutMs, "application/json", undefined, "text", false,
+                    );
             if (options.signal?.aborted) throw new SubsonicError("request_aborted", "请求已取消。" );
             if (response.status < 200 || response.status >= 300) {
                 if (response.status === 401) throw new SubsonicError("auth_failed", "用户名或密码不正确。", { httpStatus: response.status });

@@ -199,6 +199,7 @@ export function createSiyuanKernelHost(api: kernel.ISiyuan, options: SiyuanKerne
         headers: Object.entries(headers).map(([name, value]) => ({ [name]: value })),
         payload: body ?? {},
         responseEncoding: "text",
+        redirect: false,
       };
       const resp = await api.client.fetch("/api/network/forwardProxy", {
         method: "POST",

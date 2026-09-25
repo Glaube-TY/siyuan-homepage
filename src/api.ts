@@ -1078,54 +1078,18 @@ export function cancelMobileLocalNotification(id: number): void {
 }
 
 // **************************************** Network ****************************************
-export interface HttpProxyTextResponse {
-    status: number;
-    body: string;
-    bodyEncoding: "text";
-    contentType: string;
-    headers: Record<string, string>;
-    url: string;
-}
-
-function encodeBase64Url(value: string): string {
-    const bytes = new TextEncoder().encode(value);
-    let binary = "";
-    for (const byte of bytes) binary += String.fromCharCode(byte);
-    return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-}
-
-export async function httpProxyGetText(
+export async function forwardProxyGetText(
     url: string,
     headers: Record<string, string> = {},
     timeoutMs: number = 7000,
-): Promise<HttpProxyTextResponse> {
-    const proxyHeaders = Object.fromEntries(
-        Object.entries(headers).map(([name, value]) => [name, [value]]),
-    );
-    const params = new URLSearchParams({
-        u: encodeBase64Url(url),
-        h: encodeBase64Url(JSON.stringify(proxyHeaders)),
-        t: `${Math.max(1, Math.ceil(timeoutMs / 1000))}s`,
-    });
-    const response = await fetch(`/api/network/proxy?${params.toString()}`, { method: "GET" });
-    const responseHeaders: Record<string, string> = {};
-    response.headers.forEach((value, name) => { responseHeaders[name] = value; });
-    return {
-        status: response.status,
-        body: await response.text(),
-        bodyEncoding: "text",
-        contentType: response.headers.get("Siyuan-Proxy-Content-Type")
-            ?? response.headers.get("content-type")
-            ?? "",
-        headers: responseHeaders,
-        url,
-    };
+): Promise<IResForwardProxy> {
+    return forwardProxyChecked(url, "GET", {}, [headers], timeoutMs, "application/json", undefined, "text");
 }
 
 export async function forwardProxy(
     url: string, method: string = 'GET', payload: any = {},
     headers: any[] = [], timeout: number = 7000, contentType: string = "text/html",
-    payloadEncoding?: string, responseEncoding?: string
+    payloadEncoding?: string, responseEncoding?: string, redirect?: boolean
 ): Promise<IResForwardProxy> {
     let data: any = {
         url: url,
@@ -1141,6 +1105,9 @@ export async function forwardProxy(
     if (responseEncoding) {
         data.responseEncoding = responseEncoding;
     }
+    if (typeof redirect === "boolean") {
+        data.redirect = redirect;
+    }
     let url1 = '/api/network/forwardProxy';
     return request(url1, data);
 }
@@ -1152,7 +1119,7 @@ export async function forwardProxy(
 export async function forwardProxyRaw(
     url: string, method: string = 'GET', payload: any = {},
     headers: any[] = [], timeout: number = 7000, contentType: string = "text/html",
-    payloadEncoding?: string, responseEncoding?: string
+    payloadEncoding?: string, responseEncoding?: string, redirect?: boolean
 ): Promise<IWebSocketData> {
     let data: any = {
         url: url,
@@ -1168,6 +1135,9 @@ export async function forwardProxyRaw(
     if (responseEncoding) {
         data.responseEncoding = responseEncoding;
     }
+    if (typeof redirect === "boolean") {
+        data.redirect = redirect;
+    }
     return requestRaw('/api/network/forwardProxy', data);
 }
 
@@ -1179,10 +1149,10 @@ export async function forwardProxyRaw(
 export async function forwardProxyChecked(
     url: string, method: string = 'GET', payload: any = {},
     headers: any[] = [], timeout: number = 7000, contentType: string = "text/html",
-    payloadEncoding?: string, responseEncoding?: string
+    payloadEncoding?: string, responseEncoding?: string, redirect?: boolean
 ): Promise<IResForwardProxy> {
     const response = await forwardProxyRaw(
-        url, method, payload, headers, timeout, contentType, payloadEncoding, responseEncoding
+        url, method, payload, headers, timeout, contentType, payloadEncoding, responseEncoding, redirect
     );
     if (response.code !== 0) {
         const error: Error & { code?: string; siyuanCode?: number } = new Error(

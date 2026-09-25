@@ -216,11 +216,17 @@ export async function* readProviderStreamWithIdleTimeout(
 /** 浏览器传输：直接使用当前环境 fetch，保留 AI 知识库现有流式体验。 */
 export class BrowserAgentHttpTransport implements AgentHttpTransport {
   async post(options: AgentHttpPostOptions): Promise<AgentHttpResponse> {
+    const carriesSensitiveHeaders = Object.keys(options.headers).some((name) =>
+      /^(authorization|cookie|proxy-authorization)$|(?:^|[-_])(?:api[-_]?key|apikey|auth[-_]?token|token|secret|credential|password|subscription[-_]?key)(?:$|[-_])/i.test(name),
+    );
+    const carriesSensitiveQuery = /[?&][^=&]*(?:key|token|secret|auth|credential|password|sig(?:nature)?)[^=&]*=/i.test(options.url);
     const response = await fetch(options.url, {
       method: "POST",
       headers: options.headers,
       body: options.body,
+      credentials: "omit",
       signal: options.signal,
+      redirect: carriesSensitiveHeaders || carriesSensitiveQuery ? "error" : "follow",
     });
     return response as unknown as AgentHttpResponse;
   }

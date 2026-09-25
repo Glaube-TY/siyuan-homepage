@@ -27,7 +27,7 @@ export async function postExternalJson(
   }
   const headerArray = Object.entries({ "Content-Type": "application/json", ...headers }).map(([key, value]) => ({ [key]: value }));
   try {
-    const response = await forwardProxy(url, "POST", payload, headerArray, timeoutMs, "application/json", undefined, "text");
+    const response = await forwardProxy(url, "POST", payload, headerArray, timeoutMs, "application/json", undefined, "text", false);
     const durationMs = response?.elapsed ?? Date.now() - startedAt;
     const status = response?.status ?? 0;
     const bodyText = typeof response?.body === "string" ? response.body : "";
@@ -39,7 +39,7 @@ export async function postExternalJson(
       // Generic webhooks may return text.
     }
     if (!response || !status) throw Object.assign(new Error("发送失败：网络请求未返回有效响应。"), { code: "network_error" });
-    if (status >= 400) {
+    if (status >= 300) {
       const detail = bodyJson?.msg || bodyJson?.message || bodyJson?.error || bodyText;
       throw Object.assign(new Error(`发送失败：HTTP ${status}${detail ? `，${redactMessage(detail)}` : ""}`), { code: "http_error", status });
     }

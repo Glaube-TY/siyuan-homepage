@@ -1,6 +1,7 @@
 import type { SubsonicEndpointManager } from "./subsonicEndpointManager";
 import type { SubsonicClient, SubsonicProxy } from "./subsonicClient";
 import { SubsonicError, toSubsonicTransportError } from "./subsonicErrors";
+import { fetchSubsonicFrontend } from "./subsonicFrontendRequest";
 
 interface CachedCover { url: string; touchedAt: number; }
 
@@ -31,8 +32,13 @@ export class SubsonicCoverService {
                 if (ctx.signal?.aborted) throw new SubsonicError("request_aborted", "请求已取消。" );
                 const url = this.client.buildUrl(ctx.baseUrl, "getCoverArt", { id: coverArtId, size });
                 try {
-                    const proxy = this.proxy || (await import("../../../../../../api")).forwardProxyChecked;
-                    const response = await proxy(url, "GET", {}, [], 10000, "application/octet-stream", undefined, "base64");
+                    const response = this.proxy
+                        ? await this.proxy(url, "GET", {}, [], 10000, "application/octet-stream", undefined, "base64")
+                        : ctx.kind === "local"
+                            ? await fetchSubsonicFrontend(url, 10000, "base64", ctx.signal)
+                            : await (await import("../../../../../../api")).forwardProxyChecked(
+                                url, "GET", {}, [], 10000, "application/octet-stream", undefined, "base64", false,
+                            );
                     if (ctx.signal?.aborted) throw new SubsonicError("request_aborted", "请求已取消。" );
                     if ([502, 503, 504].includes(response.status)) throw new SubsonicError("server_transient", "封面服务暂时不可用。", { httpStatus: response.status });
                     if (response.status < 200 || response.status >= 300 || !response.body) throw new SubsonicError("server_error", "封面暂时不可用。", { httpStatus: response.status });

@@ -58,7 +58,7 @@ export function redactSensitiveHeaders(
  * Make an external HTTP request via the Siyuan forwardProxy.
  * Returns parsed response body: JSON object if content-type is JSON,
  * otherwise returns the string body.
- * Throws on network / proxy failure or HTTP status >= 400.
+ * Throws on network / proxy failure or non-2xx HTTP status.
  */
 export async function requestViaSiyuanProxy(
   url: string,
@@ -102,6 +102,7 @@ export async function requestViaSiyuanProxy(
       opts.contentType ?? "text/html",
       opts.body && !isJson ? "text" : undefined,
       "text",
+      false,
     );
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -155,7 +156,7 @@ export async function requestViaSiyuanProxy(
     );
   }
 
-  if (proxyResult.status >= 400) {
+  if (proxyResult.status >= 300) {
     let detail = `HTTP ${proxyResult.status}`;
     let bodyPreview = "";
     try {
