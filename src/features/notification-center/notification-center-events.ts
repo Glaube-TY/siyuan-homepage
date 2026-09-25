@@ -4,6 +4,7 @@ export function broadcastNotificationCenterEvent(eventName: string, detail?: unk
   if (typeof BroadcastChannel === "undefined") return;
   const channel = new BroadcastChannel(NOTIFICATION_CENTER_BROADCAST_CHANNEL);
   channel.postMessage({ eventName, detail });
-  window.setTimeout(() => channel.close(), 0);
+  if (typeof globalThis.setTimeout === "function") globalThis.setTimeout(() => channel.close(), 0);
+  else channel.close();
 }
 

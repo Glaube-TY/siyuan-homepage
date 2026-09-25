@@ -39,6 +39,18 @@ export default defineConfig(isKernel ? kernelConfig() : appConfig());
  */
 function kernelConfig(): UserConfig {
     return {
+        // Goja is not a browser. Compile optional dependency feature probes out;
+        // Kernel-owned code must use the official host capabilities instead.
+        define: {
+            window: "undefined",
+            document: "undefined",
+            HTMLElement: "undefined",
+            localStorage: "undefined",
+            navigator: "undefined",
+            location: "undefined",
+            "globalThis.localStorage": "undefined",
+            "globalThis.navigator": "undefined",
+        },
         resolve: {
             alias: {
                 "@": resolve(__dirname, "src"),

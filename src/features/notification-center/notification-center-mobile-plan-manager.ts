@@ -16,7 +16,7 @@ import type {
 } from "./types";
 import { broadcastNotificationCenterEvent } from "./notification-center-events";
 
-let refreshTimer: number | null = null;
+let refreshTimer: ReturnType<typeof globalThis.setTimeout> | null = null;
 let reconcileRequested = false;
 let forceRebuildRequested = false;
 let premiumRevocationRequested = false;
@@ -56,7 +56,10 @@ function readableError(error: unknown): string {
 
 function emitMobilePlansChanged(file: MobileNotificationPlanFile): void {
   const detail = { planCount: Object.keys(file.plans).length };
-  window.dispatchEvent(new CustomEvent(NOTIFICATION_CENTER_MOBILE_PLANS_CHANGED_EVENT, { detail }));
+  const runtime = globalThis as typeof globalThis & { CustomEvent?: typeof CustomEvent };
+  if (typeof runtime.dispatchEvent === "function" && runtime.CustomEvent) {
+    runtime.dispatchEvent(new runtime.CustomEvent(NOTIFICATION_CENTER_MOBILE_PLANS_CHANGED_EVENT, { detail }));
+  }
   broadcastNotificationCenterEvent(NOTIFICATION_CENTER_MOBILE_PLANS_CHANGED_EVENT, detail);
 }
 
@@ -334,8 +337,9 @@ export function revokeCurrentDeviceMobilePlansForPremiumLoss(): Promise<MobilePl
 }
 
 export function requestMobilePlanRefresh(_reason = "unspecified"): void {
-  if (refreshTimer !== null) window.clearTimeout(refreshTimer);
-  refreshTimer = window.setTimeout(() => {
+  if (typeof globalThis.setTimeout !== "function") return;
+  if (refreshTimer !== null) globalThis.clearTimeout(refreshTimer);
+  refreshTimer = globalThis.setTimeout(() => {
     refreshTimer = null;
     void reconcileMobilePlans().catch(() => undefined);
   }, 750);
@@ -376,7 +380,7 @@ export function getMobilePlanRuntimeStatus(): MobilePlanRuntimeStatus {
 }
 
 export function cancelPendingMobilePlanRefresh(): void {
-  if (refreshTimer !== null) window.clearTimeout(refreshTimer);
+  if (refreshTimer !== null) globalThis.clearTimeout(refreshTimer);
   refreshTimer = null;
 }
 

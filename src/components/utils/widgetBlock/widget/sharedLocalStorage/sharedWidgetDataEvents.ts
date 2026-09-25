@@ -26,8 +26,8 @@ function ensureBroadcastChannel(): BroadcastChannel | null {
     try {
         broadcastChannel = new BroadcastChannel(SHARED_WIDGET_BROADCAST_CHANNEL);
         broadcastChannel.addEventListener("message", (event: MessageEvent<unknown>) => {
-            if (!isValidDetail(event.data) || typeof window === "undefined") return;
-            window.dispatchEvent(new CustomEvent(SHARED_WIDGET_DATA_UPDATED_EVENT, { detail: event.data }));
+            if (!isValidDetail(event.data)) return;
+            dispatchToFrontend(SHARED_WIDGET_DATA_UPDATED_EVENT, event.data);
         });
     } catch (error) {
         console.warn("[sharedWidgetDataEvents] BroadcastChannel 初始化失败", error);
@@ -37,9 +37,7 @@ function ensureBroadcastChannel(): BroadcastChannel | null {
 }
 
 export function dispatchSharedWidgetDataUpdated(detail: SharedWidgetDataUpdatedDetail): void {
-    if (typeof window !== "undefined") {
-        window.dispatchEvent(new CustomEvent(SHARED_WIDGET_DATA_UPDATED_EVENT, { detail }));
-    }
+    dispatchToFrontend(SHARED_WIDGET_DATA_UPDATED_EVENT, detail);
     try {
         ensureBroadcastChannel()?.postMessage(detail);
     } catch (error) {
@@ -51,14 +49,21 @@ export function subscribeSharedWidgetDataUpdated(
     store: SharedWidgetStore,
     listener: (detail: SharedWidgetDataUpdatedDetail) => void,
 ): () => void {
-    if (typeof window === "undefined") return () => undefined;
+    const runtime = globalThis as typeof globalThis;
+    if (typeof runtime.addEventListener !== "function") return () => undefined;
     ensureBroadcastChannel();
     const handler = (event: Event) => {
         const detail = (event as CustomEvent<unknown>).detail;
         if (isValidDetail(detail) && detail.store === store) listener(detail);
     };
-    window.addEventListener(SHARED_WIDGET_DATA_UPDATED_EVENT, handler);
-    return () => window.removeEventListener(SHARED_WIDGET_DATA_UPDATED_EVENT, handler);
+    runtime.addEventListener(SHARED_WIDGET_DATA_UPDATED_EVENT, handler);
+    return () => runtime.removeEventListener(SHARED_WIDGET_DATA_UPDATED_EVENT, handler);
+}
+
+function dispatchToFrontend(eventName: string, detail: unknown): void {
+    const runtime = globalThis as typeof globalThis & { CustomEvent?: typeof CustomEvent };
+    if (typeof runtime.dispatchEvent !== "function" || !runtime.CustomEvent) return;
+    runtime.dispatchEvent(new runtime.CustomEvent(eventName, { detail }));
 }
 
 export function destroySharedWidgetDataEvents(): void {

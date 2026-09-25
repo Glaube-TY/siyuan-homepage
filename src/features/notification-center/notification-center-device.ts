@@ -18,7 +18,8 @@ export function getNotificationDeviceId(): string {
   const system = systemConfig();
   const explicit = typeof system.id === "string" ? system.id.trim() : "";
   if (explicit) return explicit;
-  const seed = [system.os, system.name, system.container, typeof navigator !== "undefined" ? navigator.userAgent : "kernel"]
+  const userAgent = (globalThis as typeof globalThis & { navigator?: { userAgent?: string } }).navigator?.userAgent ?? "kernel";
+  const seed = [system.os, system.name, system.container, userAgent]
     .filter((value) => value != null)
     .map(String)
     .join("|");
@@ -39,7 +40,8 @@ export function getNotificationDevicePlatform(): "android" | "ios" | "harmony" |
   } catch {
     isHuawei = false;
   }
-  if (container === "harmony" || Boolean((window as any).JSHarmony) || isHuawei || /harmony|huawei|ohos/.test(os + "|" + container)) return "harmony";
+  const runtime = globalThis as typeof globalThis & { JSHarmony?: unknown };
+  if (container === "harmony" || Boolean(runtime.JSHarmony) || isHuawei || /harmony|huawei|ohos/.test(os + "|" + container)) return "harmony";
   if (/android/.test(os) || getSiyuanRuntimePort().platform?.isInAndroid?.()) return "android";
   if (/ios|iphone|ipad/.test(os) || getSiyuanRuntimePort().platform?.isInIOS?.()) return "ios";
   if (isInMobileApp()) return "android";
@@ -55,7 +57,8 @@ export function isDesktopNotificationRuntime(): boolean {
 
 export function isHarmonyMobile(): boolean {
   const system = systemConfig();
-  return String(system.container ?? "").toLowerCase() === "harmony" || Boolean((window as any).JSHarmony);
+  const runtime = globalThis as typeof globalThis & { JSHarmony?: unknown };
+  return String(system.container ?? "").toLowerCase() === "harmony" || Boolean(runtime.JSHarmony);
 }
 
 export function isMobileNotificationRuntime(): boolean {
@@ -65,17 +68,19 @@ export function isMobileNotificationRuntime(): boolean {
 export type DesktopNotificationPermission = "unsupported" | "default" | "granted" | "denied";
 
 export function getDesktopNotificationPermission(): DesktopNotificationPermission {
-  if (typeof window === "undefined" || !("Notification" in window)) return "unsupported";
-  const permission = window.Notification.permission;
+  const notification = (globalThis as typeof globalThis & { Notification?: typeof Notification }).Notification;
+  if (!notification) return "unsupported";
+  const permission = notification.permission;
   if (permission === "granted") return "granted";
   if (permission === "denied") return "denied";
   return "default";
 }
 
 export async function requestDesktopNotificationPermission(): Promise<DesktopNotificationPermission> {
-  if (typeof window === "undefined" || !("Notification" in window)) return "unsupported";
+  const notification = (globalThis as typeof globalThis & { Notification?: typeof Notification }).Notification;
+  if (!notification) return "unsupported";
   try {
-    const result = await window.Notification.requestPermission();
+    const result = await notification.requestPermission();
     if (result === "granted") return "granted";
     if (result === "denied") return "denied";
     return "default";

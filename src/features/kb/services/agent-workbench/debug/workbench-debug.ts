@@ -23,7 +23,7 @@ import { getLastSecretDiagnostics } from "../../settings/kb-settings-service";
 
 function isDebugEnabled(): boolean {
   try {
-    return localStorage.getItem("KB_AGENT_WORKBENCH_DEBUG") === "1";
+    return (globalThis as typeof globalThis & { localStorage?: Storage }).localStorage?.getItem("KB_AGENT_WORKBENCH_DEBUG") === "1";
   } catch {
     return false;
   }
@@ -31,7 +31,7 @@ function isDebugEnabled(): boolean {
 
 function isVerboseStreamDebugEnabled(): boolean {
   try {
-    return localStorage.getItem("KB_AGENT_WORKBENCH_VERBOSE_STREAM_DEBUG") === "1";
+    return (globalThis as typeof globalThis & { localStorage?: Storage }).localStorage?.getItem("KB_AGENT_WORKBENCH_VERBOSE_STREAM_DEBUG") === "1";
   } catch {
     return false;
   }

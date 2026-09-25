@@ -216,11 +216,12 @@ export function openDiaryDocument(plugin: any, docId: string): void {
 }
 
 export function getSiyuanAppId(plugin: any): string {
+    const siyuan = (globalThis as typeof globalThis & { siyuan?: any }).siyuan;
     return plugin?.app?.appId
         || plugin?.app?.id
-        || (window as any)?.siyuan?.ws?.app?.appId
-        || (window as any)?.siyuan?.ws?.app?.id
-        || (window as any)?.siyuan?.appId
+        || siyuan?.ws?.app?.appId
+        || siyuan?.ws?.app?.id
+        || siyuan?.appId
         || "";
 }
 

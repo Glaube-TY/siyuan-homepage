@@ -176,7 +176,7 @@ function postProcessLuteOutput(md: string): string {
 
 function tryLuteConvert(root: HTMLElement, maxChars?: number): { markdown: string; chars: number; truncated: boolean } | null {
   try {
-    const lute = (window as unknown as Record<string, unknown>).Lute as { New(): Record<string, unknown> } | undefined;
+    const lute = (globalThis as typeof globalThis & { Lute?: { New(): Record<string, unknown> } }).Lute;
     if (!lute?.New) return null;
 
     const instance = lute.New() as Record<string, unknown>;

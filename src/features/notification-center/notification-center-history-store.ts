@@ -165,7 +165,14 @@ export function recordTransientHistoryFailure(
     errorMessage: redactMessage(error),
   });
   transientHistoryRecords.splice(50);
-  window.dispatchEvent(new CustomEvent(NOTIFICATION_CENTER_HISTORY_CHANGED_EVENT, { detail: { transient: true } }));
+  dispatchHistoryChanged({ transient: true });
+}
+
+function dispatchHistoryChanged(detail: unknown): void {
+  const runtime = globalThis as typeof globalThis & { CustomEvent?: typeof CustomEvent };
+  if (typeof runtime.dispatchEvent === "function" && runtime.CustomEvent) {
+    runtime.dispatchEvent(new runtime.CustomEvent(NOTIFICATION_CENTER_HISTORY_CHANGED_EVENT, { detail }));
+  }
 }
 
 export async function loadNotificationHistoryIndex(): Promise<NotificationHistoryIndex> {
@@ -282,7 +289,7 @@ export async function recordNotificationDelivery(
     const savedIndex = await writeJSON(NOTIFICATION_CENTER_HISTORY_INDEX_KEY, historyIndex, historyIndexSchema);
     validateSavedIndex(savedIndex, year, savedYear.records.length);
 
-    window.dispatchEvent(new CustomEvent(NOTIFICATION_CENTER_HISTORY_CHANGED_EVENT, { detail: { year, targetKey: result.targetKey } }));
+    dispatchHistoryChanged({ year, targetKey: result.targetKey });
     broadcastNotificationCenterEvent(NOTIFICATION_CENTER_HISTORY_CHANGED_EVENT, { year, targetKey: result.targetKey });
     if (result.status === "delivered" || result.status === "scheduled") rememberSuccessfulDelivery(event.occurrenceKey, result.targetKey);
     return record;

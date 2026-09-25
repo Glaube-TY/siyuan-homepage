@@ -187,20 +187,20 @@ function readCloudIdentityFromResponse(data: unknown): Pick<SiyuanCloudIdentity,
 }
 
 function readWindowSiyuanIdentity(): Pick<SiyuanCloudIdentity, "userId" | "userName"> {
-    const user = (window as any)?.siyuan?.user;
+    const user = (globalThis as typeof globalThis & { siyuan?: { user?: unknown } }).siyuan?.user;
     return readIdentityFromObject(user);
 }
 
 export async function getSiyuanCloudIdentity(): Promise<SiyuanCloudIdentity> {
     try {
-        let timer: number | undefined;
+        let timer: ReturnType<typeof globalThis.setTimeout> | undefined;
         const response = await Promise.race([
             requestRaw("/api/setting/getCloudUser", {}),
             new Promise<never>((_, reject) => {
-                timer = window.setTimeout(() => reject(new Error("getCloudUser timeout")), 5000);
+                timer = globalThis.setTimeout(() => reject(new Error("getCloudUser timeout")), 5000);
             }),
         ]).finally(() => {
-            if (typeof timer === "number") window.clearTimeout(timer);
+            if (timer !== undefined) globalThis.clearTimeout(timer);
         });
         if (response?.code === 0) {
             const identity = readCloudIdentityFromResponse(response.data);
@@ -259,7 +259,7 @@ let siyuanSystemConfigInitPromise: Promise<SiyuanSystemConfig> | null = null;
 
 /**
  * 读取思源系统配置。
- * 优先从已初始化的 window.siyuan.config.system 同步读取；
+ * 优先从已初始化的 SiYuan runtime config 同步读取；
  * 不可用时通过项目统一 requestChecked 调用 API 一次。
  * 同一个初始化 Promise 被缓存，禁止各模块重复请求。
  * 初始化失败后清空缓存，允许下一次明确操作重新尝试。
@@ -271,7 +271,10 @@ export async function getSiyuanSystemConfig(): Promise<SiyuanSystemConfig> {
     siyuanSystemConfigInitPromise = (async () => {
         try {
             // 优先从已初始化的全局配置同步读取。
-            const raw = (window as any).siyuan?.config?.system;
+            const rawValue = (globalThis as typeof globalThis & { siyuan?: { config?: { system?: unknown } } }).siyuan?.config?.system;
+            const raw = rawValue !== null && typeof rawValue === "object"
+                ? rawValue as Partial<SiyuanSystemConfig>
+                : null;
             if (raw && typeof raw.id === "string" && raw.id) {
                 siyuanSystemConfigCache = {
                     id: String(raw.id).trim(),
@@ -1011,10 +1014,12 @@ export async function pushErrMsgChecked(msg: string, timeout: number = 7000): Pr
 }
 
 export function isInMobileApp(): boolean {
-    if (typeof window !== "undefined") {
-        const container = String(window.siyuan?.config?.system?.container ?? "").toLowerCase();
-        if (container === "harmony" || Boolean((window as any).JSHarmony)) return true;
-    }
+    const runtime = globalThis as typeof globalThis & {
+        siyuan?: { config?: { system?: { container?: unknown } } };
+        JSHarmony?: unknown;
+    };
+    const container = String(runtime.siyuan?.config?.system?.container ?? "").toLowerCase();
+    if (container === "harmony" || Boolean(runtime.JSHarmony)) return true;
     try {
         return Boolean(
             getSiyuanRuntimePort().platform?.isInAndroid?.()

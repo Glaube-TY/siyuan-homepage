@@ -12,11 +12,15 @@ function getFrontend(): string {
 // - mobile (原生)          → syhomepage-device-id-native-mobile
 // - browser-mobile        → syhomepage-device-id-browser-mobile
 const STORAGE_KEY_DESKTOP = "syhomepage-device-id-desktop";
+const STORAGE_KEY_REMOTE_DESKTOP = "syhomepage-device-id-remote-desktop";
 const STORAGE_KEY_BROWSER_DESKTOP = "syhomepage-device-id-browser-desktop";
 const STORAGE_KEY_NATIVE_MOBILE = "syhomepage-device-id-native-mobile";
 const STORAGE_KEY_BROWSER_MOBILE = "syhomepage-device-id-browser-mobile";
 
-function storageKey(frontend: string): string {
+function storageKey(frontend: string, remoteDesktopKernel = false): string {
+    if (remoteDesktopKernel && (frontend === "desktop" || frontend === "desktop-window")) {
+        return STORAGE_KEY_REMOTE_DESKTOP;
+    }
     if (frontend === "desktop" || frontend === "desktop-window") return STORAGE_KEY_DESKTOP;
     if (frontend === "browser-desktop") return STORAGE_KEY_BROWSER_DESKTOP;
     if (frontend === "mobile") return STORAGE_KEY_NATIVE_MOBILE;
@@ -157,8 +161,8 @@ interface StoredPhysicalDeviceIds {
 }
 
 /** 读取当前前端专属设备身份。 */
-function collectStoredPhysicalDeviceIds(frontend: string): StoredPhysicalDeviceIds {
-    const currentKey = storageKey(frontend);
+function collectStoredPhysicalDeviceIds(frontend: string, remoteDesktopKernel = false): StoredPhysicalDeviceIds {
+    const currentKey = storageKey(frontend, remoteDesktopKernel);
     const currentResult = readStoredDeviceId(
         currentKey,
         (value) => validateNewDeviceIdPrefix(value, frontend) && value !== "mobile-shared",
@@ -169,8 +173,8 @@ function collectStoredPhysicalDeviceIds(frontend: string): StoredPhysicalDeviceI
     return { currentFrontendStoredId };
 }
 
-function persistDeviceId(deviceId: string, frontend: string): void {
-    const key = storageKey(frontend);
+function persistDeviceId(deviceId: string, frontend: string, remoteDesktopKernel = false): void {
+    const key = storageKey(frontend, remoteDesktopKernel);
     try {
         localStorage.setItem(key, deviceId);
         if (localStorage.getItem(key) !== deviceId) {
@@ -185,7 +189,7 @@ function persistDeviceId(deviceId: string, frontend: string): void {
  * 异步初始化设备身份。必须在任何设备视图操作前调用。
  *
  * 规则（基于 getFrontend()）：
- * - desktop / desktop-window:   physical = desktop-{stableHash(system.id)}，scope = physical
+ * - desktop / desktop-window:   本地 Kernel 使用 system.id；Remote Kernel 使用前端本地 UUID
  * - browser-desktop:            physical = browser-{client-uuid}，scope = physical
  * - mobile (原生):               physical = mobile-{hash}，scope = mobile-shared
  * - browser-mobile:             physical = browser-mobile-{uuid}，scope = mobile-shared
@@ -196,13 +200,15 @@ async function initializeDeviceIdentity(): Promise<DeviceInfo> {
     const isNativeDesktop = frontend === "desktop" || frontend === "desktop-window";
     const isBrowserDesktop = frontend === "browser-desktop";
     const isMobileFrontend = frontend === "mobile";
+    const isRemoteDesktopKernel = isNativeDesktop
+        && new URLSearchParams(window.location.search).get("remote") === "1";
 
     let systemConfig: SiyuanSystemConfig | null = null;
     if (isNativeDesktop || isMobileFrontend) {
         systemConfig = await getSiyuanSystemConfig();
     }
 
-    const { currentFrontendStoredId } = collectStoredPhysicalDeviceIds(frontend);
+    const { currentFrontendStoredId } = collectStoredPhysicalDeviceIds(frontend, isRemoteDesktopKernel);
 
     let physicalDeviceId: string;
     let deviceName: string;
@@ -211,13 +217,14 @@ async function initializeDeviceIdentity(): Promise<DeviceInfo> {
 
     if (isNativeDesktop) {
         if (!systemConfig) throw new Error("原生桌面环境无法读取思源 system.id");
-        const scopeHash = stableHardwareHash(systemConfig.id);
-        physicalDeviceId = `desktop-${scopeHash}`;
+        physicalDeviceId = isRemoteDesktopKernel
+            ? currentFrontendStoredId ?? `desktop-${createSafeDeviceId()}`
+            : `desktop-${stableHardwareHash(systemConfig.id)}`;
         deviceName = systemConfig.name || "Desktop";
         os = systemConfig.os;
         osPlatform = systemConfig.osPlatform;
         if (currentFrontendStoredId !== physicalDeviceId) {
-            persistDeviceId(physicalDeviceId, frontend);
+            persistDeviceId(physicalDeviceId, frontend, isRemoteDesktopKernel);
         }
     } else if (isBrowserDesktop) {
         // browser-desktop：专属键值必须具有 browser- 前缀（拒绝 desktop- 和 browser-mobile-）。

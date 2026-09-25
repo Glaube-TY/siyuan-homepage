@@ -5,7 +5,13 @@ import { createKernelPluginLikeStorage } from "./kernel-plugin-data-adapter";
 import { ToolRegistry } from "../../../features/kb/services/agent-workbench/registries/tool-registry";
 import { ToolResultLog } from "../../../features/kb/services/agent-workbench/runtime/tool-result-log";
 import { registerSiyuanTools } from "../../../features/kb/services/agent-workbench/composition/register-siyuan-tools";
-import { createRobotComponentBusinessBindings } from "../../../features/kb/services/agent-workbench/composition/register-homepage-component-tools";
+import { createHomepageQuickNoteActionTools } from "../../../features/kb/services/agent-workbench/tools/homepage-components/homepage-quick-note.tool";
+import { createHomepageFocusActionTools } from "../../../features/kb/services/agent-workbench/tools/homepage-components/homepage-focus.tool";
+import { createHomepageAccountingActionTools } from "../../../features/kb/services/agent-workbench/tools/homepage-components/homepage-accounting.tool";
+import { createHomepageFixedAssetsActionTools } from "../../../features/kb/services/agent-workbench/tools/homepage-components/homepage-fixed-assets.tool";
+import { createHomepageCountdownActionTools } from "../../../features/kb/services/agent-workbench/tools/homepage-components/homepage-countdown.tool";
+import { createHomepageFavoritesActionTools } from "../../../features/kb/services/agent-workbench/tools/homepage-components/homepage-favorites.tool";
+import { createHomepageReviewActionTools } from "../../../features/kb/services/agent-workbench/tools/homepage-components/homepage-review.tool";
 import { createAggregateTool } from "../../../features/kb/services/agent-workbench/tools/aggregate/aggregate-tool-factory";
 import { findAggregateToolMeta } from "../../../features/kb/services/agent-workbench/tools/aggregate/aggregate-tool-metadata";
 import { createNativeToolRegistryFromWorkbench } from "../../../features/kb/services/agent-core/tools/workbench-tool-adapter";
@@ -102,7 +108,15 @@ async function registerKernelDataTools(
   // Kernel-safe 主页组件业务子工具：quick_note/focus/accounting/fixed_assets/anniversary/favorites/review；
   // 不注册 music（播放器运行时）与 instance/catalog（依赖桌面设备视图）。
   const componentsMeta = findAggregateToolMeta("homepage_components");
-  const robotComponentActions = createRobotComponentBusinessBindings();
+  const robotComponentActions = [
+    ...createHomepageQuickNoteActionTools().map(({ action, tool }) => ({ action: `homepage_quick_note.${action}`, tool })),
+    ...createHomepageFocusActionTools().map(({ action, tool }) => ({ action: `homepage_focus.${action}`, tool })),
+    ...createHomepageAccountingActionTools().map(({ action, tool }) => ({ action: `homepage_accounting.${action}`, tool })),
+    ...createHomepageFixedAssetsActionTools().map(({ action, tool }) => ({ action: `homepage_fixed_assets.${action}`, tool })),
+    ...createHomepageCountdownActionTools().map(({ action, tool }) => ({ action: `homepage_anniversary.${action}`, tool })),
+    ...createHomepageFavoritesActionTools().map(({ action, tool }) => ({ action: `homepage_favorites.${action}`, tool })),
+    ...createHomepageReviewActionTools().map(({ action, tool }) => ({ action: `homepage_review.${action}`, tool })),
+  ];
   if (robotComponentActions.length > 0 && componentsMeta) {
     toolRegistry.ensureTool(createAggregateTool({
       name: "homepage_components",

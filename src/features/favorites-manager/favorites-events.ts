@@ -6,10 +6,15 @@
 const FAVORITES_UPDATED_EVENT = "siyuan-homepage:favorites-updated";
 
 export function dispatchFavoritesUpdated(): void {
-    window.dispatchEvent(new CustomEvent(FAVORITES_UPDATED_EVENT));
+    const runtime = globalThis as typeof globalThis & { CustomEvent?: typeof CustomEvent };
+    if (typeof runtime.dispatchEvent === "function" && runtime.CustomEvent) {
+        runtime.dispatchEvent(new runtime.CustomEvent(FAVORITES_UPDATED_EVENT));
+    }
 }
 
 export function onFavoritesUpdated(handler: () => void): () => void {
-    window.addEventListener(FAVORITES_UPDATED_EVENT, handler);
-    return () => window.removeEventListener(FAVORITES_UPDATED_EVENT, handler);
+    const runtime = globalThis as typeof globalThis;
+    if (typeof runtime.addEventListener !== "function") return () => undefined;
+    runtime.addEventListener(FAVORITES_UPDATED_EVENT, handler);
+    return () => runtime.removeEventListener(FAVORITES_UPDATED_EVENT, handler);
 }
