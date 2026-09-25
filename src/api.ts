@@ -1078,12 +1078,48 @@ export function cancelMobileLocalNotification(id: number): void {
 }
 
 // **************************************** Network ****************************************
-export async function forwardProxyGetText(
+export interface HttpProxyTextResponse {
+    status: number;
+    body: string;
+    bodyEncoding: "text";
+    contentType: string;
+    headers: Record<string, string>;
+    url: string;
+}
+
+function encodeBase64Url(value: string): string {
+    const bytes = new TextEncoder().encode(value);
+    let binary = "";
+    for (const byte of bytes) binary += String.fromCharCode(byte);
+    return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+export async function httpProxyGetText(
     url: string,
     headers: Record<string, string> = {},
     timeoutMs: number = 7000,
-): Promise<IResForwardProxy> {
-    return forwardProxyChecked(url, "GET", {}, [headers], timeoutMs, "application/json", undefined, "text");
+): Promise<HttpProxyTextResponse> {
+    const proxyHeaders = Object.fromEntries(
+        Object.entries(headers).map(([name, value]) => [name, [value]]),
+    );
+    const params = new URLSearchParams({
+        u: encodeBase64Url(url),
+        h: encodeBase64Url(JSON.stringify(proxyHeaders)),
+        t: `${Math.max(1, Math.ceil(timeoutMs / 1000))}s`,
+    });
+    const response = await fetch(`/api/network/proxy?${params.toString()}`, { method: "GET" });
+    const responseHeaders: Record<string, string> = {};
+    response.headers.forEach((value, name) => { responseHeaders[name] = value; });
+    return {
+        status: response.status,
+        body: await response.text(),
+        bodyEncoding: "text",
+        contentType: response.headers.get("Siyuan-Proxy-Content-Type")
+            ?? response.headers.get("content-type")
+            ?? "",
+        headers: responseHeaders,
+        url,
+    };
 }
 
 export async function forwardProxy(

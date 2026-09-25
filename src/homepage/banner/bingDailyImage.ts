@@ -1,4 +1,4 @@
-import { forwardProxyGetText } from "@/api";
+import { httpProxyGetText } from "@/api";
 
 const BING_DAILY_IMAGE_SUFFIXES = {
     POD_UHD: "_UHD.jpg",
@@ -151,7 +151,7 @@ function buildFallbackImageUrl(origin: string, image: BingImageMetadataItem): st
 }
 
 async function requestBingMetadata(url: string): Promise<unknown> {
-    return forwardProxyGetText(url, BING_METADATA_HEADERS, 10000);
+    return httpProxyGetText(url, BING_METADATA_HEADERS, 10000);
 }
 
 function parseBingMetadataResponse(origin: string, responseValue: unknown): BingImageMetadataItem[] {

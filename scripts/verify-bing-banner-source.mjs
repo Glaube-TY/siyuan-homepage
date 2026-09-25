@@ -12,13 +12,32 @@ const BING_METADATA_HEADERS = {
   "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
 };
 
-function inspectForwardProxyRequest(path, payload) {
-  assert.equal(path, "/api/network/forwardProxy");
-  assert.equal(payload.method, "GET");
-  assert.equal(payload.timeout, 10000);
-  assert.equal(payload.responseEncoding, "text");
-  assert.deepEqual(payload.headers, [BING_METADATA_HEADERS]);
-  return payload.url;
+function decodeBase64Url(value) {
+  const normalized = value.replace(/-/g, "+").replace(/_/g, "/");
+  return Buffer.from(`${normalized}${"=".repeat((4 - normalized.length % 4) % 4)}`, "base64").toString("utf8");
+}
+
+function inspectMetadataProxyRequest(input, init) {
+  const requestUrl = typeof input === "string" ? input : input.url;
+  const parsedUrl = new URL(requestUrl, "http://siyuan.local");
+  assert.equal(
+    parsedUrl.pathname,
+    "/api/network/proxy",
+    "Bing metadata must use bodyless /api/network/proxy GET because SiYuan forwardProxy constructs a JSON-body request even for GET.",
+  );
+  assert.equal(init?.method, "GET");
+  assert.equal(init?.body, undefined);
+  assert.equal(init?.headers, undefined);
+  assert.equal(parsedUrl.searchParams.get("t"), "10s");
+  const encodedUrl = parsedUrl.searchParams.get("u");
+  const encodedHeaders = parsedUrl.searchParams.get("h");
+  assert.ok(encodedUrl);
+  assert.ok(encodedHeaders);
+  assert.deepEqual(
+    JSON.parse(decodeBase64Url(encodedHeaders)),
+    Object.fromEntries(Object.entries(BING_METADATA_HEADERS).map(([name, value]) => [name, [value]])),
+  );
+  return decodeBase64Url(encodedUrl);
 }
 
 async function loadFixture() {
@@ -237,104 +256,108 @@ async function main() {
   }
 
   const metadataProxyRequests = [];
-  fixture.setSiyuanRuntimePort({
-    async post(path, payload) {
-      const targetUrl = inspectForwardProxyRequest(path, payload);
-      metadataProxyRequests.push(targetUrl);
-      assert.equal(targetUrl, BING_METADATA_URL("https://cn.bing.com", 1));
-      return {
-        code: 0,
-        data: {
-          ...metadataResponse({ images: [{ urlbase: "/th?id=OHR.Proxy" }] }),
-          headers: {}, elapsed: 0, url: targetUrl,
-        },
-      };
-    },
-  });
-  const proxyResolvedImage = await fixture.resolveBingDailyImageUrl("POD_UHD");
-  assert.equal(proxyResolvedImage, "https://cn.bing.com/th?id=OHR.Proxy_UHD.jpg");
-  assert.deepEqual(metadataProxyRequests, [BING_METADATA_URL("https://cn.bing.com", 1)]);
+  const previousBingMetadataFetch = globalThis.fetch;
+  globalThis.fetch = async (input, init) => {
+    const targetUrl = inspectMetadataProxyRequest(input, init);
+    metadataProxyRequests.push(targetUrl);
+    assert.equal(targetUrl, BING_METADATA_URL("https://cn.bing.com", 1));
+    return new Response(JSON.stringify({ images: [{ urlbase: "/th?id=OHR.Proxy" }] }), {
+      status: 200,
+      headers: { "Siyuan-Proxy-Content-Type": "application/json; charset=utf-8" },
+    });
+  };
+  try {
+    const proxyResolvedImage = await fixture.resolveBingDailyImageUrl("POD_UHD");
+    assert.equal(proxyResolvedImage, "https://cn.bing.com/th?id=OHR.Proxy_UHD.jpg");
+    assert.deepEqual(metadataProxyRequests, [BING_METADATA_URL("https://cn.bing.com", 1)]);
+  } finally {
+    globalThis.fetch = previousBingMetadataFetch;
+  }
 
-  const proxyFallbackRequests = [];
-  fixture.setSiyuanRuntimePort({
-    async post(path, payload) {
-      const targetUrl = inspectForwardProxyRequest(path, payload);
+  for (const [failureCase, status, body, contentType] of [
+    ["HTTP 400", 400, "<html>blocked</html>", "text/html"],
+    ["HTTP 403", 403, "<html>blocked</html>", "text/html"],
+    ["non-JSON body", 200, "<html>blocked</html>", "text/html"],
+    ["invalid metadata", 200, JSON.stringify({ images: [] }), "application/json"],
+  ]) {
+    const proxyFallbackRequests = [];
+    const previousFallbackMetadataFetch = globalThis.fetch;
+    globalThis.fetch = async (input, init) => {
+      const targetUrl = inspectMetadataProxyRequest(input, init);
       proxyFallbackRequests.push(targetUrl);
       const isPrimary = targetUrl.startsWith("https://cn.bing.com/");
-      return {
-        code: 0,
-        data: {
-          ...metadataResponse(
-            isPrimary ? "<html>blocked</html>" : { images: [{ urlbase: "/th?id=OHR.ProxyFallback" }] },
-            { status: isPrimary ? 400 : 200, contentType: isPrimary ? "text/html" : "application/json; charset=utf-8" },
-          ),
-          headers: {}, elapsed: 0, url: targetUrl,
+      return new Response(
+        isPrimary ? body : JSON.stringify({ images: [{ urlbase: "/th?id=OHR.ProxyFallback" }] }),
+        {
+          status: isPrimary ? status : 200,
+          headers: { "Siyuan-Proxy-Content-Type": isPrimary ? contentType : "application/json; charset=utf-8" },
         },
-      };
-    },
-  });
-  const proxyFallbackImage = await fixture.resolveBingDailyImageUrl("POD_Normal");
-  assert.equal(proxyFallbackImage, "https://www.bing.com/th?id=OHR.ProxyFallback_1366x768.jpg");
-  assert.deepEqual(proxyFallbackRequests, [
-    BING_METADATA_URL("https://cn.bing.com", 1),
-    BING_METADATA_URL("https://www.bing.com", 1),
-  ]);
+      );
+    };
+    try {
+      const proxyFallbackImage = await fixture.resolveBingDailyImageUrl("POD_Normal");
+      assert.equal(proxyFallbackImage, "https://www.bing.com/th?id=OHR.ProxyFallback_1366x768.jpg", failureCase);
+      assert.deepEqual(proxyFallbackRequests, [
+        BING_METADATA_URL("https://cn.bing.com", 1),
+        BING_METADATA_URL("https://www.bing.com", 1),
+      ], failureCase);
+    } finally {
+      globalThis.fetch = previousFallbackMetadataFetch;
+    }
+  }
 
   const proxyHardFailureRequests = [];
-  fixture.setSiyuanRuntimePort({
-    async post(path, payload) {
-      const targetUrl = inspectForwardProxyRequest(path, payload);
-      proxyHardFailureRequests.push(targetUrl);
-      return {
-        code: 0,
-        data: {
-          ...metadataResponse("<html>blocked</html>", { status: 400, contentType: "text/html" }),
-          headers: {}, elapsed: 0, url: targetUrl,
-        },
-      };
-    },
-  });
-  await assert.rejects(
-    () => fixture.resolveBingDailyImageUrl("POD_UHD"),
-    (error) => {
-      assert.deepEqual(error.failures.map(({ sourceHost, status, failureStage }) => ({ sourceHost, status, failureStage })), [
-        { sourceHost: "cn.bing.com", status: 400, failureStage: "http_status" },
-        { sourceHost: "www.bing.com", status: 400, failureStage: "http_status" },
-      ]);
-      return true;
-    },
-  );
-  assert.deepEqual(proxyHardFailureRequests, [
-    BING_METADATA_URL("https://cn.bing.com", 1),
-    BING_METADATA_URL("https://www.bing.com", 1),
-  ]);
+  const previousHardFailureFetch = globalThis.fetch;
+  globalThis.fetch = async (input, init) => {
+    const targetUrl = inspectMetadataProxyRequest(input, init);
+    proxyHardFailureRequests.push(targetUrl);
+    return new Response("<html>blocked</html>", {
+      status: 400,
+      headers: { "Siyuan-Proxy-Content-Type": "text/html" },
+    });
+  };
+  try {
+    await assert.rejects(
+      () => fixture.resolveBingDailyImageUrl("POD_UHD"),
+      (error) => {
+        assert.deepEqual(error.failures.map(({ sourceHost, status, failureStage }) => ({ sourceHost, status, failureStage })), [
+          { sourceHost: "cn.bing.com", status: 400, failureStage: "http_status" },
+          { sourceHost: "www.bing.com", status: 400, failureStage: "http_status" },
+        ]);
+        return true;
+      },
+    );
+    assert.deepEqual(proxyHardFailureRequests, [
+      BING_METADATA_URL("https://cn.bing.com", 1),
+      BING_METADATA_URL("https://www.bing.com", 1),
+    ]);
+  } finally {
+    globalThis.fetch = previousHardFailureFetch;
+  }
 
   const fallbackImageRequests = [];
+  const fallbackMetadataRequests = [];
+  const previousBannerFetch = globalThis.fetch;
+  globalThis.fetch = async (input, init) => {
+    const targetUrl = inspectMetadataProxyRequest(input, init);
+    fallbackMetadataRequests.push(targetUrl);
+    assert.equal(targetUrl, BING_METADATA_URL("https://cn.bing.com", 1));
+    return new Response(JSON.stringify({
+      images: [{
+        urlbase: "/th?id=OHR.UhdFallback",
+        url: "/th?id=OHR.UhdFallback_1920x1080.jpg&pid=hp",
+      }],
+    }), {
+      status: 200,
+      headers: { "Siyuan-Proxy-Content-Type": "application/json; charset=utf-8" },
+    });
+  };
   const previousFallbackWarn = console.warn;
   console.warn = () => {};
   try {
     fixture.setSiyuanRuntimePort({
       async post(_path, payload) {
         fallbackImageRequests.push(payload.url);
-        if (payload.url === BING_METADATA_URL("https://cn.bing.com", 1)) {
-          return {
-            code: 0,
-            data: {
-              body: metadataResponse({
-                images: [{
-                  urlbase: "/th?id=OHR.UhdFallback",
-                  url: "/th?id=OHR.UhdFallback_1920x1080.jpg&pid=hp",
-                }],
-              }).body,
-              bodyEncoding: "text",
-              contentType: "application/json; charset=utf-8",
-              elapsed: 0,
-              headers: {},
-              status: 200,
-              url: payload.url,
-            },
-          };
-        }
         if (payload.url.endsWith("_UHD.jpg")) {
           return {
             code: 0,
@@ -369,35 +392,30 @@ async function main() {
       bingApiType: "POD_UHD",
     }, true);
     assert.match(fallbackBanner.bannerImgSrc, /^data:image\/png;base64,/);
+    assert.deepEqual(fallbackMetadataRequests, [BING_METADATA_URL("https://cn.bing.com", 1)]);
     assert.deepEqual(fallbackImageRequests, [
-      BING_METADATA_URL("https://cn.bing.com", 1),
       "https://cn.bing.com/th?id=OHR.UhdFallback_UHD.jpg",
       "https://cn.bing.com/th?id=OHR.UhdFallback_1920x1080.jpg&pid=hp",
     ]);
   } finally {
     console.warn = previousFallbackWarn;
+    globalThis.fetch = previousBannerFetch;
   }
 
   const warningEvents = [];
+  const warningProxyRequests = [];
+  const previousWarningFetch = globalThis.fetch;
+  globalThis.fetch = async (input, init) => {
+    const targetUrl = inspectMetadataProxyRequest(input, init);
+    warningProxyRequests.push(targetUrl);
+    return new Response("<html>blocked</html>", {
+      status: 403,
+      headers: { "Siyuan-Proxy-Content-Type": "text/html" },
+    });
+  };
   const previousWarn = console.warn;
   console.warn = (...args) => warningEvents.push(args);
   try {
-    fixture.setSiyuanRuntimePort({
-      async post(_path, payload) {
-        return {
-          code: 0,
-          data: {
-            body: "<html>blocked</html>",
-            bodyEncoding: "text",
-            contentType: "text/html",
-            elapsed: 0,
-            headers: {},
-            status: 403,
-            url: payload.url,
-          },
-        };
-      },
-    });
     const failedBanner = await fixture.resolveBannerImage({
       bannerEnabled: true,
       bannerGlobalType: "bing",
@@ -408,8 +426,13 @@ async function main() {
     assert.equal(warningEvents[0][1].message, "Bing daily image metadata is unavailable.");
     assert.equal(warningEvents[0][1].failures[0].failureStage, "http_status");
     assert.equal(Object.hasOwn(warningEvents[0][1].failures[0], "body"), false);
+    assert.deepEqual(warningProxyRequests, [
+      BING_METADATA_URL("https://cn.bing.com", 1),
+      BING_METADATA_URL("https://www.bing.com", 1),
+    ]);
   } finally {
     console.warn = previousWarn;
+    globalThis.fetch = previousWarningFetch;
   }
 
   const legacyRequests = [];

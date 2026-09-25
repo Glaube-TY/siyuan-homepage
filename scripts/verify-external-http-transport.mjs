@@ -53,10 +53,15 @@ async function verifySources() {
     read("src/features/robot-assistant/agent/build-robot-kernel-tool-registry.ts"),
   ]);
 
-  assert.match(api, /export async function forwardProxyGetText[\s\S]*?forwardProxyChecked\(/);
+  assert.match(api, /export interface HttpProxyTextResponse/);
+  assert.match(api, /function encodeBase64Url/);
+  assert.match(api, /export async function httpProxyGetText[\s\S]*?fetch\(`\/api\/network\/proxy\?\$\{params\.toString\(\)\}`, \{ method: "GET" \}\)/);
+  assert.doesNotMatch(api, /forwardProxyGetText/);
   assert.match(api, /if \(typeof redirect === "boolean"\)[\s\S]*?data\.redirect = redirect/);
-  assert.match(bing, /forwardProxyGetText/);
-  assert.doesNotMatch(api, /\/api\/network\/proxy/);
+  assert.match(bing, /import \{ httpProxyGetText \} from "@\/api"/);
+  assert.match(bing, /return httpProxyGetText\(url, BING_METADATA_HEADERS, 10000\);/);
+  assert.doesNotMatch(bing, /forwardProxyGetText|forwardProxyChecked/);
+  assert.equal((api.match(/\/api\/network\/proxy/g) ?? []).length, 1);
 
   assert.match(agentHttp, /class KernelAgentHttpTransport[\s\S]*?this\.port\.postJson/);
   assert.match(kernelHttp, /host\.httpPostJson/);
@@ -96,10 +101,15 @@ async function verifySources() {
   assert.match(remoteVerifier, /Robot Electron provider loading is not gated/);
 
   const files = await sourceFiles(resolve(root, "src"));
+  const proxyRouteFiles = [];
   for (const file of files) {
-    assert.doesNotMatch(await readFile(file, "utf8"), /127\.0\.0\.1:6806/,
+    const source = await readFile(file, "utf8");
+    if (source.includes("/api/network/proxy")) proxyRouteFiles.push(file);
+    assert.doesNotMatch(source, /127\.0\.0\.1:6806/,
       `hard-coded SiYuan Kernel address found in ${file}`);
   }
+  assert.deepEqual(proxyRouteFiles, [resolve(root, "src/api.ts")],
+    "Only the dedicated Bing text GET helper may use /api/network/proxy");
 }
 
 async function verifySubsonicFrontendRequest() {
