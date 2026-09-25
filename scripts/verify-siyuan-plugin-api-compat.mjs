@@ -50,6 +50,7 @@ const dataChanged = indexSource.slice(
 );
 assert.match(dataChanged, /reason !== undefined && reason !== "sync" && reason !== "overwrite"/);
 assert.match(dataChanged, /scheduleHomepageEntitlementExternalRefresh/);
+assert.match(dataChanged, /scheduleHomepageSharedRuntimeRefresh/);
 assert.match(dataChanged, /new CustomEvent\(HOMEPAGE_SHARED_SETTINGS_EXTERNAL_CHANGE_EVENT\)/);
 assert(!dataChanged.includes("super.onDataChanged") && !dataChanged.includes("location.reload"));
 
@@ -111,9 +112,9 @@ const dockSync = sourceSection(
     "private syncHomepageDocks(config: PluginConfig): void {",
     "/** 仅同步旧快照",
 );
-assert.match(dockSync, /!this\.isMobileFrontend\(\)/);
-assert.match(dockSync, /config\.sidebarEnabled === true[\s\S]*?this\.registerDock\(\)[\s\S]*?this\.unregisterSidebarDock\(\)/);
-assert.match(dockSync, /config\.aiKbDockEnabled === true[\s\S]*?this\.registerKbDock\(\)[\s\S]*?this\.unregisterKbDock\(\)/);
+assert.match(dockSync, /const isDesktopFrontend = !this\.isMobileFrontend\(\)/);
+assert.match(dockSync, /this\.syncSidebarDockEnabled\(isDesktopFrontend && config\.sidebarEnabled === true\)/);
+assert.match(dockSync, /this\.syncKbDockEnabled\(isDesktopFrontend && config\.aiKbDockEnabled === true\)/);
 
 const sidebarUnregister = sourceSection(indexSource, "private unregisterSidebarDock(): void {", "private unregisterKbDock(): void {");
 const kbUnregister = sourceSection(indexSource, "private unregisterKbDock(): void {", "private cleanupSidebarDockInstance(): void {");

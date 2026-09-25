@@ -36,6 +36,7 @@ import {
     normalizeHomepageConfigData,
     resolveBackgroundImage,
 } from "./homepage/configLoader";
+import { readHomepageSharedSettingsSnapshot } from "./homepage/sharedSettings/homepageSharedSettings";
 import { getCurrentDeviceViewContext } from "./homepage/deviceView/deviceViewContext";
 import { ensureCurrentDeviceViewReady } from "./homepage/deviceView/deviceViewReadiness";
 import type { DeviceViewSurface } from "./homepage/deviceView/deviceViewTypes";
@@ -97,7 +98,7 @@ import { destroyCountdownNotifyScheduler, setCountdownNotifyPlugin, startCountdo
 import { destroyEnhancedDiaryNotifyScheduler, setEnhancedDiaryNotifyPlugin, setEnhancedDiaryNotifyRulesPlugin, startEnhancedDiaryNotifyScheduler } from "@/features/enhanced-diary-notify";
 import { destroyReviewNotifyScheduler, setReviewNotifyPlugin, startReviewNotifyScheduler } from "@/features/review-notify";
 import { removeTopBarWithFallback, supportsDynamicDock, supportsDynamicToolbar } from "@/utils/siyuanPluginApiCompat";
-import { getSelectionAiToolbarSettingsSnapshot, loadSelectionAiToolbarSettingsSnapshot } from "@/features/kb/services/selection-ai/selection-ai-config";
+import { getSelectionAiToolbarSettingsSnapshot, loadSelectionAiToolbarSettingsSnapshot, setSelectionAiToolbarSettingsSnapshot } from "@/features/kb/services/selection-ai/selection-ai-config";
 import { clearSelectionAskPayloadHandler } from "@/features/kb/services/selection-ai/selection-ai-chat-bridge";
 import { destroySelectionAiPopup } from "@/features/kb/services/selection-ai/selection-ai-popup-controller";
 import { destroySelectionAiActionMenu } from "@/features/kb/services/selection-ai/selection-ai-action-menu-controller";
@@ -158,6 +159,7 @@ const KB_CHAT_TOPBAR_ID = "siyuan-homepage-kb-chat";
 
 const MOBILE_ENTITLEMENT_SYNC_GRACE_MS = 8_000;
 const HOMEPAGE_ENTITLEMENT_EXTERNAL_REFRESH_DEBOUNCE_MS = 300;
+const HOMEPAGE_SHARED_RUNTIME_REFRESH_DEBOUNCE_MS = 400;
 const HOMEPAGE_ENTITLEMENT_RECOVERY_COOLDOWN_MS = 5 * 60_000;
 const HOMEPAGE_MEMBERSHIP_ABSENCE_CODES: ReadonlySet<MembershipServiceErrorCode> = new Set([
     "ACTIVE_MEMBERSHIP_NOT_FOUND",
@@ -349,6 +351,11 @@ export default class PluginHomepage extends Plugin {
     private homepageEntitlementVerification: Promise<void> | null = null;
     private homepageEntitlementCheckTimer: number | null = null;
     private homepageEntitlementExternalRefreshTimer: number | null = null;
+    private homepageSharedRuntimeRefreshTimer: number | null = null;
+    private homepageSharedRuntimeRefreshInFlight = false;
+    private homepageSharedRuntimeRefreshPending = false;
+    private homepageSharedRuntimeRefreshGeneration = 0;
+    private homepageSharedRuntimeRefreshDisposed = false;
     private homepageEntitlementFailureCount = 0;
     private homepageEntitlementReminderKey = "";
     private homepageEntitlementStartupAt = 0;
@@ -409,9 +416,10 @@ export default class PluginHomepage extends Plugin {
     private sidebarDockRegistered = false;
     public override onDataChanged(reason?: TPluginDataChangeReason): void {
         if (reason !== undefined && reason !== "sync" && reason !== "overwrite") return;
-        // 只刷新会员快照；不调用基类实现，不卸载插件，不重建主页或设备视图。
+        // 只调度会员与共享 Runtime 轻量刷新；不调用基类实现、不重载插件或重建主页/设备视图。
         this.scheduleHomepageEntitlementExternalRefresh(reason ?? "unknown");
         window.dispatchEvent(new CustomEvent(HOMEPAGE_SHARED_SETTINGS_EXTERNAL_CHANGE_EVENT));
+        this.scheduleHomepageSharedRuntimeRefresh(reason ?? "unknown");
     }
 
     private ensureDeviceIdentityForRuntime(): Promise<void> {
@@ -617,17 +625,102 @@ export default class PluginHomepage extends Plugin {
         }, HOMEPAGE_ENTITLEMENT_EXTERNAL_REFRESH_DEBOUNCE_MS);
     }
 
+    private scheduleHomepageSharedRuntimeRefresh(reason: string): void {
+        if (this.homepageSharedRuntimeRefreshDisposed) return;
+        if (this.homepageSharedRuntimeRefreshInFlight) {
+            this.homepageSharedRuntimeRefreshPending = true;
+            console.debug("[Homepage] shared runtime refresh", { state: "pending", reason });
+            return;
+        }
+        if (this.homepageSharedRuntimeRefreshTimer !== null) {
+            window.clearTimeout(this.homepageSharedRuntimeRefreshTimer);
+        }
+        const generation = this.homepageSharedRuntimeRefreshGeneration;
+        console.debug("[Homepage] shared runtime refresh", { state: "scheduled", reason });
+        this.homepageSharedRuntimeRefreshTimer = window.setTimeout(() => {
+            this.homepageSharedRuntimeRefreshTimer = null;
+            void this.performHomepageSharedRuntimeRefresh(generation);
+        }, HOMEPAGE_SHARED_RUNTIME_REFRESH_DEBOUNCE_MS);
+    }
+
+    private async performHomepageSharedRuntimeRefresh(generation = this.homepageSharedRuntimeRefreshGeneration): Promise<void> {
+        if (this.homepageSharedRuntimeRefreshDisposed || generation !== this.homepageSharedRuntimeRefreshGeneration) return;
+        if (this.homepageSharedRuntimeRefreshInFlight) {
+            this.homepageSharedRuntimeRefreshPending = true;
+            return;
+        }
+
+        this.homepageSharedRuntimeRefreshInFlight = true;
+        try {
+            let snapshot: Awaited<ReturnType<typeof readHomepageSharedSettingsSnapshot>>;
+            try {
+                snapshot = await readHomepageSharedSettingsSnapshot(this);
+            } catch (error) {
+                if (!this.homepageSharedRuntimeRefreshDisposed && generation === this.homepageSharedRuntimeRefreshGeneration) {
+                    console.warn("[Homepage] 共享 Runtime 设置读取失败，保留当前运行状态", error);
+                }
+                return;
+            }
+            if (
+                this.homepageSharedRuntimeRefreshDisposed
+                || generation !== this.homepageSharedRuntimeRefreshGeneration
+                || snapshot === null
+            ) return;
+
+            const config = snapshot.config;
+            const hasConfigKey = (key: string): boolean => Object.prototype.hasOwnProperty.call(config, key);
+            if (hasConfigKey("taskEditorEnabled") && typeof config.taskEditorEnabled === "boolean") {
+                this.syncTaskEditorContentMenu(config.taskEditorEnabled);
+            }
+            if (hasConfigKey("aiKbDockEnabled") && typeof config.aiKbDockEnabled === "boolean") {
+                this.syncKbDockEnabled(!this.isMobileFrontend() && config.aiKbDockEnabled);
+            }
+            if (hasConfigKey("aiKbTabEnabled") && typeof config.aiKbTabEnabled === "boolean") {
+                this.syncKbTopBarEnabled(config.aiKbTabEnabled);
+            }
+            if (hasConfigKey("selectionAiToolbar")) {
+                setSelectionAiToolbarSettingsSnapshot(config.selectionAiToolbar);
+                this.syncSelectionAiPremiumRuntime();
+            }
+            if (this.isMobileFrontend() && isHomepageEntitlementGranted()) {
+                this.scheduleMobileQuickActionsRefresh("sync");
+            }
+        } catch (error) {
+            console.warn("[Homepage] 共享 Runtime 设置应用失败", error);
+        } finally {
+            this.homepageSharedRuntimeRefreshInFlight = false;
+            if (this.homepageSharedRuntimeRefreshDisposed || generation !== this.homepageSharedRuntimeRefreshGeneration) {
+                this.homepageSharedRuntimeRefreshPending = false;
+            } else if (this.homepageSharedRuntimeRefreshPending) {
+                this.homepageSharedRuntimeRefreshPending = false;
+                void this.performHomepageSharedRuntimeRefresh(generation);
+            }
+        }
+    }
+
+    private disposeHomepageSharedRuntimeRefresh(): void {
+        this.homepageSharedRuntimeRefreshDisposed = true;
+        this.homepageSharedRuntimeRefreshGeneration += 1;
+        this.homepageSharedRuntimeRefreshPending = false;
+        if (this.homepageSharedRuntimeRefreshTimer !== null) {
+            window.clearTimeout(this.homepageSharedRuntimeRefreshTimer);
+            this.homepageSharedRuntimeRefreshTimer = null;
+        }
+    }
+
     private syncHomepageConfigDependentListeners(config: PluginConfig | null): void {
-        const enableContentMenu = config?.taskEditorEnabled === true;
-        if (enableContentMenu && !this.contentMenuListenerRegistered) {
+        this.syncTaskEditorContentMenu(config?.taskEditorEnabled === true);
+        this.syncKbTopBar(config);
+    }
+
+    private syncTaskEditorContentMenu(enabled: boolean): void {
+        if (enabled && !this.contentMenuListenerRegistered) {
             this.eventBus.on("open-menu-content", this.contentMenuEventBindThis);
             this.contentMenuListenerRegistered = true;
-        } else if (!enableContentMenu && this.contentMenuListenerRegistered) {
+        } else if (!enabled && this.contentMenuListenerRegistered) {
             this.eventBus.off("open-menu-content", this.contentMenuEventBindThis);
             this.contentMenuListenerRegistered = false;
         }
-
-        this.syncKbTopBar(config);
     }
 
     private registerMinimalHomepageEntry(): void {
@@ -649,13 +742,21 @@ export default class PluginHomepage extends Plugin {
     }
 
     private syncHomepageDocks(config: PluginConfig): void {
-        const shouldRegisterDesktopDocks = !this.isMobileFrontend();
-        if (shouldRegisterDesktopDocks && config.sidebarEnabled === true) {
+        const isDesktopFrontend = !this.isMobileFrontend();
+        this.syncSidebarDockEnabled(isDesktopFrontend && config.sidebarEnabled === true);
+        this.syncKbDockEnabled(isDesktopFrontend && config.aiKbDockEnabled === true);
+    }
+
+    private syncSidebarDockEnabled(enabled: boolean): void {
+        if (enabled) {
             this.registerDock();
         } else {
             this.unregisterSidebarDock();
         }
-        if (shouldRegisterDesktopDocks && config.aiKbDockEnabled === true) {
+    }
+
+    private syncKbDockEnabled(enabled: boolean): void {
+        if (enabled) {
             this.registerKbDock();
         } else {
             this.unregisterKbDock();
@@ -912,6 +1013,7 @@ export default class PluginHomepage extends Plugin {
 
     async onunload() {
         this.homepageEntitlementDisposed = true;
+        this.disposeHomepageSharedRuntimeRefresh();
         this.homepageEntitlementGeneration += 1;
         this.homepageSyncInProgress = false;
         this.cancelDeferredBackgroundStartup?.();
@@ -2111,7 +2213,11 @@ export default class PluginHomepage extends Plugin {
     }
 
     private syncKbTopBar(config: PluginConfig | null): void {
-        if (config?.aiKbTabEnabled === true) {
+        this.syncKbTopBarEnabled(config?.aiKbTabEnabled === true);
+    }
+
+    private syncKbTopBarEnabled(enabled: boolean): void {
+        if (enabled) {
             if (this.kbTopBarElement !== null) return;
             this.removeExistingTopBar("kb-chat", this.kbTopBarElement);
             const kbTopBar = this.addTopBar({
@@ -2408,7 +2514,7 @@ export default class PluginHomepage extends Plugin {
     }
 
     private async refreshMobileQuickActionsFromSharedConfig(
-        reason: "visibility" | "focus" | "local-save",
+        reason: "visibility" | "focus" | "local-save" | "sync",
     ): Promise<void> {
         if (!isHomepageEntitlementGranted() || !this.isMobileFrontend() || this.isNewWindow()) return;
 
@@ -2432,7 +2538,7 @@ export default class PluginHomepage extends Plugin {
         }
     }
 
-    private scheduleMobileQuickActionsRefresh(reason: "visibility" | "focus"): void {
+    private scheduleMobileQuickActionsRefresh(reason: "visibility" | "focus" | "sync"): void {
         if (!isHomepageEntitlementGranted() || !this.isMobileFrontend() || this.isNewWindow()) return;
 
         // 如果正在刷新中，记录一次 pending
@@ -2454,7 +2560,7 @@ export default class PluginHomepage extends Plugin {
     }
 
     private async performMobileQuickActionsRefresh(
-        reason: "visibility" | "focus",
+        reason: "visibility" | "focus" | "sync",
     ): Promise<void> {
         if (!isHomepageEntitlementGranted() || !this.isMobileFrontend() || this.isNewWindow()) {
             this.mobileQuickActionsPendingRefresh = false;

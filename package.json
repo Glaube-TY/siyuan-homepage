@@ -27,6 +27,7 @@
     "verify:mobile-entitlement-sync": "node --no-warnings ./scripts/verify-mobile-entitlement-sync.mjs",
     "verify:remote-kernel-compat": "node --no-warnings ./scripts/verify-remote-kernel-compat.mjs",
     "verify:siyuan-api-compat": "node --no-warnings ./scripts/verify-siyuan-plugin-api-compat.mjs",
+    "verify:shared-runtime-refresh": "node --no-warnings ./scripts/verify-shared-runtime-refresh.mjs",
     "verify:entitlement": "pnpm verify:mobile-entitlement-sync",
     "verify:robot-quick-note": "node --no-warnings ./scripts/verify-robot-quick-note.mjs",
     "verify:external-http-transport": "node --no-warnings ./scripts/verify-external-http-transport.mjs",
