@@ -6,15 +6,31 @@ import { fileURLToPath } from "node:url";
 
 const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const indexSource = await readFile(resolve(root, "src/index.ts"), "utf8");
+const selectionAiConfigSource = await readFile(resolve(root, "src/features/kb/services/selection-ai/selection-ai-config.ts"), "utf8");
+const jsonSafeSource = await readFile(resolve(root, "src/homepage/deviceView/jsonSafe.ts"), "utf8");
 
-function sourceSection(startMarker, endMarker) {
-    const start = indexSource.indexOf(startMarker);
-    const end = indexSource.indexOf(endMarker, start + startMarker.length);
+function sourceSectionFrom(source, startMarker, endMarker) {
+    const start = source.indexOf(startMarker);
+    const end = source.indexOf(endMarker, start + startMarker.length);
     assert(start >= 0, `missing source marker: ${startMarker}`);
     assert(end > start, `missing source end marker: ${endMarker}`);
-    return indexSource.slice(start, end);
+    return source.slice(start, end);
 }
 
+function sourceSection(startMarker, endMarker) {
+    return sourceSectionFrom(indexSource, startMarker, endMarker);
+}
+
+const plainObjectGuard = sourceSectionFrom(
+    jsonSafeSource,
+    "export function isPlainJsonObject(value: unknown): value is Record<string, unknown> {",
+    "function cloneJsonValue(",
+);
+const selectionAiCandidateGuard = sourceSectionFrom(
+    selectionAiConfigSource,
+    "export function isSelectionAiToolbarSettingsCandidate(raw: unknown): raw is Record<string, unknown> {",
+    "export function setSelectionAiToolbarSettingsSnapshot(",
+);
 const methods = [
     sourceSection("public override onDataChanged(reason?: TPluginDataChangeReason): void {", "private ensureDeviceIdentityForRuntime()"),
     sourceSection("private scheduleHomepageSharedRuntimeRefresh(reason: string): void {", "private async performHomepageSharedRuntimeRefresh("),
@@ -27,6 +43,9 @@ const methods = [
 ];
 const fixtureSource = [
     `
+import { normalizeSelectionAiToolbarSettings } from "./src/features/kb/services/selection-ai/selection-ai-defaults";
+${plainObjectGuard}
+${selectionAiCandidateGuard}
 const HOMEPAGE_SHARED_RUNTIME_REFRESH_DEBOUNCE_MS = 400;
 const HOMEPAGE_SHARED_SETTINGS_EXTERNAL_CHANGE_EVENT = "homepage-shared-settings-external-change";
 const KB_CHAT_TOPBAR_ID = "siyuan-homepage-kb-chat";
@@ -108,6 +127,7 @@ class SharedRuntimeFixture {
 ${methods.join("\n")}
 }
 export { SharedRuntimeFixture };
+export { normalizeSelectionAiToolbarSettings };
 `,
 ].join("\n");
 
@@ -125,7 +145,7 @@ const bundled = await build({
     write: false,
     logLevel: "silent",
 });
-const { SharedRuntimeFixture } = await import(
+const { SharedRuntimeFixture, normalizeSelectionAiToolbarSettings } = await import(
     `data:text/javascript;base64,${Buffer.from(bundled.outputFiles[0].text).toString("base64")}`,
 );
 
@@ -334,6 +354,48 @@ for (const [readSnapshot, expectedWarnings] of [
     assert.deepEqual(missing.runtime.selectionAiToolbarItemNames, new Set(["selection-ask"]));
 }
 
+// S: malformed external containers preserve runtime state; valid partial objects still reach the existing normalizer.
+for (const invalid of [null, "bad", 123, false, []]) {
+    assert.equal(normalizeSelectionAiToolbarSettings(invalid).enabled, true);
+    const fixture = createFixture({
+        readSnapshot: async () => snapshot({ selectionAiToolbar: invalid }),
+    });
+    fixture.runtime.selectionAiToolbarItemNames = new Set(["selection-ask"]);
+    const settingsSnapshotBefore = fixture.support.selectionSettings;
+    const toolbarItemsBefore = fixture.runtime.selectionAiToolbarItemNames;
+    await fixture.runtime.performHomepageSharedRuntimeRefresh();
+    assert.equal(fixture.support.selectionSetterCalls.length, 0);
+    assert.deepEqual(fixture.support.toolbarAdds, []);
+    assert.deepEqual(fixture.support.toolbarRemoves, []);
+    assert.strictEqual(fixture.runtime.selectionAiToolbarItemNames, toolbarItemsBefore);
+    assert.deepEqual(fixture.runtime.selectionAiToolbarItemNames, new Set(["selection-ask"]));
+    assert.strictEqual(fixture.support.selectionSettings, settingsSnapshotBefore);
+    assert.deepEqual(fixture.support.warnings, [["[Homepage] 同步到的 Selection AI 设置格式无效，保留当前运行配置"]]);
+}
+
+{
+    const partial = {};
+    const fixture = createFixture({
+        readSnapshot: async () => snapshot({ selectionAiToolbar: partial }),
+    });
+    await fixture.runtime.performHomepageSharedRuntimeRefresh();
+    assert.deepEqual(fixture.support.selectionSetterCalls, [partial]);
+    assert.equal(normalizeSelectionAiToolbarSettings(partial).enabled, true);
+}
+
+{
+    const partial = { enabled: false };
+    const fixture = createFixture({
+        readSnapshot: async () => snapshot({ selectionAiToolbar: partial }),
+    });
+    fixture.runtime.selectionAiToolbarItemNames = new Set(["selection-ask"]);
+    await fixture.runtime.performHomepageSharedRuntimeRefresh();
+    assert.deepEqual(fixture.support.selectionSetterCalls, [partial]);
+    assert.equal(normalizeSelectionAiToolbarSettings(partial).enabled, false);
+    assert.deepEqual(fixture.support.toolbarRemoves, ["selection-ask"]);
+    assert.equal(fixture.runtime.selectionAiToolbarItemNames.size, 0);
+}
+
 // N-O: mobile schedules the existing quick-action refresh, desktop does not; Auto Open never runs here.
 {
     const mobile = createFixture({
@@ -413,6 +475,9 @@ assert.match(performRefresh, /this\.syncKbDockEnabled\(/);
 assert.match(performRefresh, /this\.syncKbTopBarEnabled\(/);
 assert.match(performRefresh, /this\.syncTaskEditorContentMenu\(/);
 assert.match(performRefresh, /setSelectionAiToolbarSettingsSnapshot\(config\.selectionAiToolbar\)[\s\S]*?this\.syncSelectionAiPremiumRuntime\(\)/);
+assert.match(performRefresh, /isSelectionAiToolbarSettingsCandidate\(config\.selectionAiToolbar\)/);
+assert.match(performRefresh, /同步到的 Selection AI 设置格式无效，保留当前运行配置/);
+assert.match(selectionAiConfigSource, /settingsSnapshot = normalizeSelectionAiToolbarSettings\(raw\)/);
 assert.match(performRefresh, /this\.scheduleMobileQuickActionsRefresh\("sync"\)/);
 assert.doesNotMatch(performRefresh, /sidebarEnabled|syncSidebarDockEnabled|syncHomepageDocks|initializeHomepageSurface|recoverDeviceViewRuntimeAfterIdentityReady|handleHomepageSettingsSaved|loadHomepageConfigDataStrict|saveHomepageSharedSettings|saveData\(|writeJson|openMobile|openQuickNotes|setQuickNoteConfigLoader|syncRobotAgentRuntimeConfig|syncRobotQuickNoteLegacySnapshot|startAutomationRuntime/);
 assert.match(onDataChanged, /scheduleHomepageEntitlementExternalRefresh/);
@@ -423,4 +488,4 @@ assert.match(indexSource, /private async refreshMobileQuickActionsFromSharedConf
 assert.match(indexSource, /private scheduleMobileQuickActionsRefresh\(reason: "visibility" \| "focus" \| "sync"\)/);
 assert.match(indexSource, /private syncHomepageDocks\(config: PluginConfig\): void \{[\s\S]*?syncSidebarDockEnabled[\s\S]*?syncKbDockEnabled/);
 
-console.log("shared runtime refresh verification passed (A-R)");
+console.log("shared runtime refresh verification passed (A-S)");

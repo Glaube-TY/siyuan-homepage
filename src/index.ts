@@ -98,7 +98,7 @@ import { destroyCountdownNotifyScheduler, setCountdownNotifyPlugin, startCountdo
 import { destroyEnhancedDiaryNotifyScheduler, setEnhancedDiaryNotifyPlugin, setEnhancedDiaryNotifyRulesPlugin, startEnhancedDiaryNotifyScheduler } from "@/features/enhanced-diary-notify";
 import { destroyReviewNotifyScheduler, setReviewNotifyPlugin, startReviewNotifyScheduler } from "@/features/review-notify";
 import { removeTopBarWithFallback, supportsDynamicDock, supportsDynamicToolbar } from "@/utils/siyuanPluginApiCompat";
-import { getSelectionAiToolbarSettingsSnapshot, loadSelectionAiToolbarSettingsSnapshot, setSelectionAiToolbarSettingsSnapshot } from "@/features/kb/services/selection-ai/selection-ai-config";
+import { getSelectionAiToolbarSettingsSnapshot, isSelectionAiToolbarSettingsCandidate, loadSelectionAiToolbarSettingsSnapshot, setSelectionAiToolbarSettingsSnapshot } from "@/features/kb/services/selection-ai/selection-ai-config";
 import { clearSelectionAskPayloadHandler } from "@/features/kb/services/selection-ai/selection-ai-chat-bridge";
 import { destroySelectionAiPopup } from "@/features/kb/services/selection-ai/selection-ai-popup-controller";
 import { destroySelectionAiActionMenu } from "@/features/kb/services/selection-ai/selection-ai-action-menu-controller";
@@ -679,8 +679,12 @@ export default class PluginHomepage extends Plugin {
                 this.syncKbTopBarEnabled(config.aiKbTabEnabled);
             }
             if (hasConfigKey("selectionAiToolbar")) {
-                setSelectionAiToolbarSettingsSnapshot(config.selectionAiToolbar);
-                this.syncSelectionAiPremiumRuntime();
+                if (isSelectionAiToolbarSettingsCandidate(config.selectionAiToolbar)) {
+                    setSelectionAiToolbarSettingsSnapshot(config.selectionAiToolbar);
+                    this.syncSelectionAiPremiumRuntime();
+                } else {
+                    console.warn("[Homepage] 同步到的 Selection AI 设置格式无效，保留当前运行配置");
+                }
             }
             if (this.isMobileFrontend() && isHomepageEntitlementGranted()) {
                 this.scheduleMobileQuickActionsRefresh("sync");

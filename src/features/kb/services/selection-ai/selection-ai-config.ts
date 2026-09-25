@@ -1,3 +1,4 @@
+import { isPlainJsonObject } from "@/homepage/deviceView/jsonSafe";
 import {
   DEFAULT_SELECTION_AI_TOOLBAR_SETTINGS,
   normalizeSelectionAiToolbarSettings,
@@ -9,6 +10,10 @@ let settingsSnapshot: SelectionAiToolbarSettings = {
   ...DEFAULT_SELECTION_AI_TOOLBAR_SETTINGS,
   skills: DEFAULT_SELECTION_AI_TOOLBAR_SETTINGS.skills.map((s) => ({ ...s })),
 };
+
+export function isSelectionAiToolbarSettingsCandidate(raw: unknown): raw is Record<string, unknown> {
+  return isPlainJsonObject(raw);
+}
 
 export function setSelectionAiToolbarSettingsSnapshot(raw: unknown): SelectionAiToolbarSettings {
   settingsSnapshot = normalizeSelectionAiToolbarSettings(raw);
