@@ -96,7 +96,7 @@ import { destroyTaskDataRuntime, startTaskDataRuntime } from "@/features/task-da
 import { destroyCountdownNotifyScheduler, setCountdownNotifyPlugin, startCountdownNotifyScheduler } from "@/features/countdown-notify";
 import { destroyEnhancedDiaryNotifyScheduler, setEnhancedDiaryNotifyPlugin, setEnhancedDiaryNotifyRulesPlugin, startEnhancedDiaryNotifyScheduler } from "@/features/enhanced-diary-notify";
 import { destroyReviewNotifyScheduler, setReviewNotifyPlugin, startReviewNotifyScheduler } from "@/features/review-notify";
-import { removeTopBarWithFallback, supportsDynamicToolbar } from "@/utils/siyuanPluginApiCompat";
+import { removeTopBarWithFallback, supportsDynamicDock, supportsDynamicToolbar } from "@/utils/siyuanPluginApiCompat";
 import { getSelectionAiToolbarSettingsSnapshot, loadSelectionAiToolbarSettingsSnapshot } from "@/features/kb/services/selection-ai/selection-ai-config";
 import { clearSelectionAskPayloadHandler } from "@/features/kb/services/selection-ai/selection-ai-chat-bridge";
 import { destroySelectionAiPopup } from "@/features/kb/services/selection-ai/selection-ai-popup-controller";
@@ -637,13 +637,7 @@ export default class PluginHomepage extends Plugin {
 
     private async initializeHomepageSurface(config: PluginConfig): Promise<void> {
         this.syncHomepageConfigDependentListeners(config);
-
-        if (config.sidebarEnabled === true && !this.isMobile && !this.sidebarDockRegistered) {
-            this.registerDock();
-        }
-        if (config.aiKbDockEnabled === true && !this.isMobile) {
-            this.registerKbDock();
-        }
+        this.syncHomepageDocks(config);
 
         // 全局背景应用失败是非致命副作用，单独捕获，避免整个主页初始化永久卡死。
         try {
@@ -651,6 +645,20 @@ export default class PluginHomepage extends Plugin {
             await this.applyGlobalBackgroundImageStyle(config);
         } catch (error) {
             console.warn("[Homepage] 初始化全局背景样式失败:", error);
+        }
+    }
+
+    private syncHomepageDocks(config: PluginConfig): void {
+        const shouldRegisterDesktopDocks = !this.isMobileFrontend();
+        if (shouldRegisterDesktopDocks && config.sidebarEnabled === true) {
+            this.registerDock();
+        } else {
+            this.unregisterSidebarDock();
+        }
+        if (shouldRegisterDesktopDocks && config.aiKbDockEnabled === true) {
+            this.registerKbDock();
+        } else {
+            this.unregisterKbDock();
         }
     }
 
@@ -998,25 +1006,8 @@ export default class PluginHomepage extends Plugin {
         this.stopSelectionAiPremiumRuntime();
         clearSelectionAskPayloadHandler();
 
-        // 销毁 dock Sidebar 实例
-        if (this.sidebarDockInstance) {
-            try {
-                unmount(this.sidebarDockInstance);
-            } catch {
-                // 忽略卸载过程中的错误
-            }
-            this.sidebarDockInstance = null;
-        }
-
-        this.kbDockInitGeneration += 1;
-        if (this.kbDockInstance) {
-            try {
-                unmount(this.kbDockInstance);
-            } catch {
-                // ignore dock cleanup errors
-            }
-            this.kbDockInstance = null;
-        }
+        this.cleanupSidebarDockInstance();
+        this.cleanupKbDockInstance();
         this.kbDockRegistered = false;
         this.sidebarDockRegistered = false;
 
@@ -3004,9 +2995,58 @@ export default class PluginHomepage extends Plugin {
         return (await loadHomepageConfigDataStrict(this, surface)).data as PluginConfig;
     }
 
+    private unregisterSidebarDock(): void {
+        if (!this.sidebarDockRegistered || !supportsDynamicDock(this)) return;
+        try {
+            this.removeDock(DOCK_TYPE);
+        } catch (error) {
+            console.warn("[Homepage] 移除主页侧边栏 Dock 失败:", error);
+            return;
+        }
+        this.cleanupSidebarDockInstance();
+        this.sidebarDockRegistered = false;
+    }
+
+    private unregisterKbDock(): void {
+        if (!this.kbDockRegistered || !supportsDynamicDock(this)) return;
+        this.kbDockInitGeneration += 1;
+        try {
+            this.removeDock(KB_DOCK_TYPE);
+        } catch (error) {
+            console.warn("[Homepage] 移除 AI 知识库 Dock 失败:", error);
+            return;
+        }
+        this.cleanupKbDockInstance();
+        this.kbDockRegistered = false;
+    }
+
+    private cleanupSidebarDockInstance(): void {
+        const instance = this.sidebarDockInstance;
+        this.sidebarDockInstance = null;
+        if (!instance) return;
+        try {
+            unmount(instance);
+        } catch {
+            // 忽略 Dock 实例卸载错误。
+        }
+    }
+
+    private cleanupKbDockInstance(): void {
+        this.kbDockInitGeneration += 1;
+        const instance = this.kbDockInstance;
+        this.kbDockInstance = null;
+        if (!instance) return;
+        try {
+            unmount(instance);
+        } catch {
+            // 忽略 Dock 实例卸载错误。
+        }
+    }
+
     private registerDock() {
         if (this.sidebarDockRegistered) return;
         this.addDock({
+            id: DOCK_TYPE,
             config: {
                 position: "RightTop",
                 size: { width: 200, height: 0 },
@@ -3018,15 +3058,7 @@ export default class PluginHomepage extends Plugin {
             },
             type: DOCK_TYPE,
             init: (dock) => {
-                // 如果已有旧实例，先清理避免重复挂载
-                if (this.sidebarDockInstance) {
-                    try {
-                        unmount(this.sidebarDockInstance);
-                    } catch {
-                        // 忽略卸载错误
-                    }
-                    this.sidebarDockInstance = null;
-                }
+                this.cleanupSidebarDockInstance();
 
                 // 清理 dock.element 内可能残留的旧 sidebar 容器
                 const existingContainer = dock.element.querySelector('[data-sidebar-container]');
@@ -3044,6 +3076,7 @@ export default class PluginHomepage extends Plugin {
                 } as any);
                 dock.element.appendChild(sidebarContainer);
             },
+            destroy: () => this.cleanupSidebarDockInstance(),
         });
         this.sidebarDockRegistered = true;
     }
@@ -3052,6 +3085,7 @@ export default class PluginHomepage extends Plugin {
         if (this.kbDockRegistered) return;
 
         this.addDock({
+            id: KB_DOCK_TYPE,
             config: {
                 position: "RightTop",
                 size: { width: 360, height: 0 },
@@ -3061,15 +3095,8 @@ export default class PluginHomepage extends Plugin {
             data: {},
             type: KB_DOCK_TYPE,
             init: (dock) => {
-                const initGeneration = ++this.kbDockInitGeneration;
-                if (this.kbDockInstance) {
-                    try {
-                        unmount(this.kbDockInstance);
-                    } catch {
-                        // ignore stale dock cleanup errors
-                    }
-                    this.kbDockInstance = null;
-                }
+                this.cleanupKbDockInstance();
+                const initGeneration = this.kbDockInitGeneration;
 
                 const existingContainer = dock.element.querySelector('[data-kb-dock-container]');
                 if (existingContainer) {
@@ -3137,17 +3164,7 @@ export default class PluginHomepage extends Plugin {
                     }
                 })();
             },
-            destroy: () => {
-                this.kbDockInitGeneration += 1;
-                if (this.kbDockInstance) {
-                    try {
-                        unmount(this.kbDockInstance);
-                    } catch {
-                        // ignore dock cleanup errors
-                    }
-                    this.kbDockInstance = null;
-                }
-            },
+            destroy: () => this.cleanupKbDockInstance(),
         });
 
         this.kbDockRegistered = true;

@@ -16,3 +16,7 @@ export function supportsDynamicToolbar(
     return typeof plugin.addToolbarItem === "function"
         && typeof plugin.removeToolbarItem === "function";
 }
+
+export function supportsDynamicDock(plugin: { removeDock?: unknown }): boolean {
+    return typeof plugin.removeDock === "function";
+}
