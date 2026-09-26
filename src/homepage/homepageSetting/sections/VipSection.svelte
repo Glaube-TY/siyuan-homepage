@@ -1144,6 +1144,22 @@
         </a>
     </div>
 
+    <div class="membership-promotion-card" role="note" aria-label="中秋国庆会员限时优惠">
+        <div class="membership-promotion-copy">
+            <div class="membership-promotion-heading">
+                <div class="membership-promotion-title">
+                    <PremiumMark size={18} />
+                    <h3>中秋·国庆限时特惠</h3>
+                </div>
+                <strong class="membership-promotion-discount">会员全场 7 折</strong>
+            </div>
+            <p class="membership-promotion-time">活动时间：2026 年 9 月 25 日 00:00 — 10 月 15 日 00:00</p>
+            <p>月度、年度、永久会员均参与本次活动。</p>
+            <p>折扣已在爱发电商品页直接生效，无需优惠码。</p>
+            <small>实际结算价格以爱发电页面为准。</small>
+        </div>
+    </div>
+
     <details class="membership-benefits-comparison">
         <summary>
             <span class="benefits-summary-title">

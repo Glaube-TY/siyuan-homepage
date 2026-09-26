@@ -1,4 +1,17 @@
 <div class="sy__outline" style="display:block;width:100%;max-width:100%;margin:0;padding:0 10px 32px;box-sizing:border-box;overflow:hidden;overflow-wrap:anywhere;line-height:1.75;color:#34453f;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Microsoft YaHei',sans-serif;">
+  <div role="note" aria-label="中秋国庆会员限时优惠" style="display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:14px;width:100%;max-width:100%;margin:0 0 18px;padding:18px 22px;box-sizing:border-box;border:1px solid #ead8ad;border-radius:16px;background:#fff9eb;color:#5b4a2b;">
+    <div style="flex:1 1 420px;min-width:0;">
+      <h2 style="margin:0;font-size:20px;line-height:1.4;color:#6d5630;">中秋·国庆限时特惠</h2>
+      <p style="margin:8px 0 0;color:#6b5a3d;font-size:14px;font-weight:600;line-height:1.6;overflow-wrap:anywhere;">活动时间：2026 年 9 月 25 日 00:00 — 10 月 15 日 00:00</p>
+      <p style="margin:7px 0 0;color:#5e6252;font-size:14px;line-height:1.65;overflow-wrap:anywhere;">月度、年度、永久会员均参与本次活动。折扣已在爱发电商品页直接生效，无需优惠码。</p>
+      <p style="margin:4px 0 0;color:#77715f;font-size:13px;line-height:1.55;overflow-wrap:anywhere;">实际结算价格以爱发电页面为准。</p>
+      <a href="https://www.ifdian.net/a/glaube-ty?utm_source=copylink&amp;utm_medium=link" target="_blank" rel="noopener noreferrer" style="display:inline-block;max-width:100%;margin-top:12px;padding:9px 16px;box-sizing:border-box;border-radius:10px;background:#338d73;color:#fff;text-decoration:none;font-weight:600;white-space:normal;overflow-wrap:anywhere;">前往爱发电查看优惠 →</a>
+    </div>
+    <div style="display:flex;flex:0 1 128px;flex-direction:column;align-items:center;justify-content:center;min-width:96px;padding:10px 12px;box-sizing:border-box;border:1px solid #ead8ad;border-radius:12px;background:#fffdf7;color:#a04e36;text-align:center;">
+      <span style="font-size:13px;font-weight:600;">会员全场</span>
+      <strong style="font-size:28px;line-height:1.2;">7 折</strong>
+    </div>
+  </div>
   <div style="display:block;width:100%;max-width:100%;margin:18px 0 16px;padding:36px 28px;box-sizing:border-box;text-align:center;border:1px solid #c8dfd7;border-radius:22px;background:linear-gradient(135deg,#f2faf6 0%,#fffaf0 52%,#f1f7fb 100%);box-shadow:0 10px 28px rgba(62,105,91,.08);">
     <p style="max-width:760px;margin:0 auto;font-size:28px;font-weight:700;line-height:1.45;color:#245747;">把笔记入口、效率工具、生活数据与 AI，放进每天真正愿意打开的思源首页</p>
     <p style="max-width:720px;margin:14px auto 0;font-size:16px;color:#61756e;">自由组合 30+ 组件，从查看笔记到管理任务、记录生活，再到让 AI 远程执行操作，一套插件搭建属于你的个人工作台。</p>

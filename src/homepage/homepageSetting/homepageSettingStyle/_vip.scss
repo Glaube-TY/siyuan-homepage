@@ -487,6 +487,91 @@
                 }
             }
 
+            .membership-promotion-card {
+                display: flex;
+                flex-wrap: wrap;
+                align-items: center;
+                gap: 0.75rem;
+                width: 100%;
+                min-width: 0;
+                padding: 1.1rem;
+                border: 1px solid color-mix(in srgb, #f5b800 34%, var(--b3-border-color));
+                border-radius: 12px;
+                background: color-mix(in srgb, var(--b3-theme-surface) 93%, #f5b800);
+                box-sizing: border-box;
+
+                .membership-promotion-copy {
+                    display: flex;
+                    flex: 1 1 18rem;
+                    flex-direction: column;
+                    min-width: 0;
+                    gap: 0.35rem;
+
+                    p,
+                    small {
+                        margin: 0;
+                        line-height: 1.55;
+                        overflow-wrap: anywhere;
+                    }
+
+                    p {
+                        color: var(--b3-theme-on-surface);
+                        font-size: 0.86rem;
+                    }
+
+                    small {
+                        color: var(--b3-theme-on-surface-light);
+                        font-size: 0.78rem;
+                    }
+                }
+
+                .membership-promotion-heading {
+                    display: flex;
+                    flex-wrap: wrap;
+                    align-items: center;
+                    justify-content: space-between;
+                    gap: 0.5rem 0.75rem;
+                    min-width: 0;
+                }
+
+                .membership-promotion-title {
+                    display: flex;
+                    flex-wrap: wrap;
+                    align-items: center;
+                    gap: 0.45rem;
+                    min-width: 0;
+                    color: var(--b3-theme-primary);
+
+                    h3 {
+                        margin: 0;
+                        color: var(--b3-theme-on-surface);
+                        font-size: 1rem;
+                        line-height: 1.4;
+                        overflow-wrap: anywhere;
+                    }
+                }
+
+                .membership-promotion-discount {
+                    display: inline-flex;
+                    align-items: center;
+                    flex: 0 1 auto;
+                    max-width: 100%;
+                    padding: 0.28rem 0.65rem;
+                    border-radius: 8px;
+                    background: color-mix(in srgb, #f5b800 20%, var(--b3-theme-surface));
+                    color: var(--b3-theme-on-surface);
+                    font-size: 1rem;
+                    font-weight: 700;
+                    line-height: 1.4;
+                    overflow-wrap: anywhere;
+                }
+
+                .membership-promotion-copy .membership-promotion-time {
+                    color: var(--b3-theme-primary);
+                    font-weight: 600;
+                }
+            }
+
             .membership-benefits-comparison {
                 width: 100%;
                 min-width: 0;
