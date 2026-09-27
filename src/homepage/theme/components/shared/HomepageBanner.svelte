@@ -43,8 +43,13 @@
             class={`hp-banner__image ${imageClass}`.trim()}
             aria-hidden="true"
         />
+    {:else if banner.emptyReason === "unconfigured"}
+        <div class="hp-banner__empty-state" role="status" aria-label="横幅未配置图片">
+            <strong>横幅未配置图片</strong>
+            <span>请前往主页设置中的横幅设置添加图片</span>
+        </div>
     {/if}
-    {#if banner.integrated && banner.glassEnabled && !banner.fallbackReason}
+    {#if banner.imageSrc && banner.integrated && banner.glassEnabled && !banner.fallbackReason}
         <div
             class="hp-banner__glass"
             class:hp-banner__glass--custom={banner.glassColorMode === "custom"}
@@ -67,6 +72,37 @@
 </section>
 
 <style>
+    .hp-banner__empty-state {
+        position: relative;
+        z-index: 3;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        width: 100%;
+        height: 100%;
+        min-height: 100%;
+        box-sizing: border-box;
+        padding: 16px;
+        color: var(--hp-text, var(--b3-theme-on-background, #1f2328));
+        text-align: center;
+        user-select: none;
+        pointer-events: none;
+    }
+
+    .hp-banner__empty-state strong {
+        font-size: 14px;
+        font-weight: 600;
+        line-height: 1.4;
+    }
+
+    .hp-banner__empty-state span {
+        color: var(--hp-text-muted, var(--b3-theme-on-surface, #6b7280));
+        font-size: 12px;
+        line-height: 1.5;
+    }
+
     .hp-banner__premium-fallback {
         position: relative;
         z-index: 3;

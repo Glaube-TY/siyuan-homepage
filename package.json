@@ -38,6 +38,7 @@
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "verify:openai-compatible-text-call": "node --no-warnings ./scripts/verify-openai-compatible-text-call.mjs",
+    "verify:banner-empty-state": "node --no-warnings ./scripts/verify-banner-empty-state.mjs",
     "verify:bing-banner-source": "node --no-warnings ./scripts/verify-bing-banner-source.mjs"
   },
   "devDependencies": {

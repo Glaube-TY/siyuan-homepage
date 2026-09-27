@@ -49,6 +49,7 @@ export interface HomepageBannerModel {
     enabled: boolean;
     imageSrc: string;
     fallbackReason?: "premium_required";
+    emptyReason?: "unconfigured";
     height: number;
     integrated: boolean;
     glassEnabled: boolean;

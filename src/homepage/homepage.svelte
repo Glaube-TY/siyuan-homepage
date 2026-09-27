@@ -185,6 +185,7 @@
     let bannerHeight = $state(300);
     let bannerImgSrc = $state("");
     let bannerFallbackReason = $state<"premium_required" | undefined>(undefined);
+    let bannerEmptyReason = $state<"unconfigured" | undefined>(undefined);
     const PREMIUM_BANNER_FALLBACK_HEIGHT = 100;
     let homepageTopLayout = $state<HomepageTopLayoutModel>({ ...DEFAULT_HOMEPAGE_TOP_LAYOUT });
     let quickButtonStyle = $state<QuickButtonStyle>("default");
@@ -3770,6 +3771,7 @@
         bannerHeight = config.bannerHeight;
         bannerImgSrc = bannerResult.bannerImgSrc;
         bannerFallbackReason = bannerResult.fallbackReason;
+        bannerEmptyReason = bannerResult.emptyReason;
         backgroundImageSrc = backgroundResult.backgroundImageSrc;
     }
 
@@ -4071,6 +4073,7 @@
             enabled: supportsHomepageThemeBanner(themeResolution.definition) && bannerEnabled,
             imageSrc: bannerImgSrc,
             fallbackReason: bannerFallbackReason,
+            emptyReason: bannerEmptyReason,
             height: bannerFallbackReason === "premium_required" ? PREMIUM_BANNER_FALLBACK_HEIGHT : bannerHeight,
             integrated: supportsHomepageThemeBanner(themeResolution.definition) && homepageTopLayout.bannerContent === "all",
             glassEnabled: bannerGlassEnabled,

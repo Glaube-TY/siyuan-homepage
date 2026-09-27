@@ -244,6 +244,7 @@ export interface BannerImageResult {
     bannerImgSrc: string;
     remoteBannerImageData: string;
     fallbackReason?: "premium_required";
+    emptyReason?: "unconfigured";
 }
 
 export interface BackgroundImageResult {
@@ -518,13 +519,24 @@ export async function resolveBannerImage(
     }
 
     if (config.bannerGlobalType === "custom") {
+        const localImageData = typeof config.bannerLocalData === "string" ? config.bannerLocalData : "";
+        const remoteImageUrl = typeof config.bannerRemoteUrl === "string" ? config.bannerRemoteUrl : "";
+        const hasLocalImage = Boolean(localImageData.trim());
+        const hasRemoteUrl = Boolean(remoteImageUrl.trim());
+
         if (config.bannerType === "local") {
-            bannerImgSrc = config.bannerLocalData;
-        } else if (config.bannerType === "remote") {
-            if (config.bannerRemoteUrl) {
-                remoteBannerImageData = await getImage(config.bannerRemoteUrl);
+            if (!hasLocalImage) {
+                return { bannerImgSrc, remoteBannerImageData, emptyReason: "unconfigured" };
             }
-            bannerImgSrc = remoteBannerImageData || config.bannerRemoteUrl;
+            bannerImgSrc = localImageData;
+        } else if (config.bannerType === "remote") {
+            if (!hasRemoteUrl) {
+                return { bannerImgSrc, remoteBannerImageData, emptyReason: "unconfigured" };
+            }
+            remoteBannerImageData = await getImage(remoteImageUrl);
+            bannerImgSrc = remoteBannerImageData || remoteImageUrl;
+        } else if (!hasLocalImage && !hasRemoteUrl) {
+            return { bannerImgSrc, remoteBannerImageData, emptyReason: "unconfigured" };
         }
     } else if (config.bannerGlobalType === "bing") {
         if (!advanced) {
