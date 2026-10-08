@@ -45,7 +45,6 @@
             const result = await loadVisualChartData(config);
             if (destroyed || generation !== reloadGeneration) return;
             dataset = result;
-            if (result.resolvedDatabaseId && result.resolvedDatabaseId !== config.source.databaseId) config.source.databaseId = result.resolvedDatabaseId;
         } catch (reason) {
             if (destroyed || generation !== reloadGeneration) return;
             dataset = { columns: [], rows: [], sourceLabel: "" };

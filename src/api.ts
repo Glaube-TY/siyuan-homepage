@@ -1398,6 +1398,7 @@ export interface RenderAttributeViewPayload {
     query?: string;
     groupPaging?: Record<string, any>;
     createIfNotExist?: boolean;
+    persistView?: boolean;
 }
 
 export async function renderAttributeView(payload: RenderAttributeViewPayload): Promise<any> {
@@ -1405,18 +1406,38 @@ export async function renderAttributeView(payload: RenderAttributeViewPayload): 
     return res || null;
 }
 
-export async function getAttributeView(id: string): Promise<AttributeView | null> {
-    const res = await request('/api/av/getAttributeView', { id });
+export async function renderAttributeViewReadonly(payload: RenderAttributeViewPayload): Promise<any> {
+    return requestChecked('/api/av/renderAttributeView', {
+        ...payload, createIfNotExist: false, persistView: false,
+    }, 'renderAttributeView');
+}
+
+export async function getAttributeView(id: string, options: { checked?: boolean } = {}): Promise<AttributeView | null> {
+    const res = await (options.checked ? requestChecked : request)('/api/av/getAttributeView', { id });
     if (!res) return null;
+    if (typeof res !== 'object' || Array.isArray(res)) throw new Error('数据库响应不完整：数据库定义不是对象。');
 
     // 处理不同可能的响应结构：res.av / res.data.av / res
-    const av = res.av || res.data?.av || res;
-    if (!av) return null;
+    const av = 'av' in res ? res.av : res.data && typeof res.data === 'object' && 'av' in res.data ? res.data.av : res;
+    if (av === null) return null;
+    if (!av || typeof av.id !== 'string' || av.id !== id || !Array.isArray(av.keyValues)) {
+        throw new Error('数据库响应不完整：缺少有效的数据库定义或 keyValues。');
+    }
+    const keyValues = av.keyValues.map((column: AttributeViewKeyValue) => {
+        if (!column?.key || typeof column.key.id !== 'string' || !column.key.id || typeof column.key.name !== 'string' || typeof column.key.type !== 'string' || !column.key.type) {
+            throw new Error('数据库字段响应不完整：缺少有效的字段定义。');
+        }
+        // SiYuan KeyValues.Values uses json:"values,omitempty": an empty field is omitted.
+        if (column.values != null && !Array.isArray(column.values)) {
+            throw new Error(`数据库字段响应异常：${column.key.id}（${column.key.type}）的 values 不是数组。`);
+        }
+        return { ...column, values: column.values ?? [] };
+    });
 
     return {
-        id: av.id || id,
+        id: av.id,
         name: av.name || '',
-        keyValues: av.keyValues || [],
+        keyValues,
         views: av.views || [],
         raw: av,
     };
@@ -1773,7 +1794,9 @@ export async function getBlockKramdownChecked(id: BlockId): Promise<IResGetBlock
 }
 
 export async function getChildBlocksChecked(id: BlockId): Promise<IResGetChildBlock[]> {
-    return (await requestChecked('/api/block/getChildBlocks', { id }, 'getChildBlocks')) || [];
+    const blocks = await requestChecked('/api/block/getChildBlocks', { id }, 'getChildBlocks');
+    if (!Array.isArray(blocks)) throw new Error('getChildBlocks 返回结构异常：块列表不是数组。');
+    return blocks;
 }
 
 export async function transferBlockRefChecked(fromID: BlockId, toID: BlockId, refIDs: BlockId[]): Promise<void> {
@@ -1785,7 +1808,9 @@ export async function getBacklinkChecked(payload: GetBacklinkPayload): Promise<a
 }
 
 export async function sqlChecked(stmt: string): Promise<any[]> {
-    return (await requestChecked('/api/query/sql', { stmt }, 'sql')) || [];
+    const rows = await requestChecked('/api/query/sql', { stmt }, 'sql');
+    if (!Array.isArray(rows)) throw new Error('SQL 读取响应结构异常：查询结果不是数组。');
+    return rows;
 }
 
 export async function getTagChecked(

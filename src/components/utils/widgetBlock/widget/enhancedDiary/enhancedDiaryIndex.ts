@@ -1,4 +1,4 @@
-import { getFile, listDocsByPathChecked, putFileChecked, sqlChecked } from "@/api";
+import { getFile, getFileChecked, listDocsByPathChecked, putFileChecked, sqlChecked } from "@/api";
 import { prepareChangedRecentDocsForIndex } from "@/components/tools/siyuanComponentDataApi";
 import type { ComponentMigrationStatus } from "@/components/utils/widgetBlock/widget/common/componentMigrationTypes";
 
@@ -342,12 +342,16 @@ export async function getEnhancedDiaryIndexEntries(notebookId: string, dates?: s
 }
 
 export async function getEnhancedDiaryIndexEntriesStrict(notebookId: string): Promise<Record<string, DiaryIndexEntry>> {
-    const raw = await getFile(INDEX_PATH);
+    const raw = await getFileChecked(INDEX_PATH);
     if (!hasIndexFileResponse(raw)) throw new Error("强化日记索引不存在，通知扫描已停止。");
     const parsed = await fileToObject(raw);
     if (!isIndexPayload(parsed)) throw new Error("强化日记索引文件损坏或版本无效，通知扫描已停止。");
     if (parsed.notebookId !== notebookId) throw new Error("强化日记索引与当前日记笔记本不一致，通知扫描已停止。");
     if (!parsed.complete) throw new Error("强化日记索引尚未完整，通知扫描已停止。");
+    if (Object.entries(parsed.docs).some(([date, entry]) => !isDate(date) || !entry ||
+        entry.date !== date || entry.box !== notebookId || typeof entry.id !== "string" || !/^[0-9]{14}-[a-z0-9]{7}$/.test(entry.id))) {
+        throw new Error("强化日记索引条目无效，项目记录重建和通知扫描已停止。");
+    }
     cache = parsed;
     cacheNotebookId = notebookId;
     return { ...parsed.docs };

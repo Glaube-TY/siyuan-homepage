@@ -1,5 +1,7 @@
 <script lang="ts">
     import { onMount } from "svelte";
+    import { showMessage } from "siyuan";
+    import { writeTextToClipboard } from "@/libs/clipboard";
     import SettingSection from "@/libs/components/SettingSection.svelte";
     import SettingRow from "@/libs/components/SettingRow.svelte";
     import type { ComponentMigrationStatus } from "@/components/utils/widgetBlock/widget/common/componentMigrationTypes";
@@ -35,6 +37,8 @@
     } from "@/components/utils/widgetBlock/widget/enhancedDiary/enhancedDiaryProjectIndex";
     import {
         getEnhancedDiaryProjectRecordIndexStatus,
+        readEnhancedDiaryProjectRecordIndex,
+        formatEnhancedDiaryProjectRecordDiagnostics,
         rebuildEnhancedDiaryProjectRecordIndex,
     } from "@/components/utils/widgetBlock/widget/enhancedDiary/enhancedDiaryProjectRecordIndex";
 
@@ -88,6 +92,7 @@
     let isProjectIndexRebuilding = $state(false);
     let projectIndexStatus = $state<ComponentMigrationStatus>({ lastStatus: "idle" });
     let isProjectRecordIndexRebuilding = $state(false);
+    let isCopyingProjectRecordDiagnostics = $state(false);
     let projectRecordIndexStatus = $state<ComponentMigrationStatus>({ lastStatus: "idle" });
 
     let heatmapRebuildMonths = $state(12);
@@ -102,12 +107,16 @@
         }
         const time = status.lastRunAt ? new Date(status.lastRunAt).toLocaleString() : "未知时间";
         const counts: string[] = [];
-        if (typeof status.migratedCount === "number") counts.push(`写入 ${status.migratedCount}`);
+        if (typeof status.migratedCount === "number") counts.push(`${status.source === "enhanced-diary-project-record-incomplete" ? "保留关系" : "写入"} ${status.migratedCount}`);
         if (typeof status.refreshedCount === "number") counts.push(`刷新 ${status.refreshedCount}`);
         if (typeof status.removedCount === "number" && status.removedCount > 0) counts.push(`清理 ${status.removedCount}`);
         if (typeof status.skippedCount === "number" && status.skippedCount > 0) counts.push(`跳过 ${status.skippedCount}`);
         const countText = counts.length > 0 ? `（${counts.join("，")}）` : "";
-        return `${status.lastStatus === "success" ? "成功" : status.lastStatus === "error" ? "失败" : "未执行"} · ${time}${countText}`;
+        const label = status.source === "enhanced-diary-project-record-incomplete" ? "重建未完整"
+            : status.source === "enhanced-diary-project-record-read-error" ? "读取失败"
+            : status.source === "enhanced-diary-project-record-write-error" ? "写入失败"
+            : status.lastStatus === "success" ? "成功" : status.lastStatus === "error" ? "失败" : "未执行";
+        return `${label} · ${time}${countText}`;
     }
 
     function dispatchEnhancedDiaryIndexesUpdated(): void {
@@ -366,9 +375,21 @@
         isProjectRecordIndexRebuilding = true;
         try {
             projectRecordIndexStatus = await rebuildEnhancedDiaryProjectRecordIndex(await loadEnhancedDiaryConfig(plugin));
-            if (projectRecordIndexStatus.lastStatus === "success") dispatchEnhancedDiaryIndexesUpdated();
+            if (projectRecordIndexStatus.lastStatus === "success" || projectRecordIndexStatus.changed) dispatchEnhancedDiaryIndexesUpdated();
         }
         finally { isProjectRecordIndexRebuilding = false; }
+    }
+
+    async function handleCopyProjectRecordDiagnostics() {
+        if (!plugin || isCopyingProjectRecordDiagnostics) return;
+        isCopyingProjectRecordDiagnostics = true;
+        try {
+            const config = await loadEnhancedDiaryConfig(plugin);
+            const index = await readEnhancedDiaryProjectRecordIndex(config.dailyNotebookId || "", { fresh: true });
+            await writeTextToClipboard(formatEnhancedDiaryProjectRecordDiagnostics(index));
+            showMessage("诊断摘要已复制，不含日记正文或项目内容。");
+        } catch { showMessage("诊断摘要读取或复制失败，请重试。", 5000, "error"); }
+        finally { isCopyingProjectRecordDiagnostics = false; }
     }
 </script>
 
@@ -623,6 +644,13 @@
     </SettingRow>
     <SettingRow title="最近状态"><span class="index-status-text">{formatStatus(projectRecordIndexStatus)}</span></SettingRow>
     {#if projectRecordIndexStatus.lastMessage}<SettingRow title="最近消息"><span class="index-status-text">{projectRecordIndexStatus.lastMessage}</span></SettingRow>{/if}
+    {#if projectRecordIndexStatus.source === "enhanced-diary-project-record-incomplete"}
+        <SettingRow title="诊断摘要" description="仅包含日记 ID、日期、失败阶段、原因代码和缺失字段路径，可复制给开发者排查。">
+            <button type="button" class="index-action-btn" onclick={handleCopyProjectRecordDiagnostics} disabled={!plugin || isProjectRecordIndexRebuilding || isCopyingProjectRecordDiagnostics}>
+                {isCopyingProjectRecordDiagnostics ? "复制中..." : "复制诊断摘要"}
+            </button>
+        </SettingRow>
+    {/if}
 </SettingSection>
 
 <style lang="scss">

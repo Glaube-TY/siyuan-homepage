@@ -43,6 +43,7 @@ export interface EnhancedDiaryHeadingBlockLookup {
     missingTitle?: string;
     path: string[];
     readFailed?: boolean;
+    reason?: "diary_root_missing" | "quick_record_heading_missing" | "heading_mapping_mismatch";
 }
 
 export interface EnhancedDiaryInsertResult {
@@ -422,8 +423,8 @@ async function getDocumentHeadingBlocks(docId: string): Promise<EnhancedDiaryHea
     let children: IResGetChildBlock[];
     try {
         children = await getChildBlocksChecked(docId);
-    } catch (err) {
-        console.warn("[enhancedDiaryBlockLocator] getChildBlocksChecked failed", err);
+    } catch {
+        console.warn("[enhancedDiaryBlockLocator] heading read failed", { docId, reason: "block_structure_read_failed" });
         throw new Error("structure_read_failed");
     }
     return (children || [])
@@ -499,6 +500,7 @@ export async function findDayWorkspaceHeadingBlock(
             headings,
             missingTitle: `# ${rootTitle}`,
             path: fullPath,
+            reason: headings.some((heading) => headingTitleMatchesAny(heading, rootAliases)) ? "heading_mapping_mismatch" : "diary_root_missing",
         };
     }
 
@@ -511,6 +513,8 @@ export async function findDayWorkspaceHeadingBlock(
                 headings,
                 missingTitle: primaryPath[i],
                 path: fullPath,
+                reason: headings.some((heading) => headingTitleMatchesAny(heading, pathAliases[i])) ? "heading_mapping_mismatch"
+                    : sectionKey === "quickRecords" ? "quick_record_heading_missing" : undefined,
             };
         }
         currentParent = child;

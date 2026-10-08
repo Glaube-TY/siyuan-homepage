@@ -1,4 +1,4 @@
-import { getAttributeView, getTag, sql } from "@/api";
+import { getAttributeView, getTag, renderAttributeViewReadonly, sql, sqlChecked } from "@/api";
 import { buildFtsMatchClause } from "@/components/tools/siyuanSqlPaging";
 import type { VisualChartConfig, VisualChartDataset, VisualChartLoadResult } from "./visual-chart-types";
 
@@ -17,12 +17,20 @@ function text(value: unknown): string {
 }
 
 function attributeCellValue(cell: Record<string, any>): unknown {
-    const typedKeys = ["block", "text", "number", "date", "created", "updated", "select", "mSelect", "checkbox", "url", "email", "phone", "relation", "rollup", "template"];
+    const typedKeys = ["block", "text", "number", "date", "created", "updated", "select", "mSelect", "checkbox", "url", "email", "phone", "relation", "rollup", "template", "mAsset"];
     for (const key of typedKeys) {
         const value = cell[key];
         if (value === undefined || value === null) continue;
         if (key === "checkbox") return Boolean(value.checked ?? value.content ?? value);
+        if (key === "relation" || key === "rollup") {
+            if (value.contents === null) return null; // Go nil slice is a legitimate empty relation/rollup.
+            if (!Array.isArray(value.contents)) throw new Error("数据库字段响应异常：关联或汇总字段缺少 contents 数组。");
+            const contents = value.contents.map((item: any) => item ? attributeCellValue(item) : null);
+            if (!contents.length) return null;
+            return key === "rollup" && contents.length === 1 ? contents[0] : contents.map(text).filter(Boolean).join(", ");
+        }
         if (["number", "date", "created", "updated"].includes(key)) {
+            if (value.isNotEmpty === false) return null;
             const candidate = value.content ?? value.number ?? value.timestamp ?? value.value;
             const numeric = Number(candidate);
             return Number.isFinite(numeric) ? numeric : text(value);
@@ -79,34 +87,96 @@ function extractAttributeViewId(source: string): string {
     return match?.[1] || "";
 }
 
-async function resolveAttributeViewId(input: string): Promise<string> {
+async function resolveAttributeViewId(input: string): Promise<{ id: string; blockID?: string }> {
     const id = input.trim();
     if (!id) throw new Error("请填写数据库块 ID 或属性视图 ID");
-    const direct = await getAttributeView(id);
-    if (direct?.keyValues?.length || direct?.name) return id;
-    const rows = await sql(`select markdown, ial from blocks where id='${id.split("'").join("''")}' and type='av' limit 1`);
+    if (!/^[0-9]{14}-[a-z0-9]{7}$/.test(id)) throw new Error("数据库 ID 无效：请填写数据库块 ID 或属性视图 ID");
+    let rows: any[];
+    try { rows = await sqlChecked(`select markdown, ial from blocks where id='${id}' and type='av' limit 1`); }
+    catch { throw new Error("数据库 ID 解析时读取失败，请检查权限或内核连接。"); }
+    if (!rows.length) return { id };
     const resolved = extractAttributeViewId(`${rows[0]?.markdown || ""} ${rows[0]?.ial || ""}`);
-    if (!resolved) throw new Error("没有从该块中找到属性视图 ID");
-    return resolved;
+    if (!resolved) throw new Error("数据库块 ID 无法解析：该块缺少属性视图 ID。");
+    return { id: resolved, blockID: id };
 }
 
-async function loadDatabase(input: string): Promise<VisualChartLoadResult> {
-    const id = await resolveAttributeViewId(input);
-    const view = await getAttributeView(id);
-    if (!view) throw new Error("数据库读取失败");
-    const rowOrder: string[] = [];
-    const rowMap = new Map<string, Record<string, unknown>>();
-    view.keyValues.forEach((column, columnIndex) => {
-        column.values.forEach((rawCell: any, rowIndex: number) => {
-            const rowId = String(rawCell.blockID || rawCell.id || rowIndex);
-            if (!rowMap.has(rowId)) { rowOrder.push(rowId); rowMap.set(rowId, {}); }
-            const name = column.key.name || `字段 ${columnIndex + 1}`;
-            const value = attributeCellValue(rawCell);
-            rowMap.get(rowId)![name] = value;
+async function loadDatabase(input: string, requestedLimit: number): Promise<VisualChartLoadResult> {
+    const target = await resolveAttributeViewId(input);
+    let definition: Awaited<ReturnType<typeof getAttributeView>>;
+    try { definition = await getAttributeView(target.id, { checked: true }); }
+    catch (error) {
+        if (error instanceof Error && error.message.startsWith("数据库")) throw error;
+        throw new Error("数据库定义读取失败，请检查权限或内核连接。");
+    }
+    if (!definition) throw new Error("数据库 ID 无效或不存在，无法读取数据库。");
+    const limit = Math.min(5000, Math.max(1, Math.floor(requestedLimit) || 200));
+    const pageSize = Math.min(200, limit);
+    const rows: Array<Record<string, unknown>> = [];
+    const rowIds = new Set<string>();
+    let columns: string[] = [];
+    let columnSignature = "";
+    let selectedViewID: string | undefined;
+    for (let page = 1; rows.length < limit; page += 1) {
+        let rendered: any;
+        try { rendered = await renderAttributeViewReadonly({ ...target, viewID: selectedViewID, page, pageSize }); }
+        catch (error) {
+            if ((error as { siyuanMsg?: string })?.siyuanMsg === "attribute view not found") {
+                throw new Error("数据库 ID 无效或不存在，无法读取数据库。");
+            }
+            throw new Error("数据库行读取失败，请检查权限、数据库块上下文或内核连接。");
+        }
+        const view = rendered?.view;
+        if (!view || !["table", "list"].includes(rendered.viewType)) {
+            throw new Error("数据库响应不完整或当前布局暂不支持：请使用表格或列表视图。");
+        }
+        if (view.group?.field || view.groups?.length) throw new Error("当前数据库分组结构暂不支持图表，请使用未分组的表格或列表视图。");
+        if (!Array.isArray(view.columns) || !view.columns.length || !Array.isArray(view.rows) || typeof rendered.viewID !== "string" || !rendered.viewID) {
+            throw new Error("数据库响应不完整：缺少有效的 columns、rows 或 viewID。");
+        }
+        if (!Number.isInteger(view.rowCount) || view.rowCount < 0) throw new Error("数据库分页响应不完整：缺少有效的 rowCount。");
+        const names = view.columns.map((column: any, index: number) => {
+            if (!column || typeof column.id !== "string" || !column.id || typeof column.name !== "string" || typeof column.type !== "string" || !column.type) {
+                throw new Error("数据库字段响应不完整：缺少列 ID、名称或类型。");
+            }
+            return column.name || `字段 ${index + 1}`;
         });
-    });
-    const rows = rowOrder.map((id) => rowMap.get(id)!);
-    return { columns: view.keyValues.map((item) => item.key.name), rows, sourceLabel: view.name || "思源数据库", resolvedDatabaseId: id };
+        if (new Set(names).size !== names.length) throw new Error("数据库字段名称重复，无法可靠映射图表字段。");
+        const signature = JSON.stringify(view.columns.map((column: any) => [column.id, column.name, column.type]));
+        if (page > 1 && (selectedViewID !== rendered.viewID || signature !== columnSignature)) {
+            throw new Error("数据库视图在读取期间发生变化，请重新载入。");
+        }
+        selectedViewID = rendered.viewID;
+        columnSignature = signature;
+        columns = names;
+        const fields = new Map<string, string>(view.columns.map((column: any, index: number) => [column.id, names[index]]));
+        if (fields.size !== names.length) throw new Error("数据库字段 ID 重复，无法可靠映射图表字段。");
+        for (const row of view.rows) {
+            if (!row || typeof row.id !== "string" || !row.id || !Array.isArray(row.cells) || rowIds.has(row.id)) {
+                throw new Error("数据库行响应不完整：条目 ID 或 cells 异常。");
+            }
+            rowIds.add(row.id);
+            const output = Object.fromEntries(names.map((name: string) => [name, null]));
+            const seenKeys = new Set<string>();
+            for (const cell of row.cells) {
+                if (!cell || typeof cell !== "object" || Array.isArray(cell)) throw new Error("数据库字段响应异常：单元格结构无效。");
+                if (cell.value == null) continue;
+                const value = cell.value;
+                if (typeof value !== "object" || Array.isArray(value) || !fields.has(value.keyID) || seenKeys.has(value.keyID) ||
+                    (value.blockID && value.blockID !== row.id)) {
+                    throw new Error("数据库字段响应异常：单元格的 keyID 或条目 ID 无法关联。");
+                }
+                seenKeys.add(value.keyID);
+                output[fields.get(value.keyID)!] = attributeCellValue(value);
+            }
+            rows.push(output);
+            if (rows.length >= limit) break;
+        }
+        if (rows.length > view.rowCount || (view.rows.length < pageSize && rows.length < Math.min(limit, view.rowCount))) {
+            throw new Error("数据库分页响应不完整：返回行数与 rowCount 不一致。");
+        }
+        if (rows.length >= view.rowCount) break;
+    }
+    return { columns, rows, sourceLabel: definition.name || "思源数据库", resolvedDatabaseId: target.id };
 }
 
 function safeDocumentQuery(config: VisualChartConfig): string {
@@ -127,7 +197,7 @@ function safeDocumentQuery(config: VisualChartConfig): string {
 }
 
 export async function loadVisualChartData(config: VisualChartConfig): Promise<VisualChartLoadResult> {
-    if (config.source.type === "database") return loadDatabase(config.source.databaseId);
+    if (config.source.type === "database") return loadDatabase(config.source.databaseId, config.transform.limit);
     if (config.source.type === "sql") {
         if (!config.source.sql.trim()) throw new Error("请输入 SQL 查询");
         const rows = await sql(config.source.sql) as Array<Record<string, unknown>>;

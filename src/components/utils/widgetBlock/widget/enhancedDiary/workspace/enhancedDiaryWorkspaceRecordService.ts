@@ -31,7 +31,7 @@ import {
     getFieldAliases,
     headingTitleMatchesAliases,
 } from "../enhancedDiaryTemplateFieldMapping";
-import { readEnhancedDiaryProjectIndex } from "../enhancedDiaryProjectIndex";
+import { readEnhancedDiaryProjectIndex, readEnhancedDiaryProjectIndexStrict } from "../enhancedDiaryProjectIndex";
 import { ENHANCED_DIARY_KEY_RECORD_ATTR, parseEnhancedDiaryBatchBlockAttrs } from "../enhancedDiaryProjectTypes";
 import { appendRecordProjectReference, parseVisibleProjectTargetId, removeVisibleProjectReference, resolveProjectRelation } from "./enhancedDiaryWorkspaceProjectRelation";
 import { ENHANCED_DIARY_PROJECT_TARGET_ATTR } from "../enhancedDiaryProjectTypes";
@@ -388,6 +388,8 @@ export interface EnhancedDiaryQuickRecordQueryResult {
     structureComplete: boolean;
     relationComplete: boolean;
     reason?: string;
+    stage?: "headings" | "structure" | "attributes" | "project_relations";
+    missingPath?: string[];
 }
 
 async function applyFallbackProjectRelations(
@@ -418,32 +420,34 @@ export async function queryTodayQuickRecordsDetailed(
     mapping?: EnhancedDiaryTemplateFieldMapping | null,
     config?: EnhancedDiaryConfig,
 ): Promise<EnhancedDiaryQuickRecordQueryResult> {
+    let stage: EnhancedDiaryQuickRecordQueryResult["stage"] = "structure";
+    let reason = "block_structure_read_failed";
     try {
         const qrLookup = await findDayWorkspaceHeadingBlock(docId, "quickRecords", headingStructure, mapping);
         if (!qrLookup.found || !qrLookup.heading) {
             const records = queryTodayQuickRecordsFromMarkdown(docId, markdown, date, mapping);
-            const relationComplete = await applyFallbackProjectRelations(records, config);
-            return { records, structureComplete: false, relationComplete, reason: "quick_record_heading_unavailable" };
+            let relationComplete = false;
+            try { relationComplete = await applyFallbackProjectRelations(records, config); } catch { /* 仅用于展示，不写索引 */ }
+            return { records, structureComplete: false, relationComplete, stage: "headings", reason: qrLookup.reason || "quick_record_heading_missing",
+                missingPath: qrLookup.reason === "diary_root_missing" ? ["rootHeadings.day"] : ["rootHeadings.day", "dayWorkspaceSections.quickRecords"] };
         }
 
         const qrBlock = qrLookup.heading;
-        const allHeadings = qrLookup.headings;
-
-        let qrScopeEnd = Number.MAX_SAFE_INTEGER;
-        for (const h of allHeadings) {
-            if (h.index > qrBlock.index && h.level <= qrBlock.level) {
-                qrScopeEnd = h.index;
-                break;
-            }
-        }
-
         const blocks = await getChildBlocksChecked(docId);
-        const effectiveEnd = Math.min(qrScopeEnd, blocks.length);
+        if (blocks[qrBlock.index]?.id !== qrBlock.id || blocks.some((block) => !block || typeof block.id !== "string" || !/^[0-9]{14}-[a-z0-9]{7}$/.test(block.id) || typeof block.markdown !== "string") ||
+            new Set(blocks.map((block) => block.id)).size !== blocks.length) {
+            throw new Error("block_structure_response_incomplete");
+        }
+        const currentHeading = parseHeadingBlock(blocks[qrBlock.index], qrBlock.index);
+        if (!currentHeading || currentHeading.level !== qrBlock.level || currentHeading.title !== qrBlock.title) throw new Error("block_structure_changed");
+        const nextSectionIndex = blocks.findIndex((block, index) => index > qrBlock.index && (parseHeadingBlock(block, index)?.level || 7) <= qrBlock.level);
+        const effectiveEnd = nextSectionIndex < 0 ? blocks.length : nextSectionIndex;
         const preferredCategoryLevel = qrBlock.level + 1;
 
         const records: EnhancedDiaryWorkspaceRecord[] = [];
         let activeCategory: { key: string; title: string; level: number } | null = null;
         let activeCategoryLevel = 0;
+        const coveredBlocks = new Set<number>();
 
         for (let i = qrBlock.index + 1; i < effectiveEnd; i++) {
             const heading = parseHeadingBlock(blocks[i], i);
@@ -466,6 +470,7 @@ export async function queryTodayQuickRecordsDetailed(
                 if (nextHeading && nextHeading.level <= heading.level) break;
                 if (blocks[j].id) contentBlockIds.push(blocks[j].id);
                 if (blocks[j].markdown) contentLines.push(blocks[j].markdown);
+                coveredBlocks.add(j);
             }
 
             const content = contentLines.join("\n\n").trim();
@@ -487,12 +492,26 @@ export async function queryTodayQuickRecordsDetailed(
             });
         }
 
+        if (blocks.slice(qrBlock.index + 1, effectiveEnd).some((block, offset) =>
+            !coveredBlocks.has(qrBlock.index + 1 + offset) && block.type !== "h" && !isPlaceholderRecord(block.markdown))) {
+            reason = "quick_record_structure_unsupported";
+            throw new Error(reason);
+        }
+
         if (records.length > 0 && config) {
+            stage = "attributes";
+            reason = "block_attributes_read_failed";
             const ids = records.map((record) => record.headingBlockId).filter(Boolean) as string[];
             const attrsById = ids.length
                 ? parseEnhancedDiaryBatchBlockAttrs(await batchGetBlockAttrs(ids))
                 : {};
-            const projectIndex = await readEnhancedDiaryProjectIndex(config.projectStorage);
+            if (ids.some((id) => !attrsById[id])) throw new Error("block_attributes_response_incomplete");
+            stage = "project_relations";
+            reason = "project_relation_read_failed";
+            const projectIndex = await readEnhancedDiaryProjectIndexStrict(config.projectStorage);
+            if ([...Object.entries(projectIndex.roots), ...Object.entries(projectIndex.nodes)].some(([id, target]) => !target || target.id !== id)) {
+                throw new Error("project_index_target_identity_invalid");
+            }
             records.forEach((record) => {
                 const attrs = attrsById?.[record.headingBlockId || ""] || {};
                 const relation = resolveProjectRelation(projectIndex, attrs, record.rawProjectContent || record.content);
@@ -508,12 +527,12 @@ export async function queryTodayQuickRecordsDetailed(
             });
         }
         return { records, structureComplete: true, relationComplete: true };
-    } catch (err) {
-        console.warn("[enhancedDiaryWorkspaceRecordService] query records by blocks failed", err);
+    } catch {
+        console.warn("[enhancedDiaryWorkspaceRecordService] query records failed", { docId, date, stage, reason });
         const records = queryTodayQuickRecordsFromMarkdown(docId, markdown, date, mapping);
         let relationComplete = false;
         try { relationComplete = await applyFallbackProjectRelations(records, config); } catch { /* 保留展示回退 */ }
-        return { records, structureComplete: false, relationComplete, reason: "block_structure_read_failed" };
+        return { records, structureComplete: false, relationComplete, stage, reason };
     }
 }
 
@@ -564,7 +583,7 @@ export async function addWorkspaceQuickRecord(
                 config.templateFieldMapping,
                 config,
             );
-            if (!detailed.structureComplete) return false;
+            if (!detailed.structureComplete || !detailed.relationComplete) return false;
             await replaceProjectRecordIndexForDiary(config.dailyNotebookId!, todayDoc.docId!, detailed.records);
             return true;
         },

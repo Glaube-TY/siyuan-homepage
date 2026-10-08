@@ -70,8 +70,8 @@ export async function readDiaryMarkdownResult(docId: string): Promise<DiaryMarkd
         const res = await exportMdContent(docId);
         if (typeof res?.content === "string") return { ok: true, content: res.content };
         return { ok: false, content: "" };
-    } catch (err) {
-        console.warn("[enhancedDiaryDoc] readDiaryMarkdown failed", err);
+    } catch {
+        console.warn("[enhancedDiaryDoc] readDiaryMarkdown failed", { docId, reason: "markdown_read_failed" });
         return { ok: false, content: "" };
     }
 }

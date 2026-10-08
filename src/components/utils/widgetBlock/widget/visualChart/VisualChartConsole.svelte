@@ -83,7 +83,6 @@
             const result = await loadVisualChartData(normalizeVisualChartConfig(config));
             if (generation !== reloadGeneration) return;
             dataset = result;
-            if (result.resolvedDatabaseId) config.source.databaseId = result.resolvedDatabaseId;
             autoMap(forceMap);
         } catch (reason) {
             if (generation !== reloadGeneration) return;

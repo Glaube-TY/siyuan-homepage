@@ -1,10 +1,10 @@
-import { getFile, putFileChecked } from "@/api";
+import { getFileChecked, getFileOrNullChecked, putFileChecked } from "@/api";
 import type { ComponentMigrationStatus } from "@/components/utils/widgetBlock/widget/common/componentMigrationTypes";
 import type { EnhancedDiaryConfig } from "./enhancedDiaryTypes";
 import { ENHANCED_DIARY_PROJECT_RECORD_INDEX_PATH } from "./enhancedDiaryProjectTypes";
-import { getEnhancedDiaryIndexEntries } from "./enhancedDiaryIndex";
+import { getEnhancedDiaryIndexEntriesStrict } from "./enhancedDiaryIndex";
 import { queryTodayQuickRecordsDetailed, type EnhancedDiaryWorkspaceRecord } from "./workspace/enhancedDiaryWorkspaceRecordService";
-import { readDiaryMarkdown } from "./enhancedDiaryDoc";
+import { readDiaryMarkdownResult } from "./enhancedDiaryDoc";
 import { prepareChangedRecentDocsForIndex } from "@/components/tools/siyuanComponentDataApi";
 
 const INDEX_DIR = "/data/storage/petal/siyuan-homepage";
@@ -34,7 +34,32 @@ export interface EnhancedDiaryProjectRecordIndexPayload {
     notebookId: string;
     complete: boolean;
     items: Record<string, EnhancedDiaryProjectRecordIndexItem>;
+    failures?: EnhancedDiaryProjectRecordIndexFailure[];
 }
+
+export interface EnhancedDiaryProjectRecordIndexFailure {
+    docId: string;
+    date: string;
+    stage: string;
+    reason: string;
+    missingPath?: string[];
+}
+
+const INCOMPLETE_SOURCE = "enhanced-diary-project-record-incomplete";
+const READ_ERROR_SOURCE = "enhanced-diary-project-record-read-error";
+const WRITE_ERROR_SOURCE = "enhanced-diary-project-record-write-error";
+const FAILURE_LABELS: Record<string, string> = {
+    markdown_read_failed: "Markdown 读取失败",
+    block_structure_read_failed: "日记块结构读取失败",
+    quick_record_structure_unsupported: "快速记录存在无法可靠定位的内容",
+    diary_root_missing: "日记根标题缺失",
+    quick_record_heading_missing: "快速记录标题缺失",
+    heading_mapping_mismatch: "标题结构与配置映射不一致",
+    block_attributes_read_failed: "批量块属性读取失败",
+    project_relation_read_failed: "项目索引或关系解析失败",
+    index_item_build_failed: "记录索引条目解析失败",
+    unexpected_error: "其他异常",
+};
 
 const caches = new Map<string, EnhancedDiaryProjectRecordIndexPayload>();
 const maintenanceTails = new Map<string, Promise<void>>();
@@ -55,29 +80,28 @@ async function decode(raw: any): Promise<any> {
 
 function valid(value: any): value is EnhancedDiaryProjectRecordIndexPayload {
     return !!value && value.version === INDEX_VERSION && typeof value.updatedAt === "string" && typeof value.notebookId === "string" &&
-        typeof value.complete === "boolean" && value.items && typeof value.items === "object" && !Array.isArray(value.items);
+        typeof value.complete === "boolean" && value.items && typeof value.items === "object" && !Array.isArray(value.items) &&
+        Object.entries(value.items).every(([id, item]: [string, any]) => item && item.id === id && item.headingBlockId === id &&
+            typeof item.diaryDocId === "string" && typeof item.projectTargetId === "string" && Array.isArray(item.tags)) &&
+        (value.failures === undefined || (Array.isArray(value.failures) && value.failures.every((failure: any) => failure &&
+            typeof failure.docId === "string" && /^[0-9]{14}-[a-z0-9]{7}$/.test(failure.docId) && typeof failure.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(failure.date) && typeof failure.stage === "string" && typeof failure.reason === "string" &&
+            (failure.missingPath === undefined || (Array.isArray(failure.missingPath) && failure.missingPath.every((part: any) => typeof part === "string"))))));
 }
 
-function hasIndexFileResponse(raw: any): boolean {
-    if (raw == null) return false;
-    if (typeof raw === "object" && typeof raw.code === "number") {
-        return raw.code === 0 && raw.data != null;
-    }
-    return true;
-}
-
-export async function readEnhancedDiaryProjectRecordIndex(notebookId: string): Promise<EnhancedDiaryProjectRecordIndexPayload> {
+export async function readEnhancedDiaryProjectRecordIndex(notebookId: string, options: { fresh?: boolean } = {}): Promise<EnhancedDiaryProjectRecordIndexPayload> {
     const cached = caches.get(notebookId);
-    if (cached) return cached;
-    const parsed = await decode(await getFile(ENHANCED_DIARY_PROJECT_RECORD_INDEX_PATH));
-    const index = valid(parsed) && parsed.notebookId === notebookId ? parsed : empty(notebookId);
+    if (cached && !options.fresh) return cached;
+    const raw = await getFileOrNullChecked(ENHANCED_DIARY_PROJECT_RECORD_INDEX_PATH);
+    const parsed = raw === null ? undefined : await decode(raw);
+    if (raw !== null && !valid(parsed)) throw new Error("项目记录索引文件损坏或版本无效，已停止写入并保留原文件。");
+    if (parsed && parsed.notebookId !== notebookId) throw new Error("项目记录索引与当前日记笔记本不一致，已停止写入并保留原文件。");
+    const index = parsed || empty(notebookId);
     caches.set(notebookId, index);
     return index;
 }
 
 export async function readEnhancedDiaryProjectRecordIndexStrict(notebookId: string): Promise<EnhancedDiaryProjectRecordIndexPayload> {
-    const raw = await getFile(ENHANCED_DIARY_PROJECT_RECORD_INDEX_PATH);
-    if (!hasIndexFileResponse(raw)) throw new Error("项目记录索引不存在，请先完成索引构建。");
+    const raw = await getFileChecked(ENHANCED_DIARY_PROJECT_RECORD_INDEX_PATH);
     const parsed = await decode(raw);
     if (!valid(parsed)) throw new Error("项目记录索引文件损坏或版本无效，通知扫描已停止。");
     if (parsed.notebookId !== notebookId) throw new Error("项目记录索引与当前日记笔记本不一致，通知扫描已停止。");
@@ -89,21 +113,43 @@ export async function readEnhancedDiaryProjectRecordIndexStrict(notebookId: stri
 export async function getEnhancedDiaryProjectRecordIndexStatus(notebookId: string): Promise<ComponentMigrationStatus> {
     if (!notebookId) return { lastStatus: "idle", lastMessage: "尚未配置日记笔记本。" };
     try {
-        const raw = await getFile(ENHANCED_DIARY_PROJECT_RECORD_INDEX_PATH);
-        if (!hasIndexFileResponse(raw)) return { lastStatus: "idle", lastMessage: "项目记录索引尚未建立。" };
+        const raw = await getFileOrNullChecked(ENHANCED_DIARY_PROJECT_RECORD_INDEX_PATH);
+        if (raw === null) return { lastStatus: "idle", lastMessage: "项目记录索引尚未建立。" };
         const parsed = await decode(raw);
-        if (!valid(parsed)) return { lastStatus: "error", lastMessage: "项目记录索引文件损坏或版本无效，请重建。" };
+        if (!valid(parsed)) return { source: READ_ERROR_SOURCE, lastStatus: "error", lastMessage: "项目记录索引读取失败：文件损坏或版本无效。" };
         if (parsed.notebookId !== notebookId) {
-            return { lastRunAt: parsed.updatedAt, lastStatus: "idle", lastMessage: "日记笔记本配置已变化，需要重建项目记录索引。" };
+            return { source: READ_ERROR_SOURCE, lastRunAt: parsed.updatedAt, lastStatus: "error", lastMessage: "日记笔记本配置与已有项目记录索引不一致，已保留原索引。" };
         }
-        const migratedCount = Object.keys(parsed.items).length;
-        if (!parsed.complete) {
-            return { lastRunAt: parsed.updatedAt, lastStatus: "idle", lastMessage: "项目记录索引尚未完整，请重建。", migratedCount };
-        }
-        return { lastRunAt: parsed.updatedAt, lastStatus: "success", lastMessage: `项目记录索引完整，共 ${migratedCount} 条记录。`, migratedCount };
+        return statusFromIndex(parsed);
     } catch (error) {
-        return { lastStatus: "error", lastMessage: error instanceof Error ? error.message : "项目记录索引状态读取失败。" };
+        return { source: READ_ERROR_SOURCE, lastStatus: "error", lastMessage: error instanceof Error ? error.message : "项目记录索引状态读取失败。" };
     }
+}
+
+function statusFromIndex(index: EnhancedDiaryProjectRecordIndexPayload): ComponentMigrationStatus {
+    const migratedCount = Object.keys(index.items).length;
+    const failures = index.failures || [];
+    const counts = new Map<string, number>();
+    failures.forEach(({ reason }) => { const label = FAILURE_LABELS[reason] || FAILURE_LABELS.unexpected_error; counts.set(label, (counts.get(label) || 0) + 1); });
+    const summary = Array.from(counts, ([label, count]) => `${label} ${count} 篇`).join("；");
+    return {
+        source: index.complete ? undefined : INCOMPLETE_SOURCE,
+        lastRunAt: index.updatedAt,
+        lastStatus: index.complete ? "success" : "error",
+        migratedCount,
+        skippedCount: failures.length,
+        lastMessage: index.complete ? `项目记录索引完整，共 ${migratedCount} 条关系。`
+            : `项目记录索引重建未完整：已保留 ${migratedCount} 条关系（含未解析日记的历史关系）。${failures.length ? `${failures.length} 篇待解析：${summary}。可复制诊断摘要反馈，摘要不含日记正文或项目内容。` : "请重建以获取逐篇失败诊断。"}`,
+    };
+}
+
+export function formatEnhancedDiaryProjectRecordDiagnostics(index: EnhancedDiaryProjectRecordIndexPayload): string {
+    return JSON.stringify({ complete: index.complete, failures: (index.failures || []).map(({ docId, date, stage, reason, missingPath }) => ({
+        docId, date,
+        stage: ["markdown", "headings", "structure", "attributes", "project_relations", "index_items"].includes(stage) ? stage : "unknown",
+        reason: Object.prototype.hasOwnProperty.call(FAILURE_LABELS, reason) ? reason : "unexpected_error",
+        ...(missingPath ? { missingPath: missingPath.filter((part) => ["rootHeadings.day", "dayWorkspaceSections.quickRecords"].includes(part)) } : {}),
+    })) }, null, 2);
 }
 
 async function writeDirect(payload: EnhancedDiaryProjectRecordIndexPayload): Promise<void> {
@@ -111,6 +157,8 @@ async function writeDirect(payload: EnhancedDiaryProjectRecordIndexPayload): Pro
     try { await putFileChecked(INDEX_DIR, true, new Blob(["{}"])); } catch { /* 已存在 */ }
     await putFileChecked(ENHANCED_DIARY_PROJECT_RECORD_INDEX_PATH, false,
         new Blob([JSON.stringify(next, null, 2)], { type: "application/json;charset=utf-8" }));
+    const verified = await decode(await getFileChecked(ENHANCED_DIARY_PROJECT_RECORD_INDEX_PATH));
+    if (!valid(verified) || JSON.stringify(verified) !== JSON.stringify(next)) throw new Error("项目记录索引写后回读校验失败，请检查存储状态。");
     caches.set(payload.notebookId, next);
 }
 
@@ -126,7 +174,7 @@ async function update(
     mutate: (current: EnhancedDiaryProjectRecordIndexPayload) => EnhancedDiaryProjectRecordIndexPayload,
 ): Promise<void> {
     await enqueue(notebookId, async () => {
-        const current = await readEnhancedDiaryProjectRecordIndex(notebookId);
+        const current = await readEnhancedDiaryProjectRecordIndex(notebookId, { fresh: true });
         await writeDirect(mutate(current));
     });
 }
@@ -168,7 +216,7 @@ export async function replaceProjectRecordIndexForDiary(
     await update(notebookId, (current) => {
         const items = Object.fromEntries(Object.entries(current.items).filter(([, item]) => item.diaryDocId !== diaryDocId));
         records.forEach((record) => { const item = projectRecordToIndexItem(record); if (item) items[item.id] = item; });
-        return { ...current, complete: complete ?? current.complete, items };
+        return { ...current, complete: complete ?? current.complete, items, failures: current.failures?.filter((failure) => failure.docId !== diaryDocId) };
     });
 }
 
@@ -185,31 +233,57 @@ export async function upsertProjectRecordIndexItem(notebookId: string, record: E
     await update(notebookId, (current) => ({ ...current, items: { ...current.items, [item.id]: item } }));
 }
 
+async function readDiaryItemsForIndex(docId: string, date: string, config: EnhancedDiaryConfig): Promise<{
+    items: EnhancedDiaryProjectRecordIndexItem[]; failure?: undefined;
+} | { items?: undefined; failure: EnhancedDiaryProjectRecordIndexFailure }> {
+    let stage = "markdown";
+    const fail = (reason: string, missingPath?: string[]) => {
+        const failure = { docId, date, stage, reason, ...(missingPath ? { missingPath } : {}) };
+        console.warn("[enhancedDiaryProjectRecordIndex] diary skipped", failure);
+        return { failure };
+    };
+    try {
+        const markdown = await readDiaryMarkdownResult(docId);
+        if (!markdown.ok) return fail("markdown_read_failed");
+        stage = "structure";
+        const detailed = await queryTodayQuickRecordsDetailed(docId, markdown.content, date, config.headingStructure, config.templateFieldMapping, config);
+        if (!detailed.structureComplete || !detailed.relationComplete) {
+            stage = detailed.stage || "structure";
+            return fail(detailed.reason || "unexpected_error", detailed.missingPath);
+        }
+        stage = "index_items";
+        return { items: detailed.records.map(projectRecordToIndexItem).filter((item): item is EnhancedDiaryProjectRecordIndexItem => !!item) };
+    } catch {
+        return fail(stage === "markdown" ? "markdown_read_failed" : stage === "index_items" ? "index_item_build_failed" : "unexpected_error");
+    }
+}
+
 async function rebuild(config: EnhancedDiaryConfig): Promise<ComponentMigrationStatus> {
     const now = new Date().toISOString();
     if (!config.dailyNotebookId) return { lastRunAt: now, lastStatus: "error", lastMessage: "尚未配置日记笔记本。" };
+    let writing = false;
     try {
-        const diaryEntries = await getEnhancedDiaryIndexEntries(config.dailyNotebookId);
-        const current = await readEnhancedDiaryProjectRecordIndex(config.dailyNotebookId);
+        const diaryEntries = await getEnhancedDiaryIndexEntriesStrict(config.dailyNotebookId);
+        const current = await readEnhancedDiaryProjectRecordIndex(config.dailyNotebookId, { fresh: true });
         const activeDiaryDocIds = new Set(Object.values(diaryEntries).map((entry) => entry.id));
         let items: Record<string, EnhancedDiaryProjectRecordIndexItem> = Object.fromEntries(
             Object.entries(current.items).filter(([, item]) => activeDiaryDocIds.has(item.diaryDocId)),
         );
-        let skippedCount = 0;
+        const failures: EnhancedDiaryProjectRecordIndexFailure[] = [];
         for (const [compactDate, entry] of Object.entries(diaryEntries)) {
-            try {
-                const markdown = await readDiaryMarkdown(entry.id);
-                const date = `${compactDate.slice(0, 4)}-${compactDate.slice(4, 6)}-${compactDate.slice(6, 8)}`;
-                const detailed = await queryTodayQuickRecordsDetailed(entry.id, markdown, date, config.headingStructure, config.templateFieldMapping, config);
-                if (!detailed.structureComplete) { skippedCount += 1; continue; }
-                items = Object.fromEntries(Object.entries(items).filter(([, item]) => item.diaryDocId !== entry.id));
-                detailed.records.forEach((record) => { const item = projectRecordToIndexItem(record); if (item) items[item.id] = item; });
-            } catch { skippedCount += 1; }
+            const date = `${compactDate.slice(0, 4)}-${compactDate.slice(4, 6)}-${compactDate.slice(6, 8)}`;
+            const parsed = await readDiaryItemsForIndex(entry.id, date, config);
+            if (parsed.failure) { failures.push(parsed.failure); continue; }
+            items = Object.fromEntries(Object.entries(items).filter(([, item]) => item.diaryDocId !== entry.id));
+            parsed.items.forEach((item) => { items[item.id] = item; });
         }
-        await writeDirect({ version: INDEX_VERSION, updatedAt: now, notebookId: config.dailyNotebookId, complete: skippedCount === 0, items });
-        return { lastRunAt: now, lastStatus: "success", lastMessage: `项目记录索引重建完成：${Object.keys(items).length} 条关系，${skippedCount} 篇日记暂未完成结构解析。`, migratedCount: Object.keys(items).length, skippedCount };
+        const next = { version: INDEX_VERSION, updatedAt: now, notebookId: config.dailyNotebookId, complete: failures.length === 0, items, failures };
+        writing = true;
+        await writeDirect(next);
+        return { ...statusFromIndex(next), changed: true };
     } catch (error) {
-        return { lastRunAt: now, lastStatus: "error", lastMessage: error instanceof Error ? error.message : "项目记录索引重建失败" };
+        return { source: writing ? WRITE_ERROR_SOURCE : READ_ERROR_SOURCE, lastRunAt: now, lastStatus: "error",
+            lastMessage: `项目记录索引${writing ? "写入" : "读取"}失败：${error instanceof Error ? error.message : "未知错误"}` };
     }
 }
 
@@ -221,29 +295,34 @@ export async function rebuildEnhancedDiaryProjectRecordIndex(config: EnhancedDia
 async function refresh(config: EnhancedDiaryConfig): Promise<ComponentMigrationStatus> {
     const now = new Date().toISOString();
     if (!config.dailyNotebookId) return { lastRunAt: now, lastStatus: "idle", lastMessage: "未配置日记笔记本。" };
+    let writing = false;
     try {
-        const current = await readEnhancedDiaryProjectRecordIndex(config.dailyNotebookId);
-        const diaryEntries = await getEnhancedDiaryIndexEntries(config.dailyNotebookId);
+        const diaryEntries = await getEnhancedDiaryIndexEntriesStrict(config.dailyNotebookId);
+        const current = await readEnhancedDiaryProjectRecordIndex(config.dailyNotebookId, { fresh: true });
         const byDocId = new Map(Object.entries(diaryEntries).map(([date, entry]) => [entry.id, { date, entry }]));
         const prepared = await prepareChangedRecentDocsForIndex("enhanced-diary-project-record");
         const changed = prepared.changedDocs.filter((doc) => byDocId.has(doc.id));
         let items = { ...current.items };
+        const failures = new Map((current.failures || []).map((failure) => [failure.docId, failure]));
         let skippedCount = 0;
         for (const doc of changed) {
             const metadata = byDocId.get(doc.id)!;
             const compactDate = metadata.date;
             const date = `${compactDate.slice(0, 4)}-${compactDate.slice(4, 6)}-${compactDate.slice(6, 8)}`;
-            const markdown = await readDiaryMarkdown(doc.id);
-            const detailed = await queryTodayQuickRecordsDetailed(doc.id, markdown, date, config.headingStructure, config.templateFieldMapping, config);
-            if (!detailed.structureComplete) { skippedCount += 1; continue; }
+            const parsed = await readDiaryItemsForIndex(doc.id, date, config);
+            if (parsed.failure) { failures.set(doc.id, parsed.failure); skippedCount += 1; continue; }
+            failures.delete(doc.id);
             items = Object.fromEntries(Object.entries(items).filter(([, item]) => item.diaryDocId !== doc.id));
-            detailed.records.forEach((record) => { const item = projectRecordToIndexItem(record); if (item) items[item.id] = item; });
+            parsed.items.forEach((item) => { items[item.id] = item; });
         }
-        await writeDirect({ ...current, complete: current.complete && skippedCount === 0, items });
-        await prepared.commit();
-        return { lastRunAt: now, lastStatus: "success", lastMessage: `项目记录索引增量刷新完成：${changed.length - skippedCount} 篇完成，${skippedCount} 篇暂未完成结构解析。`, refreshedCount: changed.length - skippedCount, skippedCount };
+        const next = { ...current, complete: current.complete && failures.size === 0, items, failures: [...failures.values()] };
+        writing = true;
+        await writeDirect(next);
+        if (skippedCount === 0) await prepared.commit();
+        return { ...statusFromIndex(next), changed: true, refreshedCount: changed.length - skippedCount };
     } catch (error) {
-        return { lastRunAt: now, lastStatus: "error", lastMessage: error instanceof Error ? error.message : "项目记录索引增量刷新失败" };
+        return { source: writing ? WRITE_ERROR_SOURCE : READ_ERROR_SOURCE, lastRunAt: now, lastStatus: "error",
+            lastMessage: `项目记录索引${writing ? "写入" : "读取"}失败：${error instanceof Error ? error.message : "未知错误"}` };
     }
 }
 
