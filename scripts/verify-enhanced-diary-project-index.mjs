@@ -157,6 +157,71 @@ async function fixture({ count = 1, shapes = {}, old = false, complete = true } 
         assert.equal((await unlinked.runtime.rebuildEnhancedDiaryProjectRecordIndex(unlinked.config)).lastStatus, "success");
         assert.deepEqual(unlinked.state.files.get(RECORD).items, {}, "a successfully parsed unlinked record is not an API failure");
 
+        // ChildBlock content and markdown use omitempty: do not add markdown: "" here.
+        for (const empty of [true, false]) {
+            for (const content of ["", undefined]) {
+                for (const position of ["before", "inside", "body", "after"]) {
+                    const blank = await fixture({ old: true, shapes: { [ids[0]]: { empty } } });
+                    const response = blocks(ids[0], { empty });
+                    response.push({ id: ids[0].slice(0, 15) + "nextaaa", type: "h", subType: "h2", markdown: "## 今日复盘" });
+                    const paragraph = { id: ids[0].slice(0, 15) + "empty01", type: "p", ...(content === undefined ? {} : { content }) };
+                    assert.equal(Object.hasOwn(paragraph, "markdown"), false);
+                    const index = position === "before" ? 1 : position === "inside" ? 2 : position === "body" ? response.length - 1 : response.length;
+                    response.splice(index, 0, paragraph);
+                    blank.state.blockResponses.set(ids[0], response);
+                    const detail = await blank.runtime.queryTodayQuickRecordsDetailed(ids[0], response.map((block) => block.markdown || "").join("\n\n"),
+                        "2026-10-01", blank.config.headingStructure, blank.config.templateFieldMapping, blank.config);
+                    assert.equal(detail.structureComplete, true, position);
+                    assert.equal(detail.relationComplete, true);
+                    assert.equal(detail.records.length, empty ? 0 : 1);
+                    const result = await blank.runtime.rebuildEnhancedDiaryProjectRecordIndex(blank.config);
+                    assert.equal(result.lastStatus, "success");
+                    assert.equal(result.skippedCount, 0);
+                    const payload = blank.state.files.get(RECORD);
+                    assert.equal(payload.complete, true);
+                    assert.deepEqual(payload.failures, []);
+                    assert.equal(Object.keys(payload.items).length, empty ? 0 : 1);
+                    if (!empty) assert.equal(payload.items[blockId(ids[0], "record")].projectTargetId, PROJECT_ID);
+                    assert(!payload.items[blockId(ids[0], "old")], "only reliably parsed diaries replace old relations");
+                    assert(blank.state.calls.every(({ path }) => [DIARY, RECORD, PROJECT, "/api/export/exportMdContent", "/api/block/getChildBlocks", "/api/attr/batchGetBlockAttrs"].includes(path)),
+                        "ordinary omitted blank paragraphs need no extra API requests");
+                }
+            }
+        }
+        for (const markdown of [123, [], {}, null]) {
+            const damaged = await fixture({ old: true });
+            const response = blocks(ids[0]);
+            response.at(-1).markdown = markdown;
+            damaged.state.blockResponses.set(ids[0], response);
+            const old = structuredClone(damaged.state.files.get(RECORD).items);
+            assert.equal((await damaged.runtime.rebuildEnhancedDiaryProjectRecordIndex(damaged.config)).skippedCount, 1);
+            assert.equal(damaged.state.files.get(RECORD).complete, false);
+            assert.equal(damaged.state.files.get(RECORD).failures[0].reason, "block_structure_read_failed");
+            assert.deepEqual(damaged.state.files.get(RECORD).items, old);
+        }
+        for (const extra of [{ type: "p", content: "nonempty fixture" }, { type: "p", content: null },
+            { type: "l", content: "" }, { type: "unknown" }, { type: "" }, { type: null }, { type: 123 }, {}]) {
+            const damaged = await fixture({ count: 2, old: true });
+            const good = blocks(ids[0]);
+            good.splice(2, 0, { id: ids[0].slice(0, 15) + "empty01", type: "p" });
+            const bad = blocks(ids[1]);
+            bad.push({ id: ids[1].slice(0, 15) + "extraaa", ...extra });
+            damaged.state.blockResponses.set(ids[0], good);
+            damaged.state.blockResponses.set(ids[1], bad);
+            const old = structuredClone(damaged.state.files.get(RECORD).items[blockId(ids[1], "old")]);
+            const result = await damaged.runtime.rebuildEnhancedDiaryProjectRecordIndex(damaged.config);
+            assert.equal(result.lastStatus, "error");
+            assert.equal(result.migratedCount, 2, "index count includes the retained historical relation");
+            assert.equal(result.skippedCount, 1);
+            const payload = damaged.state.files.get(RECORD);
+            assert.equal(payload.complete, false);
+            assert.equal(payload.failures.length, 1);
+            assert.deepEqual(payload.failures[0], { docId: ids[1], date: "2026-10-02", stage: "structure", reason: "block_structure_read_failed" });
+            assert.deepEqual(payload.items[blockId(ids[1], "old")], old);
+            assert(payload.items[blockId(ids[0], "record")]);
+            assert(!payload.items[blockId(ids[0], "old")]);
+        }
+
         const failedShapes = Object.fromEntries(ids.map((id) => [id, { missingQuick: true }]));
         const firstBuildFailed = await fixture({ count: 4, shapes: failedShapes });
         const zeroWritten = await firstBuildFailed.runtime.rebuildEnhancedDiaryProjectRecordIndex(firstBuildFailed.config);
@@ -311,5 +376,5 @@ async function fixture({ count = 1, shapes = {}, old = false, complete = true } 
         assert.equal(incremental.state.files.get(RECORD).failures.length, 0);
         assert(warnings.every(([, details]) => typeof details === "object" && !Object.hasOwn(details, "content")), "diagnostics must exclude private record bodies");
     } finally { console.warn = originalWarn; }
-    console.log("PASS enhanced diary: actual parsers, four failures, partial/empty/legacy headings, I/O failures, relation preservation, strict upstream, status reload, write verification, retryable refresh");
+    console.log("PASS enhanced diary: actual parsers, omitted blank paragraphs, malformed/missing block content, four failures, partial/empty/legacy headings, I/O failures, relation preservation, strict upstream, status reload, write verification, retryable refresh");
 }

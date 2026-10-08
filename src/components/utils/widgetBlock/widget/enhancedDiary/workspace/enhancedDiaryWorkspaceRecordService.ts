@@ -433,9 +433,16 @@ export async function queryTodayQuickRecordsDetailed(
         }
 
         const qrBlock = qrLookup.heading;
-        const blocks = await getChildBlocksChecked(docId);
-        if (blocks[qrBlock.index]?.id !== qrBlock.id || blocks.some((block) => !block || typeof block.id !== "string" || !/^[0-9]{14}-[a-z0-9]{7}$/.test(block.id) || typeof block.markdown !== "string") ||
-            new Set(blocks.map((block) => block.id)).size !== blocks.length) {
+        const blocks = (await getChildBlocksChecked(docId)).map((block) => {
+            if (!block || typeof block.id !== "string" || !/^[0-9]{14}-[a-z0-9]{7}$/.test(block.id) ||
+                typeof block.type !== "string" || !block.type.trim()) throw new Error("block_structure_response_incomplete");
+            if (typeof block.markdown === "string") return block;
+            // Official ChildBlock omits empty markdown/content; only an empty paragraph is safe to normalize.
+            if (!Object.prototype.hasOwnProperty.call(block, "markdown") && block.type === "p" &&
+                (block.content === undefined || block.content === "")) return { ...block, markdown: "" };
+            throw new Error("block_structure_response_incomplete");
+        });
+        if (blocks[qrBlock.index]?.id !== qrBlock.id || new Set(blocks.map((block) => block.id)).size !== blocks.length) {
             throw new Error("block_structure_response_incomplete");
         }
         const currentHeading = parseHeadingBlock(blocks[qrBlock.index], qrBlock.index);

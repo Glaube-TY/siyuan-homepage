@@ -65,6 +65,32 @@ function fixture({ definition, rows = [row("item-1")], render, carrier, sqlRows,
         assert.deepEqual(result.columns, ["标题", "数量"]);
         assert.deepEqual(result.rows, [], "official omitempty empty fields are a legal zero-row database");
     }
+    for (const rows of [[], null]) {
+        const calls = fixture({ render: { viewType: "table", viewID: VIEW, view: { columns: fields, rows, rowCount: 0 } } });
+        const emptyConfig = config(BLOCK);
+        const result = await runtime.loadVisualChartData(emptyConfig);
+        assert.deepEqual(result.columns, ["标题", "数量"]);
+        assert.deepEqual(result.rows, [], "nil rows are legal only in a proven zero-row table");
+        assert.equal(emptyConfig.source.databaseId, BLOCK);
+        const renders = calls.filter((call) => call.path.endsWith("renderAttributeView"));
+        assert.equal(renders.length, 1);
+        assert.equal(renders[0].payload.blockID, BLOCK);
+        assert.equal(renders[0].payload.createIfNotExist, false);
+    }
+    for (const view of [
+        { columns: fields, rows: null, rowCount: 1 },
+        { columns: fields, rows: {}, rowCount: 0 },
+        { columns: fields, rows: "invalid", rowCount: 0 },
+        { columns: fields, rows: 0, rowCount: 0 },
+        { columns: fields, rows: false, rowCount: 0 },
+        { columns: fields, rowCount: 0 },
+        { rows: null, rowCount: 0 },
+        { columns: fields, rows: null, rowCount: -1 },
+        { columns: fields, rows: null, rowCount: 0.5 },
+    ]) {
+        fixture({ render: { viewType: "table", viewID: VIEW, view } });
+        await assert.rejects(runtime.loadVisualChartData(config()), /响应不完整/);
+    }
     fixture({ definition: { id: AV, keyValues: fields.map((key) => ({ key })) } });
     assert.equal((await runtime.loadVisualChartData(config())).rows[0].数量, 12, "omitted raw values must not hide rendered row data");
     // Capture the reported failure with the pre-fix access pattern, then exercise the real loader.
@@ -179,5 +205,5 @@ function fixture({ definition, rows = [row("item-1")], render, carrier, sqlRows,
     const legacy = runtime.visualChartConfigFromWidgetContent({ data: { visualChartType: "progressBar", progressBars: [{ title: "old", progress: 3, target: 5 }] } });
     assert.equal(legacy.source.type, "manual");
     assert.equal((await runtime.loadVisualChartData(legacy)).rows[0].progress, 3);
-    console.log("PASS visual charts: database IDs, empty/invalid responses, typed cells, row association, paging, read-only render, manual/SQL/legacy sources");
+    console.log("PASS visual charts: database IDs, nullable empty rows, empty/invalid responses, typed cells, row association, paging, read-only render, manual/SQL/legacy sources");
 }

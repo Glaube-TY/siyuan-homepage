@@ -130,10 +130,12 @@ async function loadDatabase(input: string, requestedLimit: number): Promise<Visu
             throw new Error("数据库响应不完整或当前布局暂不支持：请使用表格或列表视图。");
         }
         if (view.group?.field || view.groups?.length) throw new Error("当前数据库分组结构暂不支持图表，请使用未分组的表格或列表视图。");
-        if (!Array.isArray(view.columns) || !view.columns.length || !Array.isArray(view.rows) || typeof rendered.viewID !== "string" || !rendered.viewID) {
-            throw new Error("数据库响应不完整：缺少有效的 columns、rows 或 viewID。");
+        if (!Array.isArray(view.columns) || !view.columns.length || typeof rendered.viewID !== "string" || !rendered.viewID) {
+            throw new Error("数据库响应不完整：缺少有效的 columns 或 viewID。");
         }
         if (!Number.isInteger(view.rowCount) || view.rowCount < 0) throw new Error("数据库分页响应不完整：缺少有效的 rowCount。");
+        const pageRows = view.rows === null && view.rowCount === 0 ? [] : view.rows;
+        if (!Array.isArray(pageRows)) throw new Error("数据库响应不完整：缺少有效的 rows。");
         const names = view.columns.map((column: any, index: number) => {
             if (!column || typeof column.id !== "string" || !column.id || typeof column.name !== "string" || typeof column.type !== "string" || !column.type) {
                 throw new Error("数据库字段响应不完整：缺少列 ID、名称或类型。");
@@ -150,7 +152,7 @@ async function loadDatabase(input: string, requestedLimit: number): Promise<Visu
         columns = names;
         const fields = new Map<string, string>(view.columns.map((column: any, index: number) => [column.id, names[index]]));
         if (fields.size !== names.length) throw new Error("数据库字段 ID 重复，无法可靠映射图表字段。");
-        for (const row of view.rows) {
+        for (const row of pageRows) {
             if (!row || typeof row.id !== "string" || !row.id || !Array.isArray(row.cells) || rowIds.has(row.id)) {
                 throw new Error("数据库行响应不完整：条目 ID 或 cells 异常。");
             }
@@ -171,7 +173,7 @@ async function loadDatabase(input: string, requestedLimit: number): Promise<Visu
             rows.push(output);
             if (rows.length >= limit) break;
         }
-        if (rows.length > view.rowCount || (view.rows.length < pageSize && rows.length < Math.min(limit, view.rowCount))) {
+        if (rows.length > view.rowCount || (pageRows.length < pageSize && rows.length < Math.min(limit, view.rowCount))) {
             throw new Error("数据库分页响应不完整：返回行数与 rowCount 不一致。");
         }
         if (rows.length >= view.rowCount) break;
