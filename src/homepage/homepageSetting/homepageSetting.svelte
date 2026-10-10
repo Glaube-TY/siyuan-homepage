@@ -63,6 +63,7 @@
     import NotificationCenterSettingsTab from "./tabs/NotificationCenterSettingsTab.svelte"
     import RobotAssistantSettingsTab from "./tabs/RobotAssistantSettingsTab.svelte"
     import IndexManagementSettingsTab from "./tabs/IndexManagementSettingsTab.svelte"
+    import WorkspaceStorageSettingsSection from "./tabs/WorkspaceStorageSettingsSection.svelte"
     import MainTabNav from "./layout/MainTabNav.svelte"
     import SubTabNav from "./layout/SubTabNav.svelte";
     import AiKnowledgeBaseSubTabNav from "./layout/AiKnowledgeBaseSubTabNav.svelte";
@@ -2067,6 +2068,8 @@
                                     <p class="no-device">无法获取当前设备信息</p>
                                 {/if}
                             </SettingSection>
+
+                            <WorkspaceStorageSettingsSection />
 
                             <SettingSection title="设备隔离说明">
                                 <p class="no-devices">这里只管理当前设备的桌面主页视图，不读取或删除其他设备配置。</p>

@@ -40,6 +40,7 @@
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "verify:openai-compatible-text-call": "node --no-warnings ./scripts/verify-openai-compatible-text-call.mjs",
+    "verify:workspace-storage": "node --no-warnings ./scripts/verify-workspace-storage.mjs",
     "verify:piccaro-cross-platform": "node --no-warnings ./scripts/verify-piccaro-cross-platform.mjs",
     "verify:siyuan-asset-picker": "node --no-warnings ./scripts/verify-siyuan-asset-picker.mjs",
     "verify:banner-empty-state": "node --no-warnings ./scripts/verify-banner-empty-state.mjs",

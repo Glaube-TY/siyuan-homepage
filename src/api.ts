@@ -140,6 +140,77 @@ export async function requestChecked(url: string, data: any, label?: string): Pr
     return response.data;
 }
 
+export const WORKSPACE_STORAGE_DIRECTORIES = ["data", "repo", "history", "temp", "conf", "other"] as const;
+export interface WorkspaceStorageData {
+    totalSize: number;
+    assetsSize: number;
+    calculatedAt: number;
+    directories: Array<{ name: typeof WORKSPACE_STORAGE_DIRECTORIES[number]; size: number }>;
+}
+export class WorkspaceStorageReadError extends Error {
+    constructor(readonly kind: "permission" | "connection" | "response" | "timeout" | "unsupported", readonly httpStatus?: number, readonly siyuanCode?: number) {
+        super(`Workspace storage read failed: ${kind}`);
+        this.name = "WorkspaceStorageReadError";
+    }
+}
+
+export function parseWorkspaceStorageData(input: unknown): WorkspaceStorageData {
+    const value = input as WorkspaceStorageData;
+    const validSize = (size: unknown) => typeof size === "number" && Number.isSafeInteger(size) && size >= 0;
+    if (!value || typeof value !== "object" || Array.isArray(value)
+        || !validSize(value.totalSize) || !validSize(value.assetsSize) || !validSize(value.calculatedAt)
+        || !Number.isFinite(new Date(value.calculatedAt).getTime())
+        || !Array.isArray(value.directories) || value.directories.length !== WORKSPACE_STORAGE_DIRECTORIES.length
+        || value.directories.some((entry, index) => !entry || entry.name !== WORKSPACE_STORAGE_DIRECTORIES[index] || !validSize(entry.size))
+        || value.directories.reduce((sum, entry) => sum + entry.size, 0) !== value.totalSize
+        || value.assetsSize > value.directories[0].size) {
+        throw new WorkspaceStorageReadError("response");
+    }
+    return value;
+}
+
+/** Manual, read-only scan of the connected Kernel; no result is persisted. */
+export async function getWorkspaceStorageChecked(signal?: AbortSignal): Promise<WorkspaceStorageData> {
+    const url = "/api/system/getWorkspaceStorage";
+    const controller = new AbortController();
+    let timedOut = false;
+    const abort = () => controller.abort();
+    signal?.addEventListener("abort", abort, { once: true });
+    if (signal?.aborted) abort();
+    // The official scan has a two-minute limit; allow additional transport time.
+    const timer = globalThis.setTimeout(() => { timedOut = true; controller.abort(); }, 150_000);
+    try {
+        // SDK fetchSyncPost discards HTTP status and tries JSON on an empty 403 body.
+        const response = await fetch(url, { method: "POST", credentials: "same-origin", signal: controller.signal });
+        let envelope: any;
+        try { envelope = await response.json(); }
+        catch (error) {
+            if (controller.signal.aborted) throw error;
+            if (response.ok) throw new WorkspaceStorageReadError("response");
+        }
+        if (response.status === 401 || response.status === 403) {
+            throw new WorkspaceStorageReadError("permission", response.status, envelope?.code);
+        }
+        if (response.status === 404 || response.status === 405) throw new WorkspaceStorageReadError("unsupported", response.status, envelope?.code);
+        if (envelope && Number.isInteger(envelope.code) && envelope.code !== 0) {
+            throw new SiyuanApiError(`工作空间统计 API 失败：code=${envelope.code}`, {
+                siyuanCode: envelope.code, siyuanMsg: envelope.msg, url, label: "getWorkspaceStorage",
+            });
+        }
+        if (!response.ok) throw new WorkspaceStorageReadError("connection", response.status);
+        if (!envelope || typeof envelope !== "object" || Array.isArray(envelope) || envelope.code !== 0
+            || (envelope.msg !== undefined && typeof envelope.msg !== "string")) throw new WorkspaceStorageReadError("response");
+        return parseWorkspaceStorageData(envelope.data);
+    } catch (error) {
+        if (timedOut) throw new WorkspaceStorageReadError("timeout");
+        if (signal?.aborted || error instanceof WorkspaceStorageReadError || error instanceof SiyuanApiError) throw error;
+        throw new WorkspaceStorageReadError("connection");
+    } finally {
+        globalThis.clearTimeout(timer);
+        signal?.removeEventListener("abort", abort);
+    }
+}
+
 export interface SiyuanCloudIdentity {
     userId: string;
     userName: string;
