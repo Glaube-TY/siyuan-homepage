@@ -2,7 +2,7 @@
     import { onDestroy, onMount, untrack } from "svelte";
     import { showMessage } from "siyuan";
     import SiyuanIcon from "@/components/utils/shared/SiyuanIcon.svelte";
-    import { lsNotebooks } from "@/api";
+    import { ATTRIBUTE_VIEW_SEARCH_LIMIT, lsNotebooks, searchAttributeViewChecked, type AttributeViewSearchResult } from "@/api";
     import { autoMapVisualChartFields, normalizeVisualChartConfig } from "@/features/visual-chart/visual-chart-config";
     import { loadVisualChartDatabaseViews, loadVisualChartData, transformVisualChartData } from "@/features/visual-chart/visual-chart-data";
     import { VISUAL_CHART_TYPE_OPTIONS, type VisualChartConfig, type VisualChartDatabaseView, type VisualChartDataset } from "@/features/visual-chart/visual-chart-types";
@@ -31,6 +31,16 @@
     let viewsError = $state("");
     let viewsGeneration = 0;
     let viewsTimer: ReturnType<typeof setTimeout> | null = null;
+    let searchOpen = $state(false);
+    let searchKeyword = $state("");
+    let searchResults = $state<AttributeViewSearchResult[]>([]);
+    let searchLoading = $state(false);
+    let searchError = $state("");
+    let searchHasSearched = $state(false);
+    let searchGeneration = 0;
+    let searchTimer: ReturnType<typeof setTimeout> | null = null;
+    let loadedDatabaseInput = "";
+    let loadedDatabaseAvID = "";
     const selectedDatabaseView = $derived(databaseViews.find((view) => view.id === config.source.databaseViewId));
     let mappedChartType = untrack(() => config.chartType);
     const previewConfig = $derived(normalizeVisualChartConfig(config));
@@ -49,9 +59,12 @@
         loading = true;
         error = "";
         try {
-            const result = await loadVisualChartData(normalizeVisualChartConfig(config));
+            const requestedConfig = normalizeVisualChartConfig(config);
+            const result = await loadVisualChartData(requestedConfig);
             if (generation !== reloadGeneration) return;
             dataset = result;
+            loadedDatabaseInput = requestedConfig.source.type === "database" ? requestedConfig.source.databaseId : "";
+            loadedDatabaseAvID = result.resolvedDatabaseId || "";
             autoMap(forceMap);
         } catch (reason) {
             if (generation !== reloadGeneration) return;
@@ -68,7 +81,11 @@
         viewsError = "";
         databaseViews = [];
         try {
-            const result = await loadVisualChartDatabaseViews(input);
+            const result = await loadVisualChartDatabaseViews(input, (avID) => {
+                if (destroyed || generation !== viewsGeneration) return;
+                loadedDatabaseInput = input.trim();
+                loadedDatabaseAvID = avID;
+            });
             if (destroyed || generation !== viewsGeneration) return;
             databaseViews = result;
         } catch (reason) {
@@ -77,6 +94,54 @@
         } finally {
             if (!destroyed && generation === viewsGeneration) viewsLoading = false;
         }
+    }
+
+    function closeSearch(): void {
+        searchOpen = false;
+        searchGeneration += 1;
+        if (searchTimer) clearTimeout(searchTimer);
+        searchTimer = null;
+        searchKeyword = "";
+        searchResults = [];
+        searchLoading = false;
+        searchError = "";
+        searchHasSearched = false;
+    }
+
+    async function searchDatabases(keyword: string): Promise<void> {
+        if (destroyed || !searchOpen || config.source.type !== "database" || Array.from(keyword.trim()).length < 2) return;
+        const generation = ++searchGeneration;
+        searchLoading = true;
+        searchError = "";
+        try {
+            const input = config.source.databaseId.trim();
+            // Only pass context whose identity has already been resolved by an existing loader.
+            const context = input === loadedDatabaseInput && loadedDatabaseAvID
+                ? { avID: loadedDatabaseAvID, ...(input === loadedDatabaseAvID ? {} : { blockID: input }) } : {};
+            const result = await searchAttributeViewChecked(keyword, context);
+            if (destroyed || generation !== searchGeneration) return;
+            searchResults = result;
+            searchHasSearched = true;
+        } catch (reason) {
+            if (destroyed || generation !== searchGeneration) return;
+            searchResults = [];
+            searchError = reason instanceof Error ? reason.message : "数据库搜索失败";
+        } finally {
+            if (!destroyed && generation === searchGeneration) searchLoading = false;
+        }
+    }
+
+    function selectDatabase(result: AttributeViewSearchResult): void {
+        if (destroyed || !searchOpen || config.source.type !== "database" || !searchResults.includes(result)) return;
+        const input = config.source.databaseId.trim();
+        const sameDatabase = input === result.blockID || input === result.avID
+            || (input === loadedDatabaseInput && loadedDatabaseAvID === result.avID);
+        const next = result.blockID || result.avID;
+        if (!sameDatabase) config.source.databaseViewId = "";
+        config.source.databaseId = next;
+        closeSearch();
+        // A selection of the same ID still refreshes renamed/deleted views and the preview.
+        if (input === next) { void reloadViews(next); void reload(false); }
     }
 
     async function save(): Promise<void> {
@@ -129,12 +194,31 @@
         untrack(() => autoMap(true));
     });
 
+    $effect(() => {
+        const active = searchOpen && config.source.type === "database";
+        const keyword = searchKeyword.trim();
+        config.source.databaseId;
+        searchGeneration += 1;
+        searchResults = [];
+        searchError = "";
+        searchHasSearched = false;
+        searchLoading = false;
+        if (searchTimer) clearTimeout(searchTimer);
+        if (active && Array.from(keyword).length >= 2) {
+            searchLoading = true;
+            searchTimer = setTimeout(() => void searchDatabases(keyword), 450);
+        }
+        return () => { if (searchTimer) clearTimeout(searchTimer); searchTimer = null; };
+    });
+
     onDestroy(() => {
         destroyed = true;
         reloadGeneration += 1;
         viewsGeneration += 1;
+        searchGeneration += 1;
         if (reloadTimer) clearTimeout(reloadTimer);
         if (viewsTimer) clearTimeout(viewsTimer);
+        if (searchTimer) clearTimeout(searchTimer);
     });
 </script>
 
@@ -176,6 +260,21 @@
                     {#if config.source.type === "database"}<section>
                         <label>数据库块 ID / 属性视图 ID<input bind:value={config.source.databaseId} placeholder="粘贴数据库块 ID，系统会自动解析" /></label>
                         <p class="hint">数据库块 ID 会保留当前文档的上下文筛选；属性视图 ID 按独立数据库读取。</p>
+                        <button class="search-button" type="button" aria-expanded={searchOpen} onclick={() => searchOpen ? closeSearch() : searchOpen = true}>搜索数据库</button>
+                        {#if searchOpen}<div class="database-search" role="region" aria-label="搜索数据库">
+                            <div class="search-header"><strong>按名称搜索</strong><button class="search-button" type="button" onclick={closeSearch}>关闭搜索</button></div>
+                            <label>搜索关键词<input bind:value={searchKeyword} placeholder="至少输入 2 个字符" onkeydown={(event) => { if (event.key === "Escape") closeSearch(); }} /></label>
+                            <div aria-live="polite" aria-busy={searchLoading}>
+                                {#if searchLoading}<p class="hint">正在搜索数据库…</p>
+                                {:else if searchError}<p class="hint">{searchError}</p><p class="hint">请检查 Kernel 连接、登录状态及只读权限。</p><button class="search-button" type="button" onclick={() => searchDatabases(searchKeyword.trim())}>重试搜索</button>
+                                {:else if searchHasSearched && !searchResults.length}<p class="hint">当前可检索范围没有匹配的数据库。加密或权限不可访问的数据库可能不在结果中。</p>
+                                {:else if Array.from(searchKeyword.trim()).length < 2}<p class="hint">输入至少 2 个字符后搜索，不会列举全部数据库。</p>{/if}
+                            </div>
+                            {#if searchResults.length}<ul class="search-results">
+                                {#each searchResults as result (result.avID)}<li><div><strong>{result.avName || "未命名数据库"}</strong><span>{result.hPath || "文档路径未提供"}</span></div><button class="search-button" type="button" aria-label={`选择数据库：${result.avName || "未命名数据库"}`} onclick={() => selectDatabase(result)}>选择</button></li>{/each}
+                            </ul>{/if}
+                            {#if searchResults.length === ATTRIBUTE_VIEW_SEARCH_LIMIT}<p class="hint">已达到 12 个数据库的结果上限，请输入更具体的名称继续筛选。</p>{/if}
+                        </div>{/if}
                         <label>数据库视图<select aria-label="数据库视图" bind:value={config.source.databaseViewId} disabled={viewsLoading || !databaseViews.length}>
                             <option value="">自动（沿用数据库块当前视图或数据库默认视图）</option>
                             {#if config.source.databaseViewId && !selectedDatabaseView}<option value={config.source.databaseViewId} disabled>已保存视图 · {config.source.databaseViewId}</option>{/if}
@@ -233,6 +332,7 @@
 </div>
 
 <style>
+    .search-button{border:1px solid var(--b3-border-color);border-radius:7px;padding:7px 9px;background:var(--b3-theme-background);font-size:11px;min-height:32px}.search-button:hover{background:var(--b3-list-hover)}.search-button:focus-visible{outline:2px solid var(--b3-theme-primary);outline-offset:2px}.database-search{margin:10px 0;padding:10px;border:1px solid var(--b3-border-color);border-radius:8px}.search-header{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:10px;font-size:11px}.search-results{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}.search-results li{display:flex;align-items:center;gap:8px;padding:8px 0;border-top:1px solid var(--b3-border-color)}.search-results li>div{min-width:0;flex:1;overflow-wrap:anywhere}.search-results strong,.search-results span{display:block;font-size:11px;line-height:1.5}.search-results span{font-size:10px;color:var(--b3-theme-on-surface)}.search-results .search-button{flex-shrink:0}.database-search .hint{margin:8px 0}.database-search input:focus-visible{outline:2px solid var(--b3-theme-primary);outline-offset:2px}@media(max-width:720px){.search-button{min-height:44px}}
     .chart-studio{width:100%;height:100%;min-width:0;min-height:0;display:flex;flex-direction:column;background:var(--b3-theme-background);color:var(--b3-theme-on-background);overflow:hidden}.chart-studio>header{display:flex;align-items:center;justify-content:space-between;gap:20px;padding:17px 22px;border-bottom:1px solid var(--b3-border-color);background:color-mix(in srgb,var(--b3-theme-surface) 82%,transparent)}.heading{min-width:0}.heading>span{display:block;font-size:9px;letter-spacing:.14em;color:var(--b3-theme-primary);font-weight:700}.heading h2{margin:2px 0 1px;font-size:20px;letter-spacing:-.025em}.heading p{margin:0;font-size:11px;color:var(--b3-theme-on-surface)}.header-actions{display:flex;align-items:center;gap:7px}.header-actions button{display:inline-flex;align-items:center;gap:6px;white-space:nowrap}.studio-body{min-height:0;flex:1;display:grid;grid-template-columns:170px minmax(320px,1fr) 330px}.chart-picker,.inspector{min-height:0;background:var(--b3-theme-surface)}.chart-picker{padding:16px 12px;border-right:1px solid var(--b3-border-color);overflow:auto}.chart-picker>strong{display:block;margin:0 6px 10px;font-size:11px;color:var(--b3-theme-on-surface)}.chart-types{display:grid;grid-template-columns:1fr;gap:4px}.chart-types button{display:flex;align-items:center;justify-content:space-between;padding:8px 9px;border:1px solid transparent;border-radius:8px;background:transparent;text-align:left}.chart-types button:hover{background:var(--b3-list-hover)}.chart-types button.active{border-color:color-mix(in srgb,var(--b3-theme-primary) 38%,transparent);background:color-mix(in srgb,var(--b3-theme-primary) 10%,transparent);color:var(--b3-theme-primary)}.chart-types span{font-size:12px}.chart-types small{font-size:9px;opacity:.55}.preview-panel{min-width:0;min-height:0;display:flex;flex-direction:column;padding:16px;background:color-mix(in srgb,var(--b3-theme-surface) 45%,var(--b3-theme-background))}.preview-meta{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:0 2px 10px}.preview-meta>div{min-width:0;display:flex;flex-direction:column}.preview-meta strong{font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.preview-meta span{font-size:10px;color:var(--b3-theme-on-surface)}.preview-meta button{border:0;background:transparent;color:var(--b3-theme-primary);font-size:11px}.preview-stage{position:relative;min-height:0;flex:1;border:1px solid var(--b3-border-color);border-radius:14px;background:var(--b3-theme-surface);overflow:hidden;box-shadow:0 14px 32px rgba(31,42,68,.06)}.state{width:100%;height:100%;min-height:240px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:7px;text-align:center;color:var(--b3-theme-on-surface);font-size:12px}.state strong{color:var(--b3-theme-on-background);font-size:14px}.state button{margin-top:6px}.state.error strong{color:var(--b3-theme-error)}.inspector{display:flex;flex-direction:column;border-left:1px solid var(--b3-border-color)}.inspector nav{display:grid;grid-template-columns:repeat(4,1fr);gap:2px;padding:10px 10px 0;border-bottom:1px solid var(--b3-border-color)}.inspector nav button{border:0;border-radius:7px 7px 0 0;padding:8px 2px;background:transparent;color:var(--b3-theme-on-surface);font-size:11px}.inspector nav button.active{color:var(--b3-theme-primary);background:color-mix(in srgb,var(--b3-theme-primary) 9%,transparent);font-weight:650}.settings-scroll{min-height:0;overflow:auto;padding:12px}.settings-scroll section{padding:12px;border:1px solid color-mix(in srgb,var(--b3-border-color) 72%,transparent);border-radius:10px;margin-bottom:10px}.settings-scroll h3{margin:0 0 10px;font-size:12px}.settings-scroll label{position:relative;display:flex;flex-direction:column;gap:5px;margin:0 0 10px;font-size:10px;color:var(--b3-theme-on-surface)}.settings-scroll label:last-child{margin-bottom:0}.settings-scroll input:not([type="checkbox"]):not([type="range"]),.settings-scroll select,.settings-scroll textarea{width:100%;box-sizing:border-box;border:1px solid var(--b3-border-color);border-radius:7px;padding:7px 8px;background:var(--b3-theme-background);color:var(--b3-theme-on-background);font:inherit;font-size:11px}.settings-scroll textarea{resize:vertical;line-height:1.55;font-family:var(--b3-font-family-code,monospace)}.settings-scroll select[multiple]{min-height:78px}.settings-scroll .check{flex-direction:row;align-items:center;color:var(--b3-theme-on-background);font-size:11px}.settings-scroll input[type="checkbox"]{margin:0}.settings-scroll input[type="range"]{width:calc(100% - 50px)}.settings-scroll output{position:absolute;right:0;bottom:1px;font-size:10px}.hint{margin:-3px 0 10px;font-size:10px;line-height:1.45;color:var(--b3-theme-on-surface)}.source-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px}.source-grid button{padding:8px 5px;border:1px solid var(--b3-border-color);border-radius:8px;background:var(--b3-theme-background);color:inherit;font-size:10px}.source-grid button.active{border-color:var(--b3-theme-primary);color:var(--b3-theme-primary);background:color-mix(in srgb,var(--b3-theme-primary) 8%,transparent)}.live-hint{display:flex;flex-direction:column;gap:4px;border-color:color-mix(in srgb,var(--b3-theme-primary) 24%,var(--b3-border-color))!important;background:color-mix(in srgb,var(--b3-theme-primary) 6%,transparent)}.live-hint strong{font-size:11px;color:var(--b3-theme-primary)}.live-hint span{font-size:10px;line-height:1.5;color:var(--b3-theme-on-surface)}button{font:inherit;cursor:pointer;color:inherit}.primary,.icon,.state button{border:1px solid var(--b3-border-color);border-radius:8px;padding:8px 12px;background:var(--b3-theme-surface)}.primary{border-color:var(--b3-theme-primary);background:var(--b3-theme-primary);color:var(--b3-theme-on-primary)}.icon{width:36px;padding:8px;justify-content:center}.primary:disabled{opacity:.55;cursor:wait}@media(max-width:900px){.studio-body{grid-template-columns:128px minmax(280px,1fr) 290px}.chart-picker{padding-inline:8px}.chart-types small{display:none}}@media(max-width:720px){.chart-studio>header{padding:12px}.heading p{display:none!important}.studio-body{display:flex;flex-direction:column;overflow:auto}.chart-picker{flex:0 0 auto;border:0;border-bottom:1px solid var(--b3-border-color);overflow:visible}.chart-picker>strong{display:none}.chart-types{display:flex;overflow:auto}.chart-types button{flex:0 0 auto}.preview-panel{flex:0 0 330px}.inspector{flex:0 0 520px;border-left:0;border-top:1px solid var(--b3-border-color)}.settings-scroll{overflow:visible}.header-actions .primary{padding-inline:10px}}
     @media(max-width:720px){.header-actions .icon{width:44px;height:44px}}
 </style>

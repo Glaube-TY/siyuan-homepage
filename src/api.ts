@@ -1460,6 +1460,69 @@ export async function searchAttributeView(keyword: string = "", excludes: string
     return res || { results: [] };
 }
 
+export const ATTRIBUTE_VIEW_SEARCH_LIMIT = 12;
+export interface AttributeViewSearchResult {
+    avID: string;
+    avName: string;
+    blockID: string;
+    hPath: string;
+    viewID: string;
+    viewName: string;
+    viewLayout: string;
+    children: AttributeViewSearchResult[];
+}
+
+/** Name search only: an empty keyword must never enumerate databases. */
+export async function searchAttributeViewChecked(
+    keyword: string,
+    context: { avID?: string; blockID?: string } = {},
+): Promise<AttributeViewSearchResult[]> {
+    const validID = (value: unknown): value is string => typeof value === "string" && /^[0-9]{14}-[a-z0-9]{7}$/.test(value);
+    if (typeof keyword !== "string") throw new SiyuanInvalidArgsError("数据库搜索关键词必须为字符串。");
+    keyword = keyword.trim();
+    if (Array.from(keyword).length < 2) return [];
+    for (const id of [context.avID, context.blockID]) {
+        if (id !== undefined && !validID(id)) throw new SiyuanInvalidArgsError("数据库搜索上下文 ID 无效。");
+    }
+    const data = await requestChecked('/api/av/searchAttributeView', {
+        keyword, ...context, includeViewMatches: false,
+    }, 'searchAttributeView');
+    const invalid = (): never => { throw new Error("数据库搜索响应结构异常或结果不完整，请重试。"); };
+    if (!data || !Array.isArray(data.results) || data.results.length > ATTRIBUTE_VIEW_SEARCH_LIMIT) invalid();
+    const parse = (item: any, parent?: AttributeViewSearchResult): AttributeViewSearchResult => {
+        if (!item || typeof item !== "object" || Array.isArray(item) || !validID(item.avID)
+            || typeof item.avName !== "string" || typeof item.hPath !== "string") invalid();
+        const optionalText = (key: string): string => {
+            if (item[key] == null) return "";
+            if (typeof item[key] !== "string") invalid();
+            return item[key];
+        };
+        const blockID = optionalText("blockID"), viewID = optionalText("viewID");
+        const viewName = optionalText("viewName"), viewLayout = optionalText("viewLayout");
+        if ((blockID && !validID(blockID)) || (viewID && !validID(viewID))
+            || !["", "table", "list", "gallery", "kanban", "calendar"].includes(viewLayout)
+            || (viewID && !viewLayout) || (!viewID && (viewName || viewLayout))) invalid();
+        if (item.children != null && !Array.isArray(item.children)) invalid();
+        if (parent && (item.avID !== parent.avID || blockID !== parent.blockID || !viewID || item.children?.length)) invalid();
+        const result: AttributeViewSearchResult = { avID: item.avID, avName: item.avName, hPath: item.hPath, blockID, viewID, viewName, viewLayout, children: [] };
+        const seenViews = new Set<string>();
+        result.children = (item.children || []).map((child: unknown) => {
+            const parsed = parse(child, result);
+            if (seenViews.has(parsed.viewID)) invalid();
+            seenViews.add(parsed.viewID);
+            return parsed;
+        });
+        return result;
+    };
+    const seenDatabases = new Set<string>();
+    return data.results.map((item: unknown) => {
+        const result = parse(item);
+        if (seenDatabases.has(result.avID)) invalid();
+        seenDatabases.add(result.avID);
+        return result;
+    });
+}
+
 export interface RenderAttributeViewPayload {
     id: string;
     blockID?: string;

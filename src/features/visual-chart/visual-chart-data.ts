@@ -135,10 +135,11 @@ function databaseViews(definition: Awaited<ReturnType<typeof getAttributeView>>)
     });
 }
 
-export async function loadVisualChartDatabaseViews(input: string): Promise<VisualChartDatabaseView[]> {
-    const { definition } = await readDatabaseDefinition(input);
+export async function loadVisualChartDatabaseViews(input: string, onResolved?: (avID: string) => void): Promise<VisualChartDatabaseView[]> {
+    const { target, definition } = await readDatabaseDefinition(input);
     const views = databaseViews(definition);
     if (!views.length) throw new Error("数据库没有可用视图，请在思源中检查数据库。");
+    onResolved?.(target.id);
     return views;
 }
 

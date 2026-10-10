@@ -18,6 +18,9 @@ const output = await build({
     stdin: { resolveDir: root, loader: "ts", contents: `
         import { autoMapVisualChartFields, normalizeVisualChartConfig } from "./src/features/visual-chart/visual-chart-config";
         import { loadVisualChartDatabaseViews, loadVisualChartData } from "./src/features/visual-chart/visual-chart-data";
+        import { searchAttributeViewChecked } from "./src/api";
+        export { searchAttributeViewChecked, SiyuanApiError } from "./src/api";
+        export { visualChartConfigFromWidgetContent, writeVisualChartConfigToWidgetContent } from "./src/features/visual-chart/visual-chart-config";
         export { setSiyuanRuntimePort } from "./src/runtime/siyuan-runtime-port";
         export { createDefaultVisualChartConfig } from "./src/features/visual-chart/visual-chart-config";
         export { render } from "svelte/server";
@@ -27,6 +30,8 @@ const output = await build({
             let loading = false, saving = false, error = "", destroyed = false;
             let reloadGeneration = 0, viewsGeneration = 0, reloadTimer = null, viewsTimer = null;
             let databaseViews = [], viewsLoading = false, viewsError = "", sourceSignature = "";
+            let searchOpen = false, searchKeyword = "", searchResults = [], searchLoading = false, searchError = "", searchHasSearched = false;
+            let searchGeneration = 0, searchTimer = null, loadedDatabaseInput = "", loadedDatabaseAvID = "";
             let saved = null, closed = false, timerId = 0;
             const timers = new Map();
             const setTimeout = (callback, delay) => { const id = ++timerId; timers.set(id,{callback,delay}); return id; };
@@ -35,10 +40,12 @@ const output = await build({
             ${functions.map(snippet).join("\n")}
             return {
                 config, syncSource: ${snippet(effects[0].expression.arguments[0])}, syncViews: ${snippet(effects[1].expression.arguments[0])},
+                syncSearch: ${snippet(effects[3].expression.arguments[0])}, closeSearch, searchDatabases, selectDatabase,
+                openSearch() { searchOpen = true; }, setKeyword(value) { searchKeyword = value; },
                 reload, reloadViews, save, dispose: ${snippet(destroy)},
                 flush() { const pending = [...timers.values()]; timers.clear(); pending.forEach(({callback}) => callback()); },
                 get delays() { return [...timers.values()].map(({delay}) => delay); },
-                get snapshot() { return {databaseViews,viewsLoading,viewsError,dataset,error,loading,saved,closed}; }
+                get snapshot() { return {databaseViews,viewsLoading,viewsError,dataset,error,loading,saved,closed,searchOpen,searchKeyword,searchResults,searchLoading,searchError,searchHasSearched}; }
             };
         }
     ` }, bundle: true, format: "esm", platform: "node", write: false, logLevel: "silent",
@@ -52,9 +59,9 @@ const output = await build({
                 const edits = [];
                 for (const node of nodes) {
                     if (node.type !== "VariableDeclaration") continue;
-                    for (const declaration of node.declarations) if (["databaseViews","viewsLoading","viewsError"].includes(declaration.id.name)) {
+                    for (const declaration of node.declarations) if (["databaseViews","viewsLoading","viewsError","searchOpen","searchKeyword","searchResults","searchLoading","searchError","searchHasSearched"].includes(declaration.id.name)) {
                         const argument = declaration.init.arguments[0];
-                        edits.push({start:argument.start,end:argument.end,value:`globalThis.__chartViewRender.${declaration.id.name}`});
+                        edits.push({start:argument.start,end:argument.end,value:`globalThis.__chartViewRender.${declaration.id.name} ?? (${snippet(argument)})`});
                     }
                 }
                 for (const edit of edits.sort((a,b) => b.start-a.start)) component = component.slice(0,edit.start)+edit.value+component.slice(edit.end);
@@ -63,7 +70,7 @@ const output = await build({
         });
     } }],
 });
-const rt = await import(`data:text/javascript;base64,${Buffer.from(output.outputFiles[0].text).toString("base64")}`);
+export const rt = await import(`data:text/javascript;base64,${Buffer.from(output.outputFiles[0].text).toString("base64")}`);
 const A = "20261010130000-aaaaaaa", B = "20261010130001-bbbbbbb";
 const TABLE = "20261010130002-ttttttt", LIST = "20261010130003-lllllll", CALENDAR = "20261010130004-ccccccc";
 const views = [{id:TABLE,name:"总览",type:"table"},{id:LIST,name:"任务清单",type:"list"},{id:CALENDAR,name:"本月安排",type:"calendar"}];
@@ -79,7 +86,7 @@ rt.setSiyuanRuntimePort({async post(path,payload) {
     assert.equal(payload.createIfNotExist,false); assert.equal(payload.persistView,false);
     return {code:0,data:await renderReply(payload)};
 }});
-const settle = async () => { for (let i=0;i<5;i++) await new Promise((done) => setImmediate(done)); };
+export const settle = async () => { for (let i=0;i<5;i++) await new Promise((done) => setImmediate(done)); };
 const initial = rt.createDefaultVisualChartConfig(); initial.source.type = "database"; initial.source.databaseId = A;
 const studio = rt.studio(initial);
 studio.syncViews(); assert.deepEqual(studio.delays,[450]); assert.equal(calls.length,0,"debounce cannot issue an immediate request");
@@ -125,7 +132,7 @@ const before = structuredClone(disposed.snapshot); disposed.dispose(); release()
 assert.deepEqual(disposed.snapshot,before,"destroyed Console must not update async state");
 assert.deepEqual(disposed.delays,[]);
 
-function html(snapshot, config = initial) {
+export function html(snapshot, config = initial) {
     globalThis.__chartViewRender = snapshot;
     return rt.render(rt.Console,{props:{initialConfig:config,onSave:async()=>{},onClose:()=>{}}}).body;
 }
