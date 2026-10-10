@@ -1,6 +1,6 @@
 import { getAttributeView, getTag, renderAttributeViewReadonly, sql, sqlChecked } from "@/api";
 import { buildFtsMatchClause } from "@/components/tools/siyuanSqlPaging";
-import type { VisualChartConfig, VisualChartDataset, VisualChartLoadResult } from "./visual-chart-types";
+import type { VisualChartConfig, VisualChartDatabaseView, VisualChartDataset, VisualChartLoadResult } from "./visual-chart-types";
 
 function text(value: unknown): string {
     if (value === null || value === undefined) return "";
@@ -100,7 +100,7 @@ async function resolveAttributeViewId(input: string): Promise<{ id: string; bloc
     return { id: resolved, blockID: id };
 }
 
-async function loadDatabase(input: string, requestedLimit: number): Promise<VisualChartLoadResult> {
+async function readDatabaseDefinition(input: string) {
     const target = await resolveAttributeViewId(input);
     let definition: Awaited<ReturnType<typeof getAttributeView>>;
     try { definition = await getAttributeView(target.id, { checked: true }); }
@@ -109,13 +109,54 @@ async function loadDatabase(input: string, requestedLimit: number): Promise<Visu
         throw new Error("数据库定义读取失败，请检查权限或内核连接。");
     }
     if (!definition) throw new Error("数据库 ID 无效或不存在，无法读取数据库。");
+    return { target, definition };
+}
+
+// SiYuan 3.8.6 AVView uses id/name/type, not the database's root viewID.
+function databaseViews(definition: Awaited<ReturnType<typeof getAttributeView>>): VisualChartDatabaseView[] {
+    const views = definition?.raw?.views;
+    if (views == null) throw new Error("数据库没有可用视图，请在思源中检查数据库。");
+    if (!Array.isArray(views)) throw new Error("数据库视图响应不完整：views 不是数组。");
+    const ids = new Set<string>();
+    const labels: Record<string, string> = { table: "表格", list: "列表", calendar: "日历", gallery: "画廊", kanban: "看板" };
+    return views.map((view): VisualChartDatabaseView => {
+        if (!view || typeof view.id !== "string" || !/^[0-9]{14}-[a-z0-9]{7}$/.test(view.id) || ids.has(view.id) ||
+            typeof view.name !== "string" || typeof view.type !== "string" || !view.type) {
+            throw new Error("数据库视图响应不完整：视图 ID、名称或布局异常。");
+        }
+        ids.add(view.id);
+        const unsupportedReason = view.type === "calendar"
+            ? "日历按日期范围读取且排除无日期条目，不具备普通分页语义；暂不支持作为图表数据源。"
+            : !["table", "list"].includes(view.type)
+                ? `${labels[view.type] || "未知"}布局暂不支持图表数据读取，请选择表格或列表视图。`
+                : view.group?.field || view.groups?.length
+                    ? "分组视图暂不支持图表，请选择未分组的表格或列表视图。" : "";
+        return { id: view.id, name: view.name || "未命名视图", type: view.type, typeLabel: labels[view.type] || `未知布局（${view.type}）`, unsupportedReason };
+    });
+}
+
+export async function loadVisualChartDatabaseViews(input: string): Promise<VisualChartDatabaseView[]> {
+    const { definition } = await readDatabaseDefinition(input);
+    const views = databaseViews(definition);
+    if (!views.length) throw new Error("数据库没有可用视图，请在思源中检查数据库。");
+    return views;
+}
+
+async function loadDatabase(input: string, requestedLimit: number, requestedViewID = ""): Promise<VisualChartLoadResult> {
+    const { target, definition } = await readDatabaseDefinition(input);
+    const views = databaseViews(definition);
+    if (!views.length) throw new Error("数据库没有可用视图，请在思源中检查数据库。");
+    const selected = requestedViewID ? views.find((view) => view.id === requestedViewID) : undefined;
+    if (requestedViewID && !selected) throw new Error("已选择的数据库视图不存在或已删除，请主动选择其他视图。");
+    if (selected?.unsupportedReason) throw new Error(selected.unsupportedReason);
     const limit = Math.min(5000, Math.max(1, Math.floor(requestedLimit) || 200));
     const pageSize = Math.min(200, limit);
     const rows: Array<Record<string, unknown>> = [];
     const rowIds = new Set<string>();
     let columns: string[] = [];
     let columnSignature = "";
-    let selectedViewID: string | undefined;
+    let selectedViewID: string | undefined = requestedViewID || undefined;
+    let viewSignature = "";
     for (let page = 1; rows.length < limit; page += 1) {
         let rendered: any;
         try { rendered = await renderAttributeViewReadonly({ ...target, viewID: selectedViewID, page, pageSize }); }
@@ -123,9 +164,18 @@ async function loadDatabase(input: string, requestedLimit: number): Promise<Visu
             if ((error as { siyuanMsg?: string })?.siyuanMsg === "attribute view not found") {
                 throw new Error("数据库 ID 无效或不存在，无法读取数据库。");
             }
+            if (selectedViewID && /view.*not found/i.test((error as { siyuanMsg?: string })?.siyuanMsg || "")) {
+                throw new Error("已选择的数据库视图不存在或已删除，请主动选择其他视图。");
+            }
             throw new Error("数据库行读取失败，请检查权限、数据库块上下文或内核连接。");
         }
         const view = rendered?.view;
+        if (selectedViewID && rendered?.viewID !== selectedViewID) throw new Error("数据库视图在读取期间发生变化：返回的 viewID 与所选视图不一致，请重新载入。");
+        const currentView = views.find((item) => item.id === rendered?.viewID);
+        if (typeof rendered?.viewID === "string" && rendered.viewID && !currentView) {
+            throw new Error("数据库视图在读取期间发生变化：视图已不存在，请重新载入。");
+        }
+        if (currentView?.unsupportedReason) throw new Error(currentView.unsupportedReason);
         if (!view || !["table", "list"].includes(rendered.viewType)) {
             throw new Error("数据库响应不完整或当前布局暂不支持：请使用表格或列表视图。");
         }
@@ -134,6 +184,11 @@ async function loadDatabase(input: string, requestedLimit: number): Promise<Visu
             throw new Error("数据库响应不完整：缺少有效的 columns 或 viewID。");
         }
         if (!Number.isInteger(view.rowCount) || view.rowCount < 0) throw new Error("数据库分页响应不完整：缺少有效的 rowCount。");
+        const currentSignature = JSON.stringify([rendered.viewType, view.rowCount, view.filters, view.sorts, rendered.contextFilter]);
+        if ((currentView && currentView.type !== rendered.viewType) || (page > 1 && viewSignature !== currentSignature)) {
+            throw new Error("数据库视图在读取期间发生变化，请重新载入。");
+        }
+        viewSignature = currentSignature;
         const pageRows = view.rows === null && view.rowCount === 0 ? [] : view.rows;
         if (!Array.isArray(pageRows)) throw new Error("数据库响应不完整：缺少有效的 rows。");
         const names = view.columns.map((column: any, index: number) => {
@@ -199,7 +254,7 @@ function safeDocumentQuery(config: VisualChartConfig): string {
 }
 
 export async function loadVisualChartData(config: VisualChartConfig): Promise<VisualChartLoadResult> {
-    if (config.source.type === "database") return loadDatabase(config.source.databaseId, config.transform.limit);
+    if (config.source.type === "database") return loadDatabase(config.source.databaseId, config.transform.limit, config.source.databaseViewId);
     if (config.source.type === "sql") {
         if (!config.source.sql.trim()) throw new Error("请输入 SQL 查询");
         const rows = await sql(config.source.sql) as Array<Record<string, unknown>>;

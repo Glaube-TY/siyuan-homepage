@@ -21,6 +21,7 @@ export type VisualChartAggregate = "none" | "count" | "sum" | "average" | "min" 
 export interface VisualChartSourceConfig {
     type: VisualChartSourceType;
     databaseId: string;
+    databaseViewId?: string;
     sql: string;
     notebookIds: string[];
     documentKeyword: string;
@@ -138,6 +139,14 @@ export interface VisualChartDataset {
 
 export interface VisualChartLoadResult extends VisualChartDataset {
     resolvedDatabaseId?: string;
+}
+
+export interface VisualChartDatabaseView {
+    id: string;
+    name: string;
+    type: string;
+    typeLabel: string;
+    unsupportedReason: string;
 }
 
 export const VISUAL_CHART_TYPE_OPTIONS: ReadonlyArray<{ value: VisualChartType; label: string; group: string }> = [

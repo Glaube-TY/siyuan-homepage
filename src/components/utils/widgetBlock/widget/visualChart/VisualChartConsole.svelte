@@ -3,9 +3,9 @@
     import { showMessage } from "siyuan";
     import SiyuanIcon from "@/components/utils/shared/SiyuanIcon.svelte";
     import { lsNotebooks } from "@/api";
-    import { normalizeVisualChartConfig } from "@/features/visual-chart/visual-chart-config";
-    import { loadVisualChartData, transformVisualChartData } from "@/features/visual-chart/visual-chart-data";
-    import { VISUAL_CHART_TYPE_OPTIONS, type VisualChartConfig, type VisualChartDataset } from "@/features/visual-chart/visual-chart-types";
+    import { autoMapVisualChartFields, normalizeVisualChartConfig } from "@/features/visual-chart/visual-chart-config";
+    import { loadVisualChartDatabaseViews, loadVisualChartData, transformVisualChartData } from "@/features/visual-chart/visual-chart-data";
+    import { VISUAL_CHART_TYPE_OPTIONS, type VisualChartConfig, type VisualChartDatabaseView, type VisualChartDataset } from "@/features/visual-chart/visual-chart-types";
     import VisualChartCanvas from "./VisualChartCanvas.svelte";
     import VisualChartStyleInspector from "./VisualChartStyleInspector.svelte";
 
@@ -25,6 +25,13 @@
     let notebooks = $state<Array<{ id: string; name: string }>>([]);
     let reloadTimer: ReturnType<typeof setTimeout> | null = null;
     let reloadGeneration = 0;
+    let destroyed = false;
+    let databaseViews = $state<VisualChartDatabaseView[]>([]);
+    let viewsLoading = $state(false);
+    let viewsError = $state("");
+    let viewsGeneration = 0;
+    let viewsTimer: ReturnType<typeof setTimeout> | null = null;
+    const selectedDatabaseView = $derived(databaseViews.find((view) => view.id === config.source.databaseViewId));
     let mappedChartType = untrack(() => config.chartType);
     const previewConfig = $derived(normalizeVisualChartConfig(config));
     const previewData = $derived(transformVisualChartData(dataset, previewConfig));
@@ -33,49 +40,11 @@
     const zoomSupported = $derived(["line", "area", "bar", "horizontalBar", "scatter", "heatmap"].includes(config.chartType));
 
     function autoMap(force = false): void {
-        const columns = dataset.columns;
-        if (!columns.length) return;
-        const numericColumns = columns.filter((column) => dataset.rows.some((row) => row[column] !== "" && Number.isFinite(Number(row[column]))));
-        const textColumns = columns.filter((column) => !numericColumns.includes(column));
-        const choose = (current: string, preferred: string[], fallback = columns[0]) => !force && columns.includes(current) ? current : preferred[0] || fallback;
-        const chooseMany = (current: string[], preferred: string[]) => !force && current.length && current.every((field) => columns.includes(field)) ? current : preferred.slice(0, 4);
-
-        if (config.chartType === "scatter") {
-            config.mapping.category = choose(config.mapping.category, numericColumns);
-            config.mapping.values = chooseMany(config.mapping.values, numericColumns.filter((field) => field !== config.mapping.category));
-            config.mapping.name = choose(config.mapping.name, textColumns, "");
-        } else if (config.chartType === "heatmap") {
-            config.mapping.category = choose(config.mapping.category, textColumns);
-            config.mapping.secondaryValue = choose(config.mapping.secondaryValue, textColumns.filter((field) => field !== config.mapping.category), columns.find((field) => field !== config.mapping.category) || "");
-            config.mapping.value = choose(config.mapping.value, numericColumns);
-            config.mapping.values = [config.mapping.value];
-        } else if (config.chartType === "radar") {
-            config.mapping.category = choose(config.mapping.category, textColumns);
-            config.mapping.values = chooseMany(config.mapping.values, numericColumns.filter((field) => field !== config.mapping.category));
-        } else if (config.chartType === "progress") {
-            config.mapping.name = choose(config.mapping.name, textColumns);
-            config.mapping.category = config.mapping.name;
-            config.mapping.value = choose(config.mapping.value, numericColumns, columns.find((field) => field !== config.mapping.name) || columns[0]);
-            if (force || (config.mapping.secondaryValue && !columns.includes(config.mapping.secondaryValue))) {
-                config.mapping.secondaryValue = numericColumns.find((field) => field !== config.mapping.value) || "";
-            }
-            config.mapping.values = [config.mapping.value];
-        } else if (["pie", "donut", "funnel", "gauge", "treemap", "sunburst", "wordCloud"].includes(config.chartType)) {
-            config.mapping.name = choose(config.mapping.name, textColumns);
-            config.mapping.value = choose(config.mapping.value, numericColumns, columns.find((field) => field !== config.mapping.name) || columns[0]);
-            config.mapping.category = config.mapping.name;
-            config.mapping.values = [config.mapping.value];
-        } else {
-            config.mapping.category = choose(config.mapping.category, textColumns);
-            config.mapping.values = chooseMany(config.mapping.values, numericColumns.filter((field) => field !== config.mapping.category));
-        }
-
-        if (!config.mapping.values.length) config.mapping.values = columns.filter((field) => field !== config.mapping.category).slice(0, 1);
-        if (!columns.includes(config.mapping.name)) config.mapping.name = textColumns[0] || config.mapping.category;
-        if (!columns.includes(config.mapping.value)) config.mapping.value = config.mapping.values[0] || columns[0];
+        autoMapVisualChartFields(config, dataset, force);
     }
 
     async function reload(forceMap = false): Promise<void> {
+        if (destroyed) return;
         const generation = ++reloadGeneration;
         loading = true;
         error = "";
@@ -93,6 +62,23 @@
         }
     }
 
+    async function reloadViews(input: string): Promise<void> {
+        const generation = ++viewsGeneration;
+        viewsLoading = true;
+        viewsError = "";
+        databaseViews = [];
+        try {
+            const result = await loadVisualChartDatabaseViews(input);
+            if (destroyed || generation !== viewsGeneration) return;
+            databaseViews = result;
+        } catch (reason) {
+            if (destroyed || generation !== viewsGeneration) return;
+            viewsError = reason instanceof Error ? reason.message : "数据库视图读取失败";
+        } finally {
+            if (!destroyed && generation === viewsGeneration) viewsLoading = false;
+        }
+    }
+
     async function save(): Promise<void> {
         saving = true;
         try {
@@ -105,17 +91,35 @@
     }
 
     onMount(() => {
-        void lsNotebooks().then((result) => { notebooks = result.notebooks.map((item) => ({ id: item.id, name: item.name })); }).catch(() => {});
+        void lsNotebooks().then((result) => { if (!destroyed) notebooks = result.notebooks.map((item) => ({ id: item.id, name: item.name })); }).catch(() => {});
     });
 
     $effect(() => {
         sourceSignature;
+        // Invalidate in-flight previews immediately, including the debounce window.
+        reloadGeneration += 1;
         if (reloadTimer) clearTimeout(reloadTimer);
         reloadTimer = setTimeout(() => void reload(false), 450);
         return () => {
             if (reloadTimer) clearTimeout(reloadTimer);
             reloadTimer = null;
         };
+    });
+
+    $effect(() => {
+        const input = config.source.type === "database" ? config.source.databaseId.trim() : "";
+        viewsGeneration += 1;
+        databaseViews = [];
+        viewsError = "";
+        viewsLoading = false;
+        if (viewsTimer) clearTimeout(viewsTimer);
+        if (input) {
+            if (/^[0-9]{14}-[a-z0-9]{7}$/.test(input)) {
+                viewsLoading = true;
+                viewsTimer = setTimeout(() => void reloadViews(input), 450);
+            } else viewsError = "数据库 ID 无效：请填写完整的数据库块 ID 或属性视图 ID。";
+        }
+        return () => { if (viewsTimer) clearTimeout(viewsTimer); viewsTimer = null; };
     });
 
     $effect(() => {
@@ -126,8 +130,11 @@
     });
 
     onDestroy(() => {
+        destroyed = true;
         reloadGeneration += 1;
+        viewsGeneration += 1;
         if (reloadTimer) clearTimeout(reloadTimer);
+        if (viewsTimer) clearTimeout(viewsTimer);
     });
 </script>
 
@@ -166,7 +173,23 @@
                             <button class:active={config.source.type === source.value} type="button" onclick={() => config.source.type = source.value as any}>{source.label}</button>
                         {/each}
                     </div></section>
-                    {#if config.source.type === "database"}<section><label>数据库块 ID / 属性视图 ID<input bind:value={config.source.databaseId} placeholder="粘贴数据库块 ID，系统会自动解析" /></label><p class="hint">支持直接粘贴页面中的数据库块 ID，也支持属性视图 ID。</p></section>
+                    {#if config.source.type === "database"}<section>
+                        <label>数据库块 ID / 属性视图 ID<input bind:value={config.source.databaseId} placeholder="粘贴数据库块 ID，系统会自动解析" /></label>
+                        <p class="hint">数据库块 ID 会保留当前文档的上下文筛选；属性视图 ID 按独立数据库读取。</p>
+                        <label>数据库视图<select aria-label="数据库视图" bind:value={config.source.databaseViewId} disabled={viewsLoading || !databaseViews.length}>
+                            <option value="">自动（沿用数据库块当前视图或数据库默认视图）</option>
+                            {#if config.source.databaseViewId && !selectedDatabaseView}<option value={config.source.databaseViewId} disabled>已保存视图 · {config.source.databaseViewId}</option>{/if}
+                            {#each databaseViews as view (view.id)}<option value={view.id} disabled={!!view.unsupportedReason}>{view.name} · {view.typeLabel}{view.unsupportedReason ? "（暂不支持）" : ""}</option>{/each}
+                        </select></label>
+                        <div aria-live="polite">
+                            {#if viewsLoading}<p class="hint">正在读取数据库视图…</p>
+                            {:else if viewsError}<p class="hint">{viewsError}</p><button type="button" onclick={() => reloadViews(config.source.databaseId)}>重试读取视图</button>
+                            {:else if !config.source.databaseId.trim()}<p class="hint">填写数据库 ID 后读取可用视图。</p>
+                            {:else if config.source.databaseViewId && !selectedDatabaseView}<p class="hint">已保存的视图不存在或已删除，请主动选择其他视图。原配置已保留。</p>
+                            {:else if selectedDatabaseView?.unsupportedReason}<p class="hint">{selectedDatabaseView.unsupportedReason}</p>{/if}
+                        </div>
+                        {#if databaseViews.some((view) => view.unsupportedReason)}<p class="hint">支持未分组的表格、列表。日历按日期范围读取并排除无日期条目；画廊、看板和分组视图使用不同条目结构，暂不支持。</p>{/if}
+                    </section>
                     {:else if config.source.type === "sql"}<section><label>SQL 查询<textarea bind:value={config.source.sql} rows="9" spellcheck="false"></textarea></label><p class="hint">查询结果的每一列都会成为可映射字段。</p></section>
                     {:else if config.source.type === "documents"}<section><label>限定笔记本<select multiple bind:value={config.source.notebookIds}>{#each notebooks as notebook}<option value={notebook.id}>{notebook.name}</option>{/each}</select></label><label>标题关键词<input bind:value={config.source.documentKeyword} placeholder="留空表示全部文档" /></label><label>排序<select bind:value={config.source.documentSort}><option value="updated">最近更新</option><option value="created">最近创建</option><option value="title">标题</option></select></label></section>
                     {:else if config.source.type === "tags"}<section><p class="hint">读取思源中的标签名称和引用数量，可映射为词云、条形图、饼图等任意图表。</p></section>

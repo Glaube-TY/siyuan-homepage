@@ -4,7 +4,7 @@
     import { loadWidgetInstanceConfig } from "@/homepage/deviceView/widgetInstanceRepository";
     import type { WidgetRuntimeContext } from "../../widgetMountRegistry";
     import { resolveWidgetRuntimeInstanceId } from "../../utils/widgetRuntimeIdentity";
-    import { visualChartConfigFromWidgetContent } from "@/features/visual-chart/visual-chart-config";
+    import { autoMapVisualChartFields, visualChartConfigFromWidgetContent } from "@/features/visual-chart/visual-chart-config";
     import { loadVisualChartData, transformVisualChartData } from "@/features/visual-chart/visual-chart-data";
     import type { VisualChartConfig, VisualChartDataset } from "@/features/visual-chart/visual-chart-types";
     import VisualChartCanvas from "./VisualChartCanvas.svelte";
@@ -44,6 +44,7 @@
         try {
             const result = await loadVisualChartData(config);
             if (destroyed || generation !== reloadGeneration) return;
+            if (config.source.type === "database") autoMapVisualChartFields(config, result);
             dataset = result;
         } catch (reason) {
             if (destroyed || generation !== reloadGeneration) return;

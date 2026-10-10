@@ -29,6 +29,7 @@
     "verify:remote-kernel-compat": "node --no-warnings ./scripts/verify-remote-kernel-compat.mjs",
     "verify:siyuan-api-compat": "node --no-warnings ./scripts/verify-siyuan-plugin-api-compat.mjs",
     "verify:visual-chart-data": "node --no-warnings ./scripts/verify-visual-chart-data.mjs",
+    "verify:visual-chart-views": "node --no-warnings ./scripts/verify-visual-chart-views.mjs",
     "verify:enhanced-diary-project-index": "node --no-warnings ./scripts/verify-enhanced-diary-project-index.mjs",
     "verify:shared-runtime-refresh": "node --no-warnings ./scripts/verify-shared-runtime-refresh.mjs",
     "verify:entitlement": "pnpm verify:mobile-entitlement-sync",

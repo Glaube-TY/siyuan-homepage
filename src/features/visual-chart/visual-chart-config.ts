@@ -1,4 +1,4 @@
-import type { VisualChartConfig, VisualChartType } from "./visual-chart-types";
+import type { VisualChartConfig, VisualChartDataset, VisualChartType } from "./visual-chart-types";
 
 const DEFAULT_PALETTE = ["#5b7cfa", "#42b883", "#f6ad55", "#e66a8c", "#8b6de0", "#2ba3ad"];
 
@@ -9,6 +9,7 @@ export function createDefaultVisualChartConfig(): VisualChartConfig {
         source: {
             type: "manual",
             databaseId: "",
+            databaseViewId: "",
             sql: "select type, count(*) as count from blocks group by type order by count desc",
             notebookIds: [],
             documentKeyword: "",
@@ -96,6 +97,52 @@ function objectValue(value: unknown): Record<string, any> {
     return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, any> : {};
 }
 
+export function autoMapVisualChartFields(config: VisualChartConfig, dataset: VisualChartDataset, force = false): void {
+    const columns = dataset.columns;
+    if (!columns.length || (!force && !dataset.rows.length)) return;
+    const numericColumns = columns.filter((column) => dataset.rows.some((row) => row[column] != null && row[column] !== "" && Number.isFinite(Number(row[column]))));
+    const textColumns = columns.filter((column) => !numericColumns.includes(column));
+    const choose = (current: string, preferred: string[], fallback = columns[0]) => !force && columns.includes(current) ? current : preferred[0] || fallback;
+    const chooseMany = (current: string[], preferred: string[]) => {
+        const valid = current.filter((field) => columns.includes(field));
+        return !force && valid.length ? valid : preferred.slice(0, 4);
+    };
+
+    if (config.chartType === "scatter") {
+        config.mapping.category = choose(config.mapping.category, numericColumns);
+        config.mapping.values = chooseMany(config.mapping.values, numericColumns.filter((field) => field !== config.mapping.category));
+        config.mapping.name = choose(config.mapping.name, textColumns, "");
+    } else if (config.chartType === "heatmap") {
+        config.mapping.category = choose(config.mapping.category, textColumns);
+        config.mapping.secondaryValue = choose(config.mapping.secondaryValue, textColumns.filter((field) => field !== config.mapping.category), columns.find((field) => field !== config.mapping.category) || "");
+        config.mapping.value = choose(config.mapping.value, numericColumns);
+        config.mapping.values = [config.mapping.value];
+    } else if (config.chartType === "radar") {
+        config.mapping.category = choose(config.mapping.category, textColumns);
+        config.mapping.values = chooseMany(config.mapping.values, numericColumns.filter((field) => field !== config.mapping.category));
+    } else if (config.chartType === "progress") {
+        config.mapping.name = choose(config.mapping.name, textColumns);
+        config.mapping.category = config.mapping.name;
+        config.mapping.value = choose(config.mapping.value, numericColumns, columns.find((field) => field !== config.mapping.name) || columns[0]);
+        if (force || (config.mapping.secondaryValue && !columns.includes(config.mapping.secondaryValue))) {
+            config.mapping.secondaryValue = numericColumns.find((field) => field !== config.mapping.value) || "";
+        }
+        config.mapping.values = [config.mapping.value];
+    } else if (["pie", "donut", "funnel", "gauge", "treemap", "sunburst", "wordCloud"].includes(config.chartType)) {
+        config.mapping.name = choose(config.mapping.name, textColumns);
+        config.mapping.value = choose(config.mapping.value, numericColumns, columns.find((field) => field !== config.mapping.name) || columns[0]);
+        config.mapping.category = config.mapping.name;
+        config.mapping.values = [config.mapping.value];
+    } else {
+        config.mapping.category = choose(config.mapping.category, textColumns);
+        config.mapping.values = chooseMany(config.mapping.values, numericColumns.filter((field) => field !== config.mapping.category));
+    }
+
+    if (!config.mapping.values.length) config.mapping.values = columns.filter((field) => field !== config.mapping.category).slice(0, 1);
+    if (!columns.includes(config.mapping.name)) config.mapping.name = textColumns[0] || config.mapping.category;
+    if (!columns.includes(config.mapping.value)) config.mapping.value = config.mapping.values[0] || columns[0];
+}
+
 function numberIn(value: unknown, fallback: number, min: number, max: number): number {
     const parsed = Number(value);
     return Number.isFinite(parsed) ? Math.min(max, Math.max(min, parsed)) : fallback;
@@ -134,6 +181,7 @@ export function normalizeVisualChartConfig(value: unknown): VisualChartConfig {
             ...defaults.source,
             ...source,
             type: ["database", "sql", "documents", "tags", "manual"].includes(source.type) ? source.type : defaults.source.type,
+            databaseViewId: typeof source.databaseViewId === "string" ? source.databaseViewId.trim() : "",
             notebookIds: stringArray(source.notebookIds),
             refreshSeconds: numberIn(source.refreshSeconds, 0, 0, 3600),
         },
