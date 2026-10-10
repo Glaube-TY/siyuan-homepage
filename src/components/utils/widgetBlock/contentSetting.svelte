@@ -54,6 +54,7 @@
   import TasksPlusSet from "./widget/tasksPlus/tasksPlusSet.svelte";
   import RecentTasksSet from "./widget/tasks/recentTasksSet.svelte";
   import AlmanacSet from "./widget/almanac/almanacSet.svelte";
+  import { readPicCaroSource, type PicSourceMode as PicCaroSourceMode } from "./widget/PicCaro/picCaroData";
   import PicCaroSet from "./widget/PicCaro/PicCaroSet.svelte";
   import CYBMOKSet from "./widget/CYBMOK/CYBMOKSet.svelte";
   import CountdownTimerSet from "./widget/countdownTimer/countdownTimerSet.svelte";
@@ -388,6 +389,9 @@
   let almanacStyle: string = $state("classic");
 
   // 图片轮播相关
+  let PicSourceMode: PicCaroSourceMode = $state("localFolder");
+  let PicAssetPaths: string[] = $state([]);
+  let picSourceError = $state("");
   let PicFolderPath: string = $state(""); // 图片文件夹路径
   let PicAutoPlay: boolean = $state(false); // 是否自动播放
   let PicInterval: number = $state(3); // 切换间隔（秒）
@@ -883,6 +887,14 @@
           statisticalCardCountColor;
         customSQLCount = parsedData.data?.customSQLCount || "";
       } else if (parsedData.type === "PicCaro") {
+        try {
+          const source = readPicCaroSource(parsedData.data === undefined ? {} : parsedData.data);
+          PicSourceMode = source.mode;
+          PicAssetPaths = source.paths;
+          picSourceError = "";
+        } catch (error) {
+          picSourceError = error instanceof Error ? error.message : "图片来源配置读取失败";
+        }
         PicFolderPath = parsedData.data?.PicFolderPath || "";
         PicAutoPlay = parsedData.data?.PicAutoPlay ?? false;
         PicInterval = parsedData.data?.PicInterval || 3;
@@ -1401,6 +1413,9 @@
         {:else if selectedContentType === "PicCaro"}
           <PicCaroSet
             {advancedEnabled}
+            bind:PicSourceMode
+            bind:PicAssetPaths
+            sourceError={picSourceError}
             bind:PicFolderPath
             bind:PicAutoPlay
             bind:PicInterval
@@ -1502,6 +1517,11 @@
           return;
         }
         const effectiveActiveTab = resolveActiveTabForContentType(selectedContentType);
+        if (selectedContentType === "PicCaro") {
+          if (picSourceError) { showMessage(picSourceError, 5000, "error"); return; }
+          try { readPicCaroSource({ PicSourceMode, PicAssetPaths }); }
+          catch (error) { showMessage(error instanceof Error ? error.message : "图片来源配置损坏", 5000, "error"); return; }
+        }
         if (["globalCalendar", "habitTracker", "focus", "visualChart"].includes(selectedContentType) && !advancedEnabled) {
           const label = selectedContentType === "globalCalendar"
             ? "全局日历"
@@ -1961,6 +1981,8 @@
             type: "PicCaro",
             instanceId: currentBlockId,
             data: {
+              PicSourceMode,
+              PicAssetPaths: [...PicAssetPaths],
               PicFolderPath,
               PicAutoPlay,
               PicInterval,

@@ -1,178 +1,135 @@
 <script lang="ts">
-    import { onMount } from "svelte";
-    import { register } from "swiper/element";
-    import {
-        A11y,
-        Autoplay,
-        EffectCoverflow,
-        EffectCube,
-        EffectFade,
-        EffectFlip,
-        Navigation,
-        Pagination,
-    } from "swiper/modules";
-    import a11yStyles from "swiper/element/css/a11y?inline";
-    import coverflowStyles from "swiper/element/css/effect-coverflow?inline";
-    import cubeStyles from "swiper/element/css/effect-cube?inline";
-    import fadeStyles from "swiper/element/css/effect-fade?inline";
-    import flipStyles from "swiper/element/css/effect-flip?inline";
-    import navigationStyles from "swiper/element/css/navigation?inline";
-    import paginationStyles from "swiper/element/css/pagination?inline";
-    import { canUseElectronLocalFileSystem } from "@/components/tools/runtimeEnv";
+    import { onMount, untrack } from "svelte";
+    import type { Swiper } from "swiper/types";
+    import { loadPicCaroImages, picCaroPlaybackImages, type PicCaroImage } from "./picCaroData";
     import AdvancedFeatureLock from "../common/AdvancedFeatureLock.svelte";
 
-    interface Props {
-        plugin: any;
-        contentTypeJson?: string;
-    }
-
+    interface Props { plugin: any; contentTypeJson?: string }
     let { plugin, contentTypeJson = "{}" }: Props = $props();
-
-    let parsedContent = $derived(JSON.parse(contentTypeJson));
-    let PicFolderPath = $derived(parsedContent.data.PicFolderPath || "");
-    let PicAutoPlay = $derived(parsedContent.data.PicAutoPlay ?? false);
-    let PicInterval = $derived(parsedContent.data.PicInterval || 3);
-    let PicNavigation = $derived(parsedContent.data.PicNavigation ?? false);
-    let PicPagination = $derived(parsedContent.data.PicPagination ?? false);
-    let PicPaginationType = $derived(parsedContent.data.PicPaginationType || "bullets");
-    let PicPaginationDyBu = $derived(parsedContent.data.PicPaginationDyBu ?? false);
-    let PicPaginationPrOp = $derived(parsedContent.data.PicPaginationPrOp ?? false);
-    let PicEffect = $derived(parsedContent.data.PicEffect || "slide");
-    let PicSlidesPerView = $derived(parsedContent.data.PicSlidesPerView || "1");
-    let PicRandomSwitch = $derived(parsedContent.data.PicRandomSwitch ?? false);
-
+    let data = $derived.by(() => {
+        try { const config = JSON.parse(contentTypeJson); return config.data === undefined ? {} : config.data; } catch { return null; }
+    });
+    let PicAutoPlay = $derived(data?.PicAutoPlay ?? false);
+    let PicInterval = $derived(data?.PicInterval || 3);
+    let PicNavigation = $derived(data?.PicNavigation ?? false);
+    let PicPagination = $derived(data?.PicPagination ?? false);
+    let PicPaginationType = $derived(data?.PicPaginationType || "bullets");
+    let PicPaginationDyBu = $derived(data?.PicPaginationDyBu ?? false);
+    let PicPaginationPrOp = $derived(data?.PicPaginationPrOp ?? false);
+    let PicEffect = $derived(data?.PicEffect || "slide");
+    let PicSlidesPerView = $derived(data?.PicSlidesPerView || "1");
     let advancedEnabled = $state(false);
     let runtimeUnsupported = $state(false);
-    let runtimeMessage = $state("");
-    let images: Array<{ name: string; path: string }> = $state([]);
+    let images: PicCaroImage[] = $state([]);
+    let failedPaths: string[] = $state([]);
     let loading = $state(true);
     let error = $state("");
+    let rootElement: HTMLElement;
+    let swiperElement: (HTMLElement & { swiper?: Swiper }) | null = null;
+    let mounted = $state(false);
+    let widgetVisible = $state(typeof IntersectionObserver === "undefined");
+    let documentVisible = $state(true);
+    let loadedContent: string | null = null;
 
-    const swiperModules = [
-        A11y,
-        Autoplay,
-        EffectCoverflow,
-        EffectCube,
-        EffectFade,
-        EffectFlip,
-        Navigation,
-        Pagination,
-    ];
-    const swiperStyles = [
-        a11yStyles,
-        coverflowStyles,
-        cubeStyles,
-        fadeStyles,
-        flipStyles,
-        navigationStyles,
-        paginationStyles,
-    ];
-
-    function initializeSwiper(node: HTMLElement): void {
-        const swiper = node as HTMLElement & {
-            modules: typeof swiperModules;
-            injectStyles: string[];
-            initialize: () => void;
-        };
-        swiper.modules = swiperModules;
-        swiper.injectStyles = swiperStyles;
-        swiper.initialize();
+    function syncAutoplay(): void {
+        const shouldPlay = advancedEnabled && PicAutoPlay && widgetVisible && documentVisible && failedPaths.length < images.length;
+        const autoplay = swiperElement?.swiper?.autoplay;
+        if (!autoplay) return;
+        if (shouldPlay) {
+            if (!autoplay.running) autoplay.start();
+        } else if (autoplay.running) autoplay.stop();
     }
 
-    // 读取文件夹中的图片
-    async function loadImages() {
-        if (!canUseElectronLocalFileSystem()) {
-            runtimeUnsupported = true;
-            runtimeMessage = "图片轮播需要访问本地图片文件夹，该功能仅支持思源桌面端使用。网页端、Docker 和移动端无法直接读取本地文件夹。";
-            loading = false;
-            return;
-        }
+    function initializeSwiper(node: HTMLElement) {
+        let disposed = false;
+        swiperElement = node;
+        void (async () => {
+            try {
+                const [element, modules, ...styles] = await Promise.all([
+                    import("swiper/element"), import("swiper/modules"),
+                    import("swiper/element/css/a11y?inline"), import("swiper/element/css/effect-coverflow?inline"),
+                    import("swiper/element/css/effect-cube?inline"), import("swiper/element/css/effect-fade?inline"),
+                    import("swiper/element/css/effect-flip?inline"), import("swiper/element/css/navigation?inline"),
+                    import("swiper/element/css/pagination?inline"),
+                ]);
+                if (disposed || !advancedEnabled) return;
+                element.register();
+                const swiper = node as HTMLElement & { modules: unknown[]; injectStyles: string[]; initialize: () => void };
+                swiper.modules = [modules.A11y, modules.Autoplay, modules.EffectCoverflow, modules.EffectCube,
+                    modules.EffectFade, modules.EffectFlip, modules.Navigation, modules.Pagination];
+                swiper.injectStyles = styles.map((style) => style.default);
+                swiper.initialize();
+                syncAutoplay();
+            } catch { if (!disposed) error = "轮播展示能力加载失败，请重新加载组件"; }
+        })();
+        return { destroy() {
+            disposed = true;
+            const swiper = (node as HTMLElement & { swiper?: Swiper }).swiper;
+            if (swiper && !swiper.destroyed) swiper.destroy(true, true);
+            if (swiperElement === node) swiperElement = null;
+        } };
+    }
 
+    function loadImages(): void {
+        loading = true;
+        error = "";
+        failedPaths = [];
+        images = [];
+        runtimeUnsupported = false;
         try {
-            if (!PicFolderPath) {
-                error = "请配置图片文件夹路径";
-                return;
-            }
-
-            const fs = window.require("fs");
-            const pathLib = window.require("path");
-
-            const imageExtensions = [
-                ".jpg",
-                ".jpeg",
-                ".png",
-                ".gif",
-                ".webp",
-                ".svg",
-                ".bmp",
-                ".ico",
-                ".tiff",
-                ".tif",
-                ".raw",
-                ".cr2",
-                ".nef",
-                ".arw",
-                ".heic",
-                ".heif",
-                ".avif",
-                ".jxl",
-                ".psd",
-                ".ai",
-                ".eps",
-            ];
-            const files = fs.readdirSync(PicFolderPath);
-
-            images = files
-                .filter((file) => {
-                    const ext = pathLib.extname(file).toLowerCase();
-                    return imageExtensions.includes(ext);
-                })
-                .map((file) => ({
-                    name: file,
-                    path: `file://${pathLib.join(PicFolderPath, file)}`,
-                }));
-            
-            // 如果启用了随机切换，打乱图片顺序
-            if (PicRandomSwitch && images.length > 1) {
-                for (let i = images.length - 1; i > 0; i--) {
-                    const j = Math.floor(Math.random() * (i + 1));
-                    [images[i], images[j]] = [images[j], images[i]];
-                }
-            }
-
-            if (images.length === 0) {
-                error = "文件夹中没有找到图片文件";
-            }
-        } catch (err) {
-            console.error("加载图片失败:", err);
-            error = "加载图片失败，请检查文件夹路径";
-        } finally {
-            loading = false;
-        }
+            const result = loadPicCaroImages(data);
+            runtimeUnsupported = result.unsupported;
+            images = picCaroPlaybackImages(result.images, Boolean(data.PicRandomSwitch));
+            if (!result.unsupported && images.length === 0) error = result.mode === "workspaceAssets"
+                ? "尚未配置资源图片，请在组件设置中添加图片"
+                : data.PicFolderPath ? "文件夹中没有找到图片文件" : "请配置图片文件夹路径";
+        } catch (cause) {
+            error = cause instanceof Error ? cause.message : "图片来源读取失败，原配置已保留";
+        } finally { loading = false; }
     }
 
-    onMount(async () => {
-        advancedEnabled = plugin.ADVANCED;
+    function imageFailed(path: string): void {
+        if (!failedPaths.includes(path)) failedPaths = [...failedPaths, path];
+    }
+    function imageLoaded(path: string): void { failedPaths = failedPaths.filter((failed) => failed !== path); }
 
-        if (advancedEnabled) {
-            if (!canUseElectronLocalFileSystem()) {
-                runtimeUnsupported = true;
-                runtimeMessage = "图片轮播需要访问本地图片文件夹，该功能仅支持思源桌面端使用。网页端、Docker 和移动端无法直接读取本地文件夹。";
-                loading = false;
-                return;
-            }
-            register();
-            await loadImages();
+    $effect(() => {
+        if (mounted && advancedEnabled && widgetVisible && documentVisible && loadedContent !== contentTypeJson) {
+            loadedContent = contentTypeJson;
+            untrack(loadImages);
         }
+    });
+    $effect(syncAutoplay);
+    onMount(() => {
+        advancedEnabled = Boolean(plugin?.ADVANCED);
+        mounted = true;
+        documentVisible = document.visibilityState !== "hidden";
+        const visibility = () => { documentVisible = document.visibilityState !== "hidden"; };
+        const enable = () => { advancedEnabled = true; };
+        const disable = () => { advancedEnabled = false; };
+        document.addEventListener("visibilitychange", visibility);
+        window.addEventListener("homepage-advanced-ready", enable);
+        window.addEventListener("homepage-advanced-unavailable", disable);
+        const observer = typeof IntersectionObserver === "undefined" ? null : new IntersectionObserver((entries) => {
+            widgetVisible = entries.some((entry) => entry.isIntersecting && entry.intersectionRatio > 0);
+        });
+        observer?.observe(rootElement);
+        return () => {
+            mounted = false;
+            observer?.disconnect();
+            document.removeEventListener("visibilitychange", visibility);
+            window.removeEventListener("homepage-advanced-ready", enable);
+            window.removeEventListener("homepage-advanced-unavailable", disable);
+        };
     });
 </script>
 
-<div class="content-display">
+<div class="content-display" bind:this={rootElement}>
     {#if advancedEnabled}
         {#if runtimeUnsupported}
             <div class="runtime-unsupported">
                 <h2>🖥️ 仅桌面端支持</h2>
-                <h3>{runtimeMessage}</h3>
+                <h3>本地图片文件夹需要桌面 Electron。网页端、Docker 和移动端请在组件设置中切换为思源资源图片。</h3>
             </div>
         {:else if loading}
             <div class="loading-container">
@@ -185,6 +142,11 @@
             </div>
         {:else if images.length > 0}
             <div class="carousel-container">
+                {#if failedPaths.length > 0}
+                    <p class="image-load-status" role="status">{failedPaths.length === images.length
+                        ? "全部图片无法显示" : `部分图片加载失败（${failedPaths.length}/${images.length}）`}。
+                        {data.PicSourceMode === "workspaceAssets" ? "资源可能尚未同步到当前工作空间或已经不存在，请检查同步状态。" : "请检查本地文件是否仍可读取。"}列表已保留。</p>
+                {/if}
                 <swiper-container
                     init="false"
                     use:initializeSwiper
@@ -213,7 +175,11 @@
                                     alt={image.name}
                                     class="carousel-image"
                                     draggable="false"
+                                    loading="lazy"
+                                    onerror={() => imageFailed(image.path)}
+                                    onload={() => imageLoaded(image.path)}
                                 />
+                                {#if failedPaths.includes(image.path)}<p class="ft__secondary">此图片暂时无法读取</p>{/if}
                             </div>
                         </swiper-slide>
                     {/each}
@@ -318,6 +284,8 @@
         padding: 20px;
         box-sizing: border-box;
     }
+
+    .image-load-status { margin: 0; color: var(--b3-theme-on-surface-light); font-size: 12px; }
 
     .piccaro-swiper {
         width: 100%;

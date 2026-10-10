@@ -179,7 +179,7 @@ const MOBILE_WIDGET_CATALOG_BASE: Array<Omit<MobileWidgetCatalogItem, "requiresA
     {
         type: "PicCaro",
         label: "图片轮播",
-        description: "轮播展示本地图片",
+        description: "轮播展示思源资源图片或桌面本地图片",
         activeTab: "tool",
     },
     {
