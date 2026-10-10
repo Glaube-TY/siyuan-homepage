@@ -543,7 +543,7 @@ async function verifyRemoteDeviceViewRecoveryFixtures({ remoteA, remoteB, localD
 
 async function main() {
   const plugin = JSON.parse(await read("plugin.json"));
-  assert.equal(plugin.minAppVersion, "3.8.0", "minAppVersion must remain 3.8.0");
+  assert.equal(plugin.minAppVersion, "3.8.6", "minAppVersion must remain 3.8.6");
   assert.deepEqual(plugin.kernels, ["windows", "linux", "darwin", "docker"]);
   assert.deepEqual(plugin.backends, ["windows", "linux", "ios", "android", "harmony", "docker", "darwin"]);
   assert.deepEqual(plugin.frontends, ["desktop", "mobile", "browser-desktop", "browser-mobile", "desktop-window"]);

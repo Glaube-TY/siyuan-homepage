@@ -137,8 +137,8 @@ devDependencies:
     specifier: ^1.89.2
     version: 1.100.0
   siyuan:
-    specifier: 1.2.8
-    version: 1.2.8
+    specifier: 1.2.9
+    version: 1.2.9
   svelte:
     specifier: ^5.55.1
     version: 5.56.3
@@ -3804,8 +3804,8 @@ packages:
       svelte: 4.2.20
     dev: false
 
-  /siyuan@1.2.8:
-    resolution: {integrity: sha512-44tTh1leDkrgj8wQChLjkkbBvDk2lDF0QiAfs1GXmAlAEkber4kx5TLNIGzgsDnTR+Hw3L5kPz5m6s0YckpKew==}
+  /siyuan@1.2.9:
+    resolution: {integrity: sha512-2bZTzTZocnOxPqY4liGtY2ZDhnhkYgySrlVLCCKWHjmGZ4kJYru0T1hFz5Hro0bz7cvecIEAx7XRV4plIvW1jQ==}
     dependencies:
       '@dop251/types-goja_nodejs-buffer': 0.0.0-20260918183711-b481721df8a2
       '@dop251/types-goja_nodejs-global': 0.0.0-20260918183711-b481721df8a2

@@ -1,4 +1,7 @@
 <script lang="ts">
+    import { onDestroy } from 'svelte';
+    import { showMessage } from 'siyuan';
+    import { pickWorkspaceImage } from '@/homepage/utils/workspaceImage';
     import type { StylesSettingsState, StylesSettingsActions } from '../types';
     import SettingSection from '@/libs/components/SettingSection.svelte';
     import SettingRow from '@/libs/components/SettingRow.svelte';
@@ -13,6 +16,26 @@
 
     let { state: settingsState, actions, advancedEnabled = false }: Props = $props();
     let backgroundFileInputEl: HTMLInputElement | null = $state(null);
+    let assetPickerBusy = $state(false);
+    let alive = true;
+    let previewSource = $derived(settingsState.backgroundImageType === "local" ? settingsState.backgroundImageLocalData : settingsState.backgroundImageRemoteUrl);
+    let previewErrorSource = $state("");
+    onDestroy(() => { alive = false; });
+
+    async function handleAssetSelect(): Promise<void> {
+        if (assetPickerBusy || !advancedEnabled || !settingsState.backgroundImageEnabled) return;
+        assetPickerBusy = true;
+        try {
+            const url = await pickWorkspaceImage();
+            if (!alive || !advancedEnabled || !settingsState.backgroundImageEnabled || url === null) return;
+            actions.onBackgroundImageRemoteUrlChange(url);
+            actions.onBackgroundImageTypeChange("remote");
+        } catch {
+            if (alive) showMessage("选择思源资源失败，请确认思源版本不低于 3.8.6，并检查管理员及非只读权限。", 5000, "error");
+        } finally {
+            if (alive) assetPickerBusy = false;
+        }
+    }
 </script>
 
 <SettingSection title="页脚" focusKey="footer" premium>
@@ -131,14 +154,14 @@
             />
         </SettingRow>
 
-        <SettingRow title="图片来源" description="选择使用本地图片或网络图片">
+        <SettingRow title="图片来源" description="选择本地上传的图片，或网络/思源资源图片地址">
             <select
                 class="control-md"
                 value={settingsState.backgroundImageType}
                 onchange={(e) => actions.onBackgroundImageTypeChange((e.currentTarget as HTMLSelectElement).value as "local" | "remote")}
             >
                 <option value="local">本地图片</option>
-                <option value="remote">网络图片</option>
+                <option value="remote">网络 / 思源资源图片</option>
             </select>
         </SettingRow>
 
@@ -160,16 +183,23 @@
                 />
             </SettingRow>
         {:else}
-            <SettingRow title="图片地址" description="输入远程图片 URL">
+            <SettingRow title="图片地址" description="支持 HTTP/HTTPS 图片 URL 或思源工作空间 /assets/ 图片路径">
                 <input
                     type="text"
                     class="control-full"
                     value={settingsState.backgroundImageRemoteUrl}
                     oninput={(e) => actions.onBackgroundImageRemoteUrlChange((e.currentTarget as HTMLInputElement).value)}
-                    placeholder="输入远程图片地址"
+                    placeholder="https://... 或 /assets/example.png"
                 />
             </SettingRow>
         {/if}
+
+        <SettingRow title="思源资源" description="选择当前工作空间已有图片，无需重新上传">
+            <button type="button" class="b3-button b3-button--outline" disabled={assetPickerBusy}
+                aria-busy={assetPickerBusy} onclick={handleAssetSelect}>
+                {assetPickerBusy ? "正在选择…" : "从思源资源中选择图片"}
+            </button>
+        </SettingRow>
 
         <SettingRow title="透明度" description="背景图片显示强度">
             <input
@@ -195,14 +225,15 @@
             <span class="style-value-label">{settingsState.backgroundImageBlur}px</span>
         </SettingRow>
 
-        {#if settingsState.backgroundImageType === "local" && settingsState.backgroundImageLocalData}
+        {#if previewSource}
             <div class="background-preview-wrapper">
-                <img src={settingsState.backgroundImageLocalData} alt="背景图片预览" class="background-preview-image" />
+                <img src={previewSource} alt="背景图片预览" class="background-preview-image"
+                    onerror={(e) => previewErrorSource = e.currentTarget.getAttribute("src") || ""}
+                    onload={() => previewErrorSource = ""} />
             </div>
-        {:else if settingsState.backgroundImageType === "remote" && settingsState.backgroundImageRemoteUrl}
-            <div class="background-preview-wrapper">
-                <img src={settingsState.backgroundImageRemoteUrl} alt="背景图片预览" class="background-preview-image" />
-            </div>
+            {#if previewErrorSource === previewSource}
+                <p class="ft__secondary" role="status">图片加载失败，请检查图片地址；思源资源可能不存在或尚未同步完成。</p>
+            {/if}
         {/if}
     {/if}
 </SettingSection>

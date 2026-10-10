@@ -40,6 +40,7 @@
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "verify:openai-compatible-text-call": "node --no-warnings ./scripts/verify-openai-compatible-text-call.mjs",
+    "verify:siyuan-asset-picker": "node --no-warnings ./scripts/verify-siyuan-asset-picker.mjs",
     "verify:banner-empty-state": "node --no-warnings ./scripts/verify-banner-empty-state.mjs",
     "verify:bing-banner-source": "node --no-warnings ./scripts/verify-bing-banner-source.mjs"
   },
@@ -63,7 +64,7 @@
     "npm-run-all": "^4.1.5",
     "rollup-plugin-livereload": "^2.0.5",
     "sass-embedded": "^1.89.2",
-    "siyuan": "1.2.8",
+    "siyuan": "1.2.9",
     "svelte": "^5.55.1",
     "typescript": "^5.9.3",
     "vite": "^6.0.0",

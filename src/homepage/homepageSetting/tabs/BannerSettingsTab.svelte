@@ -1,4 +1,7 @@
 <script lang="ts">
+    import { onDestroy } from 'svelte';
+    import { showMessage } from 'siyuan';
+    import { pickWorkspaceImage } from '@/homepage/utils/workspaceImage';
     import SettingSection from '@/libs/components/SettingSection.svelte';
     import SettingRow from '@/libs/components/SettingRow.svelte';
     import PremiumSelect, { type PremiumSelectOption } from '@/components/utils/shared/PremiumSelect.svelte';
@@ -58,6 +61,27 @@
                 : option;
         });
     }
+
+    let assetPickerBusy = $state(false);
+    let alive = true;
+    let previewSource = $derived(tempBannerType === "local" ? bannerLocalData : tempBannerType === "remote" ? bannerRemoteUrl : "");
+    let previewErrorSource = $state("");
+    onDestroy(() => { alive = false; });
+
+    async function handleAssetSelect(): Promise<void> {
+        if (assetPickerBusy || !tempBannerEnabled || bannerGlobalType !== "custom") return;
+        assetPickerBusy = true;
+        try {
+            const url = await pickWorkspaceImage();
+            if (!alive || !tempBannerEnabled || bannerGlobalType !== "custom" || url === null) return;
+            onBannerRemoteUrlChange(url);
+            onTempBannerTypeChange("remote");
+        } catch {
+            if (alive) showMessage("选择思源资源失败，请确认思源版本不低于 3.8.6，并检查管理员及非只读权限。", 5000, "error");
+        } finally {
+            if (alive) assetPickerBusy = false;
+        }
+    }
 </script>
 
 <SettingSection title="横幅开关" focusKey="banner">
@@ -98,14 +122,14 @@
 
     {#if bannerGlobalType === "custom"}
         <SettingSection title="图片来源">
-            <SettingRow title="图片来源" description="选择使用本地图片或网络图片">
+            <SettingRow title="图片来源" description="选择本地上传的图片，或网络/思源资源图片地址">
                 <select
                     class="control-md"
                     value={tempBannerType}
                     onchange={(e) => onTempBannerTypeChange((e.currentTarget as HTMLSelectElement).value)}
                 >
                     <option value="local">本地图片</option>
-                    <option value="remote">网络图片</option>
+                    <option value="remote">网络 / 思源资源图片</option>
                 </select>
             </SettingRow>
 
@@ -126,30 +150,35 @@
                     />
                 </SettingRow>
             {:else if tempBannerType === "remote"}
-                <SettingRow title="图片地址" description="输入远程图片 URL">
+                <SettingRow title="图片地址" description="支持 HTTP/HTTPS 图片 URL 或思源工作空间 /assets/ 图片路径">
                     <input
                         type="text"
                         class="control-full"
                         value={bannerRemoteUrl}
                         oninput={(e) => onBannerRemoteUrlChange((e.currentTarget as HTMLInputElement).value)}
-                        placeholder="输入远程图片地址"
+                        placeholder="https://... 或 /assets/example.png"
                     />
                 </SettingRow>
             {/if}
+            <SettingRow title="思源资源" description="选择当前工作空间已有图片，无需重新上传">
+                <button type="button" class="b3-button b3-button--outline" disabled={assetPickerBusy}
+                    aria-busy={assetPickerBusy} onclick={handleAssetSelect}>
+                    {assetPickerBusy ? "正在选择…" : "从思源资源中选择图片"}
+                </button>
+            </SettingRow>
         </SettingSection>
 
         <!-- 图片预览 -->
-        {#if tempBannerType === "local" && bannerLocalData}
+        {#if previewSource}
             <SettingSection title="图片预览">
                 <div class="banner-preview-wrapper">
-                    <img src={bannerLocalData} alt="本地预览图" class="banner-preview-image" />
+                    <img src={previewSource} alt="横幅图片预览" class="banner-preview-image"
+                        onerror={(e) => previewErrorSource = e.currentTarget.getAttribute("src") || ""}
+                        onload={() => previewErrorSource = ""} />
                 </div>
-            </SettingSection>
-        {:else if tempBannerType === "remote" && bannerRemoteUrl}
-            <SettingSection title="图片预览">
-                <div class="banner-preview-wrapper">
-                    <img src={bannerRemoteUrl} alt="远程预览图" class="banner-preview-image" />
-                </div>
+                {#if previewErrorSource === previewSource}
+                    <p class="ft__secondary" role="status">图片加载失败，请检查图片地址；思源资源可能不存在或尚未同步完成。</p>
+                {/if}
             </SettingSection>
         {/if}
     {:else if bannerGlobalType === "bing"}
