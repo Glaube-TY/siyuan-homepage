@@ -17,6 +17,86 @@
     flex-direction: column;
     overflow: hidden;
 
+    .widget-quick-search {
+        position: relative;
+        flex: 0 0 auto;
+        min-width: 0;
+        margin-bottom: 1rem;
+    }
+
+    .widget-search-input-row {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+
+        input {
+            flex: 1;
+            width: 100%;
+            min-width: 0;
+            min-height: 32px;
+            padding: 0.35rem 0.65rem;
+            border: 1px solid var(--b3-border-color);
+            border-radius: $cs-radius-md;
+            background: var(--b3-theme-surface);
+            color: var(--b3-theme-on-surface);
+            font: inherit;
+            box-sizing: border-box;
+        }
+
+        button { flex-shrink: 0; }
+    }
+
+    .widget-search-results {
+        position: absolute;
+        z-index: 30;
+        top: calc(100% + 4px);
+        left: 0;
+        right: 0;
+        max-height: min(280px, 40vh);
+        overflow: auto;
+        padding: 4px;
+        border: 1px solid var(--b3-border-color);
+        border-radius: $cs-radius-md;
+        background: var(--b3-theme-surface);
+        box-shadow: $cs-shadow-raised;
+
+        button {
+            display: flex;
+            justify-content: space-between;
+            gap: 0.75rem;
+            width: 100%;
+            min-height: 36px;
+            border: 0;
+            text-align: left;
+            transition: none;
+
+            &:disabled, &:disabled:hover {
+                opacity: 0.55;
+                color: var(--b3-theme-on-surface);
+                background: transparent;
+                cursor: not-allowed;
+                transform: none;
+            }
+        }
+
+        .widget-search-name {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.35rem;
+            min-width: 0;
+            overflow-wrap: anywhere;
+        }
+
+        small { flex-shrink: 0; color: var(--b3-theme-on-surface-light, #888); }
+        p { margin: 0; padding: 0.5rem; color: var(--b3-theme-on-surface-light, #888); }
+    }
+
+    .widget-quick-search input:focus-visible,
+    .widget-quick-search button:focus-visible {
+        outline: 2px solid var(--b3-theme-primary);
+        outline-offset: 2px;
+    }
+
     // Tab 内容区：flex 纵向，占据中间空间
     .tab-content {
         display: flex;
@@ -160,6 +240,7 @@
     /* Tab导航栏样式 */
     .tab-nav {
         display: flex;
+        flex-wrap: wrap;
         gap: 0.5rem;
         margin-bottom: 1rem;
         flex: 0 0 auto;

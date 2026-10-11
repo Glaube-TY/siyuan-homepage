@@ -64,6 +64,7 @@
   import EnhancedDiarySet from "./widget/enhancedDiary/enhancedDiarySet.svelte";
   import AccountingSet from "./widget/accounting/accountingSet.svelte";
   import PremiumSelect, { type PremiumSelectOption } from "@/components/utils/shared/PremiumSelect.svelte";
+  import PremiumMark from "@/components/utils/shared/PremiumMark.svelte";
   import SiyuanIcon from "@/components/utils/shared/SiyuanIcon.svelte";
   import { isPremiumWidgetType } from "@/features/entitlement/homepage-premium-features";
   import {
@@ -119,6 +120,8 @@
   let isSaving = $state(false);
 
   let activeTab = $state("note");
+  let widgetSearchText = $state("");
+  const widgetSearchResults = $derived(getWidgetSearchResults(widgetSearchText));
 
   let notebooks = $state([]);
 
@@ -496,6 +499,13 @@
   ];
 
   type WidgetCategoryTab = "note" | "info" | "visualization" | "tool" | "custom";
+  const WIDGET_CATEGORIES: readonly { value: WidgetCategoryTab; label: string }[] = [
+    { value: "note", label: "笔记数据" },
+    { value: "visualization", label: "可视化" },
+    { value: "tool", label: "日常工具" },
+    { value: "info", label: "信息资讯" },
+    { value: "custom", label: "自定义" },
+  ];
   const WIDGET_OPTIONS_BY_TAB: Record<WidgetCategoryTab, readonly WidgetOptionBase[]> = {
     note: NOTE_WIDGET_OPTIONS,
     info: INFO_WIDGET_OPTIONS,
@@ -535,6 +545,45 @@
   function handleContentTypeChange(value: string): void {
     selectedContentType = value;
     activeTab = resolveActiveTabForContentType(value);
+  }
+
+  const WIDGET_SEARCH_ALIASES: Record<string, readonly string[]> = {
+    enhancedDiary: ["增强日记"],
+    dailyQuote: ["每日一句", "语录"],
+    focus: ["专注"],
+    PicCaro: ["轮播图", "幻灯片"],
+    countdown: ["倒数日"],
+    timedate: ["时间日期"],
+  };
+  type WidgetSearchResult = PremiumSelectOption & { tab: WidgetCategoryTab; categoryLabel: string };
+
+  function getWidgetSearchResults(input: string): WidgetSearchResult[] {
+    const keyword = input.trim().toLowerCase();
+    if (!keyword) return [];
+    return WIDGET_CATEGORIES.flatMap((category) =>
+      getWidgetOptions(getRawWidgetOptionsForTab(category.value))
+        .filter((option) => [option.label, option.value, category.label, ...(WIDGET_SEARCH_ALIASES[option.value] ?? [])]
+          .some((text) => text.toLowerCase().includes(keyword)))
+        .map((option) => ({ ...option, tab: category.value, categoryLabel: category.label })),
+    );
+  }
+
+  function selectWidgetSearchResult(value: string): void {
+    const result = widgetSearchResults.find((option) => option.value === value);
+    if (!result || result.disabled) return;
+    handleContentTypeChange(result.value);
+    widgetSearchText = "";
+  }
+
+  function handleWidgetSearchKeydown(event: KeyboardEvent): void {
+    if (event.key !== "Escape" && event.key !== "Enter") return;
+    event.preventDefault();
+    event.stopPropagation();
+    if (event.key === "Escape") widgetSearchText = "";
+    else {
+      const first = widgetSearchResults.find((option) => !option.disabled);
+      if (first) selectWidgetSearchResult(first.value);
+    }
   }
 
   onMount(async () => {
@@ -1025,28 +1074,25 @@
 </script>
 
 <div class="settings-container">
+  <div class="widget-quick-search">
+    <div class="widget-search-input-row">
+      <input type="search" aria-label="搜索组件" placeholder="搜索组件名称、类型或分类" bind:value={widgetSearchText} onkeydown={handleWidgetSearchKeydown} />
+      {#if widgetSearchText}<button type="button" onclick={() => widgetSearchText = ""}>清空搜索</button>{/if}
+    </div>
+    {#if widgetSearchText.trim()}<div class="widget-search-results" role="region" aria-label="组件搜索结果">
+      {#each widgetSearchResults as result (result.value)}
+        <button type="button" disabled={result.disabled === true} onclick={() => selectWidgetSearchResult(result.value)}>
+          <span class="widget-search-name">{result.label}{#if result.requiresAdvanced}<PremiumMark />{/if}</span>
+          <small>{result.categoryLabel}</small>
+        </button>
+      {:else}<p role="status">没有找到匹配的组件</p>{/each}
+    </div>{/if}
+  </div>
   <!-- 分类导航栏 -->
   <div class="tab-nav">
-    <button
-      onclick={() => handleCategoryChange("note")}
-      class:active={activeTab === "note"}>笔记数据</button
-    >
-    <button
-      onclick={() => handleCategoryChange("visualization")}
-      class:active={activeTab === "visualization"}>可视化</button
-    >
-    <button
-      onclick={() => handleCategoryChange("tool")}
-      class:active={activeTab === "tool"}>日常工具</button
-    >
-    <button
-      onclick={() => handleCategoryChange("info")}
-      class:active={activeTab === "info"}>信息资讯</button
-    >
-    <button
-      onclick={() => handleCategoryChange("custom")}
-      class:active={activeTab === "custom"}>自定义</button
-    >
+    {#each WIDGET_CATEGORIES as category (category.value)}
+      <button type="button" onclick={() => handleCategoryChange(category.value)} class:active={activeTab === category.value}>{category.label}</button>
+    {/each}
   </div>
 
   <!-- 动态内容容器 -->
