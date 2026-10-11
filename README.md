@@ -1,4 +1,8 @@
 <div class="sy__outline" style="display:block;width:100%;max-width:100%;margin:0;padding:0 10px 32px;box-sizing:border-box;overflow:hidden;overflow-wrap:anywhere;line-height:1.75;color:#34453f;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Microsoft YaHei',sans-serif;">
+  <!-- 历史会员优惠活动模板：2026 年中秋国庆活动已结束，当前暂停展示；保留完整结构与样式供下次复用。
+  下次活动需同步恢复 README.md、VipSection.svelte 和 _vip.scss；恢复前更新活动标题、折扣、时间、链接文案，
+  并核实实际优惠已生效，不得仅恢复前端宣传。 -->
+  <!--
   <div role="note" aria-label="中秋国庆会员限时优惠" style="display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:14px;width:100%;max-width:100%;margin:0 0 18px;padding:18px 22px;box-sizing:border-box;border:1px solid #ead8ad;border-radius:16px;background:#fff9eb;color:#5b4a2b;">
     <div style="flex:1 1 420px;min-width:0;">
       <h2 style="margin:0;font-size:20px;line-height:1.4;color:#6d5630;">中秋·国庆限时特惠</h2>
@@ -10,6 +14,7 @@
       <strong style="font-size:28px;line-height:1.2;">7 折</strong>
     </div>
   </div>
+  -->
   <div style="display:block;width:100%;max-width:100%;margin:18px 0 16px;padding:36px 28px;box-sizing:border-box;text-align:center;border:1px solid #c8dfd7;border-radius:22px;background:linear-gradient(135deg,#f2faf6 0%,#fffaf0 52%,#f1f7fb 100%);box-shadow:0 10px 28px rgba(62,105,91,.08);">
     <p style="max-width:760px;margin:0 auto;font-size:28px;font-weight:700;line-height:1.45;color:#245747;">把笔记入口、效率工具、生活数据与 AI，放进每天真正愿意打开的思源首页</p>
     <p style="max-width:720px;margin:14px auto 0;font-size:16px;color:#61756e;">自由组合 30+ 组件，从查看笔记到管理任务、记录生活，再到让 AI 远程执行操作，一套插件搭建属于你的个人工作台。</p>
@@ -17,6 +22,7 @@
     <div style="display:flex;flex-wrap:wrap;justify-content:center;gap:10px;">
       <a href="https://glaube-ty.top/tutorials/siyuan-homepage/" style="display:inline-block;padding:10px 19px;border-radius:10px;background:#338d73;color:#fff;text-decoration:none;font-weight:600;box-shadow:0 4px 12px rgba(51,141,115,.18);">开始使用 →</a>
       <a href="https://glaube-ty.top/sites/siyuan-homepage/index.html" style="display:inline-block;padding:10px 19px;border-radius:10px;background:#fff;color:#33745f;text-decoration:none;font-weight:600;border:1px solid #9fcdbf;">查看插件官网 →</a>
+      <a href="https://www.ifdian.net/a/glaube-ty?utm_source=copylink&amp;utm_medium=link" target="_blank" rel="noopener noreferrer" style="display:inline-block;padding:10px 19px;border-radius:10px;background:#fff;color:#33745f;text-decoration:none;font-weight:600;border:1px solid #9fcdbf;">开通会员 →</a>
       <a href="https://github.com/Glaube-TY/siyuan-homepage" style="display:inline-block;padding:10px 19px;border-radius:10px;background:#344b45;color:#fff;text-decoration:none;font-weight:600;">访问 GitHub →</a>
     </div>
   </div>

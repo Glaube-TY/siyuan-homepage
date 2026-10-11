@@ -1144,6 +1144,10 @@
         </a>
     </div>
 
+    <!-- 历史会员优惠活动模板：2026 年中秋国庆活动已结束，当前暂停展示；保留完整结构与样式供下次复用。
+    下次活动需同步恢复 README.md、VipSection.svelte 和 _vip.scss；恢复前更新活动标题、折扣、时间、链接文案，
+    并核实实际优惠已生效，不得仅恢复前端宣传。 -->
+    <!--
     <div class="membership-promotion-card" role="note" aria-label="中秋国庆会员限时优惠">
         <div class="membership-promotion-copy">
             <div class="membership-promotion-heading">
@@ -1157,6 +1161,7 @@
         </div>
     </div>
 
+    -->
     <details class="membership-benefits-comparison">
         <summary>
             <span class="benefits-summary-title">
