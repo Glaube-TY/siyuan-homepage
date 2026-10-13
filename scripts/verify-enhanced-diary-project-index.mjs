@@ -15,14 +15,16 @@ assert(notifyIndexes);
 const calendarSource = await readFile(resolve(root, "src/components/utils/widgetBlock/widget/latestDailyNotes/latestDailyNotes.svelte"), "utf8");
 const calendarAst = parse(calendarSource.slice(0, calendarSource.lastIndexOf("<style")), { modern: true });
 const calendarFunction = calendarAst.instance.content.body.find((node) => node.type === "FunctionDeclaration" && node.id.name === "buildCustomCalendarData");
-let calendarClick;
+const iconFunction = calendarAst.instance.content.body.find((node) => node.type === "FunctionDeclaration" && node.id.name === "getDocIcon");
+let calendarClick, calendarMount;
 function visit(value) {
     if (!value || typeof value !== "object") return;
     if (value.type === "CallExpression" && value.callee?.object?.name === "myChart" && value.callee.property?.name === "on" && value.arguments[0]?.value === "click") calendarClick = value.arguments[1];
+    if (value.type === "CallExpression" && value.callee?.name === "onMount") calendarMount = value.arguments[0];
     Object.values(value).forEach((child) => Array.isArray(child) ? child.forEach(visit) : visit(child));
 }
 visit(calendarAst.instance);
-assert(calendarFunction && calendarClick);
+assert(calendarFunction && calendarClick && calendarMount);
 assert(formatter.includes("return"));
 const unused = `const unused = () => { throw new Error("unused UI/write dependency was called"); };`;
 const stubs = {
@@ -39,12 +41,20 @@ const bundled = await build({
         export { rebuildEnhancedDiaryIndex, refreshEnhancedDiaryIndex, resolveEnhancedDiaryDateFromMetadata } from "./${diaryDir}/enhancedDiaryIndex";
         export {getLatestDailyNotesResult} from "./src/components/tools/siyuanComponentDataApi.ts";
         export {getLatestDailyNotesWithStatus, getDailyNoteDate} from "./${diaryDir}/../latestDailyNotes/latestDailyNotes";
-        import {getDailyNoteDate} from "./${diaryDir}/../latestDailyNotes/latestDailyNotes";
+        import {getLatestDailyNotesWithStatus, getDailyNoteDate} from "./${diaryDir}/../latestDailyNotes/latestDailyNotes";
         import {openDocs} from "./src/components/tools/openDocs";
+        import {resolveBuiltinDocIcon,resolveConfiguredDocIcon} from "./src/components/tools/docIcon";
+        export function diaryIcon(doc,useBuiltinDocIcon=false){const recentJournalsCalendarIcon='📝';return (${calendarSource.slice(iconFunction.start,iconFunction.end)})(doc);}
         export ${calendarSource.slice(calendarFunction.start, calendarFunction.end)}
-        export function clickCalendar(dailyNotes, params) {
+        export function clickCalendar(calendarDates, params) {
             const plugin = {isMobile: true}, recentJournalsShowType = "calendar";
             return (${calendarSource.slice(calendarClick.start, calendarClick.end)})(params);
+        }
+        export function mountDiaryComponent(plugin, {limit=5,useBuiltinDocIcon=false}={}) {
+            let isDestroyed=false,calendarDates={},dailyNotesReadFailed=false,dailyNotesLimited=false,dailyNotesModeLabel='',dailyNotesStatusMessage='',displayedDocs=[],chartInitTimeout=null,scheduled=0;
+            const window={setTimeout(){scheduled++;return 1;}}, initCalendarChart=()=>{};
+            const pending=(${calendarSource.slice(calendarMount.start,calendarMount.end)})();
+            return {pending,destroy(){isDestroyed=true;},get snapshot(){return {calendarDates,displayedDocs,dailyNotesReadFailed,dailyNotesLimited,scheduled};}};
         }
         export { readDiaryMarkdownResult, openOrCreateDiaryForDate } from "./${diaryDir}/enhancedDiaryDoc";
         export { queryTodayQuickRecordsDetailed } from "./${diaryDir}/workspace/enhancedDiaryWorkspaceRecordService";
@@ -127,7 +137,7 @@ async function fixture({ count = 1, shapes = {}, old = false, complete = true } 
             roots: { [PROJECT_ID]: { id: PROJECT_ID, kind: "root", title: "fixture project", notebookId: NOTEBOOK,
                 path: "/fixture.sy", hpath: "/fixture", order: 0, updated: "20261008000000", status: "active", archivedAt: "" } }, nodes: {} }],
     ]), shapes, writes: [], calls: [], metadata: new Map(), opened: [], baseWrites: [], markdownFailures: new Set(), blockFailures: new Set(), blockResponses: new Map(),
-        markdownResponses: new Map(), unlinked: false, attrFailure: false, attrResponse: undefined,
+        markdownResponses: new Map(), kramdownResponses:new Map(), unlinked: false, attrFailure: false, attrResponse: undefined,
         writeFailure: false, readbackFailure: false, changedDocs: [], commits: 0 };
     if (old) state.files.set(RECORD, { version: 1, updatedAt: "2026-10-01T00:00:00Z", notebookId: NOTEBOOK, complete,
         items: Object.fromEntries(ids.slice(0, count).map((id) => { const item = oldItem(id); return [item.id, item]; })) });
@@ -135,6 +145,7 @@ async function fixture({ count = 1, shapes = {}, old = false, complete = true } 
     runtime.setSiyuanRuntimePort({
         async getFile(path) {
             state.calls.push({ path });
+            if(path===DIARY&&state.readBarrier)await state.readBarrier;
             if (state.readbackFailure && path === RECORD && state.writes.length) return "{}";
             return state.files.has(path) ? structuredClone(state.files.get(path)) : { code: 404, msg: "not found" };
         },
@@ -161,6 +172,8 @@ async function fixture({ count = 1, shapes = {}, old = false, complete = true } 
             if (path === "/api/block/getChildBlocks") return state.blockFailures.has(payload.id) ? { code: 500 } : {
                 code: 0, data: state.blockResponses.has(payload.id) ? state.blockResponses.get(payload.id) : blocks(payload.id, state.shapes[payload.id]),
             };
+            if(path === "/api/block/getBlockKramdown")return {code:0,data:{id:payload.id,kramdown:state.kramdownResponses.get(payload.id)}};
+            if(path === "/api/block/getBlockInfo")return {code:0,data:{rootID:payload.id,rootTitle:state.metadata.get(payload.id)?.content,rootIcon:"1f4d4"}};
             if (path === "/api/attr/batchGetBlockAttrs") return { code: state.attrFailure ? 403 : 0, data: state.attrResponse === undefined ?
                 Object.fromEntries(payload.ids.map((id) => [id, { id, ...(state.unlinked || !ids.some((docId) =>
                     blocks(docId, state.shapes[docId]).some((block) => block.id === id && /^#{3,6} 09:00/.test(block.markdown)))
@@ -460,9 +473,9 @@ async function fixture({ count = 1, shapes = {}, old = false, complete = true } 
         for (let i=0;i<dates.length;i++) {
             const date = dates[i], note = recent.items.find((item)=>item.id===ids[i]);
             assert.equal(ordinary.runtime.getDailyNoteDate(note),date);
-            const cells = ordinary.runtime.buildCustomCalendarData(recent.items,date.slice(0,7));
+            const cells = ordinary.runtime.buildCustomCalendarData(recent.calendarDates,date.slice(0,7));
             assert.equal(cells.find((cell)=>cell.name===date).value[1],ids[i]);
-            ordinary.runtime.clickCalendar(recent.items,{componentType:"series",seriesType:"custom",name:date});
+            ordinary.runtime.clickCalendar(recent.calendarDates,{componentType:"series",seriesType:"custom",name:date});
             assert.equal(ordinary.state.opened.at(-1)[1],ids[i]);
             const [year,month,day]=date.split("-").map(Number);
             assert.deepEqual(await ordinary.runtime.openOrCreateDiaryForDate({},new Date(year,month-1,day),NOTEBOOK),{id:ids[i],created:false});
@@ -507,24 +520,113 @@ async function fixture({ count = 1, shapes = {}, old = false, complete = true } 
         const orphan=await fixture({shapes:{[ids[0]]:{template:"## 快速记录\n\n### 随手记录\n\n#### 09:00 记录\n\n正文"}}});
         assert.equal((await orphan.runtime.rebuildEnhancedDiaryProjectRecordIndex(orphan.config)).lastStatus,"error");
         assert.equal(orphan.state.files.get(RECORD).failures[0].reason,"diary_root_missing");
-        const hidden=await fixture({shapes:{[ids[0]]:{missingRoot:true}}});
-        hidden.state.attrResponse={[blockId(ids[0],"body")]:{id:blockId(ids[0],"body"),"custom-homepage-enhanced-diary-project-target":PROJECT_ID}};
+        const hidden=await fixture({shapes:{[ids[0]]:{template:"# 普通标题"}}});
+        const candidate=blocks(ids[0],hidden.state.shapes[ids[0]])[0].id;
+        hidden.state.attrResponse={[candidate]:{id:candidate,"custom-homepage-enhanced-diary-project-target":PROJECT_ID}};
         assert.equal((await hidden.runtime.rebuildEnhancedDiaryProjectRecordIndex(hidden.config)).lastStatus,"error","hidden relationship evidence is not a plain diary");
         const exportedTitle=await fixture({shapes:{[ids[0]]:{missingRoot:true}}});
         exportedTitle.state.markdownResponses.set(ids[0],"# 快速记录\n\nfixture body");
         assert.equal((await exportedTitle.runtime.rebuildEnhancedDiaryProjectRecordIndex(exportedTitle.config)).lastStatus,"success","official export addTitle cannot turn the document name into record structure");
-        const attrsUnavailable=await fixture({shapes:{[ids[0]]:{missingRoot:true}}});attrsUnavailable.state.attrFailure=true;
+        const attrsUnavailable=await fixture({shapes:{[ids[0]]:{template:"# 普通标题"}}});attrsUnavailable.state.attrFailure=true;
         assert.equal((await attrsUnavailable.runtime.rebuildEnhancedDiaryProjectRecordIndex(attrsUnavailable.config)).lastStatus,"error");
         assert.equal(attrsUnavailable.state.files.get(RECORD).failures[0].reason,"block_attributes_read_failed");
         for (const value of [null, {}, 123]) {
-            const invalidAttrs=await fixture({shapes:{[ids[0]]:{missingRoot:true}}});
-            invalidAttrs.state.attrResponse={[blockId(ids[0],"body")]:{"custom-homepage-enhanced-diary-project-target":value}};
+            const invalidAttrs=await fixture({shapes:{[ids[0]]:{template:"# 普通标题"}}});
+            const candidate=blocks(ids[0],invalidAttrs.state.shapes[ids[0]])[0].id;
+            invalidAttrs.state.attrResponse={[candidate]:{"custom-homepage-enhanced-diary-project-target":value}};
             assert.equal((await invalidAttrs.runtime.rebuildEnhancedDiaryProjectRecordIndex(invalidAttrs.config)).lastStatus,"error");
             assert.equal(invalidAttrs.state.files.get(RECORD).failures[0].reason,"block_attributes_read_failed");
         }
         const unsupportedOrdinary=await fixture({shapes:{[ids[0]]:{template:"- 普通列表"}}});
         unsupportedOrdinary.state.blockResponses.set(ids[0],[{id:blockId(ids[0],"body"),type:"l",markdown:"- 普通列表"}]);
-        assert.equal((await unsupportedOrdinary.runtime.rebuildEnhancedDiaryProjectRecordIndex(unsupportedOrdinary.config)).lastStatus,"error","uninspected nested block properties cannot prove absence");
+        assert.equal((await unsupportedOrdinary.runtime.rebuildEnhancedDiaryProjectRecordIndex(unsupportedOrdinary.config)).lastStatus,"success","ordinary list content is not enhanced record evidence");
+        assert.equal(unsupportedOrdinary.state.files.get(RECORD).complete,true);
+        assert.equal(unsupportedOrdinary.state.calls.some((call)=>call.path === "/api/attr/batchGetBlockAttrs"),false,"ordinary body blocks need no property scan");
+        // Official ChildBlock types/subType and Markdown shapes; inline images belong to a paragraph.
+        const plainBodies=[
+            {type:"p",markdown:"普通段落"}, {type:"l",subType:"u",markdown:"- 普通列表"},
+            {type:"l",subType:"o",markdown:"1. 有序列表"}, {type:"l",subType:"t",markdown:"- [ ] 普通任务"},
+            {type:"t",markdown:"| 名称 | 内容 |\n| --- | --- |\n| A | B |"},
+            {type:"p",markdown:"![图片](assets/fixture.png)"}, {type:"b",markdown:"> 普通引用"},
+            {type:"c",markdown:"```js\nconst value=1;\n```"}, {type:"sb",markdown:"{{{row\n\n普通段落\n\n}}}"},
+            {type:"m",markdown:"$$\nx^2\n$$"}, {type:"html",markdown:"<div>普通内容</div>"},
+            {type:"p"}, // Real omission, not markdown:"".
+        ];
+        for(const body of plainBodies){
+            const plain=await fixture();plain.state.blockResponses.set(ids[0],[{id:blockId(ids[0],"body"),...body}]);
+            const parsed=await plain.runtime.queryTodayQuickRecordsDetailed(ids[0],body.markdown||"","2026-10-01",plain.config.headingStructure,plain.config.templateFieldMapping,plain.config);
+            assert.equal(parsed.status,"not_applicable",JSON.stringify(body));assert.equal(parsed.structureComplete,false);
+            const calls=plain.state.calls.filter((call)=>call.path==="/api/attr/batchGetBlockAttrs");assert.equal(calls.length,0);
+            assert.equal((await plain.runtime.rebuildEnhancedDiaryProjectRecordIndex(plain.config)).lastStatus,"success");
+            assert.equal(plain.state.files.get(RECORD).complete,true);
+        }
+        for(const title of ["问题","想法","决策","09:00","09:00 普通安排"]){
+            const plain=await fixture({shapes:{[ids[0]]:{template:`# ${title}\n\n普通段落`}}});
+            const response=blocks(ids[0],plain.state.shapes[ids[0]]);
+            response.push({id:blockId(ids[0],"body"),type:"l",subType:"u",markdown:"- 普通列表"});
+            plain.state.blockResponses.set(ids[0],response);
+            assert.equal((await plain.runtime.rebuildEnhancedDiaryProjectRecordIndex(plain.config)).lastStatus,"success",title);
+            assert(plain.state.calls.filter((call)=>call.path==="/api/attr/batchGetBlockAttrs").every((call)=>call.payload.ids.every((id)=>response.find((block)=>block.id===id).type==="h")),"only possible heading relations are inspected");
+        }
+        const commonStructure=await fixture({shapes:{[ids[0]]:{template:"# 普通标题\n\n## 问题\n\n### 09:00\n\n普通正文"}}});commonStructure.state.unlinked=true;
+        assert.equal((await commonStructure.runtime.rebuildEnhancedDiaryProjectRecordIndex(commonStructure.config)).lastStatus,"success","common parent/time headings alone do not establish a record model");
+        const nestedQuick=await fixture();
+        nestedQuick.state.blockResponses.set(ids[0],[{id:blockId(ids[0],"body"),type:"sb",markdown:"{{{row\n\n## 快速记录\n\n}}}"}]);
+        assert.equal((await nestedQuick.runtime.rebuildEnhancedDiaryProjectRecordIndex(nestedQuick.config)).lastStatus,"error","a real orphan quick heading inside a container is explicit evidence");
+        const quotedExample=await fixture();
+        quotedExample.state.blockResponses.set(ids[0],[{id:blockId(ids[0],"body"),type:"c",markdown:"```md\n## 快速记录\n```"}]);
+        assert.equal((await quotedExample.runtime.rebuildEnhancedDiaryProjectRecordIndex(quotedExample.config)).lastStatus,"success","code examples are not actual headings");
+        const omitted=await fixture();
+        omitted.state.blockResponses.set(ids[0],[{id:blockId(ids[0],"body"),type:"sb",content:"普通内容"}]);
+        assert.equal((await omitted.runtime.rebuildEnhancedDiaryProjectRecordIndex(omitted.config)).lastStatus,"success","irrelevant non-heading Markdown is optional");
+        const missingHeading=await fixture();
+        missingHeading.state.blockResponses.set(ids[0],[{id:blockId(ids[0],"root"),type:"h",subType:"h1"}]);
+        missingHeading.state.kramdownResponses.set(blockId(ids[0],"root"),"# 普通标题\n{: id=\"fixture\"}");
+        assert.equal((await missingHeading.runtime.rebuildEnhancedDiaryProjectRecordIndex(missingHeading.config)).lastStatus,"success");
+        missingHeading.state.kramdownResponses.clear();missingHeading.state.blockResponses.set(ids[0],[{id:blockId(ids[0],"root"),type:"h",subType:"h1"}]);
+        assert.equal((await missingHeading.runtime.rebuildEnhancedDiaryProjectRecordIndex(missingHeading.config)).lastStatus,"error","unknown heading cannot hide evidence");
+        const historyList=await fixture({old:true,complete:false});
+        historyList.state.blockResponses.set(ids[0],[{id:blockId(ids[0],"body"),type:"l",subType:"u",markdown:"- 普通列表"}]);
+        const retained=structuredClone(historyList.state.files.get(RECORD).items);
+        assert.equal((await historyList.runtime.rebuildEnhancedDiaryProjectRecordIndex(historyList.config)).lastStatus,"error");
+        assert.deepEqual(historyList.state.files.get(RECORD).items,retained);
+        assert.equal(historyList.state.files.get(RECORD).failures[0].reason,"historical_relations_unconfirmed");
+
+        const many=await fixture();
+        const completeDocs={};
+        const dateText=(date)=>`${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,"0")}-${String(date.getDate()).padStart(2,"0")}`;
+        for(let i=0;i<150;i++){
+            const date=dateText(new Date(2026,0,i+1)),compact=date.replaceAll("-","");
+            const id=`${i===0?"20261013000000":compact+"000000"}-${i.toString(36).padStart(7,"0")}`;
+            completeDocs[compact]={id,date:compact,box:NOTEBOOK,title:`随笔 ${i}`,updated:"20261013000000"};
+            many.state.metadata.set(id,{id,content:`随笔 ${i}`});
+        }
+        many.state.files.get(DIARY).docs=completeDocs;
+        const latest=await many.runtime.getLatestDailyNotesWithStatus({loadData:async()=>many.config});
+        assert.equal(latest.items.length,100);assert.equal(Object.keys(latest.calendarDates).length,150);
+        assert.equal(latest.items[0].diaryDate,"2026-05-30","a newly created January backfill cannot outrank May diary dates");
+        const oldest=completeDocs["20260101"];
+        assert(!latest.items.some((note)=>note.id===oldest.id));assert.equal(latest.calendarDates["2026-01-01"].id,oldest.id);
+        assert.deepEqual(Object.keys(latest.calendarDates["2026-01-01"]).sort(),["content","id"],"old calendar entries contain only necessary metadata");
+        const beforeCalendar=many.state.calls.length;
+        for(const month of ["2026-01","2026-02","2026-03"]){
+            const rows=many.runtime.buildCustomCalendarData(latest.calendarDates,month);
+            assert(rows.length<=31);assert(rows.every((row)=>row.value.length===2&&typeof row.value[1]==="string"));
+            if(month==="2026-01")assert.equal(rows[0].value[1],oldest.id);
+        }
+        many.runtime.clickCalendar(latest.calendarDates,{componentType:"series",seriesType:"custom",name:"2026-01-01"});
+        assert.equal(many.state.opened.at(-1)[1],oldest.id);assert.equal(many.state.calls.length,beforeCalendar,"month data/click lookup is local and never rebuilds/scans");
+        const component=many.runtime.mountDiaryComponent({loadData:async()=>many.config},{limit:7});await component.pending;
+        assert.equal(component.snapshot.displayedDocs.length,7);assert.equal(Object.keys(component.snapshot.calendarDates).length,150);
+        assert.equal(component.snapshot.displayedDocs[0].diaryDate,"2026-05-30");
+        const icons=await many.runtime.getLatestDailyNotesResult(true,NOTEBOOK);
+        assert.deepEqual(many.runtime.diaryIcon(icons.calendarDates["2026-05-30"],true),{type:"text",value:"📔"});
+        assert.deepEqual(many.runtime.diaryIcon(icons.calendarDates["2026-05-30"],false),{type:"text",value:"📝"});
+        assert.deepEqual(many.runtime.diaryIcon(icons.calendarDates["2026-01-01"],true),{type:"text",value:"📝"},"old lightweight dates retain the configured icon fallback without bulk fetches");
+        assert.equal(many.state.calls.filter((call)=>call.path==="/api/block/getBlockInfo").length,10,"icons stay bounded, never fetched for all 150 dates");
+        let release;many.state.readBarrier=new Promise((resolve)=>{release=resolve;});
+        const destroyed=many.runtime.mountDiaryComponent({loadData:async()=>many.config});destroyed.destroy();release();await destroyed.pending;
+        assert.deepEqual(destroyed.snapshot,{calendarDates:{},displayedDocs:[],dailyNotesReadFailed:false,dailyNotesLimited:false,scheduled:0});
         const scope=await fixture();
         scope.state.metadata.set(ids[0],{id:ids[0],type:"d",box:"another-notebook",content:"标题",ial:'{: custom-dailynote-20261001="x"}'});
         assert.equal((await scope.runtime.rebuildEnhancedDiaryIndex(NOTEBOOK)).migratedCount,0,"official date cannot bypass notebook scope");
@@ -535,5 +637,5 @@ async function fixture({ count = 1, shapes = {}, old = false, complete = true } 
         assert.equal(historical.state.files.get(RECORD).failures[0].reason,"historical_relations_unconfirmed");
         assert(warnings.every(([, details]) => typeof details === "object" && !Object.hasOwn(details, "content")), "diagnostics must exclude private record bodies");
     } finally { console.warn = originalWarn; }
-    console.log("PASS enhanced diary: real discovery/parser/index/open/calendar/notify paths; five ordinary dates and non-date titles; aliases, empty/legacy templates, true structure/I/O/attribute/relation failures; retained history, strict independent domains, full rebuild recovery and watermark safety; no user-document writes or full-body scan");
+    console.log("PASS enhanced diary: real discovery/parser/index/open/calendar/notify paths; ordinary list/table/image/quote/code/super blocks and optional Markdown; common/time headings are not record evidence; true structure/I/O/relation failures and retained history; 150 complete calendar dates, diary-date sorting, bounded list/icons and destroy isolation; no user-document writes or full-body scan");
 }

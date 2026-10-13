@@ -3,7 +3,7 @@
 import {
     getLatestDailyNotesResult as getLatestDailyNotesDataResult,
     getRecentDailyNotesApi,
-    type ComponentDataResult,
+    type DailyNotesDataResult,
 } from "@/components/tools/siyuanComponentDataApi";
 import { ENHANCED_DIARY_CONFIG_FILE } from "../enhancedDiary/enhancedDiaryTypes";
 
@@ -18,6 +18,7 @@ export interface DailyNoteInfo {
     ial?: string;     // 内置图标解析来源
     diaryDate?: string; // 官方日记日期，与文档名称独立
 }
+export type { DailyNoteCalendarEntry } from "@/components/tools/siyuanComponentDataApi";
 
 export function getDailyNoteDate(note: DailyNoteInfo): string {
     return note.diaryDate || (/^\d{4}-\d{2}-\d{2}$/.test(note.content) ? note.content : "");
@@ -39,7 +40,7 @@ export async function getLatestDailyNotes(
 export async function getLatestDailyNotesWithStatus(
     plugin: any,
     includeBuiltinDocIcon?: boolean,
-): Promise<ComponentDataResult<DailyNoteInfo>> {
+): Promise<DailyNotesDataResult<DailyNoteInfo>> {
     let dailyNotebookId = "";
     try {
         const config = await plugin?.loadData?.(ENHANCED_DIARY_CONFIG_FILE);
@@ -47,5 +48,5 @@ export async function getLatestDailyNotesWithStatus(
     } catch {
         return { items: [], status: "error", mode: "index", message: "日记笔记本配置读取失败，未按未配置或空日记处理。" };
     }
-    return getLatestDailyNotesDataResult(Boolean(includeBuiltinDocIcon), dailyNotebookId) as Promise<ComponentDataResult<DailyNoteInfo>>;
+    return getLatestDailyNotesDataResult(Boolean(includeBuiltinDocIcon), dailyNotebookId) as Promise<DailyNotesDataResult<DailyNoteInfo>>;
 }

@@ -10,6 +10,8 @@ import {
     getEnhancedDiaryHeadingTitle,
     getSectionMarkdown,
     normalizeHeadingTitle,
+    parseMarkdownHeadingTree,
+    flattenHeadingTree,
     type EnhancedDiaryHeadingNode,
 } from "../enhancedDiaryMarkdownSections";
 import {
@@ -424,31 +426,34 @@ export async function queryTodayQuickRecordsDetailed(
     let stage: EnhancedDiaryQuickRecordQueryResult["stage"] = "structure";
     let reason = "block_structure_read_failed";
     try {
-        const blocks = (await getChildBlocksChecked(docId)).map((block) => {
+        const blocks = (await getChildBlocksChecked(docId)).map((block) => ({ ...block }));
+        for (const block of blocks) {
             if (!block || typeof block.id !== "string" || !/^[0-9]{14}-[a-z0-9]{7}$/.test(block.id) ||
                 typeof block.type !== "string" || !block.type.trim()) throw new Error("block_structure_response_incomplete");
-            if (typeof block.markdown === "string") return block;
-            // Official ChildBlock omits empty markdown/content; only an empty paragraph is safe to normalize.
-            if (!Object.prototype.hasOwnProperty.call(block, "markdown") && block.type === "p" &&
-                (block.content === undefined || block.content === "")) return { ...block, markdown: "" };
-            throw new Error("block_structure_response_incomplete");
-        });
+            if (Object.prototype.hasOwnProperty.call(block, "markdown") && typeof block.markdown !== "string") throw new Error("block_structure_response_incomplete");
+            if (block.type === "h") {
+                if (block.markdown === undefined) {
+                    const raw = await getBlockKramdownChecked(block.id);
+                    if (raw?.id !== block.id || typeof raw.kramdown !== "string") throw new Error("heading_markdown_missing");
+                    block.markdown = raw.kramdown;
+                }
+                if (!parseHeadingBlock(block, 0)) throw new Error("heading_structure_response_incomplete");
+            }
+        }
         if (new Set(blocks.map((block) => block.id)).size !== blocks.length) throw new Error("block_structure_response_incomplete");
         const qrLookup = await findDayWorkspaceHeadingBlock(docId, "quickRecords", headingStructure, mapping, blocks);
         if (!qrLookup.found || !qrLookup.heading) {
             const quickAliases = getFieldAliases(mapping, "dayWorkspaceSections", "quickRecords");
             // Export Markdown can prepend the document title; classify actual child headings instead.
-            const hasRecordStructure = qrLookup.headings.some((heading) =>
-                headingTitleMatchesAliases(heading.title, quickAliases) ||
-                CATEGORY_ENTRIES.some(([, title]) => headingTitleMatchesAliases(heading.title, [title])) ||
-                /^\d{1,2}:\d{2}(?:\s|$)/.test(heading.title));
-            // Only validated simple blocks can prove absence; complex/nested content remains unknown.
-            if (!hasRecordStructure && blocks.every((block) => (block.type === "p" || block.type === "h") &&
-                (block.type !== "h" || !!parseHeadingBlock(block, 0))) &&
-                !parseVisibleProjectTargetId(blocks.map((block) => block.markdown).join("\n\n"))) {
+            const childMarkdown = blocks.map((block) => block.markdown).join("\n\n");
+            const hasRecordStructure = [...qrLookup.headings, ...flattenHeadingTree(parseMarkdownHeadingTree(childMarkdown))]
+                .some((heading) => headingTitleMatchesAliases(heading.title, quickAliases));
+            if (!hasRecordStructure &&
+                !parseVisibleProjectTargetId(childMarkdown)) {
                 stage = "attributes";
                 reason = "block_attributes_read_failed";
-                const ids = blocks.map((block) => block.id);
+                // Project records bind relations to headings; ordinary body blocks need no attribute requests.
+                const ids = qrLookup.headings.map((heading) => heading.id);
                 const attrs: ReturnType<typeof parseEnhancedDiaryBatchBlockAttrs> = {};
                 for (let offset = 0; offset < ids.length; offset += 64) {
                     const batch = ids.slice(offset, offset + 64);
@@ -477,6 +482,12 @@ export async function queryTodayQuickRecordsDetailed(
         if (!currentHeading || currentHeading.level !== qrBlock.level || currentHeading.title !== qrBlock.title) throw new Error("block_structure_changed");
         const nextSectionIndex = blocks.findIndex((block, index) => index > qrBlock.index && (parseHeadingBlock(block, index)?.level || 7) <= qrBlock.level);
         const effectiveEnd = nextSectionIndex < 0 ? blocks.length : nextSectionIndex;
+        for (let index = qrBlock.index + 1; index < effectiveEnd; index++) {
+            const block = blocks[index];
+            if (typeof block.markdown === "string") continue;
+            if (block.type === "p" && (block.content === undefined || block.content === "")) block.markdown = "";
+            else throw new Error("record_block_markdown_missing");
+        }
         const preferredCategoryLevel = qrBlock.level + 1;
 
         const records: EnhancedDiaryWorkspaceRecord[] = [];

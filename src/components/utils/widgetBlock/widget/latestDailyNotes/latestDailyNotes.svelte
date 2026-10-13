@@ -5,6 +5,7 @@
         getLatestDailyNotesWithStatus,
         getDailyNoteDate,
         type DailyNoteInfo,
+        type DailyNoteCalendarEntry,
     } from "./latestDailyNotes";
     import { openDocs } from "@/components/tools/openDocs";
     import {
@@ -46,7 +47,7 @@
     const useBuiltinDocIcon = $derived(parsed.data?.useBuiltinDocIcon ?? false);
 
     // 获取文档图标（优先内置图标，否则回退到默认图标）
-    function getDocIcon(doc: DailyNoteInfo): DocIconResult {
+    function getDocIcon(doc: DailyNoteCalendarEntry): DocIconResult {
         if (useBuiltinDocIcon) {
             const builtin = resolveBuiltinDocIcon(doc);
             if (builtin) return builtin;
@@ -55,7 +56,7 @@
     }
 
     // 原始数据
-    let dailyNotes: DailyNoteInfo[] = [];
+    let calendarDates: Record<string, DailyNoteCalendarEntry> = {};
     let dailyNotesModeLabel = $state("近似模式");
     let dailyNotesReadFailed = $state(false);
     let dailyNotesLimited = $state(false);
@@ -117,10 +118,9 @@
     }
 
     function buildCustomCalendarData(
-        dailyNotes: DailyNoteInfo[],
+        calendarDates: Record<string, DailyNoteCalendarEntry>,
         month: string,
     ) {
-        const noteMap = new Map(dailyNotes.map((note) => [getDailyNoteDate(note), note]));
         const [year, monthStr] = month.split("-");
         const monthNum = parseInt(monthStr, 10);
         const yearNum = parseInt(year, 10);
@@ -131,7 +131,7 @@
         for (let i = 1; i <= daysInMonth; i++) {
             const dayStr = String(i).padStart(2, "0");
             const dateStr = `${year}-${monthStr}-${dayStr}`;
-            const note = noteMap.get(dateStr);
+            const note = calendarDates[dateStr];
             const hasJournal = !!note;
             dates.push({
                 name: dateStr,
@@ -154,14 +154,14 @@
         isDestroyed = false;
         const result = await getLatestDailyNotesWithStatus(plugin, useBuiltinDocIcon);
         if (isDestroyed) return;
-        dailyNotes = result.items;
+        calendarDates = result.calendarDates ?? Object.fromEntries(result.items.map((note) => [getDailyNoteDate(note), note]));
         dailyNotesReadFailed = result.status === "error";
         dailyNotesLimited = result.status === "limited";
         dailyNotesModeLabel = result.status === "error" ? "读取失败" : result.mode === "index" ? "索引模式" : result.mode === "scoped_filetree" ? "有限目录模式" : "近似模式";
         dailyNotesStatusMessage = result.message || dailyNotesStatusMessage;
 
-        const sorted = [...dailyNotes].sort((a, b) =>
-            b.created.localeCompare(a.created),
+        const sorted = [...result.items].sort((a, b) =>
+            getDailyNoteDate(b).localeCompare(getDailyNoteDate(a)) || b.created.localeCompare(a.created),
         );
 
         displayedDocs = sorted.slice(0, limit);
@@ -206,7 +206,7 @@
                 params.seriesType === "custom"
             ) {
                 const date = params.name;
-                const note = dailyNotes.find((n) => getDailyNoteDate(n) === date);
+                const note = calendarDates[date];
                 if (note) {
                     if (recentJournalsShowType === "calendar" && !plugin.isMobile) {
                         hideImmediately();
@@ -221,7 +221,7 @@
                 params.seriesType === "custom"
             ) {
                 const date = params.name;
-                const note = dailyNotes.find((n) => getDailyNoteDate(n) === date);
+                const note = calendarDates[date];
                 if (note) {
                     // 从原生事件中获取页面级坐标
                     const nativeEvent = params.event?.event as MouseEvent | undefined;
@@ -441,8 +441,7 @@
                     }
 
                     if (hasJournal) {
-                        const noteId = api.value(1) as string;
-                        const note = dailyNotes.find((n) => n.id === noteId);
+                        const note = calendarDates[String(api.value(0))];
                         const iconResult = note ? getDocIcon(note) : resolveConfiguredDocIcon(recentJournalsCalendarIcon, "📝");
 
                         children.push({
@@ -490,7 +489,7 @@
                     };
                 },
                 dimensions: [undefined, { type: "ordinal" }],
-                data: buildCustomCalendarData(dailyNotes, range),
+                data: buildCustomCalendarData(calendarDates, range),
             },
         });
 

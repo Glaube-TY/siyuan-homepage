@@ -61,6 +61,11 @@ export interface ComponentDataResult<T> {
     mode?: ComponentDataMode;
 }
 
+export type DailyNoteCalendarEntry = Pick<ComponentDocInfo, "id" | "content" | "icon" | "ial">;
+export interface DailyNotesDataResult<T = ComponentDocInfo> extends ComponentDataResult<T> {
+    calendarDates?: Record<string, DailyNoteCalendarEntry>;
+}
+
 export interface ComponentCountsResult {
     counts: Record<string, number>;
     status: ComponentDataStatus;
@@ -2326,17 +2331,24 @@ function looksLikeDailyDoc(doc: ComponentDocInfo): boolean {
 export async function getLatestDailyNotesResult(
     includeBuiltinDocIcon = false,
     dailyNotebookId?: string,
-): Promise<ComponentDataResult<ComponentDocInfo>> {
+): Promise<DailyNotesDataResult> {
     if (dailyNotebookId) {
         try {
             const entries = await getDiaryIndexEntriesForDisplay(dailyNotebookId);
             if (entries !== null) {
-                const docs = Object.values(entries).map((entry) => ({
-                    ...entry, content: entry.title || entry.content || entry.id,
-                    diaryDate: `${entry.date.slice(0, 4)}-${entry.date.slice(4, 6)}-${entry.date.slice(6, 8)}`,
-                    created: entry.id.slice(0, 14), updated: entry.updated || entry.id.slice(0, 14),
-                })).sort((a, b) => b.created.localeCompare(a.created)).slice(0, 100);
-                return okResult(await hydrateDocInfos(docs, includeBuiltinDocIcon, includeBuiltinDocIcon ? 10 : 0), "index", "日记来自完整基础索引，按官方日记日期定位，不要求强化模板或日期标题。");
+                const calendarDates: Record<string, DailyNoteCalendarEntry> = {};
+                for (const entry of Object.values(entries)) {
+                    const date = `${entry.date.slice(0, 4)}-${entry.date.slice(4, 6)}-${entry.date.slice(6, 8)}`;
+                    calendarDates[date] = { id: entry.id, content: entry.title || entry.content || entry.id };
+                }
+                const docs = Object.keys(calendarDates).sort().reverse().slice(0, 100).map((diaryDate) => {
+                    const entry = entries[diaryDate.replace(/-/g, "")];
+                    return { ...entry, content: calendarDates[diaryDate].content, diaryDate,
+                        created: entry.id.slice(0, 14), updated: entry.updated || entry.id.slice(0, 14) };
+                });
+                const hydrated = await hydrateDocInfos(docs, includeBuiltinDocIcon, includeBuiltinDocIcon ? 10 : 0);
+                hydrated.forEach((doc) => { calendarDates[doc.diaryDate!] = { id: doc.id, content: doc.content, icon: doc.icon, ial: doc.ial }; });
+                return { ...okResult(hydrated, "index", "日记来自完整基础索引，列表按官方日记日期排序；日历保留全部已索引日期。"), calendarDates };
             }
         } catch (error) {
             return { items: [], status: "error", mode: "index", message: `日记基础索引读取失败，未按空日记处理：${error instanceof Error ? error.message : "未知错误"}` };
