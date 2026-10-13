@@ -13,8 +13,9 @@ import {
 } from "@/components/tools/statisticalAPI";
 import { loadEnhancedDiaryConfig } from "@/components/utils/widgetBlock/widget/enhancedDiary/enhancedDiaryConfig";
 import { rebuildEnhancedDiaryIndex, refreshEnhancedDiaryIndex } from "@/components/utils/widgetBlock/widget/enhancedDiary/enhancedDiaryIndex";
-import { rebuildEnhancedDiaryProjectIndex, refreshEnhancedDiaryProjectIndex } from "@/components/utils/widgetBlock/widget/enhancedDiary/enhancedDiaryProjectIndex";
+import { rebuildEnhancedDiaryProjectIndex, refreshEnhancedDiaryProjectIndex, readEnhancedDiaryProjectIndexStrict } from "@/components/utils/widgetBlock/widget/enhancedDiary/enhancedDiaryProjectIndex";
 import { rebuildEnhancedDiaryProjectRecordIndex, refreshEnhancedDiaryProjectRecordIndex } from "@/components/utils/widgetBlock/widget/enhancedDiary/enhancedDiaryProjectRecordIndex";
+import type { EnhancedDiaryConfig } from "@/components/utils/widgetBlock/widget/enhancedDiary/enhancedDiaryTypes";
 
 export interface RebuildAllResult {
     favorites: ComponentMigrationStatus;
@@ -29,6 +30,36 @@ export interface RebuildAllResult {
 
 export interface RebuildAllOptions {
     heatmapMonths?: number;
+}
+
+type ProjectIndexesResult = Pick<RebuildAllResult, "enhancedDiaryProject" | "enhancedDiaryProjectRecord">;
+
+function projectRecordStageSkipped(): ComponentMigrationStatus {
+    return { lastStatus: "idle", lastMessage: "项目记录阶段未执行：项目结构索引未完整可用，已保留历史关联。" };
+}
+
+async function maintainProjectIndexes(config: EnhancedDiaryConfig, refresh = false): Promise<ProjectIndexesResult> {
+    let project: ComponentMigrationStatus;
+    try {
+        project = await (refresh ? refreshEnhancedDiaryProjectIndex : rebuildEnhancedDiaryProjectIndex)(config.projectStorage);
+        if (project.lastStatus !== "success") return { enhancedDiaryProject: project, enhancedDiaryProjectRecord: projectRecordStageSkipped() };
+        // A completed operation may still have reached its indexing limit. Read back the actual payload.
+        await readEnhancedDiaryProjectIndexStrict(config.projectStorage);
+    } catch (error) {
+        return { enhancedDiaryProject: { lastStatus: "error", lastRunAt: new Date().toISOString(),
+            lastMessage: error instanceof Error ? error.message : "项目结构索引读取或重建失败。" }, enhancedDiaryProjectRecord: projectRecordStageSkipped() };
+    }
+    try {
+        const records = await (refresh ? refreshEnhancedDiaryProjectRecordIndex : rebuildEnhancedDiaryProjectRecordIndex)(config);
+        return { enhancedDiaryProject: project, enhancedDiaryProjectRecord: records };
+    } catch (error) {
+        return { enhancedDiaryProject: project, enhancedDiaryProjectRecord: { lastStatus: "error", lastRunAt: new Date().toISOString(),
+            lastMessage: error instanceof Error ? error.message : "项目记录索引重建失败，已保留历史关联。" } };
+    }
+}
+
+export function rebuildEnhancedDiaryProjectIndexes(config: EnhancedDiaryConfig): Promise<ProjectIndexesResult> {
+    return maintainProjectIndexes(config);
 }
 
 function getDefaultHeatmapRange(months: number): [string, string] {
@@ -79,11 +110,11 @@ export async function rebuildAllHomepageIndexes(
         },
         {
             key: "enhancedDiaryProject",
-            fn: async () => rebuildEnhancedDiaryProjectIndex((await loadEnhancedDiaryConfig(plugin)).projectStorage),
-        },
-        {
-            key: "enhancedDiaryProjectRecord",
-            fn: async () => rebuildEnhancedDiaryProjectRecordIndex(await loadEnhancedDiaryConfig(plugin)),
+            fn: async () => {
+                const projectResults = await rebuildEnhancedDiaryProjectIndexes(await loadEnhancedDiaryConfig(plugin));
+                results.enhancedDiaryProjectRecord = projectResults.enhancedDiaryProjectRecord;
+                return projectResults.enhancedDiaryProject;
+            },
         },
     ];
 
@@ -91,6 +122,7 @@ export async function rebuildAllHomepageIndexes(
         try {
             results[task.key] = await task.fn();
         } catch (error) {
+            if (task.key === "enhancedDiaryProject") results.enhancedDiaryProjectRecord = projectRecordStageSkipped();
             results[task.key] = {
                 lastRunAt: new Date().toISOString(),
                 lastStatus: "error",
@@ -145,11 +177,11 @@ export async function refreshAllHomepageIndexes(
         },
         {
             key: "enhancedDiaryProject",
-            fn: async () => refreshEnhancedDiaryProjectIndex((await loadEnhancedDiaryConfig(plugin)).projectStorage),
-        },
-        {
-            key: "enhancedDiaryProjectRecord",
-            fn: async () => refreshEnhancedDiaryProjectRecordIndex(await loadEnhancedDiaryConfig(plugin)),
+            fn: async () => {
+                const projectResults = await maintainProjectIndexes(await loadEnhancedDiaryConfig(plugin), true);
+                results.enhancedDiaryProjectRecord = projectResults.enhancedDiaryProjectRecord;
+                return projectResults.enhancedDiaryProject;
+            },
         },
     ];
 
@@ -157,6 +189,7 @@ export async function refreshAllHomepageIndexes(
         try {
             results[task.key] = await task.fn();
         } catch (error) {
+            if (task.key === "enhancedDiaryProject") results.enhancedDiaryProjectRecord = projectRecordStageSkipped();
             results[task.key] = {
                 lastRunAt: new Date().toISOString(),
                 lastStatus: "error",

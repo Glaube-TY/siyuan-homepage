@@ -8,6 +8,7 @@
     import {
         rebuildAllHomepageIndexes,
         refreshAllHomepageIndexes,
+        rebuildEnhancedDiaryProjectIndexes,
         type RebuildAllResult,
         type RefreshAllResult,
     } from "@/components/tools/homepageIndexManagement";
@@ -33,13 +34,11 @@
     } from "@/components/utils/widgetBlock/widget/enhancedDiary/enhancedDiaryIndex";
     import {
         getEnhancedDiaryProjectIndexStatus,
-        rebuildEnhancedDiaryProjectIndex,
     } from "@/components/utils/widgetBlock/widget/enhancedDiary/enhancedDiaryProjectIndex";
     import {
         getEnhancedDiaryProjectRecordIndexStatus,
         readEnhancedDiaryProjectRecordIndex,
         formatEnhancedDiaryProjectRecordDiagnostics,
-        rebuildEnhancedDiaryProjectRecordIndex,
     } from "@/components/utils/widgetBlock/widget/enhancedDiary/enhancedDiaryProjectRecordIndex";
 
     type StatusChangeHandler = (status: ComponentMigrationStatus) => void | Promise<void>;
@@ -91,11 +90,11 @@
     let isEnhancedDiaryRefreshing = $state(false);
     let isProjectIndexRebuilding = $state(false);
     let projectIndexStatus = $state<ComponentMigrationStatus>({ lastStatus: "idle" });
-    let isProjectRecordIndexRebuilding = $state(false);
     let isCopyingProjectRecordDiagnostics = $state(false);
     let projectRecordIndexStatus = $state<ComponentMigrationStatus>({ lastStatus: "idle" });
 
     let heatmapRebuildMonths = $state(12);
+    let isActive = true;
 
     function clampHeatmapMonths(value: number): number {
         return Math.max(1, Math.min(60, Math.floor(Number(value) || 12)));
@@ -127,6 +126,14 @@
         return statuses.some((status) => status.lastStatus === "success");
     }
 
+    function formatProjectIndexesStatus(project: ComponentMigrationStatus, records: ComponentMigrationStatus): string {
+        if (project.lastStatus === "success" && records.lastStatus === "success") {
+            const projectCount = typeof project.migratedCount === "number" ? `项目 ${project.migratedCount} 个` : "项目结构已更新";
+            return `完整成功 · ${projectCount}，项目关联记录 ${records.migratedCount ?? 0} 条 · ${formatStatus(records)}`;
+        }
+        return `项目结构：${formatStatus(project)}；记录关联：${formatStatus(records)}`;
+    }
+
     onMount(() => {
         let active = true;
         void (async () => {
@@ -153,35 +160,35 @@
                 if (!active) return;
                 const status: ComponentMigrationStatus = {
                     lastStatus: "error",
-                    lastMessage: error instanceof Error ? error.message : "强化日记索引状态读取失败。",
+                    lastMessage: error instanceof Error ? error.message : "日记索引状态读取失败。",
                 };
                 enhancedDiaryIndexStatus = status;
                 projectIndexStatus = { ...status };
                 projectRecordIndexStatus = { ...status };
             }
         })();
-        return () => { active = false; };
+        return () => { active = false; isActive = false; };
     });
 
     async function handleRebuildAll() {
-        if (!plugin || isRebuildingAll) return;
+        if (!plugin || isRebuildingAll || isRefreshingAll || isProjectIndexRebuilding) return;
         isRebuildingAll = true;
         try {
             const results = await rebuildAllHomepageIndexes(plugin, { heatmapMonths: heatmapRebuildMonths });
-            await applyResults(results);
+            if (isActive) await applyResults(results);
         } finally {
-            isRebuildingAll = false;
+            if (isActive) isRebuildingAll = false;
         }
     }
 
     async function handleRefreshAll() {
-        if (!plugin || isRefreshingAll) return;
+        if (!plugin || isRefreshingAll || isRebuildingAll || isProjectIndexRebuilding) return;
         isRefreshingAll = true;
         try {
             const results = await refreshAllHomepageIndexes(plugin);
-            await applyRefreshResults(results);
+            if (isActive) await applyRefreshResults(results);
         } finally {
-            isRefreshingAll = false;
+            if (isActive) isRefreshingAll = false;
         }
     }
 
@@ -359,37 +366,35 @@
     }
 
     async function handleProjectIndexRebuild() {
-        if (!plugin || isProjectIndexRebuilding) return;
+        if (!plugin || isProjectIndexRebuilding || isRebuildingAll || isRefreshingAll) return;
         isProjectIndexRebuilding = true;
         try {
             const config = await loadEnhancedDiaryConfig(plugin);
-            projectIndexStatus = await rebuildEnhancedDiaryProjectIndex(config.projectStorage);
-            if (projectIndexStatus.lastStatus === "success") dispatchEnhancedDiaryIndexesUpdated();
+            const results = await rebuildEnhancedDiaryProjectIndexes(config);
+            if (!isActive) return;
+            projectIndexStatus = results.enhancedDiaryProject;
+            projectRecordIndexStatus = results.enhancedDiaryProjectRecord;
+            if (anyEnhancedDiaryIndexSucceeded([projectIndexStatus, projectRecordIndexStatus]) || projectRecordIndexStatus.changed) dispatchEnhancedDiaryIndexesUpdated();
+        } catch (error) {
+            if (!isActive) return;
+            projectIndexStatus = { lastStatus: "error", lastMessage: error instanceof Error ? error.message : "项目配置读取失败。" };
+            projectRecordIndexStatus = { lastStatus: "idle", lastMessage: "项目记录阶段未执行，已保留历史关联。" };
         } finally {
-            isProjectIndexRebuilding = false;
+            if (isActive) isProjectIndexRebuilding = false;
         }
-    }
-
-    async function handleProjectRecordIndexRebuild() {
-        if (!plugin || isProjectRecordIndexRebuilding) return;
-        isProjectRecordIndexRebuilding = true;
-        try {
-            projectRecordIndexStatus = await rebuildEnhancedDiaryProjectRecordIndex(await loadEnhancedDiaryConfig(plugin));
-            if (projectRecordIndexStatus.lastStatus === "success" || projectRecordIndexStatus.changed) dispatchEnhancedDiaryIndexesUpdated();
-        }
-        finally { isProjectRecordIndexRebuilding = false; }
     }
 
     async function handleCopyProjectRecordDiagnostics() {
-        if (!plugin || isCopyingProjectRecordDiagnostics) return;
+        if (!plugin || isCopyingProjectRecordDiagnostics || isProjectIndexRebuilding || isRebuildingAll || isRefreshingAll) return;
         isCopyingProjectRecordDiagnostics = true;
         try {
             const config = await loadEnhancedDiaryConfig(plugin);
             const index = await readEnhancedDiaryProjectRecordIndex(config.dailyNotebookId || "", { fresh: true });
+            if (!isActive) return;
             await writeTextToClipboard(formatEnhancedDiaryProjectRecordDiagnostics(index));
-            showMessage("诊断摘要已复制，不含日记正文或项目内容。");
-        } catch { showMessage("诊断摘要读取或复制失败，请重试。", 5000, "error"); }
-        finally { isCopyingProjectRecordDiagnostics = false; }
+            if (isActive) showMessage("诊断摘要已复制，不含日记正文或项目内容。");
+        } catch { if (isActive) showMessage("诊断摘要读取或复制失败，请重试。", 5000, "error"); }
+        finally { if (isActive) isCopyingProjectRecordDiagnostics = false; }
     }
 </script>
 
@@ -402,7 +407,7 @@
             type="button"
             class="index-action-btn"
             onclick={handleRebuildAll}
-            disabled={!plugin || isRebuildingAll}
+            disabled={!plugin || isRebuildingAll || isRefreshingAll || isProjectIndexRebuilding}
         >
             {isRebuildingAll ? "重建中..." : "一键重建所有检索"}
         </button>
@@ -415,7 +420,7 @@
             type="button"
             class="index-action-btn"
             onclick={handleRefreshAll}
-            disabled={!plugin || isRefreshingAll}
+            disabled={!plugin || isRefreshingAll || isRebuildingAll || isProjectIndexRebuilding}
         >
             {isRefreshingAll ? "刷新中..." : "一键刷新所有检索"}
         </button>
@@ -592,19 +597,19 @@
 
 <SettingSection title="日记基础索引">
     <SettingRow
-        title="刷新强化日记增量索引"
-        description="只使用最近文档增量；仅处理当前配置日记笔记本中的变动文档。"
+        title="刷新日记索引"
+        description="通过思源官方日记日期属性识别日记，不要求强化模板；只处理当前日记笔记本中的最近变动文档。"
     >
         <button type="button" class="index-action-btn" onclick={handleEnhancedDiaryRefresh} disabled={!plugin || isEnhancedDiaryRefreshing}>
-            {isEnhancedDiaryRefreshing ? "刷新中..." : "刷新强化日记增量索引"}
+            {isEnhancedDiaryRefreshing ? "刷新中..." : "刷新日记索引"}
         </button>
     </SettingRow>
     <SettingRow
-        title="重建强化日记索引"
+        title="重建日记索引"
         description="只按当前笔记本的官方日记日期属性识别；普通日记无需强化模板，不扫描全库正文。"
     >
         <button type="button" class="index-action-btn" onclick={handleEnhancedDiaryRebuild} disabled={!plugin || isEnhancedDiaryRebuilding}>
-            {isEnhancedDiaryRebuilding ? "重建中..." : "重建强化日记索引"}
+            {isEnhancedDiaryRebuilding ? "重建中..." : "重建日记索引"}
         </button>
     </SettingRow>
     <SettingRow title="最近状态">
@@ -619,34 +624,25 @@
 
 <SettingSection title="强化日记项目索引">
     <SettingRow
-        title="重建项目索引"
-        description="只遍历项目设置中选定容器的直接子文档，并对这些根项目执行受限标题查询；不会扫描全库正文。"
+        title="重建强化日记项目索引"
+        description="先更新项目及子项目结构，再建立日记快速记录与项目之间的关联。普通日记自动跳过，不要求使用强化模板。"
     >
-        <button type="button" class="index-action-btn" onclick={handleProjectIndexRebuild} disabled={!plugin || isProjectIndexRebuilding}>
-            {isProjectIndexRebuilding ? "重建中..." : "重建项目索引"}
+        <button type="button" class="index-action-btn" onclick={handleProjectIndexRebuild} disabled={!plugin || isProjectIndexRebuilding || isRebuildingAll || isRefreshingAll}>
+            {isProjectIndexRebuilding ? "重建中..." : "重建强化日记项目索引"}
         </button>
     </SettingRow>
     <SettingRow title="最近状态">
-        <span class="index-status-text">{formatStatus(projectIndexStatus)}</span>
+        <span class="index-status-text">{isProjectIndexRebuilding ? "正在依次重建项目结构和记录关联..." : formatProjectIndexesStatus(projectIndexStatus, projectRecordIndexStatus)}</span>
     </SettingRow>
-    {#if projectIndexStatus.lastMessage}
-        <SettingRow title="最近消息">
+    {#if projectIndexStatus.lastStatus !== "success" && projectIndexStatus.lastMessage}
+        <SettingRow title="项目结构阶段">
             <span class="index-status-text">{projectIndexStatus.lastMessage}</span>
         </SettingRow>
     {/if}
-</SettingSection>
-
-<SettingSection title="强化日记项目记录索引">
-    <SettingRow title="重建项目记录索引" description="只处理基础日记索引中的已知文档；确认无快速记录结构的普通日记不适用，读取失败或历史关系待确认仍单独报告。不会全库正文扫描。">
-        <button type="button" class="index-action-btn" onclick={handleProjectRecordIndexRebuild} disabled={!plugin || isProjectRecordIndexRebuilding}>
-            {isProjectRecordIndexRebuilding ? "重建中..." : "重建项目记录索引"}
-        </button>
-    </SettingRow>
-    <SettingRow title="最近状态"><span class="index-status-text">{formatStatus(projectRecordIndexStatus)}</span></SettingRow>
-    {#if projectRecordIndexStatus.lastMessage}<SettingRow title="最近消息"><span class="index-status-text">{projectRecordIndexStatus.lastMessage}</span></SettingRow>{/if}
-    {#if projectRecordIndexStatus.source === "enhanced-diary-project-record-incomplete"}
+    {#if projectRecordIndexStatus.lastStatus !== "success" && projectRecordIndexStatus.lastMessage}<SettingRow title="记录关联阶段"><span class="index-status-text">{projectRecordIndexStatus.lastMessage}</span></SettingRow>{/if}
+    {#if projectRecordIndexStatus.lastStatus === "error" || projectIndexStatus.lastStatus === "error"}
         <SettingRow title="诊断摘要" description="仅包含日记 ID、日期、失败阶段、原因代码和缺失字段路径，可复制给开发者排查。">
-            <button type="button" class="index-action-btn" onclick={handleCopyProjectRecordDiagnostics} disabled={!plugin || isProjectRecordIndexRebuilding || isCopyingProjectRecordDiagnostics}>
+            <button type="button" class="index-action-btn" onclick={handleCopyProjectRecordDiagnostics} disabled={!plugin || isProjectIndexRebuilding || isRebuildingAll || isRefreshingAll || isCopyingProjectRecordDiagnostics}>
                 {isCopyingProjectRecordDiagnostics ? "复制中..." : "复制诊断摘要"}
             </button>
         </SettingRow>

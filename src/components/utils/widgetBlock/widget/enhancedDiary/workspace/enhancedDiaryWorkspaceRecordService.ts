@@ -415,6 +415,52 @@ async function applyFallbackProjectRelations(
     return true;
 }
 
+function validateDiaryBlocks(blocks: IResGetChildBlock[]): IResGetChildBlock[] {
+    const copy = blocks.map((block) => ({ ...block }));
+    for (const block of copy) {
+        if (typeof block.id !== "string" || !/^[0-9]{14}-[a-z0-9]{7}$/.test(block.id) ||
+            typeof block.type !== "string" || !block.type.trim() ||
+            (Object.prototype.hasOwnProperty.call(block, "markdown") && typeof block.markdown !== "string")) {
+            throw new Error("block_structure_response_incomplete");
+        }
+    }
+    if (new Set(copy.map((block) => block.id)).size !== copy.length) throw new Error("block_structure_response_incomplete");
+    return copy;
+}
+
+/** Project-index applicability is independent of the enhanced diary template. */
+export async function readDiaryProjectAssociationEvidence(docId: string, markdown: string): Promise<
+    { ok: true; hasAssociation: boolean; blocks: IResGetChildBlock[] } |
+    { ok: false; stage: "structure" | "attributes"; reason: string }
+> {
+    let stage: "structure" | "attributes" = "structure";
+    try {
+        const blocks = validateDiaryBlocks(await getChildBlocksChecked(docId));
+        // The checked document export also covers markers inside lists, tables and other nested blocks.
+        let hasAssociation = !!parseVisibleProjectTargetId(markdown);
+        stage = "attributes";
+        const ids = blocks.filter((block) => block.type === "h").map((block) => block.id);
+        for (let offset = 0; offset < ids.length; offset += 64) {
+            const batch = ids.slice(offset, offset + 64);
+            const raw = await batchGetBlockAttrs(batch);
+            if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new Error("block_attributes_response_incomplete");
+            for (const id of batch) {
+                const attrs = raw[id];
+                if (!attrs || typeof attrs !== "object" || Array.isArray(attrs) ||
+                    (attrs.id !== undefined && attrs.id !== id) ||
+                    (Object.prototype.hasOwnProperty.call(attrs, ENHANCED_DIARY_PROJECT_TARGET_ATTR) &&
+                        typeof attrs[ENHANCED_DIARY_PROJECT_TARGET_ATTR] !== "string")) {
+                    throw new Error("project_attribute_response_invalid");
+                }
+                if (attrs[ENHANCED_DIARY_PROJECT_TARGET_ATTR]) hasAssociation = true;
+            }
+        }
+        return { ok: true, hasAssociation, blocks };
+    } catch {
+        return { ok: false, stage, reason: stage === "attributes" ? "block_attributes_read_failed" : "block_structure_read_failed" };
+    }
+}
+
 export async function queryTodayQuickRecordsDetailed(
     docId: string,
     markdown: string,
@@ -422,15 +468,13 @@ export async function queryTodayQuickRecordsDetailed(
     headingStructure?: EnhancedDiaryHeadingStructureConfig,
     mapping?: EnhancedDiaryTemplateFieldMapping | null,
     config?: EnhancedDiaryConfig,
+    readBlocks?: IResGetChildBlock[],
 ): Promise<EnhancedDiaryQuickRecordQueryResult> {
     let stage: EnhancedDiaryQuickRecordQueryResult["stage"] = "structure";
     let reason = "block_structure_read_failed";
     try {
-        const blocks = (await getChildBlocksChecked(docId)).map((block) => ({ ...block }));
+        const blocks = validateDiaryBlocks(readBlocks ?? await getChildBlocksChecked(docId));
         for (const block of blocks) {
-            if (!block || typeof block.id !== "string" || !/^[0-9]{14}-[a-z0-9]{7}$/.test(block.id) ||
-                typeof block.type !== "string" || !block.type.trim()) throw new Error("block_structure_response_incomplete");
-            if (Object.prototype.hasOwnProperty.call(block, "markdown") && typeof block.markdown !== "string") throw new Error("block_structure_response_incomplete");
             if (block.type === "h") {
                 if (block.markdown === undefined) {
                     const raw = await getBlockKramdownChecked(block.id);
@@ -440,7 +484,6 @@ export async function queryTodayQuickRecordsDetailed(
                 if (!parseHeadingBlock(block, 0)) throw new Error("heading_structure_response_incomplete");
             }
         }
-        if (new Set(blocks.map((block) => block.id)).size !== blocks.length) throw new Error("block_structure_response_incomplete");
         const qrLookup = await findDayWorkspaceHeadingBlock(docId, "quickRecords", headingStructure, mapping, blocks);
         if (!qrLookup.found || !qrLookup.heading) {
             const quickAliases = getFieldAliases(mapping, "dayWorkspaceSections", "quickRecords");

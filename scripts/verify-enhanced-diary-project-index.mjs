@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { build } from "esbuild";
-import { resolve } from "node:path";
+import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { parse } from "svelte/compiler";
+import { parse, compile } from "svelte/compiler";
 import * as echarts from "echarts";
 
 const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
@@ -13,6 +13,9 @@ const formatter = ui.slice(ui.indexOf("    function formatStatus("), ui.indexOf(
 const uiAst = parse(ui.slice(0, ui.lastIndexOf("<style")), { modern: true });
 const notifyIndexes = uiAst.instance.content.body.find((node)=>node.type === "FunctionDeclaration"&&node.id.name === "anyEnhancedDiaryIndexSucceeded");
 assert(notifyIndexes);
+const uiImports = uiAst.instance.content.body.filter((node) => node.type === "ImportDeclaration" &&
+    !["svelte", "siyuan"].includes(node.source.value) && !node.source.value.endsWith(".svelte")).map((node) => ui.slice(node.start, node.end)).join("\n");
+const uiScript = uiAst.instance.content.body.filter((node) => node.type !== "ImportDeclaration").map((node) => ui.slice(node.start, node.end)).join("\n");
 const calendarSource = await readFile(resolve(root, "src/components/utils/widgetBlock/widget/latestDailyNotes/latestDailyNotes.svelte"), "utf8");
 const calendarAst = parse(calendarSource.slice(0, calendarSource.lastIndexOf("<style")), { modern: true });
 const calendarFunction = calendarAst.instance.content.body.find((node) => node.type === "FunctionDeclaration" && node.id.name === "buildCustomCalendarData");
@@ -39,6 +42,20 @@ const stubs = {
 };
 const bundled = await build({
     stdin: { contents: `
+        ${uiImports}
+        export {default as IndexSettings} from "./src/homepage/homepageSetting/tabs/IndexManagementSettingsTab.svelte";
+        export {render} from "svelte/server";
+        export function indexSettings(pluginFixture) {
+            const $props=()=>({plugin:pluginFixture}), $state=value=>value, $bindable=value=>value;
+            const mounts=[],events=[],messages=[],onMount=callback=>mounts.push(callback);
+            const window={dispatchEvent(event){events.push(event.type);}},CustomEvent=class{constructor(type){this.type=type;}};
+            const showMessage=(...args)=>messages.push(args);
+            ${uiScript}
+            return {rebuild:handleProjectIndexRebuild,rebuildAll:handleRebuildAll,refreshAll:handleRefreshAll,copy:handleCopyProjectRecordDiagnostics,
+                mount:mounts[0],events,messages,destroy(){isActive=false;},
+                get snapshot(){return {projectIndexStatus,projectRecordIndexStatus,enhancedDiaryIndexStatus,isProjectIndexRebuilding,isRebuildingAll,isRefreshingAll,
+                    summary:formatProjectIndexesStatus(projectIndexStatus,projectRecordIndexStatus)};}};
+        }
         export { setSiyuanRuntimePort } from "./src/runtime/siyuan-runtime-port";
         export { normalizeEnhancedDiaryConfig } from "./${diaryDir}/enhancedDiaryConfig";
         export { DEFAULT_ENHANCED_DIARY_TEMPLATES } from "./${diaryDir}/enhancedDiaryTypes";
@@ -82,7 +99,7 @@ const bundled = await build({
         export { readDiaryMarkdownResult, openOrCreateDiaryForDate } from "./${diaryDir}/enhancedDiaryDoc";
         export { queryTodayQuickRecordsDetailed } from "./${diaryDir}/workspace/enhancedDiaryWorkspaceRecordService";
         export {loadEnhancedDiaryNotifySnapshot} from "./src/features/enhanced-diary-notify/enhanced-diary-notify-snapshot";
-        export {rebuildAllHomepageIndexes} from "./src/components/tools/homepageIndexManagement";
+        export {rebuildAllHomepageIndexes,rebuildEnhancedDiaryProjectIndexes,refreshAllHomepageIndexes} from "./src/components/tools/homepageIndexManagement";
         export { appendRecordProjectReference } from "./src/features/task-data/task-project-reference";
         export { rebuildEnhancedDiaryProjectRecordIndex, refreshEnhancedDiaryProjectRecordIndex,
             readEnhancedDiaryProjectRecordIndex, readEnhancedDiaryProjectRecordIndexStrict, getEnhancedDiaryProjectRecordIndexStatus,
@@ -92,7 +109,26 @@ const bundled = await build({
     `, loader: "ts", resolveDir: root },
     bundle: true, format: "esm", platform: "node", write: false, logLevel: "silent",
     plugins: [{ name: "isolate-unused-ui-and-write-paths", setup(buildApi) {
+        buildApi.onResolve({filter:/^svelte(?:\/|$)/},({path})=>({path:import.meta.resolve(path),external:true}));
+        buildApi.onResolve({filter:/^siyuan$|^@\/libs\/clipboard$/},({path})=>({path,namespace:"verifier-stub"}));
+        buildApi.onLoad({filter:/\.svelte$/},async({path})=>{
+            let source=await readFile(path,"utf8");
+            if(path.endsWith("IndexManagementSettingsTab.svelte")) {
+                const replacements=[];
+                for(const node of uiAst.instance.content.body) if(node.type === "VariableDeclaration") for(const declaration of node.declarations) {
+                    if(["projectIndexStatus","projectRecordIndexStatus","isProjectIndexRebuilding","isRebuildingAll","isRefreshingAll"].includes(declaration.id.name)) {
+                        const argument=declaration.init.arguments[0];
+                        replacements.push({start:argument.start,end:argument.end,value:`globalThis.__indexRender?.${declaration.id.name} ?? (${ui.slice(argument.start,argument.end)})`});
+                    }
+                }
+                for(const edit of replacements.sort((a,b)=>b.start-a.start))source=source.slice(0,edit.start)+edit.value+source.slice(edit.end);
+            }
+            source=source.replace(/<style[\s\S]*?<\/style>/g,"");
+            return {contents:compile(source,{filename:path,generate:"server",css:"external"}).js.code,loader:"js",resolveDir:dirname(path)};
+        });
         buildApi.onResolve({ filter: /enhancedDiaryProjectIndex$|statisticalAPI$/ }, ({path,importer})=>importer.endsWith("homepageIndexManagement.ts")?{path:path.split("/").at(-1),namespace:"verifier-stub"}:undefined);
+        buildApi.onResolve({filter:/statisticalAPI$/},()=>({path:"statisticalAPI",namespace:"verifier-stub"}));
+        buildApi.onResolve({filter:/enhancedDiaryProjectIndex\.ts$/,namespace:"verifier-stub"},()=>({path:resolve(root,diaryDir,"enhancedDiaryProjectIndex.ts"),namespace:"file"}));
         buildApi.onResolve({ filter: /siyuanComponentDataApi\.ts$/, namespace: "verifier-stub" }, () => ({ path: resolve(root, "src/components/tools/siyuanComponentDataApi.ts"), namespace: "file" }));
         buildApi.onResolve({ filter: /enhancedDiaryActions$|enhancedDiaryUtils$|openDocs$|enhancedDiaryWorkspaceProjectLifecycle$|siyuanComponentDataApi$|enhanced-diary-notify-rules$|enhancedDiaryWorkspaceTaskService$|enhancedDiaryWorkspaceViewModel$/ }, ({ path }) => ({ path: path.split("/").at(-1), namespace: "verifier-stub" }));
         buildApi.onLoad({ filter: /.*/, namespace: "verifier-stub" }, ({ path }) => ({ loader: "js", contents: path === "siyuanComponentDataApi"
@@ -101,8 +137,10 @@ const bundled = await build({
                 const success=async()=>({lastStatus:'success'});
                 export const rebuildTaskIndexFromGlobalSql=success, rebuildHeatmapDailyIndexFromGlobalSql=success, refreshReviewIndex=success,
                     refreshTaskIndexFromRecentDocuments=success, refreshHeatmapIndexFromRecentDocuments=success;`
-            : path === "enhancedDiaryProjectIndex" ? "export const rebuildEnhancedDiaryProjectIndex=async()=>({lastStatus:'success'}), refreshEnhancedDiaryProjectIndex=rebuildEnhancedDiaryProjectIndex;"
-            : path === "statisticalAPI" ? "export const rebuildStatIndexFromGlobalSql=async()=>({lastStatus:'success'}), refreshStatIndexFromRecentDocuments=rebuildStatIndexFromGlobalSql;"
+            : path === "enhancedDiaryProjectIndex" ? `export {readEnhancedDiaryProjectIndexStrict} from ${JSON.stringify(resolve(root,diaryDir,"enhancedDiaryProjectIndex.ts"))}; export const rebuildEnhancedDiaryProjectIndex=(...args)=>globalThis.__projectRecordVerifier.projectStage(...args), refreshEnhancedDiaryProjectIndex=rebuildEnhancedDiaryProjectIndex;`
+            : path === "statisticalAPI" ? "export const rebuildStatIndexFromGlobalSql=async()=>({lastStatus:'success'}), refreshStatIndexFromRecentDocuments=rebuildStatIndexFromGlobalSql, getStatIndexStatus=async()=>({status:'success',docsCount:0,message:'fixture'});"
+            : path === "siyuan" ? "export const showMessage=()=>{};"
+            : path === "@/libs/clipboard" ? "export const writeTextToClipboard=(text)=>globalThis.__projectRecordVerifier.clipboard(text);"
             : path === "openDocs" ? "export const openDocs = (...args) => globalThis.__projectRecordVerifier.open(...args);"
             : path === "enhanced-diary-notify-rules" ? "export const loadDiaryConfig = async () => globalThis.__projectRecordVerifier.config; export const getEnhancedDiaryNotifyRulesPlugin = () => ({});"
             : path === "enhancedDiaryWorkspaceTaskService" ? "export const queryWorkspaceTasks = async () => [];"
@@ -161,10 +199,13 @@ async function fixture({ count = 1, shapes = {}, old = false, complete = true } 
                 path: "/fixture.sy", hpath: "/fixture", order: 0, updated: "20261008000000", status: "active", archivedAt: "" } }, nodes: {} }],
     ]), shapes, writes: [], calls: [], metadata: new Map(), opened: [], baseWrites: [], markdownFailures: new Set(), blockFailures: new Set(), blockResponses: new Map(),
         markdownResponses: new Map(), kramdownResponses:new Map(), unlinked: false, attrFailure: false, attrResponse: undefined,
-        writeFailure: false, readbackFailure: false, changedDocs: [], commits: 0 };
+        writeFailure: false, readbackFailure: false, changedDocs: [], commits: 0, projectStages: 0, clipboard: [] };
     if (old) state.files.set(RECORD, { version: 1, updatedAt: "2026-10-01T00:00:00Z", notebookId: NOTEBOOK, complete,
         items: Object.fromEntries(ids.slice(0, count).map((id) => { const item = oldItem(id); return [item.id, item]; })) });
-    globalThis.__projectRecordVerifier = { config, open(...args) { state.opened.push(args); }, async prepare() { return { changedDocs: state.changedDocs, async commit() { state.commits += 1; } }; } };
+    globalThis.__projectRecordVerifier = { config, open(...args) { state.opened.push(args); }, clipboard(text){state.clipboard.push(text);},
+        async projectStage(){state.projectStages++;state.calls.push({path:"fixture:project-stage-start"});if(state.projectBarrier)await state.projectBarrier;
+            state.calls.push({path:"fixture:project-stage-end"});return state.projectStatus||{lastStatus:"success",migratedCount:1};},
+        async prepare() { return { changedDocs: state.changedDocs, async commit() { state.commits += 1; } }; } };
     runtime.setSiyuanRuntimePort({
         async getFile(path) {
             state.calls.push({ path });
@@ -224,6 +265,134 @@ async function fixture({ count = 1, shapes = {}, old = false, complete = true } 
         const linked = await fixture({ shapes: { [ids[0]]: { body: all.runtime.appendRecordProjectReference("fixture record body", PROJECT_ID, "fixture project") } } });
         assert.equal((await linked.runtime.rebuildEnhancedDiaryProjectRecordIndex(linked.config)).lastStatus, "success");
         assert.equal(Object.values(linked.state.files.get(RECORD).items)[0].relationStatus, "normal");
+
+        // Same dates as the report, entirely synthetic bodies and IDs. Template signals alone are not project evidence.
+        for(const [date,reason] of [["20260622","quick_record_structure_unsupported"],["20260627","diary_root_missing"]]) {
+            for(const evidence of ["none","hidden","visible","history"]) {
+                const reported=await fixture({old:evidence === "history"});
+                reported.state.files.get(DIARY).docs={[date]:{id:ids[0],date,box:NOTEBOOK}};
+                const response=blocks(ids[0]);
+                if(reason === "diary_root_missing")response.shift();
+                else response.splice(2,0,{id:ids[0].slice(0,15)+"freeaaa",type:"p",markdown:"合成普通自由记录"});
+                if(evidence === "visible")response.at(-1).markdown=reported.runtime.appendRecordProjectReference("合成记录",PROJECT_ID,"合成项目");
+                reported.state.unlinked=evidence !== "hidden";
+                reported.state.blockResponses.set(ids[0],response);
+                reported.state.markdownResponses.set(ids[0],response.map((block)=>block.markdown).join("\n\n"));
+                const beforeBase=structuredClone(reported.state.files.get(DIARY)),beforeOld=structuredClone(reported.state.files.get(RECORD)?.items);
+                const result=await reported.runtime.rebuildEnhancedDiaryProjectRecordIndex(reported.config);
+                const payload=reported.state.files.get(RECORD);
+                assert.equal(result.lastStatus,evidence === "none" ? "success" : "error");
+                assert.equal(payload.complete,evidence === "none");
+                assert.equal(payload.failures.length,evidence === "none" ? 0 : 1);
+                if(evidence !== "none")assert.deepEqual(payload.failures[0],{docId:ids[0],date:`${date.slice(0,4)}-${date.slice(4,6)}-${date.slice(6,8)}`,
+                    stage:reason === "diary_root_missing"?"headings":"structure",reason,...(reason === "diary_root_missing"?{missingPath:["rootHeadings.day"]}:{})});
+                if(evidence === "history")assert.deepEqual(payload.items,beforeOld);
+                assert.deepEqual(reported.state.files.get(DIARY),beforeBase);
+                assert.equal(reported.state.calls.filter((call)=>call.path === "/api/block/getChildBlocks").length,1,"preflight and parser reuse the same checked blocks");
+            }
+        }
+        for(const template of ["普通内容","# 今日日记\n\n普通内容","## 快速记录\n\n普通内容",
+            "# 今日日记\n\n## 快速记录\n\n普通自由记录", "### 自定义根\n\n##### 随手记录\n\n###### 09:00 普通记录\n\n正文",
+            `## 快速记录\n\n普通引用 ((${PROJECT_ID} "合成项目"))`]) {
+            const plain=await fixture({shapes:{[ids[0]]:{template}}});plain.state.unlinked=true;
+            const base=structuredClone(plain.state.files.get(DIARY));
+            assert.equal((await plain.runtime.rebuildEnhancedDiaryProjectRecordIndex(plain.config)).lastStatus,"success",template);
+            assert.equal(plain.state.files.get(RECORD).complete,true);assert.deepEqual(plain.state.files.get(RECORD).failures,[]);
+            assert.deepEqual(plain.state.files.get(DIARY),base);assert.equal(plain.state.calls.some((call)=>call.path === PROJECT),false,"unlinked diaries do not need the project structure index");
+        }
+        for(const attrs of [null,[],{}, {[blockId(ids[0],"root")]:{}}, {[blockId(ids[0],"root")]:{id:"wrong-id"}}]) {
+            const damaged=await fixture({old:true});damaged.state.attrResponse=attrs;
+            const old=structuredClone(damaged.state.files.get(RECORD).items);
+            assert.equal((await damaged.runtime.rebuildEnhancedDiaryProjectRecordIndex(damaged.config)).lastStatus,"error");
+            assert.equal(damaged.state.files.get(RECORD).failures[0].reason,"block_attributes_read_failed");assert.deepEqual(damaged.state.files.get(RECORD).items,old);
+        }
+        for(const shape of ["missing-marker-block","outside-section","invalid-target"]) {
+            const unknown=await fixture({old:true});unknown.state.unlinked=true;
+            const response=blocks(ids[0],{empty:shape === "outside-section"});
+            const target=shape === "invalid-target"?"20261014000000-unknown":PROJECT_ID;
+            const marker=unknown.runtime.appendRecordProjectReference("合成关联内容",target,"合成项目");
+            if(shape === "outside-section")response.splice(1,0,{id:blockId(ids[0],"body"),type:"p",markdown:marker});
+            else if(shape === "invalid-target")response.at(-1).markdown=marker;
+            else response.splice(0,response.length,{id:blockId(ids[0],"body"),type:"p"});
+            unknown.state.blockResponses.set(ids[0],response);unknown.state.markdownResponses.set(ids[0],marker);
+            const previous=structuredClone(unknown.state.files.get(RECORD).items);
+            assert.equal((await unknown.runtime.rebuildEnhancedDiaryProjectRecordIndex(unknown.config)).lastStatus,"error");
+            assert.deepEqual(unknown.state.files.get(RECORD).items,previous,"visible evidence cannot become a false empty replacement");
+            assert.equal(unknown.state.files.get(RECORD).complete,false);
+        }
+
+        // Production coordinator/UI handlers: stub stage-one work, then use the real strict payload reader.
+        for(const failure of ["none","structure-error","structure-idle","incomplete","damaged","missing","records"]) {
+            const coordinated=await fixture({old:true});
+            const previous=structuredClone(coordinated.state.files.get(RECORD));
+            if(failure.startsWith("structure-"))coordinated.state.projectStatus={lastStatus:failure === "structure-error"?"error":"idle",lastMessage:"合成项目结构失败"};
+            if(failure === "incomplete")coordinated.state.files.get(PROJECT).complete=false;
+            if(failure === "damaged")coordinated.state.files.set(PROJECT,"corrupt");
+            if(failure === "missing")coordinated.state.files.delete(PROJECT);
+            if(failure === "records")coordinated.state.markdownFailures.add(ids[0]);
+            const results=await coordinated.runtime.rebuildEnhancedDiaryProjectIndexes(coordinated.config);
+            const calls=coordinated.state.calls.map((call)=>call.path);
+            assert.equal(coordinated.state.projectStages,1);
+            if(["none","records"].includes(failure)) {
+                assert.equal(results.enhancedDiaryProject.lastStatus,"success");
+                assert.equal(results.enhancedDiaryProjectRecord.lastStatus,failure === "none"?"success":"error");
+                assert(calls.indexOf("fixture:project-stage-end")<calls.indexOf(PROJECT));
+                assert(calls.indexOf(PROJECT)<calls.indexOf("/api/export/exportMdContent"));
+                if(failure === "records")assert.deepEqual(coordinated.state.files.get(RECORD).items,previous.items);
+            } else {
+                assert.notEqual(results.enhancedDiaryProject.lastStatus,"success");assert.equal(results.enhancedDiaryProjectRecord.lastStatus,"idle");
+                assert.equal(coordinated.state.writes.length,0);assert.deepEqual(coordinated.state.files.get(RECORD),previous);
+                assert.equal(calls.includes("/api/export/exportMdContent"),false);
+            }
+        }
+        const controls=await fixture({old:true});let releaseStage;
+        controls.state.projectBarrier=new Promise((resolve)=>{releaseStage=resolve;});
+        const control=controls.runtime.indexSettings({loadData:async()=>controls.config});
+        const pending=control.rebuild();await new Promise((resolve)=>setImmediate(resolve));
+        assert.equal(control.snapshot.isProjectIndexRebuilding,true);
+        await Promise.all([control.rebuild(),control.rebuildAll(),control.refreshAll(),control.copy()]);
+        assert.equal(controls.state.projectStages,1);assert.equal(controls.state.clipboard.length,0);assert.equal(controls.state.writes.length,0);
+        releaseStage();await pending;
+        assert.equal(control.snapshot.isProjectIndexRebuilding,false);assert.match(control.snapshot.summary,/完整成功.*项目 1 个.*记录 1 条/);
+        assert.deepEqual(control.events,["siyuan-homepage:enhanced-diary-indexes-updated"]);
+        controls.state.projectBarrier=undefined;controls.state.shapes[ids[0]]={missingQuick:true,orphanRecord:true};
+        await control.rebuild();assert.equal(control.snapshot.projectIndexStatus.lastStatus,"success");assert.equal(control.snapshot.projectRecordIndexStatus.lastStatus,"error");
+        await control.copy();assert.equal(controls.state.clipboard.length,1);
+        assert.equal(JSON.parse(controls.state.clipboard[0]).failures[0].reason,"quick_record_heading_missing");
+        assert.doesNotMatch(controls.state.clipboard[0],/preview|fixture record|fixture project|items|notebookId/);
+        assert.equal(control.events.length,2,"partial success still announces the updated project domain");
+        for(const operation of ["rebuildAll","refreshAll"]) {
+            const bulk=await fixture({old:true});bulk.state.projectStatus={lastStatus:"error",lastMessage:"合成失败"};
+            let release;bulk.state.projectBarrier=new Promise((resolve)=>{release=resolve;});
+            const view=bulk.runtime.indexSettings({loadData:async()=>bulk.config});
+            const run=view[operation]();await new Promise((resolve)=>setImmediate(resolve));
+            await Promise.all([view.rebuild(),view.rebuildAll(),view.refreshAll()]);
+            release();await run;assert.equal(bulk.state.projectStages,1);assert.equal(bulk.state.writes.length,0);
+            assert.equal(view.snapshot.projectRecordIndexStatus.lastStatus,"idle");assert.equal(view.snapshot.enhancedDiaryIndexStatus.lastStatus,"success");
+            assert.equal(view.events.length,1,"unrelated diary success survives project stage failure");
+        }
+        const disposed=await fixture();let releaseDisposed;
+        disposed.state.projectBarrier=new Promise((resolve)=>{releaseDisposed=resolve;});
+        const closed=disposed.runtime.indexSettings({loadData:async()=>disposed.config});const closedRun=closed.rebuild();
+        await new Promise((resolve)=>setImmediate(resolve));closed.destroy();const beforeClosed=structuredClone(closed.snapshot);
+        releaseDisposed();await closedRun;assert.deepEqual(closed.snapshot,beforeClosed);assert.deepEqual(closed.events,[]);
+        // Render the real settings template: one operation button, its disabled state and retained diagnostic control.
+        const renderButtons=(state)=>{
+            globalThis.__indexRender=state;
+            const html=controls.runtime.render(controls.runtime.IndexSettings,{props:{plugin:{}}}).body;
+            const buttons=[...html.matchAll(/<button\b([^>]*)>([\s\S]*?)<\/button>/g)].map((match)=>({attrs:match[1],text:match[2].replace(/<!--[\s\S]*?-->/g,"").trim()}));
+            return {html,buttons};
+        };
+        const initial=renderButtons({});assert.equal(initial.buttons.filter((button)=>button.text === "重建强化日记项目索引").length,1);
+        assert(initial.buttons.some((button)=>button.text === "刷新日记索引"));assert(initial.buttons.some((button)=>button.text === "重建日记索引"));
+        assert(!initial.buttons.some((button)=>button.text === "重建项目记录索引" || button.text === "重建项目索引"));
+        for(const busy of ["isProjectIndexRebuilding","isRebuildingAll","isRefreshingAll"]) {
+            const rendered=renderButtons({[busy]:true});
+            for(const button of rendered.buttons.filter((button)=>["重建中...","刷新中...","重建强化日记项目索引","一键重建所有检索","一键刷新所有检索"].includes(button.text)))assert.match(button.attrs,/disabled/);
+        }
+        const diagnosticPanel=renderButtons(control.snapshot);
+        assert(diagnosticPanel.buttons.some((button)=>button.text === "复制诊断摘要"));assert.match(diagnosticPanel.html,/记录关联阶段/);
+        delete globalThis.__indexRender;
 
         const currentTemplate = all.runtime.DEFAULT_ENHANCED_DIARY_TEMPLATES.day;
         assert.equal(currentTemplate, RELEASED_DAY_TEMPLATE, "the captured v5.0.0 default matches the current empty template");
@@ -595,7 +764,8 @@ async function fixture({ count = 1, shapes = {}, old = false, complete = true } 
         assert.equal((await commonStructure.runtime.rebuildEnhancedDiaryProjectRecordIndex(commonStructure.config)).lastStatus,"success","common parent/time headings alone do not establish a record model");
         const nestedQuick=await fixture();
         nestedQuick.state.blockResponses.set(ids[0],[{id:blockId(ids[0],"body"),type:"sb",markdown:"{{{row\n\n## 快速记录\n\n}}}"}]);
-        assert.equal((await nestedQuick.runtime.rebuildEnhancedDiaryProjectRecordIndex(nestedQuick.config)).lastStatus,"error","a real orphan quick heading inside a container is explicit evidence");
+        assert.equal((await nestedQuick.runtime.rebuildEnhancedDiaryProjectRecordIndex(nestedQuick.config)).lastStatus,"success","a quick heading inside a container does not prove project association");
+        assert.equal((await nestedQuick.runtime.queryTodayQuickRecordsDetailed(ids[0],"## 快速记录","2026-10-01",nestedQuick.config.headingStructure,nestedQuick.config.templateFieldMapping,nestedQuick.config)).status,"failed","the enhanced record parser retains its strict protection");
         const quotedExample=await fixture();
         quotedExample.state.blockResponses.set(ids[0],[{id:blockId(ids[0],"body"),type:"c",markdown:"```md\n## 快速记录\n```"}]);
         assert.equal((await quotedExample.runtime.rebuildEnhancedDiaryProjectRecordIndex(quotedExample.config)).lastStatus,"success","code examples are not actual headings");
@@ -607,7 +777,8 @@ async function fixture({ count = 1, shapes = {}, old = false, complete = true } 
         missingHeading.state.kramdownResponses.set(blockId(ids[0],"root"),"# 普通标题\n{: id=\"fixture\"}");
         assert.equal((await missingHeading.runtime.rebuildEnhancedDiaryProjectRecordIndex(missingHeading.config)).lastStatus,"success");
         missingHeading.state.kramdownResponses.clear();missingHeading.state.blockResponses.set(ids[0],[{id:blockId(ids[0],"root"),type:"h",subType:"h1"}]);
-        assert.equal((await missingHeading.runtime.rebuildEnhancedDiaryProjectRecordIndex(missingHeading.config)).lastStatus,"error","unknown heading cannot hide evidence");
+        assert.equal((await missingHeading.runtime.rebuildEnhancedDiaryProjectRecordIndex(missingHeading.config)).lastStatus,"success","checked export and heading attributes prove no project association without template validation");
+        assert.equal((await missingHeading.runtime.queryTodayQuickRecordsDetailed(ids[0],"","2026-10-01",missingHeading.config.headingStructure,missingHeading.config.templateFieldMapping,missingHeading.config)).status,"failed","heading recovery failure remains strict for actual enhanced operations");
         const historyList=await fixture({old:true,complete:false});
         historyList.state.blockResponses.set(ids[0],[{id:blockId(ids[0],"body"),type:"l",subType:"u",markdown:"- 普通列表"}]);
         const retained=structuredClone(historyList.state.files.get(RECORD).items);
@@ -696,5 +867,5 @@ async function fixture({ count = 1, shapes = {}, old = false, complete = true } 
         assert.equal(historical.state.files.get(RECORD).failures[0].reason,"historical_relations_unconfirmed");
         assert(warnings.every(([, details]) => typeof details === "object" && !Object.hasOwn(details, "content")), "diagnostics must exclude private record bodies");
     } finally { console.warn = originalWarn; }
-    console.log("PASS enhanced diary: real parsers/index/open/notify and 150 dates; actual calendar renderItem with numeric timestamps, builtin/default/custom icons, old-date click/hover; month-end/year/leap navigation and real updateCalendar chain; strict failures/history and destroy protection; no user-document writes or calendar API scans");
+    console.log("PASS enhanced diary: association preflight and both reported dates with synthetic fixtures; strict parsing/history/notify; actual two-stage coordinator, settings handlers/render, overlap guards, clipboard and destroy protection; independent base index and 150 calendar dates/icons/month navigation; no user-document writes or body scans");
 }

@@ -3,7 +3,7 @@ import type { ComponentMigrationStatus } from "@/components/utils/widgetBlock/wi
 import type { EnhancedDiaryConfig } from "./enhancedDiaryTypes";
 import { ENHANCED_DIARY_PROJECT_RECORD_INDEX_PATH } from "./enhancedDiaryProjectTypes";
 import { getEnhancedDiaryIndexEntriesStrict } from "./enhancedDiaryIndex";
-import { queryTodayQuickRecordsDetailed, type EnhancedDiaryWorkspaceRecord } from "./workspace/enhancedDiaryWorkspaceRecordService";
+import { queryTodayQuickRecordsDetailed, readDiaryProjectAssociationEvidence, type EnhancedDiaryWorkspaceRecord } from "./workspace/enhancedDiaryWorkspaceRecordService";
 import { readDiaryMarkdownResult } from "./enhancedDiaryDoc";
 import { prepareChangedRecentDocsForIndex } from "@/components/tools/siyuanComponentDataApi";
 
@@ -247,15 +247,25 @@ async function readDiaryItemsForIndex(docId: string, date: string, config: Enhan
         const markdown = await readDiaryMarkdownResult(docId);
         if (!markdown.ok) return fail("markdown_read_failed");
         stage = "structure";
-        const detailed = await queryTodayQuickRecordsDetailed(docId, markdown.content, date, config.headingStructure, config.templateFieldMapping, config);
+        const evidence = await readDiaryProjectAssociationEvidence(docId, markdown.content);
+        if (evidence.ok === false) {
+            stage = evidence.stage;
+            return fail(evidence.reason);
+        }
+        if (!evidence.hasAssociation && !hasHistoricalRelations) return { items: [] };
+        const detailed = await queryTodayQuickRecordsDetailed(docId, markdown.content, date, config.headingStructure, config.templateFieldMapping, config, evidence.blocks);
         if (detailed.status === "not_applicable") {
-            if (!hasHistoricalRelations) return { items: [] };
-            stage = "structure";
-            return fail("historical_relations_unconfirmed");
+            stage = hasHistoricalRelations ? "structure" : "project_relations";
+            return fail(hasHistoricalRelations ? "historical_relations_unconfirmed" : "project_relation_read_failed");
         }
         if (!detailed.structureComplete || !detailed.relationComplete) {
             stage = detailed.stage || "structure";
             return fail(detailed.reason || "unexpected_error", detailed.missingPath);
+        }
+        if (evidence.hasAssociation && (!detailed.records.some((record) => record.projectTargetId) ||
+            detailed.records.some((record) => (record.hiddenProjectTargetId || record.visibleProjectTargetId) && !record.projectTargetId))) {
+            stage = "project_relations";
+            return fail("project_relation_read_failed");
         }
         stage = "index_items";
         return { items: detailed.records.map(projectRecordToIndexItem).filter((item): item is EnhancedDiaryProjectRecordIndexItem => !!item) };

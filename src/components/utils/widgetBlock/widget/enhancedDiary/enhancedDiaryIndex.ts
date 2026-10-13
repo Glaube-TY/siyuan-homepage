@@ -110,19 +110,19 @@ export async function getEnhancedDiaryIndexStatus(notebookId: string): Promise<C
     if (!notebookId) return { lastStatus: "idle", lastMessage: "尚未配置日记笔记本。" };
     try {
         const raw = await getFile(INDEX_PATH);
-        if (!hasIndexFileResponse(raw)) return { lastStatus: "idle", lastMessage: "强化日记索引尚未建立。" };
+        if (!hasIndexFileResponse(raw)) return { lastStatus: "idle", lastMessage: "日记索引尚未建立。" };
         const parsed = await fileToObject(raw);
-        if (!isIndexPayload(parsed)) return { lastStatus: "error", lastMessage: "强化日记索引文件损坏或版本无效，请重建。" };
+        if (!isIndexPayload(parsed)) return { lastStatus: "error", lastMessage: "日记索引文件损坏或版本无效，请重建。" };
         if (parsed.notebookId !== notebookId) {
-            return { lastRunAt: parsed.updatedAt, lastStatus: "idle", lastMessage: "日记笔记本配置已变化，需要重建强化日记索引。" };
+            return { lastRunAt: parsed.updatedAt, lastStatus: "idle", lastMessage: "日记笔记本配置已变化，需要重建日记索引。" };
         }
         const migratedCount = Object.keys(parsed.docs).length;
         if (!parsed.complete) {
-            return { lastRunAt: parsed.updatedAt, lastStatus: "idle", lastMessage: "强化日记索引尚未完整，请重建。", migratedCount };
+            return { lastRunAt: parsed.updatedAt, lastStatus: "idle", lastMessage: "日记索引尚未完整，请重建。", migratedCount };
         }
-        return { lastRunAt: parsed.updatedAt, lastStatus: "success", lastMessage: `强化日记索引完整，共 ${migratedCount} 篇日记。`, migratedCount };
+        return { lastRunAt: parsed.updatedAt, lastStatus: "success", lastMessage: `日记索引完整，共 ${migratedCount} 篇日记。`, migratedCount };
     } catch (error) {
-        return { lastStatus: "error", lastMessage: error instanceof Error ? error.message : "强化日记索引状态读取失败。" };
+        return { lastStatus: "error", lastMessage: error instanceof Error ? error.message : "日记索引状态读取失败。" };
     }
 }
 
@@ -257,7 +257,7 @@ function queueIndexWrite(notebookId: string, work: () => Promise<void>): Promise
 }
 
 async function rebuildInternal(notebookId: string): Promise<ComponentMigrationStatus> {
-    if (!notebookId) return { lastRunAt: new Date().toISOString(), lastStatus: "error", lastMessage: "未配置日记笔记本，无法重建强化日记索引。" };
+    if (!notebookId) return { lastRunAt: new Date().toISOString(), lastStatus: "error", lastMessage: "未配置日记笔记本，无法重建日记索引。" };
     try {
         // 先固定重建开始时的增量基线；之后发生的变动留给下一次刷新处理。
         const prepared = await prepareChangedRecentDocsForIndex("enhanced-diary");
@@ -273,9 +273,9 @@ async function rebuildInternal(notebookId: string): Promise<ComponentMigrationSt
         }
         await writeIndex({ ...emptyIndex(notebookId, true), docs });
         await prepared.commit();
-        return { lastRunAt: new Date().toISOString(), lastStatus: "success", migratedCount: Object.keys(docs).length, skippedCount: conflicts, lastMessage: `已建立 ${Object.keys(docs).length} 条强化日记索引。` };
+        return { lastRunAt: new Date().toISOString(), lastStatus: "success", migratedCount: Object.keys(docs).length, skippedCount: conflicts, lastMessage: `已建立 ${Object.keys(docs).length} 条日记索引。` };
     } catch (error) {
-        return { lastRunAt: new Date().toISOString(), lastStatus: "error", lastMessage: error instanceof Error ? error.message : "强化日记索引重建失败。" };
+        return { lastRunAt: new Date().toISOString(), lastStatus: "error", lastMessage: error instanceof Error ? error.message : "日记索引重建失败。" };
     }
 }
 
@@ -284,23 +284,23 @@ export async function rebuildEnhancedDiaryIndex(notebookId: string): Promise<Com
 }
 
 async function refreshInternal(notebookId: string, force: boolean, allowRebuild: boolean): Promise<ComponentMigrationStatus> {
-    if (!notebookId) return { lastRunAt: new Date().toISOString(), lastStatus: "error", lastMessage: "未配置日记笔记本，无法刷新强化日记索引。" };
+    if (!notebookId) return { lastRunAt: new Date().toISOString(), lastStatus: "error", lastMessage: "未配置日记笔记本，无法刷新日记索引。" };
     const now = Date.now();
     if (!force && now - (recentRefreshMemory.get(notebookId) || 0) < REFRESH_TTL_MS) {
-        return { lastRunAt: new Date().toISOString(), lastStatus: "success", refreshedCount: 0, lastMessage: "强化日记索引最近已刷新，跳过重复增量。" };
+        return { lastRunAt: new Date().toISOString(), lastStatus: "success", refreshedCount: 0, lastMessage: "日记索引最近已刷新，跳过重复增量。" };
     }
     try {
         const loaded = await readIndex(notebookId);
         if (!loaded.valid || !loaded.matched || !loaded.index.complete) {
             return allowRebuild
                 ? rebuildInternal(notebookId)
-                : { lastRunAt: new Date().toISOString(), lastStatus: "error", lastMessage: "强化日记索引尚未完整初始化，本次仅跳过通知增量刷新。" };
+                : { lastRunAt: new Date().toISOString(), lastStatus: "error", lastMessage: "日记索引尚未完整初始化，本次仅跳过通知增量刷新。" };
         }
         const { changedDocs, commit } = await prepareChangedRecentDocsForIndex("enhanced-diary");
         const ids = [...new Set(changedDocs.map((doc) => doc.id).filter(Boolean))];
         if (ids.length === 0) {
             recentRefreshMemory.set(notebookId, now);
-            return { lastRunAt: new Date().toISOString(), lastStatus: "success", refreshedCount: 0, lastMessage: "最近文档没有强化日记相关变动。" };
+            return { lastRunAt: new Date().toISOString(), lastStatus: "success", refreshedCount: 0, lastMessage: "最近文档没有日记相关变动。" };
         }
         const rows = await queryRowsByIds(ids);
         const index = { ...loaded.index, docs: { ...loaded.index.docs } };
@@ -316,7 +316,7 @@ async function refreshInternal(notebookId: string, force: boolean, allowRebuild:
         recentRefreshMemory.set(notebookId, now);
         return { lastRunAt: new Date().toISOString(), lastStatus: "success", refreshedCount: ids.length, lastMessage: `已处理 ${ids.length} 个最近变动文档。` };
     } catch (error) {
-        return { lastRunAt: new Date().toISOString(), lastStatus: "error", lastMessage: error instanceof Error ? error.message : "强化日记增量索引刷新失败。" };
+        return { lastRunAt: new Date().toISOString(), lastStatus: "error", lastMessage: error instanceof Error ? error.message : "日记增量索引刷新失败。" };
     }
 }
 
@@ -343,7 +343,7 @@ export async function getEnhancedDiaryIndexEntries(notebookId: string, dates?: s
 
 export async function getEnhancedDiaryIndexEntriesStrict(notebookId: string): Promise<Record<string, DiaryIndexEntry>> {
     const raw = await getFileChecked(INDEX_PATH);
-    if (!hasIndexFileResponse(raw)) throw new Error("强化日记索引不存在，通知扫描已停止。");
+    if (!hasIndexFileResponse(raw)) throw new Error("日记索引不存在，通知扫描已停止。");
     return validateStrictEntries(await fileToObject(raw), notebookId);
 }
 
@@ -354,12 +354,12 @@ export async function getDiaryIndexEntriesForDisplay(notebookId: string): Promis
 }
 
 function validateStrictEntries(parsed: any, notebookId: string): Record<string, DiaryIndexEntry> {
-    if (!isIndexPayload(parsed)) throw new Error("强化日记索引文件损坏或版本无效，通知扫描已停止。");
-    if (parsed.notebookId !== notebookId) throw new Error("强化日记索引与当前日记笔记本不一致，通知扫描已停止。");
-    if (!parsed.complete) throw new Error("强化日记索引尚未完整，通知扫描已停止。");
+    if (!isIndexPayload(parsed)) throw new Error("日记索引文件损坏或版本无效，通知扫描已停止。");
+    if (parsed.notebookId !== notebookId) throw new Error("日记索引与当前日记笔记本不一致，通知扫描已停止。");
+    if (!parsed.complete) throw new Error("日记索引尚未完整，通知扫描已停止。");
     if (Object.entries(parsed.docs).some(([date, entry]) => !isDate(date) || !entry ||
         entry.date !== date || entry.box !== notebookId || typeof entry.id !== "string" || !/^[0-9]{14}-[a-z0-9]{7}$/.test(entry.id))) {
-        throw new Error("强化日记索引条目无效，项目记录重建和通知扫描已停止。");
+        throw new Error("日记索引条目无效，项目记录重建和通知扫描已停止。");
     }
     cache = parsed;
     cacheNotebookId = notebookId;
