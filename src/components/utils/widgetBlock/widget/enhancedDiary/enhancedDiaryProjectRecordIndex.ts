@@ -247,7 +247,7 @@ async function readDiaryItemsForIndex(docId: string, date: string, config: Enhan
         const markdown = await readDiaryMarkdownResult(docId);
         if (!markdown.ok) return fail("markdown_read_failed");
         stage = "structure";
-        const evidence = await readDiaryProjectAssociationEvidence(docId, markdown.content);
+        const evidence = await readDiaryProjectAssociationEvidence(docId, config.headingStructure, config.templateFieldMapping);
         if (evidence.ok === false) {
             stage = evidence.stage;
             return fail(evidence.reason);

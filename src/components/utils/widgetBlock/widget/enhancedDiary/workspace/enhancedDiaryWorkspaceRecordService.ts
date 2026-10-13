@@ -428,16 +428,45 @@ function validateDiaryBlocks(blocks: IResGetChildBlock[]): IResGetChildBlock[] {
     return copy;
 }
 
+function recordProjectReference(markdown: string): string | undefined {
+    let fence = "";
+    const lines = markdown.split("\n").filter((line) => {
+        const delimiter = /^\s*(`{3,}|~{3,})/.exec(line)?.[1];
+        if (delimiter) {
+            if (!fence) fence = delimiter;
+            else if (delimiter[0] === fence[0] && delimiter.length >= fence.length) fence = "";
+            return false;
+        }
+        return !fence && !/^\s*(?:>|(?:[-+*]|\d+[.)])\s+\[[^\]]*\])/.test(line);
+    }).join("\n").replace(/(`+)[\s\S]*?\1/g, "");
+    let reference: string | undefined;
+    // Use the last actual reference, not the last folder emoji; task parsing keeps its existing semantics.
+    for (const match of lines.matchAll(/📁\s*\(\([0-9]{14}-[a-z0-9]{7}(?:\s+["'](?:\\.|[^"'])*["'])?\)\)/gi)) reference = match[0];
+    return reference;
+}
+
+function isRecordReferenceBody(block: IResGetChildBlock): boolean {
+    return !["h", "c", "m", "html"].includes(block.type);
+}
+
 /** Project-index applicability is independent of the enhanced diary template. */
-export async function readDiaryProjectAssociationEvidence(docId: string, markdown: string): Promise<
+export async function readDiaryProjectAssociationEvidence(
+    docId: string,
+    headingStructure?: EnhancedDiaryHeadingStructureConfig,
+    mapping?: EnhancedDiaryTemplateFieldMapping | null,
+): Promise<
     { ok: true; hasAssociation: boolean; blocks: IResGetChildBlock[] } |
     { ok: false; stage: "structure" | "attributes"; reason: string }
 > {
     let stage: "structure" | "attributes" = "structure";
     try {
         const blocks = validateDiaryBlocks(await getChildBlocksChecked(docId));
-        // The checked document export also covers markers inside lists, tables and other nested blocks.
-        let hasAssociation = !!parseVisibleProjectTargetId(markdown);
+        for (const block of blocks.filter((block) => block.type === "h" && block.markdown === undefined)) {
+            const raw = await getBlockKramdownChecked(block.id);
+            if (raw?.id !== block.id || typeof raw.kramdown !== "string") throw new Error("heading_markdown_missing");
+            block.markdown = raw.kramdown;
+        }
+        let hasAssociation = false;
         stage = "attributes";
         const ids = blocks.filter((block) => block.type === "h").map((block) => block.id);
         for (let offset = 0; offset < ids.length; offset += 64) {
@@ -453,6 +482,38 @@ export async function readDiaryProjectAssociationEvidence(docId: string, markdow
                     throw new Error("project_attribute_response_invalid");
                 }
                 if (attrs[ENHANCED_DIARY_PROJECT_TARGET_ATTR]) hasAssociation = true;
+            }
+        }
+        stage = "structure";
+        const lookup = await findDayWorkspaceHeadingBlock(docId, "quickRecords", headingStructure, mapping, blocks);
+        // An orphan quick-record section can still carry real records; strict parsing reports its missing root.
+        const quickAliases = getFieldAliases(mapping, "dayWorkspaceSections", "quickRecords");
+        const quick = lookup.heading ?? lookup.headings.find((heading) => headingTitleMatchesAliases(heading.title, quickAliases));
+        if (quick) {
+            const boundary = blocks.findIndex((block, index) => index > quick.index && (parseHeadingBlock(block, index)?.level || 7) <= quick.level);
+            const end = boundary < 0 ? blocks.length : boundary;
+            let categoryLevel = 0;
+            for (let index = quick.index + 1; index < end; index++) {
+                const heading = parseHeadingBlock(blocks[index], index);
+                if (!heading) continue;
+                if (heading.level === quick.level + 1 || (heading.level > quick.level + 1 && (!categoryLevel || heading.level <= categoryLevel))) {
+                    categoryLevel = heading.level;
+                    continue;
+                }
+                if (!categoryLevel || heading.level <= categoryLevel) continue;
+                const body: string[] = [];
+                for (let next = index + 1; next < end; next++) {
+                    if ((parseHeadingBlock(blocks[next], next)?.level || 7) <= heading.level) break;
+                    const block = blocks[next];
+                    if (!isRecordReferenceBody(block)) continue;
+                    if (block.markdown === undefined && !(block.type === "p" && (block.content === undefined || block.content === ""))) {
+                        const raw = await getBlockKramdownChecked(block.id);
+                        if (raw?.id !== block.id || typeof raw.kramdown !== "string") throw new Error("record_markdown_missing");
+                        block.markdown = raw.kramdown;
+                    }
+                    body.push(block.markdown || "");
+                }
+                if (recordProjectReference(body.join("\n\n"))) hasAssociation = true;
             }
         }
         return { ok: true, hasAssociation, blocks };
@@ -491,8 +552,7 @@ export async function queryTodayQuickRecordsDetailed(
             const childMarkdown = blocks.map((block) => block.markdown).join("\n\n");
             const hasRecordStructure = [...qrLookup.headings, ...flattenHeadingTree(parseMarkdownHeadingTree(childMarkdown))]
                 .some((heading) => headingTitleMatchesAliases(heading.title, quickAliases));
-            if (!hasRecordStructure &&
-                !parseVisibleProjectTargetId(childMarkdown)) {
+            if (!hasRecordStructure) {
                 stage = "attributes";
                 reason = "block_attributes_read_failed";
                 // Project records bind relations to headings; ordinary body blocks need no attribute requests.
@@ -556,11 +616,13 @@ export async function queryTodayQuickRecordsDetailed(
 
             const contentBlockIds: string[] = [];
             const contentLines: string[] = [];
+            const projectReferenceLines: string[] = [];
             for (let j = i + 1; j < effectiveEnd; j++) {
                 const nextHeading = parseHeadingBlock(blocks[j], j);
                 if (nextHeading && nextHeading.level <= heading.level) break;
                 if (blocks[j].id) contentBlockIds.push(blocks[j].id);
                 if (blocks[j].markdown) contentLines.push(blocks[j].markdown);
+                if (isRecordReferenceBody(blocks[j]) && blocks[j].markdown) projectReferenceLines.push(blocks[j].markdown);
                 coveredBlocks.add(j);
             }
 
@@ -575,6 +637,7 @@ export async function queryTodayQuickRecordsDetailed(
                 timeText: extractTimeText(heading.title),
                 content,
                 ...baseRecordMetadata(heading.title, content),
+                visibleProjectTargetId: parseVisibleProjectTargetId(recordProjectReference(projectReferenceLines.join("\n\n"))),
                 docId,
                 date,
                 headingBlockId: heading.id,
@@ -605,7 +668,8 @@ export async function queryTodayQuickRecordsDetailed(
             }
             records.forEach((record) => {
                 const attrs = attrsById?.[record.headingBlockId || ""] || {};
-                const relation = resolveProjectRelation(projectIndex, attrs, record.rawProjectContent || record.content);
+                const visibleReference = record.visibleProjectTargetId ? `📁((${record.visibleProjectTargetId}))` : "";
+                const relation = resolveProjectRelation(projectIndex, attrs, visibleReference);
                 record.projectTargetId = relation.projectTargetId;
                 record.hiddenProjectTargetId = relation.hiddenProjectTargetId;
                 record.visibleProjectTargetId = relation.visibleProjectTargetId;

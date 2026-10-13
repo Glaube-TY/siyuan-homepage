@@ -97,10 +97,11 @@ const bundled = await build({
             return {pending,destroy(){isDestroyed=true;},get snapshot(){return {calendarDates,displayedDocs,dailyNotesReadFailed,dailyNotesLimited,scheduled};}};
         }
         export { readDiaryMarkdownResult, openOrCreateDiaryForDate } from "./${diaryDir}/enhancedDiaryDoc";
-        export { queryTodayQuickRecordsDetailed } from "./${diaryDir}/workspace/enhancedDiaryWorkspaceRecordService";
+        export { queryTodayQuickRecordsDetailed, readDiaryProjectAssociationEvidence } from "./${diaryDir}/workspace/enhancedDiaryWorkspaceRecordService";
         export {loadEnhancedDiaryNotifySnapshot} from "./src/features/enhanced-diary-notify/enhanced-diary-notify-snapshot";
         export {rebuildAllHomepageIndexes,rebuildEnhancedDiaryProjectIndexes,refreshAllHomepageIndexes} from "./src/components/tools/homepageIndexManagement";
-        export { appendRecordProjectReference } from "./src/features/task-data/task-project-reference";
+        export { appendRecordProjectReference, parseVisibleProjectTargetId } from "./src/features/task-data/task-project-reference";
+        export {generateTaskLine} from "./src/features/task-data/task-parser";
         export { rebuildEnhancedDiaryProjectRecordIndex, refreshEnhancedDiaryProjectRecordIndex,
             readEnhancedDiaryProjectRecordIndex, readEnhancedDiaryProjectRecordIndexStrict, getEnhancedDiaryProjectRecordIndexStatus,
             formatEnhancedDiaryProjectRecordDiagnostics } from "./${diaryDir}/enhancedDiaryProjectRecordIndex";
@@ -266,6 +267,87 @@ async function fixture({ count = 1, shapes = {}, old = false, complete = true } 
         assert.equal((await linked.runtime.rebuildEnhancedDiaryProjectRecordIndex(linked.config)).lastStatus, "success");
         assert.equal(Object.values(linked.state.files.get(RECORD).items)[0].relationStatus, "normal");
 
+        // Generate task Markdown with the production task parser, not a hand-written lookalike.
+        const otherProject="20261008000009-qqqqqqq";
+        function taskRecordBlocks(test,{tasks=1,empty=false,body="普通未关联记录",ordinary=false}={}) {
+            const response=blocks(ids[0],{empty,body});
+            const taskLines=Array.from({length:tasks},(_,index)=>test.runtime.generateTaskLine({taskname:`合成项目任务 ${index+1}`,projectTargetId:otherProject,projectTitle:"合成任务项目"}));
+            const heading=(suffix,level,title)=>({id:ids[0].slice(0,15)+suffix,type:"h",subType:`h${level}`,markdown:`${"#".repeat(level)} ${title}`});
+            const list={id:ids[0].slice(0,15)+"tasksaa",type:"l",subType:"t",markdown:taskLines.join("\n")};
+            if(ordinary)return [{id:blockId(ids[0],"body"),type:"p",markdown:"普通日记"},list];
+            if(tasks)response.splice(1,0,heading("taskmaa",2,"任务管理"),heading("newtask",3,"新建任务"),list,heading("migtask",3,"迁移任务"));
+            return response;
+        }
+        function useResponse(test,response,{hidden=false}={}) {
+            test.state.blockResponses.set(ids[0],response);
+            test.state.markdownResponses.set(ids[0],response.map((block)=>block.markdown||"").join("\n\n"));
+            const attrs=Object.fromEntries(response.filter((block)=>block.type === "h").map((block)=>[block.id,{id:block.id}]));
+            if(hidden)attrs[blockId(ids[0],"record")]["custom-homepage-enhanced-diary-project-target"]=PROJECT_ID;
+            // The task's hidden relation lives on its list item, never on a record heading.
+            attrs[ids[0].slice(0,15)+"taskida"]={id:ids[0].slice(0,15)+"taskida","custom-homepage-enhanced-diary-project-target":otherProject};
+            test.state.attrResponse=attrs;
+            test.state.files.get(PROJECT).roots[otherProject]={...test.state.files.get(PROJECT).roots[PROJECT_ID],id:otherProject,title:"合成任务项目"};
+        }
+        for(const scenario of [{tasks:0,empty:true},{tasks:1,empty:true},{tasks:3,empty:true},{tasks:1},{tasks:3},{tasks:2,ordinary:true}]) {
+            const taskOnly=await fixture();useResponse(taskOnly,taskRecordBlocks(taskOnly,scenario));
+            const base=structuredClone(taskOnly.state.files.get(DIARY)),projects=structuredClone(taskOnly.state.files.get(PROJECT));
+            const evidence=await taskOnly.runtime.readDiaryProjectAssociationEvidence(ids[0],taskOnly.config.headingStructure,taskOnly.config.templateFieldMapping);
+            assert.equal(evidence.ok,true);assert.equal(evidence.hasAssociation,false,JSON.stringify(scenario));
+            const result=await taskOnly.runtime.rebuildEnhancedDiaryProjectRecordIndex(taskOnly.config);
+            assert.equal(result.lastStatus,"success");assert.equal(result.skippedCount,0);
+            assert.equal(taskOnly.state.files.get(RECORD).complete,true);assert.deepEqual(taskOnly.state.files.get(RECORD).items,{});assert.deepEqual(taskOnly.state.files.get(RECORD).failures,[]);
+            assert.deepEqual(taskOnly.state.files.get(DIARY),base);assert.deepEqual(taskOnly.state.files.get(PROJECT),projects);
+            assert(taskOnly.state.calls.filter((call)=>call.path === "/api/attr/batchGetBlockAttrs").every((call)=>call.payload.ids.every((id)=>taskOnly.state.blockResponses.get(ids[0]).find((block)=>block.id === id)?.type === "h")),"record evidence never inspects task attributes");
+        }
+        for(const [body,hidden] of [["普通记录",true],[linked.runtime.appendRecordProjectReference("合成记录",PROJECT_ID,"合成记录项目"),false],
+            [linked.runtime.appendRecordProjectReference("合成记录",PROJECT_ID,"合成记录项目")+"\n\n普通 📁 文本",false]]) {
+            const both=await fixture();const response=taskRecordBlocks(both,{tasks:2,body});useResponse(both,response,{hidden});
+            assert.equal((await both.runtime.rebuildEnhancedDiaryProjectRecordIndex(both.config)).lastStatus,"success");
+            const item=Object.values(both.state.files.get(RECORD).items)[0];
+            assert.equal(Object.keys(both.state.files.get(RECORD).items).length,1);assert.equal(item.projectTargetId,PROJECT_ID);
+            assert.equal(item.hiddenProjectTargetId,hidden?PROJECT_ID:undefined);assert.equal(item.visibleProjectTargetId,hidden?undefined:PROJECT_ID);
+            assert.equal(item.relationStatus,hidden?"missing_visible_reference":"missing_hidden_relation");
+            if(body.endsWith("文本"))assert.equal(both.runtime.parseVisibleProjectTargetId(body),undefined,"shared task/reference semantics are intentionally unchanged");
+        }
+        const multiple=await fixture();const firstRef=multiple.runtime.appendRecordProjectReference("合成记录一",PROJECT_ID,"项目一");
+        const secondRef=multiple.runtime.appendRecordProjectReference("合成记录二",otherProject,"项目二")+"\n\n普通 📁 文本";
+        const multipleResponse=taskRecordBlocks(multiple,{tasks:2,body:firstRef});
+        multipleResponse.push({id:ids[0].slice(0,15)+"rectwoa",type:"h",subType:"h4",markdown:"#### 10:00 记录二"},{id:ids[0].slice(0,15)+"bodytwo",type:"p",markdown:secondRef});
+        useResponse(multiple,multipleResponse);assert.equal((await multiple.runtime.rebuildEnhancedDiaryProjectRecordIndex(multiple.config)).lastStatus,"success");
+        assert.equal(multiple.state.files.get(RECORD).items[blockId(ids[0],"record")].projectTargetId,PROJECT_ID);
+        assert.equal(multiple.state.files.get(RECORD).items[ids[0].slice(0,15)+"rectwoa"].projectTargetId,otherProject);
+        const sameRecord=await fixture();useResponse(sameRecord,taskRecordBlocks(sameRecord,{body:firstRef+"\n\n"+secondRef}));
+        assert.equal((await sameRecord.runtime.rebuildEnhancedDiaryProjectRecordIndex(sameRecord.config)).lastStatus,"success");
+        assert.equal(Object.values(sameRecord.state.files.get(RECORD).items)[0].visibleProjectTargetId,otherProject,"multiple actual references retain the existing last-reference choice within this record");
+        const mapped=await fixture();mapped.config.templateFieldMapping.rootHeadings.day=["我的日记"];
+        mapped.config.templateFieldMapping.dayWorkspaceSections.quickRecords=["随手专区"];
+        useResponse(mapped,blocks(ids[0],{rootTitle:"我的日记",quickTitle:"随手专区",quickLevel:3,body:firstRef}));
+        assert.equal((await mapped.runtime.rebuildEnhancedDiaryProjectRecordIndex(mapped.config)).lastStatus,"success");
+        assert.equal(Object.values(mapped.state.files.get(RECORD).items)[0].projectTargetId,PROJECT_ID,"visible evidence respects configured heading aliases and category levels");
+        for(const example of ["```md\n"+firstRef+"\n```","~~~~md\n"+firstRef+"\n~~~~","`"+firstRef+"`",firstRef.split("\n").map((line)=>"> "+line).join("\n"),
+            multiple.runtime.generateTaskLine({taskname:"记录区里的任务",projectTargetId:PROJECT_ID,projectTitle:"任务项目"})]) {
+            const code=await fixture();useResponse(code,taskRecordBlocks(code,{tasks:1,body:example}));
+            assert.equal((await code.runtime.rebuildEnhancedDiaryProjectRecordIndex(code.config)).lastStatus,"success");
+            assert.deepEqual(code.state.files.get(RECORD).items,{});assert.deepEqual(code.state.files.get(RECORD).failures,[]);
+        }
+        const codeBlock=await fixture();const codeResponse=taskRecordBlocks(codeBlock,{body:firstRef});codeResponse.at(-1).type="c";useResponse(codeBlock,codeResponse);
+        assert.equal((await codeBlock.runtime.rebuildEnhancedDiaryProjectRecordIndex(codeBlock.config)).lastStatus,"success");assert.deepEqual(codeBlock.state.files.get(RECORD).items,{});
+        const mixedCode=await fixture();useResponse(mixedCode,taskRecordBlocks(mixedCode,{body:firstRef+"\n\n```md\n"+secondRef+"\n```\n\n普通 📁"}));
+        assert.equal((await mixedCode.runtime.rebuildEnhancedDiaryProjectRecordIndex(mixedCode.config)).lastStatus,"success");
+        assert.equal(Object.values(mixedCode.state.files.get(RECORD).items)[0].visibleProjectTargetId,PROJECT_ID,"a code example or folder text cannot replace the actual record reference");
+        const taskHistory=await fixture({old:true});useResponse(taskHistory,taskRecordBlocks(taskHistory,{ordinary:true,tasks:3}));
+        const savedTaskHistory=structuredClone(taskHistory.state.files.get(RECORD).items);
+        assert.equal((await taskHistory.runtime.rebuildEnhancedDiaryProjectRecordIndex(taskHistory.config)).lastStatus,"error");
+        assert.deepEqual(taskHistory.state.files.get(RECORD).items,savedTaskHistory);assert.equal(taskHistory.state.files.get(RECORD).failures[0].reason,"historical_relations_unconfirmed");
+        for(const error of ["markdown","attributes"]){
+            const taskFailure=await fixture({old:true});useResponse(taskFailure,taskRecordBlocks(taskFailure,{tasks:1,empty:true}));
+            if(error === "markdown")taskFailure.state.markdownFailures.add(ids[0]);else taskFailure.state.attrFailure=true;
+            const previous=structuredClone(taskFailure.state.files.get(RECORD).items);
+            assert.equal((await taskFailure.runtime.rebuildEnhancedDiaryProjectRecordIndex(taskFailure.config)).lastStatus,"error");
+            assert.deepEqual(taskFailure.state.files.get(RECORD).items,previous);
+            assert.equal(taskFailure.state.files.get(RECORD).failures[0].reason,error === "markdown"?"markdown_read_failed":"block_attributes_read_failed");
+        }
+
         // Same dates as the report, entirely synthetic bodies and IDs. Template signals alone are not project evidence.
         for(const [date,reason] of [["20260622","quick_record_structure_unsupported"],["20260627","diary_root_missing"]]) {
             for(const evidence of ["none","hidden","visible","history"]) {
@@ -307,7 +389,7 @@ async function fixture({ count = 1, shapes = {}, old = false, complete = true } 
             assert.equal(damaged.state.files.get(RECORD).failures[0].reason,"block_attributes_read_failed");assert.deepEqual(damaged.state.files.get(RECORD).items,old);
         }
         for(const shape of ["missing-marker-block","outside-section","invalid-target"]) {
-            const unknown=await fixture({old:true});unknown.state.unlinked=true;
+            const unknown=await fixture({old:shape !== "outside-section"});unknown.state.unlinked=true;
             const response=blocks(ids[0],{empty:shape === "outside-section"});
             const target=shape === "invalid-target"?"20261014000000-unknown":PROJECT_ID;
             const marker=unknown.runtime.appendRecordProjectReference("合成关联内容",target,"合成项目");
@@ -315,10 +397,11 @@ async function fixture({ count = 1, shapes = {}, old = false, complete = true } 
             else if(shape === "invalid-target")response.at(-1).markdown=marker;
             else response.splice(0,response.length,{id:blockId(ids[0],"body"),type:"p"});
             unknown.state.blockResponses.set(ids[0],response);unknown.state.markdownResponses.set(ids[0],marker);
-            const previous=structuredClone(unknown.state.files.get(RECORD).items);
-            assert.equal((await unknown.runtime.rebuildEnhancedDiaryProjectRecordIndex(unknown.config)).lastStatus,"error");
-            assert.deepEqual(unknown.state.files.get(RECORD).items,previous,"visible evidence cannot become a false empty replacement");
-            assert.equal(unknown.state.files.get(RECORD).complete,false);
+            const previous=structuredClone(unknown.state.files.get(RECORD)?.items);
+            assert.equal((await unknown.runtime.rebuildEnhancedDiaryProjectRecordIndex(unknown.config)).lastStatus,shape === "outside-section"?"success":"error");
+            if(shape === "outside-section")assert.deepEqual(unknown.state.files.get(RECORD).items,{},"ordinary body links outside records are not record evidence");
+            else assert.deepEqual(unknown.state.files.get(RECORD).items,previous,"uncertain historical records cannot become a false empty replacement");
+            assert.equal(unknown.state.files.get(RECORD).complete,shape === "outside-section");
         }
 
         // Production coordinator/UI handlers: stub stage-one work, then use the real strict payload reader.
@@ -392,6 +475,17 @@ async function fixture({ count = 1, shapes = {}, old = false, complete = true } 
         }
         const diagnosticPanel=renderButtons(control.snapshot);
         assert(diagnosticPanel.buttons.some((button)=>button.text === "复制诊断摘要"));assert.match(diagnosticPanel.html,/记录关联阶段/);
+        const structureOnly=await fixture({old:true,complete:false});structureOnly.state.projectStatus={lastStatus:"error",lastMessage:"合成项目结构失败"};
+        structureOnly.state.files.get(RECORD).failures=[{docId:ids[0],date:"2026-10-01",stage:"structure",reason:"historical_relations_unconfirmed"}];
+        const priorDiagnostics=structuredClone(structureOnly.state.files.get(RECORD));
+        const structureControl=structureOnly.runtime.indexSettings({loadData:async()=>structureOnly.config});await structureControl.rebuild();await structureControl.copy();
+        const structurePanel=renderButtons(structureControl.snapshot);assert.match(structurePanel.html,/合成项目结构失败/);
+        assert(!structurePanel.buttons.some((button)=>button.text === "复制诊断摘要"));assert.equal(structureOnly.state.clipboard.length,0);
+        assert.deepEqual(structureOnly.state.files.get(RECORD),priorDiagnostics,"a skipped record stage preserves the old file without offering its diagnostics as the current failure");
+        for(const source of ["enhanced-diary-project-record-read-error","enhanced-diary-project-record-write-error"]) {
+            const panel=renderButtons({projectIndexStatus:{lastStatus:"success"},projectRecordIndexStatus:{lastStatus:"error",source,lastMessage:"合成 API 失败"}});
+            assert(!panel.buttons.some((button)=>button.text === "复制诊断摘要"),"read/write failure did not produce new per-diary diagnostics");
+        }
         delete globalThis.__indexRender;
 
         const currentTemplate = all.runtime.DEFAULT_ENHANCED_DIARY_TEMPLATES.day;
@@ -777,7 +871,8 @@ async function fixture({ count = 1, shapes = {}, old = false, complete = true } 
         missingHeading.state.kramdownResponses.set(blockId(ids[0],"root"),"# 普通标题\n{: id=\"fixture\"}");
         assert.equal((await missingHeading.runtime.rebuildEnhancedDiaryProjectRecordIndex(missingHeading.config)).lastStatus,"success");
         missingHeading.state.kramdownResponses.clear();missingHeading.state.blockResponses.set(ids[0],[{id:blockId(ids[0],"root"),type:"h",subType:"h1"}]);
-        assert.equal((await missingHeading.runtime.rebuildEnhancedDiaryProjectRecordIndex(missingHeading.config)).lastStatus,"success","checked export and heading attributes prove no project association without template validation");
+        assert.equal((await missingHeading.runtime.rebuildEnhancedDiaryProjectRecordIndex(missingHeading.config)).lastStatus,"error","unreadable headings cannot prove the record scope is absent");
+        assert.equal(missingHeading.state.files.get(RECORD).failures[0].reason,"block_structure_read_failed");
         assert.equal((await missingHeading.runtime.queryTodayQuickRecordsDetailed(ids[0],"","2026-10-01",missingHeading.config.headingStructure,missingHeading.config.templateFieldMapping,missingHeading.config)).status,"failed","heading recovery failure remains strict for actual enhanced operations");
         const historyList=await fixture({old:true,complete:false});
         historyList.state.blockResponses.set(ids[0],[{id:blockId(ids[0],"body"),type:"l",subType:"u",markdown:"- 普通列表"}]);
@@ -867,5 +962,5 @@ async function fixture({ count = 1, shapes = {}, old = false, complete = true } 
         assert.equal(historical.state.files.get(RECORD).failures[0].reason,"historical_relations_unconfirmed");
         assert(warnings.every(([, details]) => typeof details === "object" && !Object.hasOwn(details, "content")), "diagnostics must exclude private record bodies");
     } finally { console.warn = originalWarn; }
-    console.log("PASS enhanced diary: association preflight and both reported dates with synthetic fixtures; strict parsing/history/notify; actual two-stage coordinator, settings handlers/render, overlap guards, clipboard and destroy protection; independent base index and 150 calendar dates/icons/month navigation; no user-document writes or body scans");
+    console.log("PASS enhanced diary: task-only diaries excluded from record evidence; scoped hidden/visible references, multiple folder markers, code examples and aliases; strict orphan/error/history/notify protection; actual two-stage coordinator/settings render/clipboard guards; independent base index and 150 calendar dates; no user-document/project/notification writes or body scans");
 }

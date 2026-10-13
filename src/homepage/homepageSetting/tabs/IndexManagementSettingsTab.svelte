@@ -385,7 +385,7 @@
     }
 
     async function handleCopyProjectRecordDiagnostics() {
-        if (!plugin || isCopyingProjectRecordDiagnostics || isProjectIndexRebuilding || isRebuildingAll || isRefreshingAll) return;
+        if (!plugin || projectRecordIndexStatus.source !== "enhanced-diary-project-record-incomplete" || isCopyingProjectRecordDiagnostics || isProjectIndexRebuilding || isRebuildingAll || isRefreshingAll) return;
         isCopyingProjectRecordDiagnostics = true;
         try {
             const config = await loadEnhancedDiaryConfig(plugin);
@@ -640,7 +640,7 @@
         </SettingRow>
     {/if}
     {#if projectRecordIndexStatus.lastStatus !== "success" && projectRecordIndexStatus.lastMessage}<SettingRow title="记录关联阶段"><span class="index-status-text">{projectRecordIndexStatus.lastMessage}</span></SettingRow>{/if}
-    {#if projectRecordIndexStatus.lastStatus === "error" || projectIndexStatus.lastStatus === "error"}
+    {#if projectRecordIndexStatus.source === "enhanced-diary-project-record-incomplete"}
         <SettingRow title="诊断摘要" description="仅包含日记 ID、日期、失败阶段、原因代码和缺失字段路径，可复制给开发者排查。">
             <button type="button" class="index-action-btn" onclick={handleCopyProjectRecordDiagnostics} disabled={!plugin || isProjectIndexRebuilding || isRebuildingAll || isRefreshingAll || isCopyingProjectRecordDiagnostics}>
                 {isCopyingProjectRecordDiagnostics ? "复制中..." : "复制诊断摘要"}
