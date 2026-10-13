@@ -16,6 +16,11 @@ export interface DailyNoteInfo {
     created: string;  // 创建时间（原始格式）
     updated: string;  // 最后更新时间（原始格式）
     ial?: string;     // 内置图标解析来源
+    diaryDate?: string; // 官方日记日期，与文档名称独立
+}
+
+export function getDailyNoteDate(note: DailyNoteInfo): string {
+    return note.diaryDate || (/^\d{4}-\d{2}-\d{2}$/.test(note.content) ? note.content : "");
 }
 
 /**
@@ -40,7 +45,7 @@ export async function getLatestDailyNotesWithStatus(
         const config = await plugin?.loadData?.(ENHANCED_DIARY_CONFIG_FILE);
         dailyNotebookId = String(config?.dailyNotebookId || "").trim();
     } catch {
-        dailyNotebookId = "";
+        return { items: [], status: "error", mode: "index", message: "日记笔记本配置读取失败，未按未配置或空日记处理。" };
     }
     return getLatestDailyNotesDataResult(Boolean(includeBuiltinDocIcon), dailyNotebookId) as Promise<ComponentDataResult<DailyNoteInfo>>;
 }

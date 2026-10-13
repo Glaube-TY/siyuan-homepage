@@ -3,6 +3,7 @@
     import * as echarts from "@/utils/charts/echarts";
     import {
         getLatestDailyNotesWithStatus,
+        getDailyNoteDate,
         type DailyNoteInfo,
     } from "./latestDailyNotes";
     import { openDocs } from "@/components/tools/openDocs";
@@ -56,6 +57,8 @@
     // 原始数据
     let dailyNotes: DailyNoteInfo[] = [];
     let dailyNotesModeLabel = $state("近似模式");
+    let dailyNotesReadFailed = $state(false);
+    let dailyNotesLimited = $state(false);
     let dailyNotesStatusMessage = $state("未配置日记目录，最近更新 API 也未返回可识别日记。");
 
     // 最终显示的笔记
@@ -117,7 +120,7 @@
         dailyNotes: DailyNoteInfo[],
         month: string,
     ) {
-        const noteMap = new Map(dailyNotes.map((note) => [note.content, note]));
+        const noteMap = new Map(dailyNotes.map((note) => [getDailyNoteDate(note), note]));
         const [year, monthStr] = month.split("-");
         const monthNum = parseInt(monthStr, 10);
         const yearNum = parseInt(year, 10);
@@ -152,7 +155,9 @@
         const result = await getLatestDailyNotesWithStatus(plugin, useBuiltinDocIcon);
         if (isDestroyed) return;
         dailyNotes = result.items;
-        dailyNotesModeLabel = result.mode === "scoped_filetree" ? "目录模式" : "近似模式";
+        dailyNotesReadFailed = result.status === "error";
+        dailyNotesLimited = result.status === "limited";
+        dailyNotesModeLabel = result.status === "error" ? "读取失败" : result.mode === "index" ? "索引模式" : result.mode === "scoped_filetree" ? "有限目录模式" : "近似模式";
         dailyNotesStatusMessage = result.message || dailyNotesStatusMessage;
 
         const sorted = [...dailyNotes].sort((a, b) =>
@@ -201,7 +206,7 @@
                 params.seriesType === "custom"
             ) {
                 const date = params.name;
-                const note = dailyNotes.find((n) => n.content === date);
+                const note = dailyNotes.find((n) => getDailyNoteDate(n) === date);
                 if (note) {
                     if (recentJournalsShowType === "calendar" && !plugin.isMobile) {
                         hideImmediately();
@@ -216,7 +221,7 @@
                 params.seriesType === "custom"
             ) {
                 const date = params.name;
-                const note = dailyNotes.find((n) => n.content === date);
+                const note = dailyNotes.find((n) => getDailyNoteDate(n) === date);
                 if (note) {
                     // 从原生事件中获取页面级坐标
                     const nativeEvent = params.event?.event as MouseEvent | undefined;
@@ -669,7 +674,10 @@
 </script>
 
 <div class="content-display" data-widget-part="root">
-    {#if recentJournalsShowType == "list"}
+    {#if dailyNotesLimited}<p class="daily-data-status" role="status">{dailyNotesModeLabel}：{dailyNotesStatusMessage}</p>{/if}
+    {#if dailyNotesReadFailed}
+        <div class="daily-empty-state" data-widget-part="empty" role="status"><strong>日记读取失败</strong><span>{dailyNotesStatusMessage}</span></div>
+    {:else if recentJournalsShowType == "list"}
         <WidgetSemanticTitle
             widgetType="recent-journals"
             configuredTitle="📓最近日记"
@@ -772,6 +780,11 @@
 </div>
 
 <style lang="scss">
+    .daily-data-status {
+        margin: 0 0 0.5rem;
+        font-size: 12px;
+        color: var(--b3-theme-on-surface-light, #888);
+    }
     .hp-widget-body {
         display: flex;
         flex: 1;

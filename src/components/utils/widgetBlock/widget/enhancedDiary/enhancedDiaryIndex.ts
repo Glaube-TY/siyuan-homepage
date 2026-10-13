@@ -1,4 +1,4 @@
-import { getFile, getFileChecked, listDocsByPathChecked, putFileChecked, sqlChecked } from "@/api";
+import { getFile, getFileChecked, getFileOrNullChecked, listDocsByPathChecked, putFileChecked, sqlChecked } from "@/api";
 import { prepareChangedRecentDocsForIndex } from "@/components/tools/siyuanComponentDataApi";
 import type { ComponentMigrationStatus } from "@/components/utils/widgetBlock/widget/common/componentMigrationTypes";
 
@@ -344,7 +344,16 @@ export async function getEnhancedDiaryIndexEntries(notebookId: string, dates?: s
 export async function getEnhancedDiaryIndexEntriesStrict(notebookId: string): Promise<Record<string, DiaryIndexEntry>> {
     const raw = await getFileChecked(INDEX_PATH);
     if (!hasIndexFileResponse(raw)) throw new Error("强化日记索引不存在，通知扫描已停止。");
-    const parsed = await fileToObject(raw);
+    return validateStrictEntries(await fileToObject(raw), notebookId);
+}
+
+// Display may fall back only when the file is confirmed absent, never on an unreadable/incomplete index.
+export async function getDiaryIndexEntriesForDisplay(notebookId: string): Promise<Record<string, DiaryIndexEntry> | null> {
+    const raw = await getFileOrNullChecked(INDEX_PATH);
+    return raw === null ? null : validateStrictEntries(await fileToObject(raw), notebookId);
+}
+
+function validateStrictEntries(parsed: any, notebookId: string): Record<string, DiaryIndexEntry> {
     if (!isIndexPayload(parsed)) throw new Error("强化日记索引文件损坏或版本无效，通知扫描已停止。");
     if (parsed.notebookId !== notebookId) throw new Error("强化日记索引与当前日记笔记本不一致，通知扫描已停止。");
     if (!parsed.complete) throw new Error("强化日记索引尚未完整，通知扫描已停止。");

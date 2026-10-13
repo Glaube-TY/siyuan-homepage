@@ -43,6 +43,7 @@ import {
     aggregateHeatmapDocumentCounts,
     mergeHeatmapDocumentCountDays,
 } from "@/components/utils/widgetBlock/widget/heatmap/heatmapDocumentCounts";
+import { getDiaryIndexEntriesForDisplay, resolveEnhancedDiaryDateFromMetadata } from "@/components/utils/widgetBlock/widget/enhancedDiary/enhancedDiaryIndex";
 
 export type ComponentDataStatus = "ok" | "empty" | "limited" | "disabled" | "unsupported" | "error";
 export type ComponentDataMode =
@@ -84,6 +85,7 @@ export interface ComponentDocInfo {
     box?: string;
     path?: string;
     hpath?: string;
+    diaryDate?: string;
 }
 
 export type RecentDocsSortBy = "viewedAt" | "updated" | "openAt" | "closedAt";
@@ -2269,7 +2271,10 @@ export async function getRecentHeatmapCountsResult(
 export async function getRecentDailyNotesApi(includeBuiltinDocIcon = false): Promise<ComponentDocInfo[]> {
     try {
         const docs = await getRecentDocumentsApi([], includeBuiltinDocIcon, RECENT_DOCS_MAX_LIMIT, "updated");
-        return docs.filter((doc) => normalizeIal(doc.ial)?.includes("custom-dailynote-"));
+        return docs.flatMap((doc) => {
+            const date = resolveEnhancedDiaryDateFromMetadata({ ial: normalizeIal(doc.ial) });
+            return date ? [{ ...doc, diaryDate: `${date.date.slice(0, 4)}-${date.date.slice(4, 6)}-${date.date.slice(6, 8)}` }] : [];
+        });
     } catch {
         return [];
     }
@@ -2323,21 +2328,34 @@ export async function getLatestDailyNotesResult(
     dailyNotebookId?: string,
 ): Promise<ComponentDataResult<ComponentDocInfo>> {
     if (dailyNotebookId) {
+        try {
+            const entries = await getDiaryIndexEntriesForDisplay(dailyNotebookId);
+            if (entries !== null) {
+                const docs = Object.values(entries).map((entry) => ({
+                    ...entry, content: entry.title || entry.content || entry.id,
+                    diaryDate: `${entry.date.slice(0, 4)}-${entry.date.slice(4, 6)}-${entry.date.slice(6, 8)}`,
+                    created: entry.id.slice(0, 14), updated: entry.updated || entry.id.slice(0, 14),
+                })).sort((a, b) => b.created.localeCompare(a.created)).slice(0, 100);
+                return okResult(await hydrateDocInfos(docs, includeBuiltinDocIcon, includeBuiltinDocIcon ? 10 : 0), "index", "日记来自完整基础索引，按官方日记日期定位，不要求强化模板或日期标题。");
+            }
+        } catch (error) {
+            return { items: [], status: "error", mode: "index", message: `日记基础索引读取失败，未按空日记处理：${error instanceof Error ? error.message : "未知错误"}` };
+        }
         const docs = await collectDocsFromFileTree(dailyNotebookId, "/", 100, 3);
         const filtered = docs
             .filter(looksLikeDailyDoc)
             .sort((a, b) => String(b.created || b.updated).localeCompare(String(a.created || a.updated)))
             .slice(0, 100);
         if (filtered.length > 0) {
-            return okResult(filtered, "scoped_filetree", "按配置的日记笔记本有限列出最近日记。");
+            return { items: filtered, status: "limited", mode: "scoped_filetree", message: "基础日记索引尚未建立，当前仅显示有限目录范围内按名称识别的日记；请在检索管理手动重建。" };
         }
     }
     const recent = await getRecentDailyNotesApi(includeBuiltinDocIcon);
     return {
         items: recent,
-        status: recent.length > 0 ? "limited" : "empty",
+        status: dailyNotebookId || recent.length > 0 ? "limited" : "empty",
         mode: "recent_api",
-        message: recent.length > 0
+        message: dailyNotebookId ? "基础日记索引尚未建立，当前仅显示有限目录及最近更新中的近似日记；不能代表完整日记范围，请手动重建基础索引。" : recent.length > 0
             ? "从最近更新 API 中识别日记。"
             : "未配置日记目录，最近更新 API 也未返回可识别日记。",
     };

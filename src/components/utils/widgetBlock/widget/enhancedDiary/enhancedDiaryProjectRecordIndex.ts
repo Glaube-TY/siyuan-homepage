@@ -59,6 +59,7 @@ const FAILURE_LABELS: Record<string, string> = {
     project_relation_read_failed: "项目索引或关系解析失败",
     index_item_build_failed: "记录索引条目解析失败",
     unexpected_error: "其他异常",
+    historical_relations_unconfirmed: "当前无快速记录结构，历史项目关系待确认",
 };
 
 const caches = new Map<string, EnhancedDiaryProjectRecordIndexPayload>();
@@ -138,8 +139,8 @@ function statusFromIndex(index: EnhancedDiaryProjectRecordIndexPayload): Compone
         lastStatus: index.complete ? "success" : "error",
         migratedCount,
         skippedCount: failures.length,
-        lastMessage: index.complete ? `项目记录索引完整，共 ${migratedCount} 条关系。`
-            : `项目记录索引重建未完整：已保留 ${migratedCount} 条关系（含未解析日记的历史关系）。${failures.length ? `${failures.length} 篇待解析：${summary}。可复制诊断摘要反馈，摘要不含日记正文或项目内容。` : "请重建以获取逐篇失败诊断。"}`,
+        lastMessage: index.complete ? migratedCount ? `项目记录索引完整，共 ${migratedCount} 条关系。` : "项目记录索引完整，当前无适用的项目关联记录；普通日记仍在基础索引中。"
+            : `项目记录索引重建未完整：已保留 ${migratedCount} 条关系（含未解析日记的历史关系）。${failures.length ? `${failures.length} 篇待解析：${summary}。可复制诊断摘要反馈，摘要不含日记正文或项目内容。` : "历史不完整状态需手动完整重建确认，增量刷新不会直接恢复完整性。"}`,
     };
 }
 
@@ -233,7 +234,7 @@ export async function upsertProjectRecordIndexItem(notebookId: string, record: E
     await update(notebookId, (current) => ({ ...current, items: { ...current.items, [item.id]: item } }));
 }
 
-async function readDiaryItemsForIndex(docId: string, date: string, config: EnhancedDiaryConfig): Promise<{
+async function readDiaryItemsForIndex(docId: string, date: string, config: EnhancedDiaryConfig, hasHistoricalRelations: boolean): Promise<{
     items: EnhancedDiaryProjectRecordIndexItem[]; failure?: undefined;
 } | { items?: undefined; failure: EnhancedDiaryProjectRecordIndexFailure }> {
     let stage = "markdown";
@@ -247,6 +248,11 @@ async function readDiaryItemsForIndex(docId: string, date: string, config: Enhan
         if (!markdown.ok) return fail("markdown_read_failed");
         stage = "structure";
         const detailed = await queryTodayQuickRecordsDetailed(docId, markdown.content, date, config.headingStructure, config.templateFieldMapping, config);
+        if (detailed.status === "not_applicable") {
+            if (!hasHistoricalRelations) return { items: [] };
+            stage = "structure";
+            return fail("historical_relations_unconfirmed");
+        }
         if (!detailed.structureComplete || !detailed.relationComplete) {
             stage = detailed.stage || "structure";
             return fail(detailed.reason || "unexpected_error", detailed.missingPath);
@@ -272,7 +278,7 @@ async function rebuild(config: EnhancedDiaryConfig): Promise<ComponentMigrationS
         const failures: EnhancedDiaryProjectRecordIndexFailure[] = [];
         for (const [compactDate, entry] of Object.entries(diaryEntries)) {
             const date = `${compactDate.slice(0, 4)}-${compactDate.slice(4, 6)}-${compactDate.slice(6, 8)}`;
-            const parsed = await readDiaryItemsForIndex(entry.id, date, config);
+            const parsed = await readDiaryItemsForIndex(entry.id, date, config, Object.values(items).some((item) => item.diaryDocId === entry.id));
             if (parsed.failure) { failures.push(parsed.failure); continue; }
             items = Object.fromEntries(Object.entries(items).filter(([, item]) => item.diaryDocId !== entry.id));
             parsed.items.forEach((item) => { items[item.id] = item; });
@@ -309,7 +315,7 @@ async function refresh(config: EnhancedDiaryConfig): Promise<ComponentMigrationS
             const metadata = byDocId.get(doc.id)!;
             const compactDate = metadata.date;
             const date = `${compactDate.slice(0, 4)}-${compactDate.slice(4, 6)}-${compactDate.slice(6, 8)}`;
-            const parsed = await readDiaryItemsForIndex(doc.id, date, config);
+            const parsed = await readDiaryItemsForIndex(doc.id, date, config, Object.values(items).some((item) => item.diaryDocId === doc.id));
             if (parsed.failure) { failures.set(doc.id, parsed.failure); skippedCount += 1; continue; }
             failures.delete(doc.id);
             items = Object.fromEntries(Object.entries(items).filter(([, item]) => item.diaryDocId !== doc.id));

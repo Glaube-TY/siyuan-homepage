@@ -25,7 +25,7 @@ import {
     getPrimaryFieldTitle,
 } from "./enhancedDiaryTemplateFieldMapping";
 import { pruneTaskSectionsFromDayTemplate } from "./enhancedDiaryTemplatePrune";
-import { getEnhancedDiaryIndexEntry, indexCreatedEnhancedDiaryDocument, removeStaleEnhancedDiaryEntry, resolveEnhancedDiaryDateFromMetadata, initializeEnhancedDiaryIndex } from "./enhancedDiaryIndex";
+import { getEnhancedDiaryIndexEntry, getDiaryIndexEntriesForDisplay, indexCreatedEnhancedDiaryDocument, removeStaleEnhancedDiaryEntry, resolveEnhancedDiaryDateFromMetadata, initializeEnhancedDiaryIndex } from "./enhancedDiaryIndex";
 
 let activeDiaryNotebookId = "";
 
@@ -294,9 +294,14 @@ export async function openOrCreateDiaryForDate(
         return { id: null, created: false, reason: "missing_notebook" };
     }
 
-    // User-visible index initialization
-    const initStatus = await initializeEnhancedDiaryIndex(notebookId);
-    if (initStatus.lastStatus !== "success") {
+    // Opening a known diary is read-only; initialization is only needed to locate/create a missing entry.
+    try {
+        const entries = await getDiaryIndexEntriesForDisplay(notebookId);
+        if (!entries?.[formatDiaryAttrDate(date)]) {
+            const initStatus = await initializeEnhancedDiaryIndex(notebookId);
+            if (initStatus.lastStatus !== "success") return { id: null, created: false, reason: "index_not_ready" };
+        }
+    } catch {
         return { id: null, created: false, reason: "index_not_ready" };
     }
 

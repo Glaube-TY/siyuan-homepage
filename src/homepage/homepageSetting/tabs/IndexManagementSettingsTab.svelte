@@ -123,8 +123,8 @@
         window.dispatchEvent(new CustomEvent(ENHANCED_DIARY_INDEXES_UPDATED_EVENT));
     }
 
-    function allEnhancedDiaryIndexesSucceeded(statuses: ComponentMigrationStatus[]): boolean {
-        return statuses.every((status) => status.lastStatus === "success");
+    function anyEnhancedDiaryIndexSucceeded(statuses: ComponentMigrationStatus[]): boolean {
+        return statuses.some((status) => status.lastStatus === "success");
     }
 
     onMount(() => {
@@ -200,7 +200,7 @@
         await onEnhancedDiaryIndexStatusChange?.(results.enhancedDiary);
         projectIndexStatus = results.enhancedDiaryProject;
         projectRecordIndexStatus = results.enhancedDiaryProjectRecord;
-        if (allEnhancedDiaryIndexesSucceeded([results.enhancedDiary, results.enhancedDiaryProject, results.enhancedDiaryProjectRecord])) {
+        if (anyEnhancedDiaryIndexSucceeded([results.enhancedDiary, results.enhancedDiaryProject, results.enhancedDiaryProjectRecord])) {
             dispatchEnhancedDiaryIndexesUpdated();
         }
     }
@@ -220,7 +220,7 @@
         await onEnhancedDiaryIndexStatusChange?.(results.enhancedDiary);
         projectIndexStatus = results.enhancedDiaryProject;
         projectRecordIndexStatus = results.enhancedDiaryProjectRecord;
-        if (allEnhancedDiaryIndexesSucceeded([results.enhancedDiary, results.enhancedDiaryProject, results.enhancedDiaryProjectRecord])) {
+        if (anyEnhancedDiaryIndexSucceeded([results.enhancedDiary, results.enhancedDiaryProject, results.enhancedDiaryProjectRecord])) {
             dispatchEnhancedDiaryIndexesUpdated();
         }
     }
@@ -590,7 +590,7 @@
     {/if}
 </SettingSection>
 
-<SettingSection title="强化日记索引">
+<SettingSection title="日记基础索引">
     <SettingRow
         title="刷新强化日记增量索引"
         description="只使用最近文档增量；仅处理当前配置日记笔记本中的变动文档。"
@@ -601,7 +601,7 @@
     </SettingRow>
     <SettingRow
         title="重建强化日记索引"
-        description="只遍历当前配置的日记笔记本文件树，并对已取得的文档 ID 精确识别；不扫描全库 blocks。"
+        description="只按当前笔记本的官方日记日期属性识别；普通日记无需强化模板，不扫描全库正文。"
     >
         <button type="button" class="index-action-btn" onclick={handleEnhancedDiaryRebuild} disabled={!plugin || isEnhancedDiaryRebuilding}>
             {isEnhancedDiaryRebuilding ? "重建中..." : "重建强化日记索引"}
@@ -637,7 +637,7 @@
 </SettingSection>
 
 <SettingSection title="强化日记项目记录索引">
-    <SettingRow title="重建项目记录索引" description="只遍历强化日记索引中已知的日记文档 ID，重建记录与项目关系；不会全库正文扫描。">
+    <SettingRow title="重建项目记录索引" description="只处理基础日记索引中的已知文档；确认无快速记录结构的普通日记不适用，读取失败或历史关系待确认仍单独报告。不会全库正文扫描。">
         <button type="button" class="index-action-btn" onclick={handleProjectRecordIndexRebuild} disabled={!plugin || isProjectRecordIndexRebuilding}>
             {isProjectRecordIndexRebuilding ? "重建中..." : "重建项目记录索引"}
         </button>

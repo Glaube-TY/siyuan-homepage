@@ -419,10 +419,10 @@ function headingTitleMatchesAny(
     return aliases.some((alias) => headingTitleStartsWith(node, alias));
 }
 
-async function getDocumentHeadingBlocks(docId: string): Promise<EnhancedDiaryHeadingBlock[]> {
+async function getDocumentHeadingBlocks(docId: string, blocks?: IResGetChildBlock[]): Promise<EnhancedDiaryHeadingBlock[]> {
     let children: IResGetChildBlock[];
     try {
-        children = await getChildBlocksChecked(docId);
+        children = blocks ?? await getChildBlocksChecked(docId);
     } catch {
         console.warn("[enhancedDiaryBlockLocator] heading read failed", { docId, reason: "block_structure_read_failed" });
         throw new Error("structure_read_failed");
@@ -483,9 +483,10 @@ export async function findDayWorkspaceHeadingBlock(
     docId: string,
     sectionKey: EnhancedDiaryDayWorkspaceSectionKey,
     _headingStructure?: EnhancedDiaryHeadingStructureConfig,
-    mapping?: EnhancedDiaryTemplateFieldMapping | null
+    mapping?: EnhancedDiaryTemplateFieldMapping | null,
+    blocks?: IResGetChildBlock[],
 ): Promise<EnhancedDiaryHeadingBlockLookup> {
-    const headings = await getDocumentHeadingBlocks(docId);
+    const headings = await getDocumentHeadingBlocks(docId, blocks);
     const rootAliases = getFieldAliases(mapping, "rootHeadings", "day");
     const pathAliases = getDayWorkspaceSectionPathAliases(mapping, sectionKey);
     const primaryPath = pathAliases.map((aliases) => aliases[0]);
