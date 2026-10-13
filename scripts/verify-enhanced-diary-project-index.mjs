@@ -4,6 +4,7 @@ import { build } from "esbuild";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parse } from "svelte/compiler";
+import * as echarts from "echarts";
 
 const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const diaryDir = "src/components/utils/widgetBlock/widget/enhancedDiary";
@@ -16,15 +17,19 @@ const calendarSource = await readFile(resolve(root, "src/components/utils/widget
 const calendarAst = parse(calendarSource.slice(0, calendarSource.lastIndexOf("<style")), { modern: true });
 const calendarFunction = calendarAst.instance.content.body.find((node) => node.type === "FunctionDeclaration" && node.id.name === "buildCustomCalendarData");
 const iconFunction = calendarAst.instance.content.body.find((node) => node.type === "FunctionDeclaration" && node.id.name === "getDocIcon");
-let calendarClick, calendarMount;
+const calendarMethods=["getMonthRange","goToPreviousMonth","goToNextMonth","updateCalendar","applyChartTheme"].map((name)=>{
+    const node=calendarAst.instance.content.body.find((node)=>node.type==="FunctionDeclaration"&&node.id.name===name);assert(node);return calendarSource.slice(node.start,node.end);
+}).join("\n");
+let calendarClick, calendarMount, calendarHover;
 function visit(value) {
     if (!value || typeof value !== "object") return;
     if (value.type === "CallExpression" && value.callee?.object?.name === "myChart" && value.callee.property?.name === "on" && value.arguments[0]?.value === "click") calendarClick = value.arguments[1];
+    if (value.type === "CallExpression" && value.callee?.object?.name === "myChart" && value.callee.property?.name === "on" && value.arguments[0]?.value === "mouseover") calendarHover = value.arguments[1];
     if (value.type === "CallExpression" && value.callee?.name === "onMount") calendarMount = value.arguments[0];
     Object.values(value).forEach((child) => Array.isArray(child) ? child.forEach(visit) : visit(child));
 }
 visit(calendarAst.instance);
-assert(calendarFunction && calendarClick && calendarMount);
+assert(calendarFunction && calendarClick && calendarMount && calendarHover);
 assert(formatter.includes("return"));
 const unused = `const unused = () => { throw new Error("unused UI/write dependency was called"); };`;
 const stubs = {
@@ -49,6 +54,24 @@ const bundled = await build({
         export function clickCalendar(calendarDates, params) {
             const plugin = {isMobile: true}, recentJournalsShowType = "calendar";
             return (${calendarSource.slice(calendarClick.start, calendarClick.end)})(params);
+        }
+        export function calendarRenderer(calendarDates, {cursor=new Date(2026,0,31),builtin=true,defaultIcon='📝'}={}) {
+            let currentDate=cursor,option,resizes=0;
+            const recentJournalsCalendarIcon=defaultIcon,recentJournalsCalendarIconSize=16,useBuiltinDocIcon=builtin;
+            const getThemeColors=()=>({themeColor1:'#fff',themeTextColor:'#222',themeColor5:'#3578cc'});
+            const chartContainer={},myChart={setOption(value){option=value;},resize(){resizes++;}},echarts={getInstanceByDom(){return myChart;}};
+            ${calendarSource.slice(iconFunction.start,iconFunction.end)}
+            ${calendarMethods}
+            updateCalendar();
+            return {previous:goToPreviousMonth,next:goToNextMonth,get snapshot(){return {date:currentDate,option,resizes};},
+                render(timestamp,id){return option.series.renderItem({coordSys:{cellWidth:100,cellHeight:60}},
+                    {coord:()=>[50,30],value:(index)=>index===0?timestamp:id,font:()=>''});}};
+        }
+        export function hoverCalendar(calendarDates,params){
+            const plugin={isMobile:false},showLatestDailyNotesFloatDoc=true,latestDailyNotesFloatDocShowTime=0.1,chartContainer={},previews=[];
+            let calendarFloatDocTimeout=null,calendarMouseLeaveTimeout=null;
+            const window={setTimeout(callback){callback();return 1;}},clearTimeout=()=>{},createFloatingDocPopupWithPosition=(...args)=>previews.push(args);
+            (${calendarSource.slice(calendarHover.start,calendarHover.end)})(params);return previews;
         }
         export function mountDiaryComponent(plugin, {limit=5,useBuiltinDocIcon=false}={}) {
             let isDestroyed=false,calendarDates={},dailyNotesReadFailed=false,dailyNotesLimited=false,dailyNotesModeLabel='',dailyNotesStatusMessage='',displayedDocs=[],chartInitTimeout=null,scheduled=0;
@@ -624,6 +647,42 @@ async function fixture({ count = 1, shapes = {}, old = false, complete = true } 
         assert.deepEqual(many.runtime.diaryIcon(icons.calendarDates["2026-05-30"],false),{type:"text",value:"📝"});
         assert.deepEqual(many.runtime.diaryIcon(icons.calendarDates["2026-01-01"],true),{type:"text",value:"📝"},"old lightweight dates retain the configured icon fallback without bulk fetches");
         assert.equal(many.state.calls.filter((call)=>call.path==="/api/block/getBlockInfo").length,10,"icons stay bounded, never fetched for all 150 dates");
+        const textOf=(item)=>item.children.filter((child)=>child.type==="text").map((child)=>child.style.text);
+        const timestamp=new Date(2026,4,30).getTime();
+        const renderer=many.runtime.calendarRenderer(icons.calendarDates);
+        assert(textOf(renderer.render(timestamp,completeDocs["20260530"].id)).includes("📔"),"actual renderItem must resolve numeric ECharts time to the existing diary date key");
+        const svgChart=echarts.init(null,null,{renderer:"svg",ssr:true,width:700,height:450});
+        try {
+            svgChart.setOption(many.runtime.calendarRenderer(icons.calendarDates,{cursor:new Date(2026,4,31)}).snapshot.option);
+            assert(svgChart.renderToSVGString().includes("📔"),"installed ECharts must parse the time dimension and invoke the real calendar callback with the document icon");
+        } finally { svgChart.dispose(); }
+        const defaultRenderer=many.runtime.calendarRenderer(latest.calendarDates,{defaultIcon:"📅"});
+        assert(textOf(defaultRenderer.render(new Date(2026,0,1).getTime(),oldest.id)).includes("📅"),"missing document icon uses the configured default");
+        const configuredRenderer=many.runtime.calendarRenderer(icons.calendarDates,{builtin:false,defaultIcon:"⭐"});
+        assert(textOf(configuredRenderer.render(timestamp,completeDocs["20260530"].id)).includes("⭐"),"ordinary mode keeps its configured icon");
+        const customDates={...latest.calendarDates,"2026-01-01":{...latest.calendarDates["2026-01-01"],icon:"fixture/custom.svg"}};
+        const custom=many.runtime.calendarRenderer(customDates).render(new Date(2026,0,1).getTime(),oldest.id);
+        assert(custom.children.some((child)=>child.type==="image"&&child.style.image==="/emojis/fixture/custom.svg"),"custom document icons match the numeric calendar date");
+        const beforeNavigation=many.state.calls.length;
+        for(const [compact,entry] of Object.entries(completeDocs).slice(0,50)){
+            const day=new Date(Number(compact.slice(0,4)),Number(compact.slice(4,6))-1,Number(compact.slice(6,8)));
+            assert(textOf(defaultRenderer.render(day.getTime(),entry.id)).includes("📅"),"each of the 101st–150th dates remains renderable");
+        }
+        const preview=many.runtime.hoverCalendar(latest.calendarDates,{componentType:"series",seriesType:"custom",name:"2026-01-01",event:{event:{clientX:10,clientY:20}}});
+        assert.equal(preview[0][0].id,oldest.id);assert.deepEqual(preview[0].slice(2,4),[10,20],"old-date hover preview retains the correct document and coordinates");
+        for(const [start,direction,expected] of [
+            [new Date(2026,0,31),"next","2026-02"], [new Date(2026,2,31),"previous","2026-02"],
+            [new Date(2026,9,31),"previous","2026-09"], [new Date(2026,11,31),"next","2027-01"],
+            [new Date(2027,0,31),"previous","2026-12"], [new Date(2024,0,31),"next","2024-02"],
+            [new Date(2024,2,31),"previous","2024-02"], [new Date(2024,1,29),"next","2024-03"],
+            [new Date(2024,1,29),"previous","2024-01"],
+        ]){
+            const navigation=many.runtime.calendarRenderer(latest.calendarDates,{cursor:start});navigation[direction]();
+            assert.equal(navigation.snapshot.option.calendar.range,expected);assert.equal(navigation.snapshot.date.getDate(),1);
+            assert.equal(navigation.snapshot.resizes,2,"navigation still invokes the real updateCalendar/applyChartTheme chain");
+            if(expected.endsWith("-02"))assert.equal(navigation.snapshot.option.series.data.length,expected.startsWith("2024")?29:28);
+        }
+        assert.equal(many.state.calls.length,beforeNavigation,"render/hover/month navigation never calls an API, reindexes, or scans");
         let release;many.state.readBarrier=new Promise((resolve)=>{release=resolve;});
         const destroyed=many.runtime.mountDiaryComponent({loadData:async()=>many.config});destroyed.destroy();release();await destroyed.pending;
         assert.deepEqual(destroyed.snapshot,{calendarDates:{},displayedDocs:[],dailyNotesReadFailed:false,dailyNotesLimited:false,scheduled:0});
@@ -637,5 +696,5 @@ async function fixture({ count = 1, shapes = {}, old = false, complete = true } 
         assert.equal(historical.state.files.get(RECORD).failures[0].reason,"historical_relations_unconfirmed");
         assert(warnings.every(([, details]) => typeof details === "object" && !Object.hasOwn(details, "content")), "diagnostics must exclude private record bodies");
     } finally { console.warn = originalWarn; }
-    console.log("PASS enhanced diary: real discovery/parser/index/open/calendar/notify paths; ordinary list/table/image/quote/code/super blocks and optional Markdown; common/time headings are not record evidence; true structure/I/O/relation failures and retained history; 150 complete calendar dates, diary-date sorting, bounded list/icons and destroy isolation; no user-document writes or full-body scan");
+    console.log("PASS enhanced diary: real parsers/index/open/notify and 150 dates; actual calendar renderItem with numeric timestamps, builtin/default/custom icons, old-date click/hover; month-end/year/leap navigation and real updateCalendar chain; strict failures/history and destroy protection; no user-document writes or calendar API scans");
 }

@@ -104,16 +104,12 @@
     }
 
     function goToPreviousMonth() {
-        const prevDate = new Date(currentDate);
-        prevDate.setMonth(prevDate.getMonth() - 1);
-        currentDate = prevDate;
+        currentDate = new Date(currentDate.getFullYear(), currentDate.getMonth() - 1, 1);
         updateCalendar();
     }
 
     function goToNextMonth() {
-        const nextDate = new Date(currentDate);
-        nextDate.setMonth(nextDate.getMonth() + 1);
-        currentDate = nextDate;
+        currentDate = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 1);
         updateCalendar();
     }
 
@@ -441,7 +437,7 @@
                     }
 
                     if (hasJournal) {
-                        const note = calendarDates[String(api.value(0))];
+                        const note = calendarDates[currentDateStr];
                         const iconResult = note ? getDocIcon(note) : resolveConfiguredDocIcon(recentJournalsCalendarIcon, "📝");
 
                         children.push({
