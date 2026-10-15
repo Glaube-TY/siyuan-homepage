@@ -117,6 +117,7 @@
     import { mapWithConcurrency } from "@/utils/async/mapWithConcurrency";
     import { createLatestWinsAsyncQueue } from "@/utils/async/latestWinsAsyncQueue";
     import { scheduleIdleTask } from "@/utils/runtime/idleTask";
+    import { createHomepageOperationGuide } from "./onboarding/homepageOperationGuide";
     import { createRuntimePerformanceTrace } from "@/utils/performance/runtimePerformance";
     import {
         clearPreservedWidgetElementAfterAppend,
@@ -1238,6 +1239,19 @@
     let homepageVisibilityObserver: ResizeObserver | null = null;
 
     let homepageComponentDestroyed = false;
+    const homepageOperationGuide = createHomepageOperationGuide(() =>
+        !plugin?.isMobile
+        && !homepageComponentDestroyed
+        && homepageConfigLoaded
+        && initialWidgetGridReady
+        && homepageInitialLoadState === "ready"
+        && !themeTransitionOverlayActive
+        && document.visibilityState !== "hidden"
+        && isHomepageRuntimeVisibleAndMountable(),
+    );
+    function tryOpenHomepageOperationGuide(): void {
+        homepageOperationGuide.request();
+    }
     let cancelDeferredHomepageEffects: (() => void) | null = null;
 
     function updateInitialLoadProgress(progress: number, detail: string): void {
@@ -1646,6 +1660,7 @@
             homepageThemeTransition = null;
             homepageThemeTransitionTimer = null;
             transition.trace.finish(phase);
+            tryOpenHomepageOperationGuide();
             dispatchHomepageThemeTransition({
                 phase,
                 requestId: transition.requestId,
@@ -2989,14 +3004,17 @@
         const root = homepageRootElement;
         if (!root) return;
         homepageVisibilityObserver = new ResizeObserver(() => {
+            tryOpenHomepageOperationGuide();
             if (isHomepageRuntimeVisibleAndMountable() && pendingExternalStorageRefresh) {
                 requestExternalStorageRefresh();
             }
         });
         homepageVisibilityObserver.observe(root);
+        document.addEventListener("visibilitychange", tryOpenHomepageOperationGuide);
     }
 
     function teardownHomepageVisibilityObserver(): void {
+        document.removeEventListener("visibilitychange", tryOpenHomepageOperationGuide);
         if (homepageVisibilityObserver) {
             try {
                 homepageVisibilityObserver.disconnect();
@@ -3116,6 +3134,7 @@
 
     function handleHomepageTabBeforeDestroy(): void {
         homepageComponentDestroyed = true;
+        homepageOperationGuide.destroy();
         cancelDeferredHomepageEffects?.();
         cancelDeferredHomepageEffects = null;
         if (homepageThemeTransitionTimer !== null) {
@@ -3214,6 +3233,7 @@
         // 建立外部存储刷新调度器的可见性观察：Homepage 隐藏期间收到 Agent 写入时保留 pending，
         // 切回可见（clientWidth 从 0 变 > 0）后自动执行一次最新刷新。
         setupHomepageVisibilityObserver();
+        tryOpenHomepageOperationGuide();
 
         // 注意：此时不立即记录已应用签名，因为后续 restoreLayout 可能还会写盘
         // 签名基线将在 restoreLayout 完成后统一记录
@@ -3257,6 +3277,7 @@
 
     onDestroy(() => {
         homepageComponentDestroyed = true;
+        homepageOperationGuide.destroy();
         homepageThemeTransition?.trace.finish("destroyed");
         activeSectionPersistenceRequestId += 1;
         cancelDeferredHomepageEffects?.();

@@ -25,6 +25,7 @@
     "update-version": "node --no-warnings ./scripts/update_version.js",
     "verify:homepage-mcp-server": "node --no-warnings ./scripts/verify-homepage-mcp-server.mjs",
     "verify:homepage-quick-buttons": "node --no-warnings ./scripts/verify-homepage-quick-buttons.mjs",
+    "verify:homepage-operation-guide": "node --no-warnings ./scripts/verify-homepage-operation-guide.mjs",
     "verify:mobile-entitlement-sync": "node --no-warnings ./scripts/verify-mobile-entitlement-sync.mjs",
     "verify:widget-category-search": "node --no-warnings ./scripts/verify-widget-category-search.mjs",
     "verify:remote-kernel-compat": "node --no-warnings ./scripts/verify-remote-kernel-compat.mjs",
