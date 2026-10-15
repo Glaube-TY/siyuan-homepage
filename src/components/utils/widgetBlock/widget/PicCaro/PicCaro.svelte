@@ -3,6 +3,7 @@
     import type { Swiper } from "swiper/types";
     import { loadPicCaroImages, picCaroPlaybackImages, type PicCaroImage } from "./picCaroData";
     import AdvancedFeatureLock from "../common/AdvancedFeatureLock.svelte";
+    import { HOMEPAGE_THEME_TRANSITION_EVENT } from "../../../../../homepage/theme/runtime/themeTransitionEvents";
 
     interface Props { plugin: any; contentTypeJson?: string }
     let { plugin, contentTypeJson = "{}" }: Props = $props();
@@ -30,20 +31,93 @@
     let widgetVisible = $state(typeof IntersectionObserver === "undefined");
     let documentVisible = $state(true);
     let loadedContent: string | null = null;
+    let requestSwiperSync = () => {};
+
+    function isSwiperLayoutReady(node: HTMLElement): boolean {
+        if (!advancedEnabled || !widgetVisible || !documentVisible || document.visibilityState === "hidden"
+            || !node.isConnected || node.clientWidth <= 0 || node.clientHeight <= 0
+            || getComputedStyle(node).visibility !== "visible") return false;
+        const homepage = node.closest<HTMLElement>(".homepage-container");
+        if (homepage && homepage.dataset.hpInitialState !== "ready") return false;
+        const theme = node.closest<HTMLElement>(".hp-initial-theme-content");
+        return !theme || (theme.classList.contains("hp-initial-theme-content--ready")
+            && theme.getAttribute("aria-hidden") !== "true" && !theme.inert);
+    }
 
     function syncAutoplay(): void {
-        const shouldPlay = advancedEnabled && PicAutoPlay && widgetVisible && documentVisible && failedPaths.length < images.length;
-        const autoplay = swiperElement?.swiper?.autoplay;
+        const swiper = swiperElement?.swiper;
+        if (!swiper || swiper.destroyed) return;
+        const shouldPlay = PicAutoPlay && images.length - failedPaths.length >= 2 && isSwiperLayoutReady(swiperElement);
+        const autoplay = swiper.autoplay;
         if (!autoplay) return;
         if (shouldPlay) {
             if (!autoplay.running) autoplay.start();
+            if (autoplay.paused) autoplay.resume();
         } else if (autoplay.running) autoplay.stop();
     }
 
     function initializeSwiper(node: HTMLElement) {
         let disposed = false;
+        let initialized = false;
+        let initializationInFlight = false;
+        let pendingReadinessFrame: number | null = null;
+        let layoutWasReady = false;
+        let layoutWidth = 0;
+        let layoutHeight = 0;
         swiperElement = node;
-        void (async () => {
+        const homepage = node.closest(".homepage-container");
+        const theme = node.closest(".hp-initial-theme-content");
+        const readinessObserver = typeof MutationObserver === "undefined" ? null : new MutationObserver(requestSync);
+        if (homepage) readinessObserver?.observe(homepage, { attributes: true, attributeFilter: ["data-hp-initial-state"] });
+        if (theme) readinessObserver?.observe(theme, { attributes: true, attributeFilter: ["class", "aria-hidden", "inert"] });
+        const resizeObserver = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(requestSync);
+        resizeObserver?.observe(node);
+        const themeChanged = () => {
+            if (!homepage) return;
+            if (!initialized || !layoutWasReady || !isSwiperLayoutReady(node)) { requestSync(); return; }
+            if (pendingReadinessFrame !== null) return;
+            // The window event precedes Svelte's DOM update; inspect only this carousel next frame.
+            pendingReadinessFrame = requestAnimationFrame(() => {
+                pendingReadinessFrame = null;
+                if (!disposed && !isSwiperLayoutReady(node)) requestSync();
+            });
+        };
+        window.addEventListener(HOMEPAGE_THEME_TRANSITION_EVENT, themeChanged);
+
+        function requestSync(): void {
+            if (disposed) return;
+            if (!isSwiperLayoutReady(node)) { layoutWasReady = false; syncAutoplay(); }
+            if (pendingReadinessFrame !== null) return;
+            pendingReadinessFrame = requestAnimationFrame(() => {
+                pendingReadinessFrame = null;
+                void initializeWhenReady();
+            });
+        }
+
+        function updateAndSync(): void {
+            const swiper = (node as HTMLElement & { swiper?: Swiper }).swiper;
+            if (!swiper || swiper.destroyed) return;
+            if (!layoutWasReady || layoutWidth !== node.clientWidth || layoutHeight !== node.clientHeight) {
+                swiper.update();
+                layoutWidth = node.clientWidth;
+                layoutHeight = node.clientHeight;
+            }
+            layoutWasReady = true;
+            syncAutoplay();
+        }
+
+        async function initializeWhenReady(): Promise<void> {
+            if (disposed || !isSwiperLayoutReady(node)) {
+                layoutWasReady = false;
+                if (!disposed) syncAutoplay();
+                return;
+            }
+            if (initialized) {
+                updateAndSync();
+                return;
+            }
+            if (initializationInFlight) return;
+            initializationInFlight = true;
             try {
                 const [element, modules, ...styles] = await Promise.all([
                     import("swiper/element"), import("swiper/modules"),
@@ -52,18 +126,30 @@
                     import("swiper/element/css/effect-flip?inline"), import("swiper/element/css/navigation?inline"),
                     import("swiper/element/css/pagination?inline"),
                 ]);
-                if (disposed || !advancedEnabled) return;
+                if (disposed || !isSwiperLayoutReady(node)) return;
                 element.register();
                 const swiper = node as HTMLElement & { modules: unknown[]; injectStyles: string[]; initialize: () => void };
                 swiper.modules = [modules.A11y, modules.Autoplay, modules.EffectCoverflow, modules.EffectCube,
                     modules.EffectFade, modules.EffectFlip, modules.Navigation, modules.Pagination];
                 swiper.injectStyles = styles.map((style) => style.default);
                 swiper.initialize();
-                syncAutoplay();
+                const instance = (node as HTMLElement & { swiper?: Swiper }).swiper;
+                if (!instance || instance.destroyed) throw new Error("Swiper initialization failed");
+                initialized = true;
+                readinessObserver?.disconnect();
+                updateAndSync();
             } catch { if (!disposed) error = "轮播展示能力加载失败，请重新加载组件"; }
-        })();
+            finally { initializationInFlight = false; }
+        }
+        requestSwiperSync = requestSync;
+        requestSync();
         return { destroy() {
             disposed = true;
+            if (pendingReadinessFrame !== null) cancelAnimationFrame(pendingReadinessFrame);
+            readinessObserver?.disconnect();
+            resizeObserver?.disconnect();
+            window.removeEventListener(HOMEPAGE_THEME_TRANSITION_EVENT, themeChanged);
+            if (requestSwiperSync === requestSync) requestSwiperSync = () => {};
             const swiper = (node as HTMLElement & { swiper?: Swiper }).swiper;
             if (swiper && !swiper.destroyed) swiper.destroy(true, true);
             if (swiperElement === node) swiperElement = null;
@@ -99,7 +185,10 @@
             untrack(loadImages);
         }
     });
-    $effect(syncAutoplay);
+    $effect(() => {
+        advancedEnabled; PicAutoPlay; widgetVisible; documentVisible; images; failedPaths;
+        untrack(requestSwiperSync);
+    });
     onMount(() => {
         advancedEnabled = Boolean(plugin?.ADVANCED);
         mounted = true;
@@ -147,6 +236,7 @@
                         ? "全部图片无法显示" : `部分图片加载失败（${failedPaths.length}/${images.length}）`}。
                         {data.PicSourceMode === "workspaceAssets" ? "资源可能尚未同步到当前工作空间或已经不存在，请检查同步状态。" : "请检查本地文件是否仍可读取。"}列表已保留。</p>
                 {/if}
+                {#key images}
                 <swiper-container
                     init="false"
                     use:initializeSwiper
@@ -154,7 +244,7 @@
                     slides-per-view={PicEffect === "slide" ? PicSlidesPerView : "1"}
                     speed="800"
                     loop="true"
-                    autoplay={PicAutoPlay}
+                    autoplay={PicAutoPlay && images.length - failedPaths.length >= 2}
                     autoplay-delay={PicAutoPlay ? PicInterval * 1000 : 0}
                     autoplay-disable-on-interaction="false"
                     pagination={PicPagination}
@@ -184,6 +274,7 @@
                         </swiper-slide>
                     {/each}
                 </swiper-container>
+                {/key}
             </div>
         {:else}
             <div class="empty-container">
@@ -288,6 +379,8 @@
     .image-load-status { margin: 0; color: var(--b3-theme-on-surface-light); font-size: 12px; }
 
     .piccaro-swiper {
+        // Custom elements need measurable geometry before their lazy registration.
+        display: block;
         width: 100%;
         height: 100%;
         border-radius: 12px;
