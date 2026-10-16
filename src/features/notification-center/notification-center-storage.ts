@@ -1,5 +1,5 @@
 import { ZodError, type ZodSchema } from "zod";
-import { readDirChecked } from "@/api";
+import { readDirChecked, SiyuanApiError } from "@/api";
 import { getNotificationCenterPlugin } from "./notification-center-plugin";
 
 export class NotificationCenterStorageError extends Error {
@@ -23,16 +23,18 @@ export async function notificationCenterDataFileExists(key: string): Promise<boo
     ? plugin.name.trim()
     : "siyuan-homepage";
   const segments = [pluginName, ...splitStorageKey(key)];
-  let parentPath = "data/storage/petal";
+  let parentPath = "/data/storage/petal";
 
   for (let index = 0; index < segments.length; index += 1) {
     let entries: IResReadDir[];
     try {
       entries = await readDirChecked(parentPath);
     } catch (error) {
-      throw new NotificationCenterStorageError(`读取通知数据目录失败：${parentPath}`, error);
+      const detail = error instanceof SiyuanApiError ? `（SiyuanApiError，code=${error.siyuanCode}）` : "";
+      throw new NotificationCenterStorageError(`读取通知数据目录失败：${parentPath}${detail}`, error);
     }
-    if (!Array.isArray(entries)) {
+    if (!Array.isArray(entries) || entries.some((entry) => !entry || typeof entry.name !== "string"
+      || entry.name.length === 0 || typeof entry.isDir !== "boolean")) {
       throw new NotificationCenterStorageError(`通知数据目录读取结果异常：${parentPath}`);
     }
     const entry = entries.find((item) => item.name === segments[index]);
@@ -62,7 +64,10 @@ export async function readJSON<T>(key: string, schema: ZodSchema<T>): Promise<T 
     throw new NotificationCenterStorageError(`读取通知数据失败：${key}`, error);
   }
 
-  if (raw === null || raw === undefined) return null;
+  if (raw === null || raw === undefined) {
+    if (!(await notificationCenterDataFileExists(key))) return null;
+    throw new NotificationCenterStorageError(`通知数据读取结果为空，但文件仍存在：${key}`);
+  }
 
   if (typeof raw === "string") {
     if (raw.trim() === "") {
