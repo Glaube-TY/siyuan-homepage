@@ -34,22 +34,55 @@
     }
 
     onMount(() => {
-        if (!rootEl) return;
+        let element = rootEl;
+        if (!element) return;
+        let disposed = false;
         let rafId: number | null = null;
         let resizeObserver: ResizeObserver | null = null;
-        const updateSize = (width: number, height: number) => { containerWidth = width; containerHeight = height; };
+        let pendingEntry: ResizeObserverEntry | undefined;
+        const measure = (entry?: ResizeObserverEntry) => {
+            if (disposed || !element) return;
+            const boxes = entry?.borderBoxSize;
+            const box = (Array.isArray(boxes) ? boxes[0] : boxes) as ResizeObserverSize | undefined;
+            const { width, height } = box && Number.isFinite(box.inlineSize) && Number.isFinite(box.blockSize)
+                && box.inlineSize >= 0 && box.blockSize >= 0
+                ? { width: box.inlineSize, height: box.blockSize } : element.getBoundingClientRect();
+            const rem = parseFloat(getComputedStyle(element.ownerDocument.documentElement).fontSize);
+            if (!Number.isFinite(width) || !Number.isFinite(height) || width < 0 || height < 0
+                || !Number.isFinite(rem) || rem <= 0) return;
+            // Use normal padding in every mode so micro's smaller padding cannot feed back into its breakpoint.
+            const normalize = (size: number) => Math.max(0, Math.round((size - 2 * 0.75 * rem) * 64) / 64);
+            const nextWidth = normalize(width), nextHeight = normalize(height);
+            if (!Number.isFinite(nextWidth) || !Number.isFinite(nextHeight)) return;
+            if (containerWidth !== nextWidth) containerWidth = nextWidth;
+            if (containerHeight !== nextHeight) containerHeight = nextHeight;
+        };
+        measure();
         if (typeof ResizeObserver !== "undefined") {
             resizeObserver = new ResizeObserver((entries) => {
-                const entry = entries[0]; if (!entry) return;
-                if (rafId !== null) cancelAnimationFrame(rafId);
-                rafId = requestAnimationFrame(() => { const rect = entry.contentRect; updateSize(rect.width, rect.height); });
+                if (disposed) return;
+                const entry = entries.find((entry) => entry.target === element);
+                if (!entry) return;
+                pendingEntry = entry;
+                if (rafId !== null) return;
+                rafId = requestAnimationFrame(() => {
+                    rafId = null;
+                    measure(pendingEntry);
+                    pendingEntry = undefined;
+                });
             });
-            resizeObserver.observe(rootEl);
-        } else {
-            const rect = rootEl.getBoundingClientRect();
-            updateSize(rect.width, rect.height);
+            try { resizeObserver.observe(element, { box: "border-box" }); }
+            catch { resizeObserver.observe(element); }
         }
-        return () => { if (rafId !== null) cancelAnimationFrame(rafId); if (resizeObserver && rootEl) resizeObserver.unobserve(rootEl); };
+        return () => {
+            disposed = true;
+            if (rafId !== null) cancelAnimationFrame(rafId);
+            rafId = null;
+            resizeObserver?.disconnect();
+            resizeObserver = null;
+            pendingEntry = undefined;
+            element = null;
+        };
     });
 
     function playModeAlt(): string {
