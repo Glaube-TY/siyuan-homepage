@@ -35,6 +35,7 @@
     "verify:visual-chart-database-picker": "node --no-warnings ./scripts/verify-visual-chart-database-picker.mjs",
     "verify:enhanced-diary-project-index": "node --no-warnings ./scripts/verify-enhanced-diary-project-index.mjs",
     "verify:shared-runtime-refresh": "node --no-warnings ./scripts/verify-shared-runtime-refresh.mjs",
+    "verify:task-index-sync-performance": "node --no-warnings ./scripts/verify-task-index-sync-performance.mjs",
     "verify:entitlement": "pnpm verify:mobile-entitlement-sync",
     "verify:robot-quick-note": "node --no-warnings ./scripts/verify-robot-quick-note.mjs",
     "verify:external-http-transport": "node --no-warnings ./scripts/verify-external-http-transport.mjs",

@@ -73,6 +73,7 @@
     import { saveEnhancedDiaryConfig } from "../enhancedDiaryConfig";
     import { ENHANCED_DIARY_INDEXES_UPDATED_EVENT } from "../enhancedDiaryIndex";
     import { TASK_DATA_UPDATED_EVENT } from "@/features/task-data/task-data-runtime";
+    import { recordTaskIndexMetric } from "@/utils/performance/runtimePerformance";
     import type { GenerateTasksPlusTaskInput } from "@/features/task-data/task-parser";
     import {
         addNewTaskToDiary,
@@ -537,6 +538,7 @@
     let indexRefreshTimer: number | null = null;
     let refreshMutationTail: Promise<void> = Promise.resolve();
     let externalWorkspaceRefreshPending = false;
+    let taskIndexRefreshPending = false;
 
     function scheduleExternalWorkspaceRefresh(): void {
         if (!advancedEnabled) return;
@@ -561,7 +563,11 @@
                 externalWorkspaceRefreshPending = true;
                 return;
             }
-            if (advancedEnabled) await refresh();
+            if (advancedEnabled) {
+                if (taskIndexRefreshPending) recordTaskIndexMetric("workspaceRefreshes");
+                taskIndexRefreshPending = false;
+                await refresh();
+            }
         }, 120);
     }
 
@@ -577,6 +583,7 @@
     }
 
     function handleTaskDataUpdated(): void {
+        taskIndexRefreshPending = true;
         scheduleExternalWorkspaceRefresh();
     }
 

@@ -1,12 +1,13 @@
 import {
-    refreshTaskIndexAfterBroadCommit,
-    refreshTaskIndexByRootIds,
+    refreshTaskIndexAfterDatabaseCommit,
 } from "@/components/tools/siyuanComponentDataApi";
 import type { ComponentMigrationStatus } from "@/components/utils/widgetBlock/widget/common/componentMigrationTypes";
+import { recordTaskIndexMetric, taskIndexDiagnostics } from "@/utils/performance/runtimePerformance";
 
 export const TASK_DATA_UPDATED_EVENT = "siyuan-homepage:task-data-updated";
 
 const TASK_DATA_SYNC_DEBOUNCE_MS = 120;
+const TASK_DATA_SYNC_MAX_DELAY_MS = 1000;
 
 let runtimeEventBus: any = null;
 let runtimeStarted = false;
@@ -14,7 +15,9 @@ let runtimeGeneration = 0;
 let pendingRootIds = new Set<string>();
 let pendingBroadCommit = false;
 let refreshTimer: number | null = null;
+let pendingSince: number | null = null;
 let refreshFlight: Promise<void> | null = null;
+let runtimePlugin: any = null;
 
 export function normalizeRootIds(value: unknown): string[] {
     if (!Array.isArray(value)) return [];
@@ -64,11 +67,12 @@ export function shouldDispatchTaskDataUpdated(
 function scheduleRefresh(): void {
     if (!runtimeStarted) return;
     if (refreshTimer !== null) window.clearTimeout(refreshTimer);
+    pendingSince ??= Date.now();
     const generation = runtimeGeneration;
     refreshTimer = window.setTimeout(() => {
         refreshTimer = null;
         void flushPendingRootIds(generation);
-    }, TASK_DATA_SYNC_DEBOUNCE_MS);
+    }, Math.min(TASK_DATA_SYNC_DEBOUNCE_MS, Math.max(0, TASK_DATA_SYNC_MAX_DELAY_MS - (Date.now() - pendingSince))));
 }
 
 async function flushPendingRootIds(generation: number): Promise<void> {
@@ -77,33 +81,17 @@ async function flushPendingRootIds(generation: number): Promise<void> {
     const broadCommit = pendingBroadCommit;
     pendingRootIds.clear();
     pendingBroadCommit = false;
+    pendingSince = null;
+    recordTaskIndexMetric("rootsProcessed", rootIds.length);
     const flight = (async () => {
-        const results: ComponentMigrationStatus[] = [];
-        if (rootIds.length > 0) {
-            try {
-                const result = await refreshTaskIndexByRootIds(rootIds);
-                results.push(result);
-                if (result.lastStatus === "error") {
-                    console.warn("[task-data-runtime] database-index-commit targeted 任务索引刷新失败", result.lastMessage);
-                }
-            } catch (error) {
-                console.warn("[task-data-runtime] database-index-commit targeted 任务索引刷新异常", error);
-            }
-        }
-        if (broadCommit) {
-            try {
-                const result = await refreshTaskIndexAfterBroadCommit();
-                results.push(result);
-                if (result.lastStatus === "error") {
-                    console.warn("[task-data-runtime] database-index-commit broad 任务索引刷新失败", result.lastMessage);
-                }
-            } catch (error) {
-                console.warn("[task-data-runtime] database-index-commit broad 任务索引刷新异常", error);
-            }
-        }
-        const changedResult = selectChangedTaskDataResult(results);
+        const changedResult = await refreshTaskIndexAfterDatabaseCommit(rootIds, {
+            broad: broadCommit,
+            isActive: () => runtimeStarted && generation === runtimeGeneration,
+        });
+        if (changedResult.lastStatus === "error") console.warn("[task-data-runtime] 任务索引刷新失败", changedResult.lastMessage);
         if (!shouldDispatchTaskDataUpdated(changedResult, runtimeStarted, generation === runtimeGeneration)) return;
         if (typeof window !== "undefined") {
+            recordTaskIndexMetric("dataUpdatedEvents");
             window.dispatchEvent(new CustomEvent(TASK_DATA_UPDATED_EVENT, { detail: changedResult }));
         }
     })();
@@ -121,6 +109,9 @@ async function flushPendingRootIds(generation: number): Promise<void> {
 function handleWsMain(event: CustomEvent<unknown>): void {
     const intent = parseDatabaseIndexCommitIntent(event?.detail);
     if (!intent) return;
+    recordTaskIndexMetric("databaseCommits");
+    const received = (event.detail as { data?: { rootIDs?: unknown } })?.data?.rootIDs;
+    recordTaskIndexMetric("rootsReceived", Array.isArray(received) ? received.length : 0);
     intent.rootIds.forEach((rootId) => pendingRootIds.add(rootId));
     if (intent.broad) pendingBroadCommit = true;
     if (intent.rootIds.length === 0 && !intent.broad) return;
@@ -136,13 +127,18 @@ export function startTaskDataRuntime(plugin: any): void {
     }
     runtimeGeneration += 1;
     runtimeEventBus = eventBus;
+    runtimePlugin = plugin;
+    runtimePlugin.taskIndexDiagnostics = taskIndexDiagnostics;
     runtimeStarted = true;
     pendingRootIds.clear();
     pendingBroadCommit = false;
+    pendingSince = null;
     try {
         eventBus.on("ws-main", handleWsMain);
     } catch (error) {
         runtimeEventBus = null;
+        if (runtimePlugin?.taskIndexDiagnostics === taskIndexDiagnostics) delete runtimePlugin.taskIndexDiagnostics;
+        runtimePlugin = null;
         runtimeStarted = false;
         console.warn("[task-data-runtime] 注册 ws-main 监听失败", error);
     }
@@ -152,6 +148,7 @@ export function destroyTaskDataRuntime(): void {
     runtimeGeneration += 1;
     if (refreshTimer !== null) window.clearTimeout(refreshTimer);
     refreshTimer = null;
+    pendingSince = null;
     pendingRootIds.clear();
     pendingBroadCommit = false;
     try {
@@ -160,6 +157,9 @@ export function destroyTaskDataRuntime(): void {
         console.warn("[task-data-runtime] 移除 ws-main 监听失败", error);
     }
     runtimeEventBus = null;
+    if (runtimePlugin?.taskIndexDiagnostics === taskIndexDiagnostics) delete runtimePlugin.taskIndexDiagnostics;
+    runtimePlugin = null;
+    taskIndexDiagnostics.enable(false);
     runtimeStarted = false;
     refreshFlight = null;
 }

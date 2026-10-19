@@ -58,3 +58,27 @@ export function getRuntimePerformanceSnapshot(): RuntimePerformanceSample[] {
 export function clearRuntimePerformanceSnapshot(): void {
     samples.length = 0;
 }
+
+// Fixed numeric counters only; disabled diagnostics do not collect IDs or content.
+const taskIndexMetrics = {
+    databaseCommits: 0, rootsReceived: 0, rootsProcessed: 0,
+    targetedRefreshes: 0, broadCleanups: 0, indexReads: 0,
+    readParseMs: 0, mergeCompareMs: 0, indexWrites: 0,
+    writeBytes: 0, writeMs: 0, noopWritesSkipped: 0,
+    dataUpdatedEvents: 0, workspaceRefreshes: 0,
+};
+let taskIndexDiagnosticsEnabled = false;
+export function recordTaskIndexMetric(key: keyof typeof taskIndexMetrics, value = 1): void {
+    if (taskIndexDiagnosticsEnabled && Number.isFinite(value)) taskIndexMetrics[key] += value;
+}
+export function taskIndexMeasurementStart(): number | undefined {
+    return taskIndexDiagnosticsEnabled ? monotonicNow() : undefined;
+}
+export function finishTaskIndexMeasurement(key: "readParseMs" | "mergeCompareMs" | "writeMs", start: number | undefined): void {
+    if (start !== undefined) recordTaskIndexMetric(key, Math.max(0, monotonicNow() - start));
+}
+export const taskIndexDiagnostics = {
+    enable(enabled = true): void { taskIndexDiagnosticsEnabled = enabled; },
+    snapshot() { return { enabled: taskIndexDiagnosticsEnabled, ...taskIndexMetrics }; },
+    reset(): void { for (const key of Object.keys(taskIndexMetrics)) taskIndexMetrics[key] = 0; },
+};

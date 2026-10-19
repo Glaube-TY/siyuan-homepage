@@ -50,6 +50,7 @@
         type EnhancedDiaryWorkspaceTask,
     } from "./workspace/enhancedDiaryWorkspaceTaskService";
     import { TASK_DATA_UPDATED_EVENT } from "@/features/task-data/task-data-runtime";
+    import { recordTaskIndexMetric } from "@/utils/performance/runtimePerformance";
     import { isEnhancedDiaryTaskManagementEnabled } from "./enhancedDiaryTemplateFieldMapping";
     import AdvancedFeatureLock from "../common/AdvancedFeatureLock.svelte";
     import WidgetSemanticTitle from "@/homepage/theme/widgetPresentation/components/WidgetSemanticTitle.svelte";
@@ -453,15 +454,19 @@
         }
     }
 
+    let taskIndexRefreshPending = false;
     function scheduleHomepageSnapshotRefresh(): void {
         if (!advancedEnabled || !config || snapshotRefreshFrame !== null) return;
         snapshotRefreshFrame = window.requestAnimationFrame(() => {
             snapshotRefreshFrame = null;
+            if (taskIndexRefreshPending) recordTaskIndexMetric("workspaceRefreshes");
+            taskIndexRefreshPending = false;
             void loadHomepageSnapshot();
         });
     }
 
     function handleTaskDataUpdated(): void {
+        taskIndexRefreshPending = true;
         scheduleHomepageSnapshotRefresh();
     }
 

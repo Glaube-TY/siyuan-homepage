@@ -6,6 +6,7 @@ import {
     getBlockTreeInfos,
     getFile,
     getFileChecked,
+    getFileOrNullChecked,
     getPathByID,
     getRecentDocs,
     checkBlockExist,
@@ -16,6 +17,7 @@ import {
     readDirChecked,
     setBlockAttrsChecked,
     sql,
+    sqlChecked,
 } from "@/api";
 import { validateSafeSelectSql } from "@/features/kb/services/siyuan/safe-sql";
 import type { ComponentMigrationStatus } from "@/components/utils/widgetBlock/widget/common/componentMigrationTypes";
@@ -44,6 +46,7 @@ import {
     mergeHeatmapDocumentCountDays,
 } from "@/components/utils/widgetBlock/widget/heatmap/heatmapDocumentCounts";
 import { getDiaryIndexEntriesForDisplay, resolveEnhancedDiaryDateFromMetadata } from "@/components/utils/widgetBlock/widget/enhancedDiary/enhancedDiaryIndex";
+import { recordTaskIndexMetric, taskIndexMeasurementStart, finishTaskIndexMeasurement } from "@/utils/performance/runtimePerformance";
 
 export type ComponentDataStatus = "ok" | "empty" | "limited" | "disabled" | "unsupported" | "error";
 export type ComponentDataMode =
@@ -244,7 +247,7 @@ export async function runHomepageManualIndexSqlQuery<T = Record<string, unknown>
         return { ok: false, rows: [], reason: validation.reason };
     }
     try {
-        const rows = await sql(validation.stmt);
+        const rows = await sqlChecked(validation.stmt);
         return { ok: true, rows: Array.isArray(rows) ? (rows as T[]) : [] };
     } catch (e) {
         return { ok: false, rows: [], reason: e instanceof Error ? e.message : String(e) };
@@ -303,6 +306,7 @@ async function fileContentToObject(raw: unknown): Promise<unknown> {
 }
 
 async function readJsonIndex<T>(path: string): Promise<T[]> {
+    if (path === TASK_INDEX_PATH) return (await readTaskIndexSnapshot()).items as T[];
     try {
         const raw = await getFile(path);
         const parsed = await fileContentToObject(raw);
@@ -325,6 +329,23 @@ async function readJsonIndexPayload<T>(path: string, fallback: T): Promise<T> {
 }
 
 async function writeJsonIndex<T>(path: string, items: T[]): Promise<void> {
+    if (path === TASK_INDEX_PATH) {
+        if (!items.every(isValidTaskIndexItem)) throw new Error("拒绝写入结构异常的任务索引。");
+        const payload = { version: INDEX_VERSION, updatedAt: new Date().toISOString(), items };
+        const started = taskIndexMeasurementStart();
+        const blob = makeJsonBlob(payload);
+        // putFile creates parent directories; no extra directory mutation is necessary.
+        await putFileChecked(path, false, blob);
+        recordTaskIndexMetric("indexWrites");
+        recordTaskIndexMetric("writeBytes", blob.size);
+        finishTaskIndexMeasurement("writeMs", started);
+        const verified = await readTaskIndexSnapshot();
+        if (!verified.fileExists || verified.items.length !== items.length ||
+            !taskIndexCollectionsEqual(items as ComponentTaskInfo[], verified.items)) {
+            throw new Error("任务索引写后校验失败，未确认保存结果。");
+        }
+        return;
+    }
     try {
         await putFile(COMPONENT_INDEX_DIR, true, makeJsonBlob({}));
     } catch {
@@ -347,6 +368,7 @@ async function writeJsonIndexPayload(path: string, payload: unknown): Promise<vo
 }
 
 async function doesIndexFileExist(path: string): Promise<boolean> {
+    if (path === TASK_INDEX_PATH) return (await readTaskIndexSnapshot()).fileExists;
     try {
         const raw = await getFile(path);
         const parsed = await fileContentToObject(raw);
@@ -866,7 +888,7 @@ function normalizeTaskIndexItem(
         markdown,
         content: task.content || stripSearchMarks(firstLine),
         created: task.created || "",
-        updated: task.updated || now,
+        updated: task.updated || "",
         type: task.type || "",
         subtype: task.subtype || "",
         checked,
@@ -940,7 +962,8 @@ async function verifyIndexedTaskBlock(
     for (const waitMs of [0, 100, 300] as const) {
         if (waitMs > 0) await new Promise((resolve) => setTimeout(resolve, waitMs));
         try {
-            if (!await checkBlockExist(task.id)) {
+            const exists = await checkBlockExist(task.id);
+            if (exists === false) {
                 confirmedMissing += 1;
                 // 已确认块不存在时不要继续读取块详情，否则思源会弹出“内容块不存在”提示。
                 continue;
@@ -951,6 +974,7 @@ async function verifyIndexedTaskBlock(
 
         try {
             const info = await getBlockInfo(task.id);
+            if (typeof info?.rootID !== "string" || !info.rootID) continue;
             sawReadableBlock = true;
             if (expectedRootId && expectedRootId !== task.id && info?.rootID !== expectedRootId) return "missing";
             const [treeInfos, kramdowns] = await Promise.all([
@@ -959,7 +983,7 @@ async function verifyIndexedTaskBlock(
             ]);
             const treeInfo = treeInfos?.[task.id];
             const hasKramdown = Object.prototype.hasOwnProperty.call(kramdowns || {}, task.id);
-            if (treeInfo && hasKramdown) {
+            if (treeInfo && typeof treeInfo.type === "string" && hasKramdown && typeof kramdowns[task.id] === "string") {
                 return isEnhancedDiaryTaskListItemType(treeInfo.type) &&
                     isTaskMarkdown(String(kramdowns[task.id] || ""))
                     ? "exists"
@@ -975,7 +999,7 @@ async function verifyIndexedTaskBlock(
 }
 
 export async function readTaskIndexItems(): Promise<ComponentTaskInfo[]> {
-    return dedupeTaskIndexItems(await readJsonIndex<ComponentTaskInfo>(TASK_INDEX_PATH));
+    return (await readTaskIndexSnapshot()).items;
 }
 
 export interface TaskIndexSnapshot {
@@ -984,11 +1008,32 @@ export interface TaskIndexSnapshot {
 }
 
 export async function readTaskIndexSnapshot(): Promise<TaskIndexSnapshot> {
-    const fileExists = await doesIndexFileExist(TASK_INDEX_PATH);
-    return {
-        fileExists,
-        items: fileExists ? await readTaskIndexItems() : [],
-    };
+    const started = taskIndexMeasurementStart();
+    recordTaskIndexMetric("indexReads");
+    try {
+        const raw = await getFileOrNullChecked(TASK_INDEX_PATH);
+        if (raw === null) return { fileExists: false, items: [] };
+        const parsed = await fileContentToObject(raw);
+        const payload = parsed as { version?: unknown; items?: unknown } | null | undefined;
+        const items = Array.isArray(parsed) ? parsed : payload?.version === INDEX_VERSION ? payload.items : undefined;
+        if (!Array.isArray(items) || items.some((item) => !isValidTaskIndexItem(item))) {
+            throw new Error("任务索引格式或版本异常，保留原文件，请检查后手动重建。");
+        }
+        return { fileExists: true, items: dedupeTaskIndexItems(items) };
+    } finally {
+        finishTaskIndexMeasurement("readParseMs", started);
+    }
+}
+
+function isValidTaskIndexItem(item: unknown): item is ComponentTaskInfo {
+    if (!item || typeof item !== "object" || Array.isArray(item)) return false;
+    const row = item as Record<string, unknown>;
+    if (typeof row.id !== "string" || !/^\d{14}-[a-z0-9]{7}$/.test(row.id)) return false;
+    const strings = ["root_id", "rootID", "parent_id", "parentID", "box", "path", "hpath", "markdown", "content", "created", "updated", "type", "subtype", "source", "indexedAt", "lastVerifiedAt", "ial", "projectTargetId", "hiddenProjectTargetId", "visibleProjectTargetId", "rootProjectId", "projectRelationStatus"];
+    return strings.every((key) => row[key] === undefined || typeof row[key] === "string") &&
+        (typeof row.markdown === "string" || typeof row.content === "string") &&
+        (row.checked === undefined || typeof row.checked === "boolean") &&
+        (row.projectPath === undefined || (Array.isArray(row.projectPath) && row.projectPath.every((id) => typeof id === "string")));
 }
 
 function enqueueTaskIndexMutation<T>(mutation: () => Promise<T>): Promise<T> {
@@ -1029,17 +1074,27 @@ function taskIndexComparable(item: ComponentTaskInfo): unknown[] {
 }
 
 function taskIndexCollectionsEqual(previous: ComponentTaskInfo[], next: ComponentTaskInfo[]): boolean {
-    const stable = (items: ComponentTaskInfo[]) => items
-        .map(taskIndexComparable)
-        .sort((a, b) => String(a[0]).localeCompare(String(b[0])));
-    return JSON.stringify(stable(previous)) === JSON.stringify(stable(next));
+    if (previous.length !== next.length) return false;
+    const byId = new Map(previous.map((item) => [item.id, item]));
+    return next.every((item) => taskIndexItemsEqual(byId.get(item.id), item));
 }
 
-async function mergeTaskIndexItemsUnsafe(
+function taskIndexItemsEqual(previous: ComponentTaskInfo | undefined, next: ComponentTaskInfo | undefined): boolean {
+    if (previous === next) return true;
+    if (!previous || !next) return false;
+    const a = taskIndexComparable(previous), b = taskIndexComparable(next);
+    return a.every((value, index) => Array.isArray(value)
+        ? Array.isArray(b[index]) && value.length === b[index].length && value.every((id, i) => id === b[index][i])
+        : value === b[index]);
+}
+
+function mergeTaskIndexRows(
+    rows: ComponentTaskInfo[],
     items: Array<Partial<ComponentTaskInfo> & { id: string }>,
     options: { removeRootIds?: string[]; source?: string } = {},
-): Promise<TaskIndexMutationResult> {
-    const rows = dedupeTaskIndexItems(await readJsonIndex<ComponentTaskInfo>(TASK_INDEX_PATH));
+): { nextRows: ComponentTaskInfo[]; count: number } {
+    const started = taskIndexMeasurementStart();
+    const previousById = new Map(rows.map((row) => [row.id, row]));
     const removeRoots = new Set((options.removeRootIds || []).filter(Boolean));
     const map = new Map<string, ComponentTaskInfo>();
     for (const row of rows) {
@@ -1050,26 +1105,29 @@ async function mergeTaskIndexItemsUnsafe(
     }
     for (const item of items) {
         if (!item?.id) continue;
-        const previous = map.get(item.id);
-        const next = normalizeTaskIndexItem({ ...previous, ...item }, options.source || "plugin");
+        const previous = map.get(item.id) ?? previousById.get(item.id);
+        const next = normalizeTaskIndexItem({ ...previous, ...item, indexedAt: previous?.indexedAt || item.indexedAt }, options.source || "plugin");
         map.set(next.id, next);
     }
-    const nextRows = dedupeTaskIndexItems(Array.from(map.values()));
-    const previousById = new Map(rows.map((row) => [row.id, row]));
-    const nextById = new Map(nextRows.map((row) => [row.id, row]));
-    const ids = new Set([...previousById.keys(), ...nextById.keys()]);
     let changedCount = 0;
-    for (const id of ids) {
-        const previous = previousById.get(id);
-        const next = nextById.get(id);
-        if (!previous || !next || JSON.stringify(taskIndexComparable(previous)) !== JSON.stringify(taskIndexComparable(next))) {
-            changedCount += 1;
-        }
+    for (const [id, previous] of previousById) {
+        if (!taskIndexItemsEqual(previous, map.get(id))) changedCount++;
     }
-    if (changedCount > 0 && !taskIndexCollectionsEqual(rows, nextRows)) {
+    for (const id of map.keys()) if (!previousById.has(id)) changedCount++;
+    finishTaskIndexMeasurement("mergeCompareMs", started);
+    return { nextRows: Array.from(map.values()), count: changedCount };
+}
+
+async function mergeTaskIndexItemsUnsafe(
+    items: Array<Partial<ComponentTaskInfo> & { id: string }>,
+    options: { removeRootIds?: string[]; source?: string } = {},
+    rows?: ComponentTaskInfo[],
+): Promise<TaskIndexMutationResult> {
+    const { nextRows, count } = mergeTaskIndexRows(rows ?? await readTaskIndexItems(), items, options);
+    if (count > 0) {
         await writeJsonIndex(TASK_INDEX_PATH, nextRows);
-    }
-    return { count: changedCount, changed: changedCount > 0 };
+    } else recordTaskIndexMetric("noopWritesSkipped");
+    return { count, changed: count > 0 };
 }
 
 export function mergeTaskIndexItems(
@@ -1083,6 +1141,7 @@ async function replaceTaskIndexItemsUnsafe(
     items: Array<Partial<ComponentTaskInfo> & { id: string }>,
     source = "rebuild",
 ): Promise<number> {
+    const previous = await readTaskIndexSnapshot();
     const map = new Map<string, ComponentTaskInfo>();
     for (const item of items) {
         if (!item?.id) continue;
@@ -1090,7 +1149,8 @@ async function replaceTaskIndexItemsUnsafe(
         map.set(next.id, next);
     }
     const deduped = dedupeTaskIndexItems(Array.from(map.values()));
-    await writeJsonIndex(TASK_INDEX_PATH, deduped);
+    if (!previous.fileExists || !taskIndexCollectionsEqual(previous.items, deduped)) await writeJsonIndex(TASK_INDEX_PATH, deduped);
+    else recordTaskIndexMetric("noopWritesSkipped");
     return deduped.length;
 }
 
@@ -1101,45 +1161,49 @@ export function replaceTaskIndexItems(
     return enqueueTaskIndexMutation(() => replaceTaskIndexItemsUnsafe(items, source));
 }
 
-async function pruneMissingTaskIndexItemsUnsafe(options: {
+async function findInvalidTaskIndexIds(rows: ComponentTaskInfo[], options: {
     includeCompleted?: boolean;
-} = {}): Promise<number> {
-    const rows = dedupeTaskIndexItems(await readJsonIndex<ComponentTaskInfo>(TASK_INDEX_PATH));
-    const now = new Date().toISOString();
+} = {}, verification = new Map<string, Promise<Awaited<ReturnType<typeof verifyIndexedTaskBlock>>>>(), isActive = () => true): Promise<Set<string>> {
     const targets = rows.filter((row) =>
         row?.id &&
         !isWithinTaskIndexProtection(row) &&
         (options.includeCompleted || isPendingTask(row))
     );
-    if (targets.length === 0) return 0;
 
     const missing = new Set<string>();
     for (let i = 0; i < targets.length; i += 32) {
+        if (!isActive()) break;
         const batch = targets.slice(i, i + 32);
         const results = await Promise.all(batch.map(async (task) => ({
             id: task.id,
-            status: await verifyIndexedTaskBlock(task),
+            status: await verifyTaskOnce(task, verification),
         })));
         for (const result of results) {
             if (result.status === "missing" || result.status === "inactive") missing.add(result.id);
         }
     }
-    if (missing.size === 0) {
-        const map = new Map(rows.filter((row) => row?.id).map((row) => [row.id, row]));
-        for (const task of targets) {
-            map.set(task.id, { ...map.get(task.id), lastVerifiedAt: now });
-        }
-        await writeJsonIndex(TASK_INDEX_PATH, dedupeTaskIndexItems(Array.from(map.values())));
-        return 0;
-    }
-    await writeJsonIndex(TASK_INDEX_PATH, rows.filter((row) => row?.id && !missing.has(row.id)));
-    return missing.size;
+    return missing;
+}
+
+function verifyTaskOnce(task: ComponentTaskInfo, verification: Map<string, Promise<Awaited<ReturnType<typeof verifyIndexedTaskBlock>>>>) {
+    let result = verification.get(task.id);
+    if (!result) { result = verifyIndexedTaskBlock(task); verification.set(task.id, result); }
+    return result;
+}
+
+async function pruneMissingTaskIndexItemsUnsafe(options: { includeCompleted?: boolean } = {}): Promise<{ rows: ComponentTaskInfo[]; removed: number }> {
+    const rows = await readTaskIndexItems();
+    const missing = await findInvalidTaskIndexIds(rows, options);
+    if (missing.size === 0) { recordTaskIndexMetric("noopWritesSkipped"); return { rows, removed: 0 }; }
+    const nextRows = rows.filter((row) => !missing.has(row.id));
+    await writeJsonIndex(TASK_INDEX_PATH, nextRows);
+    return { rows: nextRows, removed: missing.size };
 }
 
 export function pruneMissingTaskIndexItems(options: {
     includeCompleted?: boolean;
 } = {}): Promise<number> {
-    return enqueueTaskIndexMutation(() => pruneMissingTaskIndexItemsUnsafe(options));
+    return enqueueTaskIndexMutation(() => pruneMissingTaskIndexItemsUnsafe(options)).then((result) => result.removed);
 }
 
 export async function getTaskIndexResult(
@@ -1147,8 +1211,7 @@ export async function getTaskIndexResult(
     plugin?: any,
 ): Promise<ComponentDataResult<ComponentTaskInfo>> {
     void plugin;
-    await pruneMissingTaskIndexItems();
-    const rows = await readTaskIndexItems();
+    const { rows } = await enqueueTaskIndexMutation(() => pruneMissingTaskIndexItemsUnsafe());
     const filtered = notebookIds.length > 0
         ? rows.filter((item) => item.box && notebookIds.includes(item.box))
         : rows;
@@ -1291,7 +1354,7 @@ async function queryTaskBlocksByRootIds(
         let offset = 0;
         let pageRows: unknown[];
         do {
-            pageRows = await sql(`
+            pageRows = await sqlChecked(`
                 SELECT id, parent_id, root_id, box, path, hpath, type, subtype, content, markdown, ial, created, updated
                 FROM blocks
                 WHERE subtype = 't' AND type = 'i' AND root_id IN (${escaped})
@@ -1317,6 +1380,7 @@ async function preserveTasksMissingFromSql(
     existing: ComponentTaskInfo[],
     sqlTasks: ComponentTaskInfo[],
     changedRootIds: string[],
+    verification = new Map<string, Promise<Awaited<ReturnType<typeof verifyIndexedTaskBlock>>>>(),
 ): Promise<ComponentTaskInfo[]> {
     const roots = new Set(changedRootIds);
     const returnedIds = new Set(sqlTasks.map((task) => task.id));
@@ -1326,7 +1390,7 @@ async function preserveTasksMissingFromSql(
     const unchecked = missing.slice(64);
     const statuses = await Promise.all(candidates.map(async (task) => ({
         task,
-        status: isWithinTaskIndexProtection(task) ? "exists" : await verifyIndexedTaskBlock(task),
+        status: isWithinTaskIndexProtection(task) ? "exists" : await verifyTaskOnce(task, verification),
     })));
     return [
         ...statuses
@@ -1481,14 +1545,17 @@ export async function refreshTaskIndexFromRecentDocuments(
             };
         }
         const rootIds = changedDocs.map((doc) => doc.id);
-        const { tasks, truncated } = await queryTaskBlocksByRootIds(rootIds);
+        let truncated = false;
         const mutation = await enqueueTaskIndexMutation(async () => {
             const existing = await readTaskIndexItems();
+            const query = await queryTaskBlocksByRootIds(rootIds);
+            const tasks = query.tasks;
+            truncated = query.truncated;
             const preserved = await preserveTasksMissingFromSql(existing, tasks, rootIds);
             return mergeTaskIndexItemsUnsafe([...tasks, ...preserved], {
                 removeRootIds: rootIds,
                 source: "recent-doc-refresh",
-            });
+            }, existing);
         });
         const migratedCount = mutation.count;
         await commit();
@@ -1518,110 +1585,62 @@ export async function refreshTaskIndexByRootIds(
     plugin?: any,
 ): Promise<ComponentMigrationStatus> {
     void plugin;
-    const now = new Date().toISOString();
-    const source = "database-index-commit";
-    const uniqueRootIds = Array.from(new Set(
-        (Array.isArray(rootIds) ? rootIds : [])
-            .filter((rootId): rootId is string => typeof rootId === "string")
-            .map((rootId) => rootId.trim())
-            .filter(Boolean),
-    ));
-    if (uniqueRootIds.length === 0) {
-        return {
-            source,
-            changed: false,
-            lastRunAt: now,
-            lastStatus: "idle",
-            lastMessage: "没有需要刷新的任务根文档。",
-            migratedCount: 0,
-            skippedCount: 0,
-        };
-    }
-    if (!await doesIndexFileExist(TASK_INDEX_PATH)) {
-        return {
-            source,
-            changed: false,
-            lastRunAt: now,
-            lastStatus: "idle",
-            lastMessage: "任务索引尚未初始化，跳过数据库提交后的后台增量刷新。",
-            migratedCount: 0,
-            skippedCount: uniqueRootIds.length,
-        };
-    }
-
-    try {
-        const { tasks, truncated } = await queryTaskBlocksByRootIds(uniqueRootIds, source);
-        const mutation = await enqueueTaskIndexMutation(async () => {
-            const existing = await readTaskIndexItems();
-            const preserved = await preserveTasksMissingFromSql(existing, tasks, uniqueRootIds);
-            return mergeTaskIndexItemsUnsafe([...tasks, ...preserved], {
-                removeRootIds: uniqueRootIds,
-                source,
-            });
-        });
-        if (mutation.changed) requestMobilePlanRefresh("task-data-changed");
-        return {
-            source,
-            changed: mutation.changed,
-            lastRunAt: now,
-            lastStatus: "success",
-            lastMessage: truncated
-                ? `database-index-commit 任务刷新完成：检查 ${uniqueRootIds.length} 个根文档，实际变化 ${mutation.count} 条任务（达到单根文档安全上限，已截断）。`
-                : `database-index-commit 任务刷新完成：检查 ${uniqueRootIds.length} 个根文档，实际变化 ${mutation.count} 条任务。`,
-            migratedCount: mutation.count,
-            skippedCount: 0,
-        };
-    } catch (error) {
-        return {
-            source,
-            lastRunAt: now,
-            lastStatus: "error",
-            lastMessage: error instanceof Error ? error.message : "database-index-commit 任务刷新失败",
-            migratedCount: 0,
-            skippedCount: 0,
-        };
-    }
+    return refreshTaskIndexAfterDatabaseCommit(rootIds);
 }
 
 export async function refreshTaskIndexAfterBroadCommit(): Promise<ComponentMigrationStatus> {
-    const now = new Date().toISOString();
-    const source = "database-index-commit";
-    if (!await doesIndexFileExist(TASK_INDEX_PATH)) {
-        return {
-            source,
-            changed: false,
-            lastRunAt: now,
-            lastStatus: "idle",
-            lastMessage: "任务索引尚未初始化，跳过 broad databaseIndexCommit 清理。",
-            migratedCount: 0,
-            skippedCount: 0,
-        };
-    }
+    return refreshTaskIndexAfterDatabaseCommit([], { broad: true });
+}
+
+/** One serialized snapshot/commit for both intents; the runtime owns cancellation. */
+export async function refreshTaskIndexAfterDatabaseCommit(
+    rootIds: string[],
+    options: { broad?: boolean; isActive?: () => boolean } = {},
+): Promise<ComponentMigrationStatus> {
+    const now = new Date().toISOString(), source = "database-index-commit";
+    const uniqueRootIds = Array.from(new Set((Array.isArray(rootIds) ? rootIds : []).filter((id) => typeof id === "string").map((id) => id.trim()).filter(Boolean)));
+    const isActive = options.isActive ?? (() => true);
     try {
-        const removedCount = await pruneMissingTaskIndexItems({ includeCompleted: true });
-        const changed = removedCount > 0;
-        if (changed) requestMobilePlanRefresh("task-data-changed");
+        const result = await enqueueTaskIndexMutation(async () => {
+            if (!isActive() || (!uniqueRootIds.length && !options.broad)) return null;
+            const snapshot = await readTaskIndexSnapshot();
+            if (!snapshot.fileExists || !isActive()) return null;
+            const verification = new Map<string, Promise<Awaited<ReturnType<typeof verifyIndexedTaskBlock>>>>();
+            let nextRows = snapshot.items, truncated = false, count = 0;
+            if (uniqueRootIds.length) {
+                recordTaskIndexMetric("targetedRefreshes");
+                const query = await queryTaskBlocksByRootIds(uniqueRootIds, source);
+                if (!isActive()) return null;
+                truncated = query.truncated;
+                for (const task of query.tasks) verification.set(task.id, Promise.resolve("exists"));
+                const preserved = await preserveTasksMissingFromSql(snapshot.items, query.tasks, uniqueRootIds, verification);
+                const merged = mergeTaskIndexRows(snapshot.items, [...query.tasks, ...preserved], { removeRootIds: uniqueRootIds, source });
+                nextRows = merged.nextRows;
+                count = merged.count;
+            }
+            let removedCount = 0;
+            if (options.broad && isActive()) {
+                recordTaskIndexMetric("broadCleanups");
+                const invalid = await findInvalidTaskIndexIds(nextRows, { includeCompleted: true }, verification, isActive);
+                removedCount = invalid.size;
+                if (removedCount) nextRows = nextRows.filter((row) => !invalid.has(row.id));
+            }
+            if (!isActive()) return null;
+            count += removedCount;
+            const changed = count > 0;
+            if (changed) await writeJsonIndex(TASK_INDEX_PATH, nextRows);
+            else recordTaskIndexMetric("noopWritesSkipped");
+            return { changed, count, removedCount, truncated };
+        });
+        if (!result) return { source, changed: false, lastRunAt: now, lastStatus: "idle", lastMessage: "任务索引尚未初始化或刷新已取消。", migratedCount: 0, skippedCount: uniqueRootIds.length };
+        if (result.changed && isActive()) requestMobilePlanRefresh("task-data-changed");
         return {
-            source,
-            changed,
-            lastRunAt: now,
-            lastStatus: "success",
-            lastMessage: removedCount > 0
-                ? `broad databaseIndexCommit 清理完成：移除 ${removedCount} 条无效任务。`
-                : "broad databaseIndexCommit 清理完成：没有发现无效任务。",
-            migratedCount: 0,
-            removedCount,
-            skippedCount: 0,
+            source, changed: result.changed, lastRunAt: now, lastStatus: "success",
+            lastMessage: result.truncated ? "任务索引刷新完成，部分根文档达到读取安全上限；未确认条目仍保留。" : "任务索引刷新完成。",
+            migratedCount: result.count, removedCount: result.removedCount, skippedCount: 0,
         };
     } catch (error) {
-        return {
-            source,
-            lastRunAt: now,
-            lastStatus: "error",
-            lastMessage: error instanceof Error ? error.message : "broad databaseIndexCommit 清理失败",
-            migratedCount: 0,
-            skippedCount: 0,
-        };
+        return { source, changed: false, lastRunAt: now, lastStatus: "error", lastMessage: error instanceof Error ? error.message : "任务索引刷新失败", migratedCount: 0, skippedCount: 0 };
     }
 }
 
