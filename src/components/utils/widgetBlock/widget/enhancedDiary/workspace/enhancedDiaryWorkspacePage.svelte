@@ -516,27 +516,10 @@
                 loading = true;
                 const nextState = await loadEnhancedDiaryWorkspaceState(plugin, { forceTaskIndexRefresh });
                 if (!current()) return false;
-                const month = new Date(calendarDate);
-                const date = selectedCalendarDate;
-                const [nextCalendar, nextDetail] = await Promise.all([
-                    buildWorkspaceCalendarMonth(plugin, month.getFullYear(), month.getMonth(), nextState.config),
-                    loadWorkspaceDayDetail(parseLocalDate(date), nextState.config),
-                ]);
-                if (!current()) return false;
                 state = nextState;
                 workspaceStateVersion += 1;
                 calendarMonthCache = new Map();
                 dayDetailCache = new Map();
-                if (month.getFullYear() === calendarDate.getFullYear() && month.getMonth() === calendarDate.getMonth()) {
-                    calendarRequestVersion += 1;
-                    calendarDays = nextCalendar;
-                    calendarLoading = false;
-                }
-                if (date === selectedCalendarDate) {
-                    dayDetailRequestVersion += 1;
-                    selectedDayDetail = nextDetail;
-                    dayDetailLoading = false;
-                }
                 externalWorkspaceRefreshPending = false;
                 failedRefreshVersion = -1;
                 taskIndexRefreshPending = false;
@@ -550,6 +533,9 @@
                 }
                 historyRecordsLoaded = false;
                 reviewHistoryLoaded = false;
+                // Optional panels handle their own errors and must not delay core publication.
+                void loadCalendar();
+                void loadSelectedDayDetail(selectedCalendarDate);
                 if (activeTab === "records" && recordViewMode === "history") {
                     void ensureHistoryRecordsLoaded();
                 }
@@ -804,10 +790,12 @@
         const request = ++dayDetailRequestVersion;
         const lifetime = workspaceLifetime;
         const version = workspaceRefreshVersion;
-        const current = () => componentAlive && advancedEnabled && lifetime === workspaceLifetime && version === workspaceRefreshVersion && request === dayDetailRequestVersion;
+        const active = () => componentAlive && advancedEnabled && lifetime === workspaceLifetime && request === dayDetailRequestVersion;
+        const current = () => active() && version === workspaceRefreshVersion && dateStr === selectedCalendarDate;
         selectedCalendarDate = dateStr;
         if (dayDetailCache.has(dateStr)) {
             selectedDayDetail = dayDetailCache.get(dateStr) || null;
+            dayDetailLoading = false;
             return;
         }
         dayDetailLoading = true;
@@ -820,7 +808,7 @@
             console.warn("[enhancedDiaryWorkspace] load day detail failed", err);
             if (current()) showMessage("日期详情加载失败，保留上次数据，请重试", 3000);
         } finally {
-            if (current()) dayDetailLoading = false;
+            if (active()) dayDetailLoading = false;
         }
     }
 
@@ -832,10 +820,12 @@
         const request = ++calendarRequestVersion;
         const lifetime = workspaceLifetime;
         const version = workspaceRefreshVersion;
-        const current = () => componentAlive && advancedEnabled && lifetime === workspaceLifetime && version === workspaceRefreshVersion && request === calendarRequestVersion;
+        const active = () => componentAlive && advancedEnabled && lifetime === workspaceLifetime && request === calendarRequestVersion;
+        const current = () => active() && version === workspaceRefreshVersion;
         const cacheKey = `${calendarDate.getFullYear()}-${calendarDate.getMonth()}`;
         if (calendarMonthCache.has(cacheKey)) {
             calendarDays = calendarMonthCache.get(cacheKey) || [];
+            calendarLoading = false;
             return;
         }
         calendarLoading = true;
@@ -853,7 +843,7 @@
             console.warn("[enhancedDiaryWorkspacePage] calendar load failed", err);
             if (current()) showMessage("日历加载失败，请稍后重试", 3000);
         } finally {
-            if (current()) calendarLoading = false;
+            if (active()) calendarLoading = false;
         }
     }
 
@@ -1863,15 +1853,13 @@
     async function previousMonth(): Promise<void> {
         calendarDate = new Date(calendarDate.getFullYear(), calendarDate.getMonth() - 1, 1);
         selectedCalendarDate = formatDiaryDate(calendarDate);
-        await loadCalendar();
-        await loadSelectedDayDetail(selectedCalendarDate);
+        await Promise.all([loadCalendar(), loadSelectedDayDetail(selectedCalendarDate)]);
     }
 
     async function nextMonth(): Promise<void> {
         calendarDate = new Date(calendarDate.getFullYear(), calendarDate.getMonth() + 1, 1);
         selectedCalendarDate = formatDiaryDate(calendarDate);
-        await loadCalendar();
-        await loadSelectedDayDetail(selectedCalendarDate);
+        await Promise.all([loadCalendar(), loadSelectedDayDetail(selectedCalendarDate)]);
     }
 
     async function jumpCalendarToToday(): Promise<void> {
@@ -1879,8 +1867,7 @@
         const todayDate = parseLocalDate(todayStr);
         calendarDate = new Date(todayDate.getFullYear(), todayDate.getMonth(), 1);
         selectedCalendarDate = todayStr;
-        await loadCalendar();
-        await loadSelectedDayDetail(todayStr);
+        await Promise.all([loadCalendar(), loadSelectedDayDetail(todayStr)]);
     }
 
     onMount(() => {

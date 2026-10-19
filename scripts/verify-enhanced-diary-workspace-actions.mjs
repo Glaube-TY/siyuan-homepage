@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { build, transform } from "esbuild";
 import { parse, compile } from "svelte/compiler";
+import { setImmediate } from "node:timers/promises";
 
 const root = resolve(import.meta.dirname, "..");
 const base = "src/components/utils/widgetBlock/widget/enhancedDiary/workspace/";
@@ -27,7 +28,7 @@ async function factory(source, name) {
     const { code } = await transform(source, { loader: "ts", format: "esm" });
     return (await import(`data:text/javascript;base64,${Buffer.from(code).toString("base64")}`))[name];
 }
-const pageFunctions = functions(page, ["submitNewTaskForWorkspace", "createRecord", "toggleTask", "loadCalendar", "loadSelectedDayDetail", "ensureHistoryRecordsLoaded", "ensureReviewHistoryLoaded"]);
+const pageFunctions = functions(page, ["submitNewTaskForWorkspace", "createRecord", "toggleTask", "loadCalendar", "loadSelectedDayDetail", "ensureHistoryRecordsLoaded", "ensureReviewHistoryLoaded", "previousMonth", "nextMonth", "jumpCalendarToToday"]);
 const pageMount = nodes(page).findLast((n) => n.type === "ExpressionStatement" && n.expression.callee?.name === "onMount");
 const createPage = await factory(`
 export function createPage(api) {
@@ -45,14 +46,16 @@ const isWorkspaceTab=()=>true,isWorkspaceStartupAction=()=>false,runPendingStart
 const handleWorkspaceKeydown=()=>{},handleWorkspaceTabRequest=()=>{},recordTaskIndexMetric=()=>{};
 const ENHANCED_DIARY_INDEXES_UPDATED_EVENT='diary',TASK_DATA_UPDATED_EVENT='task';
 const formatDiaryAttrDate=()=> '20261019',parseLocalDate=(value)=>new Date(value+'T00:00:00');
+const formatDiaryDate=(date)=>[date.getFullYear(),String(date.getMonth()+1).padStart(2,'0'),String(date.getDate()).padStart(2,'0')].join('-');
 let destroy;const onMount=(fn)=>{destroy=fn();};
 ${section(page, "    let refreshFlight:", "    async function saveWorkspaceSettings(")}
 ${pageFunctions}
 return {refresh,submit:submitNewTaskForWorkspace,createRecord,toggleTask,beginWorkspaceAction,finishWorkspaceAction,
 event:handleEnhancedDiaryIndexesUpdated,taskEvent:handleTaskDataUpdated,refreshAfterWorkspaceMutation,
 loadCalendar,loadSelectedDayDetail,ensureHistoryRecordsLoaded,ensureReviewHistoryLoaded,
+previousMonth,nextMonth,jumpCalendarToToday,
 mount(){${page.slice(pageMount.start,pageMount.end)}},destroy(){destroy?.();},
-snapshot:()=>({state,loading,actionBusy,calendarDays,selectedDayDetail,pendingTask,pendingTaskVersion,workspaceMutationVersion,workspaceRefreshVersion,externalWorkspaceRefreshPending,advancedEnabled}),
+snapshot:()=>({state,loading,actionBusy,calendarDays,selectedDayDetail,calendarDate,selectedCalendarDate,calendarLoading,dayDetailLoading,pendingTask,pendingTaskVersion,workspaceMutationVersion,workspaceRefreshVersion,workspaceStateVersion,projectRefreshVersion,externalWorkspaceRefreshPending,failedRefreshVersion,advancedEnabled}),
 tab(value){activeTab=value;recordViewMode='history';},settle:()=>refreshMutationTail,flight:()=>refreshFlight};
 }`, "createPage");
 
@@ -89,17 +92,19 @@ function host(onSubmit, kind="task") {
 }
 function deferred(){let resolve,reject;const promise=new Promise((a,b)=>{resolve=a;reject=b;});return {promise,resolve,reject};}
 const tick=async()=>{for(let i=0;i<35;i++) await Promise.resolve();};
+const coreCompletes=(promise)=>Promise.race([promise,setImmediate().then(()=>{throw new Error('core refresh waited for an optional panel');})]);
 function fixture({load,write,calendar,detail,history,review,initialState}={}) {
     const timers=new Map(),listeners=new Map(),messages=[],calls={load:0,calendar:0,detail:0,task:0,record:0,toggle:0};
     let timerId=0,revision=0,completed=false;
-    const snapshot=()=>({config:{dailyNotebookId:'notebook',projectStorage:{}},date:new Date(2026,9,19),revision,tasks:[{blockId:'task',taskname:'fixture',completed,markdown:completed?'- [x] fixture':'- [ ] fixture'}],projects:[],records:[]});
+    const records=[];
+    const snapshot=()=>({config:{dailyNotebookId:'notebook',projectStorage:{}},date:new Date(2026,9,19),revision,tasks:[{blockId:'task',taskname:'fixture',completed,markdown:completed?'- [x] fixture':'- [ ] fixture'}],projects:[],records:[...records]});
     const api={warnings:[],initialState:initialState===null?null:initialState||snapshot(),$state:(v)=>v,showMessage:(msg)=>messages.push(msg),
         window:{setTimeout(fn){const id=++timerId;timers.set(id,fn);return id;},clearTimeout(id){timers.delete(id);},addEventListener(n,f){listeners.set(n,f);},removeEventListener(n){listeners.delete(n);}},
         loadEnhancedDiaryWorkspaceState:async(...args)=>{calls.load++;return load?load(snapshot(),...args):snapshot();},
-        buildWorkspaceCalendarMonth:async()=>{calls.calendar++;return calendar?calendar():[{revision}];},loadWorkspaceDayDetail:async()=>{calls.detail++;return detail?detail():{revision};},
+        buildWorkspaceCalendarMonth:async(...args)=>{calls.calendar++;return calendar?calendar(...args):[{revision}];},loadWorkspaceDayDetail:async(...args)=>{calls.detail++;return detail?detail(...args):{revision};},
         getOrCreateTodayDiaryDocument:async()=>({ok:true,docId:'diary'}),
         addNewTaskToDiary:async()=>{calls.task++;return write?write():{ok:true};},
-        addWorkspaceQuickRecord:async()=>{calls.record++;return write?write():{ok:true};},
+        addWorkspaceQuickRecord:async(_plugin,_config,categoryTitle,content)=>{calls.record++;const result=write?await write():{ok:true};if(result.ok)records.push({headingBlockId:`record-${calls.record}`,categoryTitle,content});return result;},
         toggleWorkspaceTaskComplete:async()=>{calls.toggle++;const result=write?await write():{ok:true};if(result.ok){completed=!completed;revision++;}return result;},
         loadWorkspaceHistoryRecords:async()=>history?history():[],loadWorkspaceReviewHistory:async()=>review?review():[],
     };
@@ -203,13 +208,125 @@ await check("M permission restoration drains the latest intent after the obsolet
     gate.resolve({...f.snapshot(),revision:1});await run;await tick();await f.runtime.settle();
     assert.equal(f.runtime.snapshot().state.revision,7);assert.equal(f.calls.load,3);
 });
-await check("calendar failure retains the entire previous state and pending work",async()=>{
+await check("calendar failure preserves only the calendar; core publication clears covered pending intent",async()=>{
     let fail=false;const f=fixture({calendar:()=>{if(fail)throw new Error('calendar failed');return [];}});
     await f.mount();const old=f.runtime.snapshot();fail=true;f.setRevision(8);
     await f.runtime.refreshAfterWorkspaceMutation(true);await tick();
-    assert.equal(f.runtime.snapshot().state,old.state);assert.equal(f.runtime.snapshot().calendarDays,old.calendarDays);
-    assert.equal(f.runtime.snapshot().selectedDayDetail,old.selectedDayDetail);
-    assert.equal(f.runtime.snapshot().externalWorkspaceRefreshPending,true);assert.equal(f.calls.load,2);
+    assert.notEqual(f.runtime.snapshot().state,old.state);assert.equal(f.runtime.snapshot().state.revision,8);
+    assert.equal(f.runtime.snapshot().calendarDays,old.calendarDays);
+    assert.equal(f.runtime.snapshot().selectedDayDetail.revision,8);
+    assert.equal(f.runtime.snapshot().externalWorkspaceRefreshPending,false);assert.equal(f.calls.load,2);
+    assert.equal(f.runtime.snapshot().failedRefreshVersion,-1);assert.equal(f.runtime.snapshot().workspaceMutationVersion,1);
+    assert.equal(f.runtime.snapshot().projectRefreshVersion,0);assert.equal(f.runtime.snapshot().calendarLoading,false);
+    assert(f.messages.some((message)=>message.includes('日历加载失败')));
+    assert(!f.messages.some((message)=>message.includes('工作区刷新失败')));
+});
+await check("isolation A/B initial optional panel failures still publish tasks, records and projects",async()=>{
+    for(const panel of ['calendar','detail']){
+        const f=fixture({initialState:null,load:(state)=>({...state,records:[{content:'fixture record'}],projects:[{id:'fixture project'}]}),
+            [panel]:()=>{throw new Error(`${panel} failed`);}});
+        await coreCompletes(f.mount());await tick();
+        const current=f.runtime.snapshot();assert.equal(current.loading,false);assert.equal(current.state.tasks.length,1);
+        assert.equal(current.state.records[0].content,'fixture record');assert.equal(current.state.projects[0].id,'fixture project');
+        assert.equal(current.calendarLoading,false);assert.equal(current.dayDetailLoading,false);
+        assert.equal(f.messages.length,1);assert(f.messages[0].includes(panel==='calendar'?'日历加载失败':'日期详情加载失败'));
+        f.runtime.destroy();
+    }
+});
+await check("isolation C/D never-settling panels cannot block core refresh, later mutations or manual retry",async()=>{
+    for(const panel of ['calendar','detail']){
+        const blocked=deferred();let hold=true;
+        const f=fixture({initialState:null,[panel]:()=>hold?blocked.promise:panel==='calendar'?[{revision:10}]:{revision:10}});
+        await coreCompletes(f.mount());assert.equal(f.runtime.snapshot().loading,false);
+        f.setRevision(10);assert.equal(await coreCompletes(f.runtime.refresh()),true);
+        assert.equal(f.runtime.snapshot().state.revision,10);
+        const task=f.runtime.snapshot().state.tasks[0];await f.runtime.toggleTask(task);await coreCompletes(f.runtime.settle());
+        assert.equal(f.runtime.snapshot().state.tasks[0].completed,true);assert.equal(f.runtime.snapshot().pendingTask,null);
+        assert.equal(f.runtime.snapshot().externalWorkspaceRefreshPending,false);
+        hold=false;
+        if(panel==='calendar')await f.runtime.loadCalendar();else await f.runtime.loadSelectedDayDetail('2026-10-19');
+        const latest=f.runtime.snapshot();assert.equal(latest.calendarLoading,false);assert.equal(latest.dayDetailLoading,false);
+        blocked.resolve(panel==='calendar'?[{revision:0}]:{revision:0});await tick();
+        assert.deepEqual(f.runtime.snapshot()[panel==='calendar'?'calendarDays':'selectedDayDetail'],panel==='calendar'?[{revision:10}]:{revision:10});
+        f.runtime.destroy();
+    }
+});
+await check("isolation E confirmed task completion publishes despite calendar failure, without another full refresh",async()=>{
+    let fail=false;const f=fixture({calendar:()=>{if(fail)throw new Error('calendar failed');return [];}});await f.mount();fail=true;
+    await f.runtime.toggleTask(f.runtime.snapshot().state.tasks[0]);await f.runtime.settle();await tick();
+    const current=f.runtime.snapshot();assert.equal(current.state.tasks[0].completed,true);assert.equal(current.state.tasks[0].markdown,'- [x] fixture');
+    assert.equal(current.pendingTask,null);assert.equal(current.pendingTaskVersion,0);assert.equal(current.externalWorkspaceRefreshPending,false);
+    assert.equal(f.calls.load,2);assert.equal(f.timers.size,0);
+});
+await check("isolation F confirmed record closes once and publishes despite failed date detail; date selection retries",async()=>{
+    let fail=false;const f=fixture({detail:()=>{if(fail)throw new Error('detail failed');return {revision:0};}});await f.mount();fail=true;
+    const h=host(f.runtime.createRecord,'record'),d=await createDialog('QuickRecordDialog',{...h.props,initialContent:'new record'},f.messages);
+    await d.submit();await f.runtime.settle();await tick();
+    assert.equal(h.closed(),1);assert.equal(f.runtime.snapshot().state.records[0].content,'new record');
+    await d.submit();assert.equal(f.calls.record,1);assert.equal(f.calls.load,2);
+    assert.equal(f.runtime.snapshot().dayDetailLoading,false);assert(f.messages.some((m)=>m.includes('日期详情加载失败')));
+    fail=false;await f.runtime.loadSelectedDayDetail('2026-10-20');assert.equal(f.runtime.snapshot().selectedCalendarDate,'2026-10-20');
+    assert.equal(f.runtime.snapshot().dayDetailLoading,false);
+});
+await check("isolation I core loading uses the newest month/date and late optional responses cannot overwrite it",async()=>{
+    const core=deferred(),month=deferred(),day=deferred();let holdCore=false,holdPanels=false;
+    const f=fixture({load:(value)=>holdCore?core.promise:value,
+        calendar:(_plugin,year,monthIndex)=>holdPanels?month.promise:[{month:`${year}-${monthIndex}`}],
+        detail:(date)=>holdPanels?day.promise:{day:date.getDate()}});
+    await f.mount();holdPanels=true;await coreCompletes(f.runtime.refresh());
+    const oldMonth=f.runtime.loadCalendar(),oldDay=f.runtime.loadSelectedDayDetail('2026-10-21');
+    holdCore=true;const refreshing=f.runtime.refresh();await tick();holdPanels=false;
+    await f.runtime.nextMonth();await f.runtime.loadSelectedDayDetail('2026-11-07');
+    core.resolve(f.snapshot());assert.equal(await coreCompletes(refreshing),true);await tick();
+    const latest=f.runtime.snapshot();assert.equal(latest.calendarDate.getMonth(),10);assert.equal(latest.selectedCalendarDate,'2026-11-07');
+    assert.deepEqual(latest.calendarDays,[{month:'2026-10'}]);assert.deepEqual(latest.selectedDayDetail,{day:7});
+    month.resolve([{month:'old'}]);day.resolve({day:21});await Promise.all([oldMonth,oldDay]);
+    assert.deepEqual(f.runtime.snapshot().calendarDays,latest.calendarDays);assert.deepEqual(f.runtime.snapshot().selectedDayDetail,latest.selectedDayDetail);
+    assert.equal(f.runtime.snapshot().calendarLoading,false);assert.equal(f.runtime.snapshot().dayDetailLoading,false);
+});
+await check("isolation I overlapping month navigation starts detail reads immediately; an old today jump cannot restore its date",async()=>{
+    const blocked=deferred();let hold=false;
+    const f=fixture({calendar:()=>hold?blocked.promise:[]});await f.mount();hold=true;await coreCompletes(f.runtime.refresh());
+    const old=f.runtime.jumpCalendarToToday();await tick();hold=false;
+    await f.runtime.nextMonth();await f.runtime.loadSelectedDayDetail('2026-11-09');
+    blocked.resolve([]);await old;
+    assert.equal(f.runtime.snapshot().selectedCalendarDate,'2026-11-09');
+    await f.runtime.previousMonth();assert.equal(f.runtime.snapshot().calendarDate.getMonth(),9);
+});
+await check("isolation J optional requests cannot update revoked, destroyed or newly mounted instances",async()=>{
+    for(const revoke of [false,true]){
+        const calendar=deferred(),detail=deferred();const f=fixture({calendar:()=>calendar.promise,detail:()=>detail.promise});await coreCompletes(f.mount());
+        if(revoke)f.emit('homepage-advanced-unavailable');else f.runtime.destroy();
+        const old=f.runtime.snapshot();const messages=f.messages.length;
+        calendar.resolve([{revision:99}]);detail.reject(new Error('late detail error'));await tick();
+        assert.deepEqual(f.runtime.snapshot(),old);assert.equal(f.messages.length,messages);
+        const reads={...f.calls};await f.runtime.loadCalendar();await f.runtime.loadSelectedDayDetail('2026-10-22');assert.deepEqual(f.calls,reads);
+        f.runtime.destroy();assert.equal(f.listeners.size,0);assert.equal(f.timers.size,0);
+        const next=fixture();await next.mount();assert(next.runtime.snapshot().state);assert.deepEqual(next.runtime.snapshot().calendarDays,[{revision:0}]);next.runtime.destroy();
+    }
+});
+await check("panel loading ownership survives stale completions, cached navigation and a failed newer core read",async()=>{
+    const old=deferred(),latest=deferred();let hold=false;
+    const f=fixture({detail:(date)=>hold?(date.getDate()===21?old.promise:latest.promise):{day:date.getDate()}});await f.mount();hold=true;
+    const first=f.runtime.loadSelectedDayDetail('2026-10-21'),second=f.runtime.loadSelectedDayDetail('2026-10-22');
+    old.resolve({day:21});await first;assert.equal(f.runtime.snapshot().dayDetailLoading,true);
+    latest.resolve({day:22});await second;assert.equal(f.runtime.snapshot().dayDetailLoading,false);
+    assert.deepEqual(f.runtime.snapshot().selectedDayDetail,{day:22});
+
+    const month=deferred(),day=deferred();let blocked=false;
+    const g=fixture({calendar:()=>blocked?month.promise:[{month:'October'}],detail:()=>blocked?day.promise:{day:19}});await g.mount();blocked=true;
+    const away=g.runtime.nextMonth();await tick();await g.runtime.loadSelectedDayDetail('2026-10-19');
+    assert.equal(g.runtime.snapshot().dayDetailLoading,false);
+    blocked=false;await g.runtime.previousMonth();assert.equal(g.runtime.snapshot().calendarLoading,false);
+    month.resolve([{month:'November'}]);day.resolve({day:1});await away;
+    assert.deepEqual(g.runtime.snapshot().calendarDays,[{month:'October'}]);
+
+    const retired=deferred();let fail=false;
+    const h=fixture({load:(state)=>{if(fail)throw new Error('core failed');return state;},detail:(date)=>date.getDate()===21?retired.promise:{day:19}});await h.mount();
+    const pending=h.runtime.loadSelectedDayDetail('2026-10-21');fail=true;await h.runtime.refreshAfterWorkspaceMutation();
+    retired.resolve({day:21});await pending;
+    assert.equal(h.runtime.snapshot().dayDetailLoading,false);assert.deepEqual(h.runtime.snapshot().selectedDayDetail,{day:19});
+    assert.equal(h.runtime.snapshot().externalWorkspaceRefreshPending,true);
 });
 await check("obsolete lazy history reads are discarded and the visible history loads the latest snapshot",async()=>{
     for(const tab of ['records','review']){
