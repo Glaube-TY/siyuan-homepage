@@ -440,7 +440,8 @@ async function refreshInternal(
 ): Promise<ComponentMigrationStatus> {
     const now = new Date().toISOString();
     try {
-        const current = await readEnhancedDiaryProjectIndex(storage);
+        // A warm display cache must not hide a corrupt or unreadable file before a mutation.
+        const current = await readCreationIndex(getEnhancedDiaryProjectContainerSignature(storage), true) || emptyIndex(storage);
         if (!current.complete) return { lastRunAt: now, lastStatus: "idle", lastMessage: "项目索引尚未完整，请手动重建。" };
         const docs = await listDirectProjectDocs(storage);
         const directIds = docs.map((doc) => doc.id).filter(Boolean);

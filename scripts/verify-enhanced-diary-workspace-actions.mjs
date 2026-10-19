@@ -114,6 +114,7 @@ function fixture({load,write,calendar,detail,history,review,initialState}={}) {
         emit(name){listeners.get(name)?.();}};
 }
 
+const refreshMeasurements=[];
 let groups=0;
 async function check(name,fn){await fn();groups++;console.log(`PASS ${name}`);}
 await check("A/C task submission closes only after write confirmation, before full reload; duplicate clicks blocked",async()=>{
@@ -161,6 +162,27 @@ await check("I/K index events during action coalesce, external change is not los
     f.emit('task');f.emit('diary');f.emit('task');f.setRevision(2);
     assert.equal(f.calls.load,1);assert.equal(f.timers.size,0);
     f.runtime.finishWorkspaceAction();await f.runtime.settle();assert.equal(f.calls.load,2);assert.equal(f.runtime.snapshot().state.revision,2);
+});
+await check("acceptance operation refresh counts include synchronous index event bursts and completion reversal",async()=>{
+    for(const operation of ['create-task','complete-task','undo-completion','create-record']){
+        let f;
+        f=fixture({write:()=>{f.emit('task');f.emit('diary');f.emit('task');return {ok:true};}});
+        await f.mount();
+        if(operation==='undo-completion'){
+            await f.runtime.toggleTask(f.runtime.snapshot().state.tasks[0]);await f.runtime.settle();
+            assert.equal(f.runtime.snapshot().state.tasks[0].completed,true);
+        }
+        const before={...f.calls};
+        if(operation==='create-task')assert.equal(await f.runtime.submit({taskname:'synthetic'}),true);
+        else if(operation==='create-record')assert.equal(await f.runtime.createRecord({categoryTitle:'synthetic',content:'synthetic'}),true);
+        else await f.runtime.toggleTask(f.runtime.snapshot().state.tasks[0]);
+        await f.runtime.settle();await f.timersRun();
+        const delta=Object.fromEntries(Object.entries(f.calls).map(([key,value])=>[key,value-before[key]]));
+        assert.equal(delta.load,1);assert.equal(delta.calendar,1);assert.equal(delta.detail,1);assert.equal(f.timers.size,0);
+        if(operation==='complete-task'||operation==='undo-completion')assert.equal(f.runtime.snapshot().state.tasks[0].completed,operation==='complete-task');
+        if(operation==='create-record')assert.equal(f.runtime.snapshot().state.records.length,1);
+        refreshMeasurements.push({operation,...delta});f.runtime.destroy();
+    }
 });
 await check("J new change during refresh rejects stale state and performs one latest read",async()=>{
     const gate=deferred();let hold=false;const f=fixture({load:(value)=>{if(hold){hold=false;return gate.promise;}return value;}});await f.mount();hold=true;
@@ -365,6 +387,7 @@ await check("N/O/P/Q project root/child service confirmation precedes success; d
         const run=p.submitCreate();await p.submitCreate();assert.equal(calls,1);assert.deepEqual(messages,[]);
         if(partial)writing.reject(new PartialProject());else writing.resolve('created');
         await run;assert.equal(p.snapshot().busy,false);assert.equal(p.snapshot().createMode,'');assert.equal(refreshCalls,1);
+        if(!partial)refreshMeasurements.push({operation:`create-project-${mode}`,projectPanelRefreshes:refreshCalls});
         assert(messages[0].includes(partial?'勿重复创建':'项目创建成功'));
         reading.resolve(false);await tick();assert(messages.at(-1).includes('详情暂时无法加载'));assert(!messages.includes('项目创建失败'));
         await p.submitCreate();assert.equal(calls,1);
@@ -450,4 +473,5 @@ await check("Svelte production components compile with submitting states and sco
         assert(!result.warnings.some((w)=>w.code==='non_reactive_update'),name);
     }
 });
+console.log(JSON.stringify({syntheticRefreshMeasurements:refreshMeasurements},null,2));
 console.log(`Passed ${groups} workspace action groups. Fixtures exercise production handlers/hosts and refresh coordination; no real user documents were modified.`);

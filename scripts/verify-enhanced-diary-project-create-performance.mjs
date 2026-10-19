@@ -58,6 +58,8 @@ async function fixture(count=5,{latency=0,parentDoc=false}={}){
             return {code:0};
         },
         async post(path,payload){
+            // Only an immediate storage read is write verification, not a later business read.
+            state.awaitingReadback=false;
             state.calls.push({path,payload:clone(payload)});if(latency)await delay(latency);
             let data;
             if(path==='/api/filetree/listDocsByPath'){
@@ -194,6 +196,18 @@ await test('strict disk errors, malformed index/version/container and unknown fi
         assert.equal(f.state.writes,0);assert.equal(f.state.file,retained);assert(original);
     }
 });
+await test('real child creation prechecks reject corrupt or unreadable disk indexes before any write',async()=>{
+    for(const variant of ['broken','version','403','network']){
+        const f=await fixture();
+        if(variant==='broken')f.state.file='{';
+        if(variant==='version')f.state.file=JSON.stringify({...f.index(),version:999});
+        if(variant==='403')f.state.readResponse={code:403,msg:'denied'};
+        if(variant==='network')f.state.readError=true;
+        const retained=f.state.file;
+        await assert.rejects(f.app.createEnhancedDiarySubproject({storage,parentTargetId:id(1),name:'must not create'}));
+        assert.equal(f.state.writes,0);assert.equal(f.state.insertCount,0);assert.equal(f.state.file,retained);
+    }
+});
 await test('missing created node, malformed directory/headings/attrs and interrupted moves preserve old index',async()=>{
     for(const variant of ['missing','directory','null-block','duplicate-block','attrs','permission','interrupted','hierarchy']){
         const f=await fixture();const original=f.state.file;const rootId=id(1),created=f.addNode(rootId);
@@ -255,13 +269,52 @@ await test('manual full rebuild and formal incremental refresh retain their orig
 });
 
 const measurements=[];
-for(const roots of [5,50,200])for(const kind of ['root','node'])for(const mode of ['full','targeted']){
+for(const roots of [5,50,200])for(const kind of ['root','node','nested'])for(const mode of ['full','targeted']){
     const f=await fixture(roots,{latency:1});const rootId=kind==='root'?f.addRoot(800000):id(1);
-    const createdId=kind==='root'?rootId:f.addNode(rootId);
-    const input=kind==='root'?{storage,createdId,createdKind:'root',affectedRootProjectId:rootId}:f.request(rootId,createdId);
+    const createdId=kind==='root'?rootId:f.addNode(rootId,kind==='nested'?3:1);
+    if(kind==='nested'){
+        const rows=f.state.children.get(rootId),node=rows.pop();rows.splice(2,0,node);
+    }
+    const input=kind==='root'?{storage,createdId,createdKind:'root',affectedRootProjectId:rootId}:
+        kind==='nested'?f.request(rootId,createdId,3,'new child',id(10101),[rootId,id(10100),id(10101)]):f.request(rootId,createdId);
     const start=performance.now();success(await(mode==='full'?f.app.rebuildEnhancedDiaryProjectIndexAfterChange(storage):f.app.refreshEnhancedDiaryProjectIndexAfterCreation(input)));
     const metric={roots,kind,mode,...f.counts(),syntheticMs:+(performance.now()-start).toFixed(1)};measurements.push(metric);
     if(mode==='targeted'){assert.equal(metric.getChildBlocksChecked,1);assert.equal(metric.batchGetBlockAttrs,kind==='root'?1:2);assert.equal(metric.indexWrites,1);assert.equal(metric.indexReadbacks,1);}
 }
-console.log(JSON.stringify({syntheticApiLatencyMs:1,measurements},null,2));
-console.log(`Passed ${groups} project creation groups plus 12 production-path measurements. No real documents or indexes were modified. Timing uses synthetic 1 ms API latency, not SiYuan client measurements.`);
+const serviceMeasurements=[];
+for(const roots of [5,50,200]){
+    for(const kind of ['root','node','nested','duplicate-root','duplicate-node','workspace-read','consecutive']){
+        const f=await fixture(roots);
+        const parentTargetId=kind==='nested'?id(10101):id(1);
+        const created=[];
+        if(kind==='workspace-read')created.push(await f.app.createEnhancedDiaryRootProject({storage,name:'workspace-created'}));
+        f.reset();const start=performance.now();
+        if(kind==='duplicate-root')await assert.rejects(f.app.createEnhancedDiaryRootProject({storage,name:'Project 1'}),/同名/);
+        else if(kind==='duplicate-node')await assert.rejects(f.app.createEnhancedDiarySubproject({storage,parentTargetId,name:'Node 1.0'}),/同名/);
+        else if(kind==='workspace-read'){
+            const loaded=await f.app.loadEnhancedDiaryProjectIndexForWorkspace(storage);
+            assert(loaded.roots[created[0]]);assert.equal(f.counts().indexWrites,0);assert.equal(f.counts().getChildBlocksChecked,0);
+        }else{
+            for(let i=0;i<(kind==='consecutive'?3:1);i++)created.push(kind==='root'||kind==='consecutive'?
+                await f.app.createEnhancedDiaryRootProject({storage,name:`created ${i}`}):
+                await f.app.createEnhancedDiarySubproject({storage,parentTargetId,name:`created ${i}`}));
+            created.forEach((key)=>assert(f.index().roots[key]||f.index().nodes[key]));
+            if(kind==='nested')assert.equal(f.index().nodes[created[0]].parentTargetId,parentTargetId);
+        }
+        const metric={roots,kind,...f.counts(),syntheticMs:+(performance.now()-start).toFixed(1)};
+        if(kind.startsWith('duplicate'))assert.equal(f.state.createCount+f.state.insertCount,0);
+        serviceMeasurements.push(metric);
+    }
+    for(const mode of ['full','targeted']){
+        const f=await fixture(roots),created=[];const start=performance.now();
+        for(let i=0;i<3;i++){
+            const createdId=f.addRoot(800000+i);created.push(createdId);
+            success(await(mode==='full'?f.app.rebuildEnhancedDiaryProjectIndexAfterChange(storage):
+                f.app.refreshEnhancedDiaryProjectIndexAfterCreation({storage,createdId,createdKind:'root',affectedRootProjectId:createdId})));
+        }
+        created.forEach((key)=>assert(f.index().roots[key]));
+        measurements.push({roots,kind:'consecutive',mode,...f.counts(),syntheticMs:+(performance.now()-start).toFixed(1),syntheticApiLatencyMs:0});
+    }
+}
+console.log(JSON.stringify({syntheticApiLatencyMs:1,measurements,serviceApiLatencyMs:0,serviceMeasurements},null,2));
+console.log(`Passed ${groups} project creation groups plus ${measurements.length} maintenance and ${serviceMeasurements.length} service measurements. No real documents or indexes were modified. Timings are synthetic, not SiYuan client measurements.`);
