@@ -401,7 +401,7 @@ const projectServiceBuild=await build({
         builder.onLoad({filter:/.*/,namespace:'project-fixture'},({path})=>{
             const names=path==='@/api'?['appendBlockChecked','createDocWithMd','getBlockAttrsChecked','getChildBlocksChecked','getPathByID','insertBlockChecked','setBlockAttrsChecked']:
                 path.endsWith('ProjectLifecycle')?['validateEnhancedDiaryProjectWriteTarget']:
-                path.endsWith('ProjectIndex')?['readEnhancedDiaryProjectIndex','rebuildEnhancedDiaryProjectIndexAfterChange']:
+                path.endsWith('ProjectIndex')?['readEnhancedDiaryProjectIndex','refreshEnhancedDiaryProjectIndexAfterCreation']:
                 ['isDirectChildPath','listDirectProjectDocs','resolveProjectContainer'];
             return {contents:names.map((name)=>`export const ${name}=(...args)=>globalThis.__workspaceProjectFixture.${name}(...args);`).join('\n'),loader:'js'};
         });
@@ -419,21 +419,21 @@ await check("N/O real root/child creation services retain location, heading, att
             appendBlockChecked:async(_type,markdown)=>{calls.push('append');headings.push({id:childId,type:'h',subtype:'h1',markdown,content:'child'});return [{doOperations:[{action:'insert',id:childId}]}];},
             insertBlockChecked:async()=>{throw new Error('unexpected sibling insertion');},
             setBlockAttrsChecked:async(id,value)=>{calls.push('attrs-write');attrs[id]=value;},getBlockAttrsChecked:async(id)=>{calls.push('attrs-read');return attrs[id]||{};},
-            rebuildEnhancedDiaryProjectIndexAfterChange:async()=>{calls.push('rebuild');return {lastStatus:'success'};},
+            refreshEnhancedDiaryProjectIndexAfterCreation:async()=>{calls.push('creation-index');return {lastStatus:'success'};},
             readEnhancedDiaryProjectIndex:async()=>{calls.push('index-read');return {roots:{[rootId]:{id:rootId}},nodes:{[childId]:{id:childId}}};},
         };
         globalThis.__workspaceProjectFixture=api;
         const input={storage:{mode:'notebook',notebookId:'book'},name:mode,parentTargetId:rootId};
         const create=mode==='root'?projectService.createEnhancedDiaryRootProject:projectService.createEnhancedDiarySubproject;
         assert.equal(await create(input),mode==='root'?rootId:childId);
-        if(mode==='root')assert.deepEqual(calls,['create','path','rebuild','index-read']);
+        if(mode==='root')assert.deepEqual(calls,['create','path','creation-index','index-read']);
         else{
             assert.equal(calls.filter((c)=>c==='validate').length,2);
             assert(calls.indexOf('attrs-read')>calls.indexOf('attrs-write'));
-            assert(calls.indexOf('rebuild')>calls.indexOf('attrs-read'));
+            assert(calls.indexOf('creation-index')>calls.indexOf('attrs-read'));
             assert.equal(calls.at(-1),'index-read');
         }
-        api.rebuildEnhancedDiaryProjectIndexAfterChange=async()=>({lastStatus:'failed'});
+        api.refreshEnhancedDiaryProjectIndexAfterCreation=async()=>({lastStatus:'failed'});
         headings.length=0;
         await assert.rejects(create(input),(err)=>err instanceof projectService.EnhancedDiaryProjectCreatedButNotVerifiedError && err.stage==='index');
         if(mode==='root'){

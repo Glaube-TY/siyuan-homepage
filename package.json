@@ -34,6 +34,7 @@
     "verify:visual-chart-views": "node --no-warnings ./scripts/verify-visual-chart-views.mjs",
     "verify:visual-chart-database-picker": "node --no-warnings ./scripts/verify-visual-chart-database-picker.mjs",
     "verify:enhanced-diary-project-index": "node --no-warnings ./scripts/verify-enhanced-diary-project-index.mjs",
+    "verify:enhanced-diary-project-create-performance": "node --no-warnings ./scripts/verify-enhanced-diary-project-create-performance.mjs",
     "verify:enhanced-diary-workspace-actions": "node --no-warnings ./scripts/verify-enhanced-diary-workspace-actions.mjs",
     "verify:shared-runtime-refresh": "node --no-warnings ./scripts/verify-shared-runtime-refresh.mjs",
     "verify:task-index-sync-performance": "node --no-warnings ./scripts/verify-task-index-sync-performance.mjs",

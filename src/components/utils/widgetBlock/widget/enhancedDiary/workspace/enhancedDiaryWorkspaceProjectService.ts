@@ -15,7 +15,7 @@ import {
 } from "../enhancedDiaryProjectTypes";
 import {
     readEnhancedDiaryProjectIndex,
-    rebuildEnhancedDiaryProjectIndexAfterChange,
+    refreshEnhancedDiaryProjectIndexAfterCreation,
 } from "../enhancedDiaryProjectIndex";
 import {
     getEnhancedDiaryHeadingLevel,
@@ -92,21 +92,28 @@ export async function createEnhancedDiaryRootProject(input: CreateRootProjectInp
     const markdown = buildRootProjectMarkdown(input);
     const docId = await createDocWithMd(container.notebookId, joinDocPath(createPath, title), markdown);
 
-    const pathInfo = await getPathByID(docId);
-    const actualNotebookId = String(pathInfo?.notebook || "");
-    const actualPath = String(pathInfo?.path || "");
-    if (actualNotebookId !== container.notebookId) {
-        throw new Error("项目文档已创建，但所属笔记本与项目容器不一致，请在思源文档树中检查。");
-    }
-    const expectedParent = container.mode === "notebook" ? "" : (container.parentDocPath || "");
-    const pathValid = container.mode === "notebook"
-        ? actualPath.startsWith("/") && !actualPath.slice(1).includes("/")
-        : isDirectChildPath(actualPath, expectedParent);
-    if (!pathValid) {
-        throw new Error("项目文档已创建，但实际位置不在项目容器下，请在思源文档树中检查。");
+    try {
+        const pathInfo = await getPathByID(docId);
+        const actualNotebookId = String(pathInfo?.notebook || "");
+        const actualPath = String(pathInfo?.path || "");
+        if (actualNotebookId !== container.notebookId) {
+            throw new Error("项目文档已创建，但所属笔记本与项目容器不一致，请在思源文档树中检查。");
+        }
+        const expectedParent = container.mode === "notebook" ? "" : (container.parentDocPath || "");
+        const pathValid = container.mode === "notebook"
+            ? actualPath.startsWith("/") && !actualPath.slice(1).includes("/")
+            : isDirectChildPath(actualPath, expectedParent);
+        if (!pathValid) {
+            throw new Error("项目文档已创建，但实际位置不在项目容器下，请在思源文档树中检查。");
+        }
+    } catch (error) {
+        throw new EnhancedDiaryProjectCreatedButNotVerifiedError(docId, "metadata",
+            `${error instanceof Error ? error.message : "项目创建位置校验失败。"} 请勿重复创建。`);
     }
 
-    const status = await rebuildEnhancedDiaryProjectIndexAfterChange(input.storage);
+    const status = await refreshEnhancedDiaryProjectIndexAfterCreation({
+        storage: input.storage, createdId: docId, createdKind: "root", affectedRootProjectId: docId,
+    });
     if (status.lastStatus !== "success") {
         throw new EnhancedDiaryProjectCreatedButNotVerifiedError(
             docId,
@@ -255,9 +262,19 @@ export async function createEnhancedDiarySubproject(input: CreateSubprojectInput
         );
     }
     const blockId = await locateInsertedHeading(parent.rootProjectId, insertedIds, level, title);
-    await setBlockAttrsChecked(blockId, { [ENHANCED_DIARY_PROJECT_NODE_ATTR]: "true" });
-    await waitForProjectNodeAttribute(blockId);
-    const status = await rebuildEnhancedDiaryProjectIndexAfterChange(input.storage);
+    try {
+        await setBlockAttrsChecked(blockId, { [ENHANCED_DIARY_PROJECT_NODE_ATTR]: "true" });
+        await waitForProjectNodeAttribute(blockId);
+    } catch (error) {
+        if (error instanceof EnhancedDiaryProjectCreatedButNotVerifiedError) throw error;
+        throw new EnhancedDiaryProjectCreatedButNotVerifiedError(blockId, "metadata",
+            `子项目标题已创建，但属性写入或校验失败；请勿重复创建：${error instanceof Error ? error.message : "未知错误"}`);
+    }
+    const status = await refreshEnhancedDiaryProjectIndexAfterCreation({
+        storage: input.storage, createdId: blockId, createdKind: "node", affectedRootProjectId: parent.rootProjectId,
+        expectedNode: { title, level: level as 1 | 2 | 3 | 4 | 5 | 6, parentTargetId: parent.id,
+            ancestorTargetIds: parent.kind === "root" ? [parent.id] : [...parent.ancestorTargetIds, parent.id] },
+    });
     if (status.lastStatus !== "success") {
         throw new EnhancedDiaryProjectCreatedButNotVerifiedError(
             blockId,

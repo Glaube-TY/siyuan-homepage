@@ -1,4 +1,4 @@
-import { listDocsByPathChecked, sqlChecked } from "@/api";
+import { listDocsByPathChecked, requestChecked, sqlChecked } from "@/api";
 import { escapeSqlString } from "@/components/tools/siyuanSqlPaging";
 import type { EnhancedDiaryProjectStorageConfig } from "./enhancedDiaryTypes";
 
@@ -112,21 +112,36 @@ export async function resolveProjectContainer(
 
 export async function listDirectProjectDocs(
     storage: EnhancedDiaryProjectStorageConfig,
+    strict = false,
 ): Promise<ProjectChildDoc[]> {
     const container = await resolveProjectContainer(storage);
+    const list = async (path: string): Promise<ProjectChildDoc[]> => {
+        const response = strict
+            ? await requestChecked("/api/filetree/listDocsByPath", {
+                notebook: container.notebookId, path, maxListCount: MAX_ROOT_PROJECTS + 1,
+            }, "listDirectProjectDocs")
+            : await listDocsByPathChecked(container.notebookId, path);
+        if (strict) {
+            const files = response?.files;
+            if (response?.box !== container.notebookId || response?.path !== path || !Array.isArray(files) || files.length >= MAX_ROOT_PROJECTS ||
+                files.some((file) => !file || !/^\d{14}-[a-z0-9]{7}$/i.test(file.id) ||
+                    typeof file.name !== "string" || typeof file.path !== "string" ||
+                    !file.path.endsWith(`/${file.id}.sy`) || typeof file.mtime !== "number" || !Number.isFinite(file.mtime)) ||
+                new Set(files.map((file) => file.id)).size !== files.length) {
+                throw new Error("项目目录响应不完整或结构异常，未更新项目索引。");
+            }
+        }
+        return mapListDocsFilesToProjectChildDocs(Array.isArray(response?.files) ? response.files : [], container.notebookId);
+    };
     if (container.mode === "notebook") {
-        const response = await listDocsByPathChecked(container.notebookId, "/");
-        const files = Array.isArray(response?.files) ? response.files : [];
-        return mapListDocsFilesToProjectChildDocs(files, container.notebookId);
+        return list("/");
     }
     const parentPath = container.parentDocPath || "";
     if (!parentPath) return [];
     try {
-        const response = await listDocsByPathChecked(container.notebookId, parentPath);
-        const files = Array.isArray(response?.files) ? response.files : [];
-        return mapListDocsFilesToProjectChildDocs(files, container.notebookId);
+        return await list(parentPath);
     } catch (error) {
-        if (isEmptyParentDocError(error)) return [];
+        if (!strict && isEmptyParentDocError(error)) return [];
         throw error;
     }
 }

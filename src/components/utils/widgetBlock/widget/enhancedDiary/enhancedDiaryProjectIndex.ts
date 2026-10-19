@@ -1,9 +1,10 @@
-import { batchGetBlockAttrs, getChildBlocksChecked, getFile, putFileChecked } from "@/api";
+import { batchGetBlockAttrs, getChildBlocksChecked, getFile, getFileChecked, getFileOrNullChecked, putFileChecked } from "@/api";
 import type { ComponentMigrationStatus } from "@/components/utils/widgetBlock/widget/common/componentMigrationTypes";
 import { prepareChangedRecentDocsForIndex } from "@/components/tools/siyuanComponentDataApi";
 import { isEnhancedDiaryProjectStorageReady, type EnhancedDiaryProjectStorageConfig } from "./enhancedDiaryTypes";
 import {
     ENHANCED_DIARY_PROJECT_INDEX_PATH,
+    ENHANCED_DIARY_PROJECT_STATUS_ATTR,
     getEnhancedDiaryProjectContainerSignature,
     hasEnhancedDiaryProjectNodeAttrs,
     parseEnhancedDiaryProjectLifecycle,
@@ -16,6 +17,8 @@ import {
 import {
     listDirectProjectDocs,
     MAX_ROOT_PROJECTS,
+    resolveProjectContainer,
+    isDirectChildPath,
 } from "./enhancedDiaryProjectContainer";
 import {
     getEnhancedDiaryHeadingLevel,
@@ -85,11 +88,18 @@ function normalizeIndexLifecycle(index: EnhancedDiaryProjectIndexPayload): Enhan
     };
 }
 
-async function writeIndex(index: EnhancedDiaryProjectIndexPayload): Promise<void> {
+async function writeIndex(index: EnhancedDiaryProjectIndexPayload, verify = false): Promise<void> {
     const next = { ...index, version: INDEX_VERSION, updatedAt: new Date().toISOString() };
     const blob = new Blob([JSON.stringify(next, null, 2)], { type: "application/json;charset=utf-8" });
     try { await putFileChecked(INDEX_DIR, true, new Blob(["{}"])); } catch { /* 目录已存在 */ }
     await putFileChecked(ENHANCED_DIARY_PROJECT_INDEX_PATH, false, blob);
+    if (verify) {
+        cache = null;
+        const persisted = await readCreationIndex(index.containerSignature, false);
+        if (!persisted || persisted.updatedAt !== next.updatedAt || projectIndexContent(persisted) !== projectIndexContent(next)) {
+            throw new Error("项目索引写后磁盘回读校验失败，请刷新项目索引检查，勿重复创建。");
+        }
+    }
     cache = next;
 }
 
@@ -144,13 +154,37 @@ function headingLevel(row: any): 1 | 2 | 3 | 4 | 5 | 6 | null {
     return getEnhancedDiaryHeadingLevel(row);
 }
 
-async function queryProjectNodes(rootIds: string[]): Promise<any[]> {
+async function readProjectAttrs(ids: string[]): Promise<ReturnType<typeof parseEnhancedDiaryBatchBlockAttrs>> {
+    const raw = await batchGetBlockAttrs(ids);
+    if (!raw || typeof raw !== "object" || Array.isArray(raw) || ids.some((id) =>
+        !raw[id] || typeof raw[id] !== "object" || Array.isArray(raw[id]) ||
+        Object.values(raw[id]).some((value) => typeof value !== "string") || (raw[id].id && raw[id].id !== id))) {
+        throw new Error("项目块属性响应不完整，未更新项目索引。");
+    }
+    if (ids.some((id) => raw[id][ENHANCED_DIARY_PROJECT_STATUS_ATTR] !== undefined &&
+        !["active", "archived"].includes(raw[id][ENHANCED_DIARY_PROJECT_STATUS_ATTR]))) throw new Error("项目状态属性异常，未更新索引。");
+    return parseEnhancedDiaryBatchBlockAttrs(raw);
+}
+
+async function queryProjectNodes(rootIds: string[], strict = false): Promise<any[]> {
     const rows: any[] = [];
+    const seenIds = new Set(rootIds);
     for (const rootId of rootIds) {
         const children = await getChildBlocksChecked(rootId);
+        if (strict && (!Array.isArray(children) || children.some((block) => !block ||
+            !/^\d{14}-[a-z0-9]{7}$/i.test(block.id) || typeof block.type !== "string") ||
+            new Set(children.map((block) => block.id)).size !== children.length || children.some((block) => seenIds.has(block.id)))) {
+            throw new Error("项目标题列表响应异常，未更新项目索引。");
+        }
+        if (strict) children.forEach((block) => seenIds.add(block.id));
         const headings = children.filter((block) => block.type === "h");
         if (!headings.length) continue;
-        const attrsById = parseEnhancedDiaryBatchBlockAttrs(await batchGetBlockAttrs(headings.map((heading) => heading.id)));
+        const ids = headings.map((heading) => heading.id);
+        const attrsById = strict ? await readProjectAttrs(ids) : parseEnhancedDiaryBatchBlockAttrs(await batchGetBlockAttrs(ids));
+        if (strict && headings.some((heading) => !headingLevel(heading) ||
+            (hasEnhancedDiaryProjectNodeAttrs(attrsById[heading.id]) && typeof heading.markdown !== "string"))) {
+            throw new Error("项目标题层级或内容异常，未更新项目索引。");
+        }
         headings.forEach((heading, order) => {
             const attrs = attrsById[heading.id];
             rows.push({
@@ -166,17 +200,17 @@ async function queryProjectNodes(rootIds: string[]): Promise<any[]> {
 async function assertNoInterruptedProjectMove(
     previous: EnhancedDiaryProjectIndexPayload,
     rootIds: string[],
+    rows?: any[],
 ): Promise<void> {
     for (const rootId of rootIds) {
         const previousNodes = Object.values(previous.nodes).filter((node) => node.rootProjectId === rootId);
         if (!previousNodes.length) continue;
-        const headings = (await getChildBlocksChecked(rootId)).filter((block) => block.type === "h");
+        const headings = rows ? rows.filter((row) => row.root_id === rootId) : (await getChildBlocksChecked(rootId)).filter((block) => block.type === "h");
         const headingById = new Map(headings.map((heading) => [String(heading.id), heading]));
         const retainedHeadings = previousNodes.map((node) => headingById.get(node.id)).filter(Boolean) as IResGetChildBlock[];
         if (!retainedHeadings.length) continue;
-        const attrsById = parseEnhancedDiaryBatchBlockAttrs(await batchGetBlockAttrs(
-            retainedHeadings.map((heading) => String(heading.id)),
-        ));
+        const attrsById = rows ? Object.fromEntries(headings.map((heading: any) => [heading.id, heading.attrs]))
+            : parseEnhancedDiaryBatchBlockAttrs(await batchGetBlockAttrs(retainedHeadings.map((heading) => String(heading.id))));
         const interrupted = previousNodes.find((node) => {
             const heading = headingById.get(node.id);
             const currentLevel = heading ? getEnhancedDiaryHeadingLevel(heading) : null;
@@ -220,14 +254,18 @@ function buildNodes(rows: any[], roots: Record<string, EnhancedDiaryRootProject>
     return result;
 }
 
-async function rebuildInternal(storage: EnhancedDiaryProjectStorageConfig): Promise<ComponentMigrationStatus> {
+async function rebuildInternal(
+    storage: EnhancedDiaryProjectStorageConfig,
+    verifyCreation?: (index: EnhancedDiaryProjectIndexPayload) => Promise<void>,
+): Promise<ComponentMigrationStatus> {
     const now = new Date().toISOString();
     try {
         const previous = await readEnhancedDiaryProjectIndex(storage);
-        const docs = await listDirectProjectDocs(storage);
+        const docs = await listDirectProjectDocs(storage, Boolean(verifyCreation));
         const roots: Record<string, EnhancedDiaryRootProject> = {};
         const rootAttrs = docs.length
-            ? parseEnhancedDiaryBatchBlockAttrs(await batchGetBlockAttrs(docs.map((doc) => doc.id).filter(Boolean)))
+            ? verifyCreation ? await readProjectAttrs(docs.map((doc) => doc.id))
+                : parseEnhancedDiaryBatchBlockAttrs(await batchGetBlockAttrs(docs.map((doc) => doc.id).filter(Boolean)))
             : {};
         docs.forEach((doc, order) => {
             if (!doc.id) return;
@@ -239,9 +277,11 @@ async function rebuildInternal(storage: EnhancedDiaryProjectStorageConfig): Prom
             };
         });
         await assertNoInterruptedProjectMove(previous, Object.keys(roots));
-        const rows = await queryProjectNodes(Object.keys(roots));
+        const rows = await queryProjectNodes(Object.keys(roots), Boolean(verifyCreation));
         const nodes = buildNodes(rows, roots);
-        await writeIndex({ ...emptyIndex(storage, docs.length < MAX_ROOT_PROJECTS), roots, nodes });
+        const next = { ...emptyIndex(storage, docs.length < MAX_ROOT_PROJECTS), roots, nodes };
+        await verifyCreation?.(next);
+        await writeIndex(next, Boolean(verifyCreation));
         return {
             lastRunAt: now, lastStatus: "success",
             lastMessage: `项目索引重建完成：${Object.keys(roots).length} 个根项目，${Object.keys(nodes).length} 个子项目。`,
@@ -264,6 +304,133 @@ export async function rebuildEnhancedDiaryProjectIndexAfterChange(
     const signature = getEnhancedDiaryProjectContainerSignature(storage);
     const previous = maintenanceTails.get(signature) || Promise.resolve();
     const promise = previous.catch(() => undefined).then(() => rebuildInternal(storage));
+    maintenanceTails.set(signature, promise.then(() => undefined, () => undefined));
+    return promise;
+}
+
+type ProjectCreationIndexInput = {
+    storage: EnhancedDiaryProjectStorageConfig;
+    createdId: string;
+    affectedRootProjectId: string;
+} & ({ createdKind: "root" } | {
+    createdKind: "node";
+    expectedNode: Pick<EnhancedDiaryProjectNode, "title" | "level" | "parentTargetId" | "ancestorTargetIds">;
+});
+
+function assertCreationIndex(index: any): asserts index is EnhancedDiaryProjectIndexPayload {
+    if (!isIndex(index)) throw new Error("项目索引文件损坏或版本无效，未覆盖原文件。");
+    const idValid = (id: unknown) => typeof id === "string" && /^\d{14}-[a-z0-9]{7}$/i.test(id);
+    const commonValid = (item: any, id: string) => item && item.id === id && idValid(id) &&
+        typeof item.title === "string" && typeof item.updated === "string" && Number.isInteger(item.order) && item.order >= 0 &&
+        (item.status === undefined || item.status === "active" || item.status === "archived") &&
+        (item.archivedAt === undefined || typeof item.archivedAt === "string");
+    if (Object.entries(index.roots).some(([id, root]: [string, any]) => !commonValid(root, id) || root.kind !== "root" ||
+        !idValid(root.notebookId) || typeof root.path !== "string" || !root.path.endsWith(`/${id}.sy`) || typeof root.hpath !== "string") ||
+        Object.entries(index.nodes).some(([id, node]: [string, any]) => !commonValid(node, id) || index.roots[id] || node.kind !== "node" ||
+            !index.roots[node.rootProjectId] || !Number.isInteger(node.level) || node.level < 1 || node.level > 6 ||
+            !Array.isArray(node.ancestorTargetIds))) throw new Error("项目索引条目损坏，未覆盖原文件。");
+    for (const node of Object.values(index.nodes) as EnhancedDiaryProjectNode[]) {
+        const parent = index.nodes[node.parentTargetId];
+        const ancestors = node.parentTargetId === node.rootProjectId ? [node.rootProjectId]
+            : parent && parent.rootProjectId === node.rootProjectId && parent.level < node.level
+                ? [...parent.ancestorTargetIds, parent.id] : null;
+        if (!ancestors || JSON.stringify(ancestors) !== JSON.stringify(node.ancestorTargetIds)) {
+            throw new Error("项目索引父子或祖先关系异常，未覆盖原文件。");
+        }
+    }
+}
+
+async function readCreationIndex(signature: string, allowMissing: boolean): Promise<EnhancedDiaryProjectIndexPayload | null> {
+    const raw = allowMissing ? await getFileOrNullChecked(ENHANCED_DIARY_PROJECT_INDEX_PATH) : await getFileChecked(ENHANCED_DIARY_PROJECT_INDEX_PATH);
+    if (raw === null && allowMissing) return null;
+    const parsed = await fileToObject(raw);
+    assertCreationIndex(parsed);
+    if (parsed.containerSignature !== signature) throw new Error("项目索引容器已变化，未覆盖原文件，请检查项目位置。");
+    return normalizeIndexLifecycle(parsed);
+}
+
+function projectIndexContent(index: EnhancedDiaryProjectIndexPayload): string {
+    return JSON.stringify([index.version, index.containerSignature, index.complete,
+        Object.keys(index.roots).sort().map((id) => { const root = index.roots[id]; return [id, root.kind, root.title,
+            root.notebookId, root.path, root.hpath, root.order, root.updated, root.status, root.archivedAt]; }),
+        Object.keys(index.nodes).sort().map((id) => { const node = index.nodes[id]; return [id, node.kind, node.rootProjectId,
+            node.title, node.level, node.parentTargetId, node.ancestorTargetIds, node.order, node.updated, node.status, node.archivedAt]; }),
+    ]);
+}
+
+function assertCreatedProject(index: EnhancedDiaryProjectIndexPayload, input: ProjectCreationIndexInput): void {
+    assertCreationIndex(index);
+    if (!index.complete || !index.roots[input.affectedRootProjectId] || !isEnhancedDiaryProjectEffectivelyActive(index, input.createdId)) {
+        throw new Error("创建的项目尚未在完整索引中确认，或项目已归档；请检查索引，勿重复创建。");
+    }
+    if (input.createdKind === "root") {
+        if (input.createdId !== input.affectedRootProjectId || !index.roots[input.createdId]) throw new Error("创建的根项目无法确认。");
+    } else {
+        const node = index.nodes[input.createdId];
+        const expected = input.expectedNode;
+        if (!node || node.rootProjectId !== input.affectedRootProjectId || node.title !== expected.title || node.level !== expected.level ||
+            node.parentTargetId !== expected.parentTargetId || JSON.stringify(node.ancestorTargetIds) !== JSON.stringify(expected.ancestorTargetIds)) {
+            throw new Error("创建的子项目标题、层级或父子关系无法确认，未更新索引；请勿重复创建。");
+        }
+    }
+}
+
+/** Only verified creation callers may replace one root's nodes; manual rebuild semantics stay unchanged. */
+export function refreshEnhancedDiaryProjectIndexAfterCreation(input: ProjectCreationIndexInput): Promise<ComponentMigrationStatus> {
+    const storage = { ...input.storage };
+    const signature = getEnhancedDiaryProjectContainerSignature(storage);
+    const previousTail = maintenanceTails.get(signature) || Promise.resolve();
+    const promise = previousTail.catch(() => undefined).then(async (): Promise<ComponentMigrationStatus> => {
+        const now = new Date().toISOString();
+        try {
+            const previous = await readCreationIndex(signature, true);
+            const docs = await listDirectProjectDocs(storage, true);
+            const container = await resolveProjectContainer(storage);
+            const affected = docs.find((doc) => doc.id === input.affectedRootProjectId);
+            if (!affected || docs.some((doc) => doc.notebookId !== container.notebookId ||
+                (container.mode === "notebook" ? doc.path.slice(1).includes("/") : !isDirectChildPath(doc.path, container.parentDocPath || "")))) {
+                throw new Error("创建的项目不在当前容器的直接子文档中，未更新索引。");
+            }
+            const checkUnchanged = async () => {
+                const latestDocs = await listDirectProjectDocs(storage, true);
+                if (JSON.stringify(latestDocs) !== JSON.stringify(docs)) throw new Error("项目目录在读取期间发生变化，请刷新索引检查，勿重复创建。");
+                const latest = await readCreationIndex(signature, true);
+                if (previous ? !latest || previous.updatedAt !== latest.updatedAt || projectIndexContent(previous) !== projectIndexContent(latest) : latest !== null) {
+                    throw new Error("项目索引在读取期间发生变化，未覆盖并发更新，请刷新索引检查。");
+                }
+            };
+            const verify = async (next: EnhancedDiaryProjectIndexPayload) => { assertCreatedProject(next, input); await checkUnchanged(); };
+            if (!previous || !previous.complete) {
+                cache = previous || emptyIndex(storage);
+                return await rebuildInternal(storage, verify);
+            }
+            if (docs.length !== Object.keys(previous.roots).length + (previous.roots[input.affectedRootProjectId] ? 0 : 1) ||
+                docs.some((doc) => doc.id !== input.affectedRootProjectId && (!previous.roots[doc.id] ||
+                    [doc.title, doc.path, doc.hpath, doc.notebookId, doc.updated].some((value, i) =>
+                        value !== [previous.roots[doc.id].title, previous.roots[doc.id].path, previous.roots[doc.id].hpath, previous.roots[doc.id].notebookId, previous.roots[doc.id].updated][i])))) {
+                cache = previous;
+                return await rebuildInternal(storage, verify);
+            }
+            const attrs = await readProjectAttrs([affected.id]);
+            const root: EnhancedDiaryRootProject = {
+                id: affected.id, kind: "root", title: affected.title, notebookId: affected.notebookId,
+                path: affected.path, hpath: affected.hpath, updated: affected.updated, order: docs.indexOf(affected),
+                ...parseEnhancedDiaryProjectLifecycle(attrs[affected.id]),
+            };
+            const rows = await queryProjectNodes([root.id], true);
+            await assertNoInterruptedProjectMove(previous, [root.id], rows);
+            const roots = Object.fromEntries(docs.map((doc, order) => [doc.id, doc.id === root.id ? root : { ...previous.roots[doc.id], order }]));
+            const nodes = Object.fromEntries(Object.entries(previous.nodes).filter(([, node]) => node.rootProjectId !== root.id));
+            Object.assign(nodes, buildNodes(rows, roots));
+            const next = { ...previous, roots, nodes };
+            await verify(next);
+            if (projectIndexContent(previous) !== projectIndexContent(next)) await writeIndex(next, true);
+            else cache = previous;
+            return { lastRunAt: now, lastStatus: "success", refreshedCount: 1, lastMessage: "项目创建索引已确认，仅重新读取受影响根项目。" };
+        } catch (error) {
+            return { lastRunAt: now, lastStatus: "error", lastMessage: error instanceof Error ? error.message : "项目创建索引更新失败，请勿重复创建。" };
+        }
+    });
     maintenanceTails.set(signature, promise.then(() => undefined, () => undefined));
     return promise;
 }
