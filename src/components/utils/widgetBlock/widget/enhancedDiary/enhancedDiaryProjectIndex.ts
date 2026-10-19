@@ -473,7 +473,14 @@ async function refreshInternal(
             nodes = Object.fromEntries(Object.entries(nodes).filter(([, node]) => !changedRootIds.includes(node.rootProjectId)));
             Object.assign(nodes, buildNodes(await queryProjectNodes(changedRootIds), roots));
         }
-        await writeIndex({ ...current, roots, nodes, complete: true });
+        const next = { ...current, roots, nodes, complete: true };
+        const currentContent = projectIndexContent(current);
+        const latest = await readCreationIndex(getEnhancedDiaryProjectContainerSignature(storage), true);
+        if (!latest || latest.updatedAt !== current.updatedAt || projectIndexContent(latest) !== currentContent) {
+            throw new Error("项目索引在读取期间发生变化，未覆盖并发更新，请刷新索引检查。");
+        }
+        if (projectIndexContent(next) !== currentContent) await writeIndex(next, true);
+        else cache = latest;
         await prepared.commit();
         return { lastRunAt: now, lastStatus: "success", lastMessage: `项目索引增量刷新完成：${changedRootIds.length} 篇项目文档发生变化。`, refreshedCount: changedRootIds.length };
     } catch (error) {

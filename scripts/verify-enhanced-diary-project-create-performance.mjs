@@ -3,28 +3,42 @@ import { build } from "esbuild";
 import { resolve } from "node:path";
 import { performance } from "node:perf_hooks";
 import { setTimeout as delay } from "node:timers/promises";
+import { execFileSync } from "node:child_process";
 
 const root=resolve(import.meta.dirname,'..');
 const dir='src/components/utils/widgetBlock/widget/enhancedDiary';
-const bundle=await build({stdin:{contents:`
+const lifecycleBaseline=process.argv.includes('--lifecycle-baseline');
+async function projectBundle(realRecent=false){return build({stdin:{contents:`
 export * from './${dir}/enhancedDiaryProjectIndex';
 export * from './${dir}/enhancedDiaryProjectTypes';
 export * from './${dir}/workspace/enhancedDiaryWorkspaceProjectService';
+export * from './${dir}/workspace/enhancedDiaryWorkspaceProjectLifecycle';
 export {setSiyuanRuntimePort} from './src/runtime/siyuan-runtime-port';
 `,loader:'ts',resolveDir:root},bundle:true,write:false,format:'esm',platform:'node',logLevel:'silent',plugins:[{
     name:'recent-doc-scope',setup(api){
-        api.onResolve({filter:/siyuanComponentDataApi$/},()=>({path:'recent',namespace:'fixture'}));
-        api.onLoad({filter:/.*/,namespace:'fixture'},()=>({contents:`export const prepareChangedRecentDocsForIndex=async()=>({changedDocs:globalThis.__projectCreateFixture.changedDocs,commit:async()=>{}});`,loader:'js'}));
+        if(lifecycleBaseline)api.onLoad({filter:/[\\/]enhancedDiaryProjectIndex\.ts$/},({path})=>({
+            contents:execFileSync('git',['show',`bb1567682e73cf18fe9e55a19f27182d297828ea:${path.slice(root.length+1).replaceAll('\\','/')}`],{cwd:root,encoding:'utf8'}),loader:'ts',resolveDir:resolve(path,'..'),
+        }));
+        if(!realRecent)api.onResolve({filter:/siyuanComponentDataApi$/},()=>({path:'recent',namespace:'fixture'}));
+        api.onResolve({filter:/favorites-store$|notification-center-mobile-plan-manager$/},({path})=>({path:path.split('/').at(-1),namespace:'fixture'}));
+        api.onLoad({filter:/.*/,namespace:'fixture'},({path})=>({contents:path==='recent'?
+            `export const prepareChangedRecentDocsForIndex=async()=>({changedDocs:globalThis.__projectCreateFixture.changedDocs,commit:async()=>{globalThis.__projectCreateFixture.commits++;}});`:
+            (path==='favorites-store'?['addFavoriteItem','removeFavoriteItem','removeFavoriteItemsByIds','reorderFavoriteItems','readFavoritesIndexStrict','doesFavoritesIndexExist']:['requestMobilePlanRefresh']).map((name)=>`export const ${name}=()=>{};`).join('\n'),loader:'js'}));
     },
-}]});
+}]});}
+const bundle=await projectBundle();
+let recentBundle;
 let sequence=0;
 const id=(n)=>`20261019000000-${n.toString(36).padStart(7,'0')}`;
 const notebook=id(999999),storage={mode:'notebook',notebookId:notebook};
 const clone=(value)=>structuredClone(value);
-async function fixture(count=5,{latency=0,parentDoc=false}={}){
-    const app=await import(`data:text/javascript;base64,${Buffer.from(bundle.outputFiles[0].text).toString('base64')}#${sequence++}`);
+async function fixture(count=5,{latency=0,parentDoc=false,realRecent=false}={}){
+    const selected=realRecent?(recentBundle??=await projectBundle(true)):bundle;
+    const app=await import(`data:text/javascript;base64,${Buffer.from(selected.outputFiles[0].text).toString('base64')}#${sequence++}`);
     const state={docs:[],children:new Map(),attrs:new Map(),file:undefined,changedDocs:[],calls:[],reads:0,writes:0,readbacks:0,awaitingReadback:false,
-        readError:false,writeError:false,dropWrite:false,readbackError:false,attrError:false,childError:false,dirError:false,createCount:0,insertCount:0};
+        readError:false,writeError:false,dropWrite:false,readbackError:false,attrError:false,childError:false,dirError:false,createCount:0,insertCount:0,
+        commits:0,recentReads:0,recentWrites:0,recentFile:JSON.stringify({version:1,updatedAt:'fixture',docs:{},consumers:{}})};
+    const recentPath='/data/storage/petal/siyuan-homepage/recent-doc-snapshot.json';
     const projectStorage=parentDoc?{mode:'parentDoc',parentDocId:id(888888)}:storage;
     const addRoot=(n,name=`Project ${n}`)=>{
         const doc={id:id(n),name,path:`${parentDoc?'/'+id(888888):''}/${id(n)}.sy`,mtime:1700000000+n,sort:state.docs.length};
@@ -42,7 +56,9 @@ async function fixture(count=5,{latency=0,parentDoc=false}={}){
     globalThis.__projectCreateFixture=state;
     app.setSiyuanRuntimePort({
         async getFile(path){
+            if(realRecent&&path===recentPath){state.recentReads++;return state.recentFile;}
             assert.equal(path,app.ENHANCED_DIARY_PROJECT_INDEX_PATH);state.reads++;if(latency)await delay(latency);
+            await state.readHook?.(state.reads);
             if(state.readError)throw new Error('synthetic storage read failure');
             if(state.awaitingReadback){state.awaitingReadback=false;state.readbacks++;if(state.readbackError)throw new Error('synthetic disk readback failure');}
             if(state.readResponse!==undefined)return clone(state.readResponse);
@@ -50,6 +66,7 @@ async function fixture(count=5,{latency=0,parentDoc=false}={}){
         },
         async putFile(path,isDir,file){
             if(isDir){assert.equal(path,'/data/storage/petal/siyuan-homepage');return {code:0};}
+            if(realRecent&&path===recentPath){state.recentWrites++;state.recentFile=await file.text();return {code:0};}
             assert.equal(path,app.ENHANCED_DIARY_PROJECT_INDEX_PATH);state.writes++;
             if(state.writeError)throw new Error('synthetic index write failure');
             if(!state.dropWrite)state.file=await file.text();
@@ -62,6 +79,7 @@ async function fixture(count=5,{latency=0,parentDoc=false}={}){
             state.awaitingReadback=false;
             state.calls.push({path,payload:clone(payload)});if(latency)await delay(latency);
             let data;
+            if(realRecent&&path==='/api/storage/getRecentDocs')return {code:0,data:[]};
             if(path==='/api/filetree/listDocsByPath'){
                 if(state.dirError)throw new Error('synthetic directory failure');
                 data=state.dirResponse!==undefined?state.dirResponse:{files:clone(state.docs),box:notebook,path:payload.path};
@@ -88,6 +106,8 @@ async function fixture(count=5,{latency=0,parentDoc=false}={}){
             }else if(path==='/api/attr/setBlockAttrs'){
                 if(state.setAttrsError)return {code:403,msg:'attribute write denied'};
                 state.attrs.set(payload.id,{...state.attrs.get(payload.id),...payload.attrs});data=null;
+            }else if(path==='/api/attr/batchSetBlockAttrs'){
+                for(const item of payload.blockAttrs)state.attrs.set(item.id,{...state.attrs.get(item.id),...item.attrs});data=null;
             }else throw new Error(`unexpected API ${path}`);
             return {code:0,msg:'',data};
         },
@@ -95,20 +115,126 @@ async function fixture(count=5,{latency=0,parentDoc=false}={}){
     const initialized=await app.rebuildEnhancedDiaryProjectIndex(projectStorage);
     if(initialized.lastStatus!=='success')throw new Error('fixture initialization: '+JSON.stringify(initialized));
     state.awaitingReadback=false;
-    const reset=()=>{state.calls=[];state.reads=0;state.writes=0;state.readbacks=0;state.awaitingReadback=false;};reset();
+    const reset=()=>{state.calls=[];state.reads=0;state.writes=0;state.readbacks=0;state.awaitingReadback=false;state.commits=0;state.recentReads=0;state.recentWrites=0;};reset();
     const index=()=>JSON.parse(state.file);
     const request=(rootId,createdId,level=1,title='new child',parentTargetId=rootId,ancestorTargetIds=[rootId])=>({storage:projectStorage,createdId,createdKind:'node',affectedRootProjectId:rootId,expectedNode:{title,level,parentTargetId,ancestorTargetIds}});
     return {app,state,addRoot,addNode,reset,index,request,storage:projectStorage,
         counts:()=>({listDirectProjectDocs:state.calls.filter((c)=>c.path==='/api/filetree/listDocsByPath').length,
             getChildBlocksChecked:state.calls.filter((c)=>c.path==='/api/block/getChildBlocks').length,
             batchGetBlockAttrs:state.calls.filter((c)=>c.path==='/api/attr/batchGetBlockAttrs').length,
-            indexReads:state.reads,indexWrites:state.writes,indexReadbacks:state.readbacks}),
+            kernelPostRequests:state.calls.length,indexReads:state.reads,indexWrites:state.writes,indexReadbacks:state.readbacks}),
     };
+}
+async function lifecycleMeasurements(){
+    const results=[];
+    for(const roots of [5,50,200])for(const operation of ['validate-once','validate-twice','create-child','duplicate-child','root-state-change','node-title-change']){
+        const f=await fixture(roots),start=performance.now();
+        if(operation.startsWith('validate')){
+            for(let n=0;n<(operation==='validate-twice'?2:1);n++){
+                f.state.awaitingReadback=false;
+                await f.app.validateEnhancedDiaryProjectWriteTarget(storage,id(1));
+            }
+        }else if(operation==='create-child')await f.app.createEnhancedDiarySubproject({storage,parentTargetId:id(1),name:'new measured child'});
+        else if(operation==='duplicate-child')await assert.rejects(f.app.createEnhancedDiarySubproject({storage,parentTargetId:id(1),name:'Node 1.0'}),/同名/);
+        else{
+            if(operation==='root-state-change')f.state.attrs.get(id(1))[f.app.ENHANCED_DIARY_PROJECT_STATUS_ATTR]='archived';
+            else{f.state.children.get(id(1))[0].markdown='# changed title';f.state.changedDocs=[{id:id(1)}];}
+            success(await f.app.refreshEnhancedDiaryProjectIndex(storage));
+        }
+        const metric={roots,operation,...f.counts(),syntheticMs:+(performance.now()-start).toFixed(1)};
+        const expected=operation==='create-child'?(lifecycleBaseline?3:1):operation.startsWith('validate')?
+            (lifecycleBaseline?(operation==='validate-twice'?2:1):0):operation==='duplicate-child'?(lifecycleBaseline?1:0):1;
+        assert.equal(metric.indexWrites,expected,operation);results.push(metric);
+    }
+    console.log(JSON.stringify({lifecycleMode:lifecycleBaseline?'bb15676':'current',syntheticApiLatencyMs:0,lifecycleMeasurements:results},null,2));
+    return results;
 }
 let groups=0;
 async function test(name,run){try{await run();groups++;console.log('PASS '+name);}catch(error){console.error('FAIL '+name+': '+error.message);process.exit(1);}}
 const success=(result)=>{if(result.lastStatus!=='success')throw new Error(JSON.stringify(result));};
 const failed=(result)=>assert.equal(result.lastStatus,'error',result.lastMessage);
+if(lifecycleBaseline||process.argv.includes('--lifecycle-only')){await lifecycleMeasurements();process.exit(0);}
+
+await test('unchanged lifecycle validation keeps both guards without index writes and refreshes verified cache',async()=>{
+    const f=await fixture(),disk=f.index();disk.updatedAt='external timestamp only';disk.roots[id(1)].title='external title';
+    f.state.docs[0].name='external title';f.state.file=JSON.stringify(disk);const retained=f.state.file;
+    for(let n=0;n<2;n++)assert.equal((await f.app.validateEnhancedDiaryProjectWriteTarget(storage,id(1))).title,'external title');
+    assert.equal(f.state.writes,0);assert.equal(f.state.file,retained);assert.equal(f.state.commits,2);
+    assert.equal((await f.app.readEnhancedDiaryProjectIndex(storage)).updatedAt,'external timestamp only');
+    const created=await f.app.createEnhancedDiarySubproject({storage,parentTargetId:id(1),name:'confirmed child'});
+    assert(f.index().nodes[created]);assert.equal(f.state.commits,4);assert.equal(f.state.writes,1);assert.equal(f.state.readbacks,1);
+    f.reset();await assert.rejects(f.app.createEnhancedDiarySubproject({storage,parentTargetId:id(1),name:'confirmed child'}),/同名/);
+    assert.equal(f.state.writes,0);
+});
+await test('semantic changes in roots, headings, ordering, archive and hierarchy still persist',async()=>{
+    for(const change of ['root-title','root-path','root-updated','root-order','root-status','node-title','node-updated','node-order','node-hierarchy','node-status']){
+        const f=await fixture(),rootId=id(2),rows=f.state.children.get(rootId);f.state.changedDocs=[{id:rootId}];
+        if(change==='root-title')f.state.docs[1].name='renamed root';
+        if(change==='root-path')f.state.docs[1].hPath='/Renamed';
+        if(change==='root-updated')f.state.docs[1].mtime++;
+        if(change==='root-order')f.state.docs.reverse();
+        if(change==='root-status')f.state.attrs.get(rootId)[f.app.ENHANCED_DIARY_PROJECT_STATUS_ATTR]='archived';
+        if(change==='node-title')rows[0].markdown='# renamed node';
+        if(change==='node-updated')f.state.attrs.get(rows[0].id).updated='20261019000001';
+        if(change==='node-order')rows.reverse();
+        if(change==='node-hierarchy'){rows[1].subtype='h1';rows[1].markdown='# changed level';}
+        if(change==='node-status')f.state.attrs.get(rows[0].id)[f.app.ENHANCED_DIARY_PROJECT_STATUS_ATTR]='archived';
+        const before=f.index();success(await f.app.refreshEnhancedDiaryProjectIndex(storage));
+        assert.equal(f.state.writes,1,change);assert.equal(f.state.readbacks,1,change);assert.notDeepEqual(f.index(),before,change);
+        if(change==='node-hierarchy'){assert.equal(f.index().nodes[rows[1].id].level,1);assert.equal(f.index().nodes[rows[1].id].parentTargetId,rootId);}
+    }
+});
+await test('real archive/restore services retain ancestor restrictions and persist status',async()=>{
+    const f=await fixture(),rootId=id(1),nodeId=id(10100);
+    assert.equal((await f.app.archiveEnhancedDiaryProject(storage,rootId)).status,'success');
+    assert.equal(f.index().roots[rootId].status,'archived');
+    await assert.rejects(f.app.validateEnhancedDiaryProjectWriteTarget(storage,nodeId),/归档/);
+    assert.equal((await f.app.restoreEnhancedDiaryProject(storage,nodeId)).status,'blocked');
+    assert.equal((await f.app.restoreEnhancedDiaryProject(storage,rootId)).status,'success');
+    assert.equal((await f.app.validateEnhancedDiaryProjectWriteTarget(storage,nodeId)).status,'active');
+});
+await test('incremental no-op/change cannot overwrite an intervening external index snapshot',async()=>{
+    for(const change of [false,true]){
+        const f=await fixture();if(change)f.state.docs[0].name='local changed';let external;
+        f.state.readHook=(reads)=>{if(reads===2){const disk=f.index();disk.roots[id(2)].title='external writer';external=JSON.stringify(disk);f.state.file=external;}};
+        failed(await f.app.refreshEnhancedDiaryProjectIndex(storage));assert.equal(f.state.writes,0);assert.equal(f.state.file,external);
+    }
+});
+await test('incremental and creation maintenance share a queue without losing either change',async()=>{
+    const f=await fixture();f.state.docs[0].name='queued rename';const created=f.addNode(id(3));
+    const results=await Promise.all([f.app.refreshEnhancedDiaryProjectIndex(storage),f.app.refreshEnhancedDiaryProjectIndexAfterCreation(f.request(id(3),created))]);
+    results.forEach(success);assert.equal(f.index().roots[id(1)].title,'queued rename');assert(f.index().nodes[created]);
+    assert.equal(f.state.writes,2);assert.equal(f.state.readbacks,2);
+});
+await test('incremental actual writes verify disk while no-ops never issue a verification write',async()=>{
+    for(const mode of ['writeError','dropWrite','corruptWrite','readbackError']){
+        const f=await fixture();f.state.docs[0].name='real change';f.state[mode]=true;
+        failed(await f.app.refreshEnhancedDiaryProjectIndex(storage));assert.equal(f.state.writes,1);
+        assert.equal(f.state.readbacks,mode==='writeError'?0:1);
+    }
+    const f=await fixture();f.state.changedDocs=[{id:id(1)}];const heading=f.state.children.get(id(1))[0];
+    heading.subtype='h2';heading.markdown='## interrupted';f.state.attrs.get(heading.id)[f.app.ENHANCED_DIARY_PROJECT_NODE_ATTR]='false';
+    const retained=f.state.file;failed(await f.app.refreshEnhancedDiaryProjectIndex(storage));assert.equal(f.state.file,retained);assert.equal(f.state.writes,0);
+});
+await test('incremental unknown, incomplete, foreign and damaged snapshots never become a save baseline',async()=>{
+    for(const mode of ['null','foreign','relation','incomplete']){
+        const f=await fixture(),disk=f.index();
+        if(mode==='null')f.state.readResponse=null;
+        if(mode==='foreign')disk.containerSignature='notebook:foreign';
+        if(mode==='relation')disk.nodes[id(10101)].ancestorTargetIds=[];
+        if(mode==='incomplete')disk.complete=false;
+        f.state.file=JSON.stringify(disk);const retained=f.state.file;
+        const result=await f.app.refreshEnhancedDiaryProjectIndex(storage);
+        assert.equal(result.lastStatus,mode==='incomplete'?'idle':'error');assert.equal(f.state.writes,0);assert.equal(f.state.file,retained);
+    }
+});
+await test('unchanged real recent-doc preparation still commits only the shared snapshot',async()=>{
+    const f=await fixture(5,{realRecent:true});
+    for(let n=0;n<2;n++)await f.app.validateEnhancedDiaryProjectWriteTarget(storage,id(1));
+    assert.equal(f.state.writes,0);assert.equal(f.state.recentWrites,2);assert.equal(f.state.recentReads,4);
+    assert.deepEqual(JSON.parse(f.state.recentFile).docs,{});
+    console.log(JSON.stringify({unchangedSharedSnapshot:{projectIndexWrites:f.state.writes,recentSnapshotWrites:f.state.recentWrites,recentSnapshotReads:f.state.recentReads}}));
+});
 
 await test('targeted root creation preserves all old nodes, actual metadata and ordering; repeat is no-op',async()=>{
     const f=await fixture();const before=f.index();const created=f.addRoot(5000,'official document title');
@@ -317,4 +443,5 @@ for(const roots of [5,50,200]){
     }
 }
 console.log(JSON.stringify({syntheticApiLatencyMs:1,measurements,serviceApiLatencyMs:0,serviceMeasurements},null,2));
-console.log(`Passed ${groups} project creation groups plus ${measurements.length} maintenance and ${serviceMeasurements.length} service measurements. No real documents or indexes were modified. Timings are synthetic, not SiYuan client measurements.`);
+const lifecycle=await lifecycleMeasurements();
+console.log(`Passed ${groups} project creation groups plus ${measurements.length} maintenance, ${serviceMeasurements.length} service and ${lifecycle.length} lifecycle measurements. No real documents or indexes were modified. Timings are synthetic, not SiYuan client measurements.`);

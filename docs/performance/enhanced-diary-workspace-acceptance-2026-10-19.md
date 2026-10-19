@@ -4,6 +4,8 @@
 
 本轮结论：生产函数的合成验收通过，发现并修复了一处子项目创建前的磁盘索引保护缺口。**尚未完成实机端到端验收，不能确认用户最初报告的真实操作卡顿已经改善。**
 
+> 下文保留首次验收的基线与测量；后续针对 `bb15676` 的生命周期无变化写入补修见文末，不能将首次测量当作补修后的当前结果。
+
 ## 环境、范围和证据
 
 - Windows / PowerShell 7.6.5；开始时 main 与指定基线一致，工作区无未提交修改。先读取 AGENTS、performance、data-and-indexing、DESIGN，并用 CodeGraph 检查真实调用链。
@@ -195,3 +197,70 @@ fixture 调用真实 `taskIndexDiagnostics`，验证默认关闭、开启/快照
 目录接口仍使用 notebook/path，严格模式明确传 maxListCount=5001，并在达到 5000 上限或响应结构不完整时失败；没有扫描其他笔记本。v3.8.6 的响应包含 box/path/files，默认列表数量来自内核配置。[官方 listDocsByPath 实现](https://github.com/siyuan-note/siyuan/blob/v3.8.6/kernel/api/filetree.go#L1045)。
 
 已探测本机版本 3.8.7；对应官方 getFile 返回二进制内容，缺失为 404；putFile 接收表单并返回标准响应，modTime 为毫秒。现有 checked 封装和 transport fixture 与此契约一致，实际写入客户端兼容性仍未实测。[官方 v3.8.7 文件 API](https://github.com/siyuan-note/siyuan/blob/v3.8.7/kernel/api/file.go#L399)。官方按次文件读写并未提供此索引更新所需的跨请求原子比较交换。
+
+## 后续补修：生命周期校验的无变化写入
+
+补修审查基线：`bb1567682e73cf18fe9e55a19f27182d297828ea`。只修改项目索引 `refreshInternal()`、同一项目 verifier 和本报告；生命周期服务、共享 recent-doc 存储服务、版本及所有索引 schema 保持不变。
+
+原因为 `refreshInternal()` 每次无条件调用 `writeIndex()`。现在仍严格读取磁盘、检查容器/版本/完整性、读取根状态与必要节点、检测移动中断；复用 `projectIndexContent()` 比较 version、容器、complete、根/节点 ID、标题、路径、更新时间、排序、归档、层级及父子/祖先关系，仅忽略顶层保存时间 `updatedAt`。
+
+保存或发布无变化缓存前再严格读取一次磁盘，比对原快照的语义及 updatedAt。若外部快照变化则失败，不覆盖；无变化时缓存取该已验证快照，保持磁盘原文及时间不变。真正变化使用 `writeIndex(next, true)`，进行受控写入和实际磁盘回读。当前 JS 的维护队列及创建前两次目标校验均保留，没有通过删除安全校验减少写入。
+
+首次新增无变化回归在修改生产代码前失败：`2 !== 0`，对应连续两次目标校验仍写项目索引两次。修复后，该用例同时验证磁盘内容/时间保留、公共缓存取已验证快照、真实子项目创建只保存最终结果以及重名拒绝不写项目索引。
+
+新增用例还覆盖十种根/节点语义变化、真实归档/恢复与祖先限制、增量/创建混合并发、同 updatedAt 的外部语义变更、实际写后回读错误、移动中断、未知/外来/损坏/不完整索引。前轮损坏、错误版本、403 和网络失败保护以及定向维护/完整重建用例全部保留。
+
+### 同一 fixture 的前后测量
+
+新增 `node scripts/verify-enhanced-diary-project-create-performance.mjs --lifecycle-baseline`，通过 esbuild 读取 Git 中 `bb15676` 的真实项目索引模块，配合相同生产生命周期/创建服务与 fixture 运行比较；`--lifecycle-only` 可独立重跑当前对比，默认命令运行当前代码及完整回归。比较不调用真实 Kernel。无人工 API 延迟，单次 Node 合成耗时，可能受同时运行的构建影响，不是实机性能提升比例。
+
+| 根数 | 操作 | list/child/batch 前→后 | post 前→后 | 项目 read 前→后 | 项目 write 前→后 | 紧接回读 前→后 | 合成 ms 前→后 |
+| ---: | --- | --- | --- | --- | --- | --- | --- |
+| 5 | validate-once | 1/0/1 → 1/0/1 | 2 → 2 | 1 → 2 | 1 → 0 | 0 → 0 | 2.2 → 2.1 |
+| 5 | validate-twice | 2/0/2 → 2/0/2 | 4 → 4 | 2 → 4 | 2 → 0 | 0 → 0 | 2.9 → 2.1 |
+| 5 | create-child | 4/3/4 → 4/3/4 | 14 → 14 | 5 → 7 | 3 → 1 | 1 → 1 | 6.2 → 5.7 |
+| 5 | duplicate-child | 1/1/1 → 1/1/1 | 4 → 4 | 1 → 2 | 1 → 0 | 0 → 0 | 2.5 → 5.2 |
+| 5 | root-state-change | 1/0/1 → 1/0/1 | 2 → 2 | 1 → 3 | 1 → 1 | 0 → 1 | 6.9 → 3.8 |
+| 5 | node-title-change | 1/2/3 → 1/2/3 | 6 → 6 | 1 → 3 | 1 → 1 | 0 → 1 | 2.1 → 4.1 |
+| 50 | validate-once | 1/0/1 → 1/0/1 | 2 → 2 | 1 → 2 | 1 → 0 | 0 → 0 | 6.1 → 9 |
+| 50 | validate-twice | 2/0/2 → 2/0/2 | 4 → 4 | 2 → 4 | 2 → 0 | 0 → 0 | 7 → 10.1 |
+| 50 | create-child | 4/3/4 → 4/3/4 | 14 → 14 | 5 → 7 | 3 → 1 | 1 → 1 | 17 → 17.1 |
+| 50 | duplicate-child | 1/1/1 → 1/1/1 | 4 → 4 | 1 → 2 | 1 → 0 | 0 → 0 | 3.7 → 4.3 |
+| 50 | root-state-change | 1/0/1 → 1/0/1 | 2 → 2 | 1 → 3 | 1 → 1 | 0 → 1 | 4 → 9.6 |
+| 50 | node-title-change | 1/2/3 → 1/2/3 | 6 → 6 | 1 → 3 | 1 → 1 | 0 → 1 | 5.3 → 7.8 |
+| 200 | validate-once | 1/0/1 → 1/0/1 | 2 → 2 | 1 → 2 | 1 → 0 | 0 → 0 | 14.3 → 18.7 |
+| 200 | validate-twice | 2/0/2 → 2/0/2 | 4 → 4 | 2 → 4 | 2 → 0 | 0 → 0 | 19.8 → 27.6 |
+| 200 | create-child | 4/3/4 → 4/3/4 | 14 → 14 | 5 → 7 | 3 → 1 | 1 → 1 | 61.7 → 59.2 |
+| 200 | duplicate-child | 1/1/1 → 1/1/1 | 4 → 4 | 1 → 2 | 1 → 0 | 0 → 0 | 13.4 → 14.6 |
+| 200 | root-state-change | 1/0/1 → 1/0/1 | 2 → 2 | 1 → 3 | 1 → 1 | 0 → 1 | 9.6 → 29.5 |
+| 200 | node-title-change | 1/2/3 → 1/2/3 | 6 → 6 | 1 → 3 | 1 → 1 | 0 → 1 | 18.4 → 24.9 |
+
+表中的 `list/child/batch` 是各 API 请求次数，post 包含标题插入及属性读写等全部模拟 post 请求，但不含单列的文件读写；read 包含紧接写入的回读，不能再相加。该表保留 recent-doc 变更集合 fixture，其实际共享快照副作用由下节单独执行生产函数验证。紧接回读计数不能当成跨请求事务保证。与首次验收一致，项目索引写入只统计项目文件，不含目录请求或其他快照。普通单次/连续两次校验分别增加为 2/4 次项目磁盘读取；子项目创建为 7 次，重名拒绝为 2 次。额外读取用于新快照复核，真实变化也增加了严格写后回读。
+
+### recent-doc 副作用与剩余边界
+
+除常规变更集合 fixture 外，新增用例打包实际 `prepareChangedRecentDocsForIndex()` 与 `commit()`，仅替换无关副作用，模拟官方 recent-doc 空列表及既有空快照。连续两次无文档变化的真实生命周期校验得到：**项目索引写入 0，recent-doc-snapshot 写入 2、读取 4**。第二次也没有文档或消费者语义变化，仍会保存新的顶层时间；共享快照的无条件保存确实保留，未混算进项目索引收益。
+
+因此不能声称生命周期校验已经完全无磁盘写入或无同步成本。本轮按范围要求没有修改共享快照服务；其他生命周期归档/恢复的主动完整重建也保留原行为。是否继续优化共享快照，应独立设计并覆盖所有消费者后决定。
+
+写前复核、写后验证不等于跨设备原子 CAS，原有外部写入窗口仍存在。没有已确认隔离的真实思源环境，本轮未操作正式工作区、未修改用户业务数据，也未完成实机验收；之前 A～L 手动验收待办仍有效。
+
+### 补修验证结果
+
+| 命令 | 结果 |
+| --- | --- |
+| `pnpm verify:enhanced-diary-project-create-performance` | exit 0；23 组 + 24 条维护/21 条服务/18 条生命周期测量 |
+| 上述 `--lifecycle-baseline` / `--lifecycle-only` | 均 exit 0；各 18 条同一 fixture 测量，写入次数有断言 |
+| `pnpm verify:enhanced-diary-project-index` | exit 0；聚合 PASS（不输出内部计数） |
+| `pnpm verify:enhanced-diary-workspace-actions` | exit 0；29 组 |
+| `pnpm verify:task-index-sync-performance` | exit 0；28 场景 |
+| `pnpm verify:siyuan-api-compat` | exit 0；A–H |
+| `pnpm typecheck` | exit 0 |
+| `npx tsc --noEmit` | exit 0 |
+| `pnpm lint` | exit 0 |
+| `pnpm build:app` | exit 0 |
+| `pnpm build:kernel` | exit 0 |
+| `pnpm build` | exit 0；设置 SIYUAN_SKIP_DEV_DEPLOY=1，未部署客户端 |
+| `git diff --check` | exit 0 |
+
+最终无未解决的自动化失败。生产改动为原无条件保存处的语义比较、快照复核、无变化缓存发布与变化后的回读；没有删除任一生命周期校验，没有修改用户真实数据。实机体验和多端同步仍待隔离环境验证。
