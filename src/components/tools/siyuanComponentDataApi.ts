@@ -1211,7 +1211,7 @@ export async function getTaskIndexResult(
     plugin?: any,
 ): Promise<ComponentDataResult<ComponentTaskInfo>> {
     void plugin;
-    const { rows } = await enqueueTaskIndexMutation(() => pruneMissingTaskIndexItemsUnsafe());
+    const { items: rows } = await readTaskIndexSnapshot();
     const filtered = notebookIds.length > 0
         ? rows.filter((item) => item.box && notebookIds.includes(item.box))
         : rows;
