@@ -82,6 +82,8 @@
     let index = $state<EnhancedDiaryProjectIndexPayload>(EMPTY_INDEX);
     let loading = $state(true);
     let busy = $state(false);
+    let alive = true;
+    let refreshGeneration = 0;
     let error = $state("");
     let selectedTargetId = $state("");
     let createMode = $state<"" | "root" | "child">("");
@@ -193,9 +195,13 @@
         await selectTarget(nextId);
     }
 
-    async function refresh(selectId = selectedTargetId, forceRebuild = false): Promise<void> {
+    async function refresh(selectId = selectedTargetId, forceRebuild = false): Promise<boolean> {
+        if (!alive) return false;
+        const generation = ++refreshGeneration;
+        appliedMutationVersion = workspaceMutationVersion;
+        const current = () => alive && generation === refreshGeneration;
         if (!storageReady) {
-            index = EMPTY_INDEX; loading = false; return;
+            index = EMPTY_INDEX; loading = false; return false;
         }
         loading = true; error = "";
         try {
@@ -204,11 +210,17 @@
                 const status = await rebuildEnhancedDiaryProjectIndex(config.projectStorage);
                 if (status.lastStatus !== "success") throw new Error(status.lastMessage || "项目索引重建失败");
             }
-            index = await loadEnhancedDiaryProjectIndexForWorkspace(config.projectStorage);
+            if (!current()) return false;
+            const nextIndex = await loadEnhancedDiaryProjectIndexForWorkspace(config.projectStorage);
+            if (!current()) return false;
+            let nextRecords = recordItems;
             if (config.dailyNotebookId) {
                 const recordIndex = await readEnhancedDiaryProjectRecordIndex(config.dailyNotebookId);
-                recordItems = Object.values(recordIndex.items);
+                nextRecords = Object.values(recordIndex.items);
             }
+            if (!current()) return false;
+            index = nextIndex;
+            recordItems = nextRecords;
             const refreshedTarget = resolveEnhancedDiaryProjectTarget(index, selectId);
             if (refreshedTarget && previousStatus && refreshedTarget.status !== previousStatus) {
                 projectLifecycleFilter = refreshedTarget.status;
@@ -218,37 +230,49 @@
             } else {
                 selectedTargetId = firstTargetForLifecycleFilter(projectLifecycleFilter);
             }
-            await loadOverviewSnapshot();
+            const detailLoaded = await loadOverviewSnapshot();
+            if (!current()) return false;
             if (detailTab === "content") await loadField();
+            return detailLoaded;
         } catch (reason) {
-            error = reason instanceof Error ? reason.message : "项目索引加载失败";
-        } finally { loading = false; }
+            if (current()) error = reason instanceof Error ? reason.message : "项目索引加载失败";
+            return false;
+        } finally { if (current()) loading = false; }
     }
 
     async function loadField(): Promise<void> {
+        if (!alive) return;
+        const generation = refreshGeneration;
+        const target = selectedTargetId;
+        const field = activeField;
+        const current = () => alive && generation === refreshGeneration && target === selectedTargetId && field === activeField;
         if (!selectedTargetId) { fieldContent = ""; return; }
         contentLoading = true;
         try {
             const loadedContent = await loadEnhancedDiaryProjectContent({
                 storage: config.projectStorage, targetId: selectedTargetId, field: activeField,
             });
+            if (!current()) return;
             if (activeField === "阶段总结") { fieldHistory = loadedContent; fieldContent = ""; }
             else { fieldHistory = ""; fieldContent = loadedContent; }
         } catch (reason) {
-            showMessage(reason instanceof Error ? reason.message : "项目内容读取失败", 3500);
-        } finally { contentLoading = false; }
+            if (current()) showMessage(reason instanceof Error ? reason.message : "项目内容读取失败", 3500);
+        } finally { if (current()) contentLoading = false; }
     }
 
-    async function loadOverviewSnapshot(): Promise<void> {
+    async function loadOverviewSnapshot(): Promise<boolean> {
+        if (!alive) return false;
+        const generation = refreshGeneration;
         const targetId = selectedTargetId;
-        if (!targetId) { overviewSnapshot = EMPTY_SNAPSHOT; return; }
+        if (!targetId) { if (alive) overviewSnapshot = EMPTY_SNAPSHOT; return true; }
         overviewSnapshot = EMPTY_SNAPSHOT;
         try {
             const snapshot = await loadEnhancedDiaryProjectOverviewSnapshot({ storage: config.projectStorage, targetId });
-            if (selectedTargetId === targetId) overviewSnapshot = snapshot;
+            if (alive && generation === refreshGeneration && selectedTargetId === targetId) overviewSnapshot = snapshot;
+            return true;
         } catch (reason) {
-            if (selectedTargetId === targetId) overviewSnapshot = EMPTY_SNAPSHOT;
             console.warn("[WorkspaceFormalProjectPanel] project overview snapshot failed", reason);
+            return false;
         }
     }
 
@@ -321,7 +345,7 @@
     }
 
     async function submitCreate(): Promise<void> {
-        if (busy || !createMode) return;
+        if (!alive || busy || !createMode) return;
         busy = true;
         try {
             const id = createMode === "root"
@@ -333,20 +357,31 @@
                     focus,
                 })
                 : await createEnhancedDiarySubproject({ storage: config.projectStorage, parentTargetId: selectedTargetId, name: projectName });
+            if (!alive) return;
             closeCreateForm();
             projectLifecycleFilter = "active";
-            await refresh(id);
             showMessage("项目创建成功", 2500);
+            refreshCreatedProject(id);
         } catch (reason) {
+            if (!alive) return;
             if (reason instanceof EnhancedDiaryProjectCreatedButNotVerifiedError) {
                 closeCreateForm();
                 projectLifecycleFilter = "active";
-                await refresh(reason.docId);
                 showMessage(reason.message, 4500);
+                refreshCreatedProject(reason.docId);
             } else {
                 showMessage(reason instanceof Error ? reason.message : "项目创建失败", 4500);
             }
-        } finally { busy = false; }
+        } finally { if (alive) busy = false; }
+    }
+
+    function refreshCreatedProject(id: string): void {
+        void refresh(id).then((loaded) => {
+            if (alive && !loaded) showMessage("项目已写入，但详情暂时无法加载，请刷新项目索引检查，勿重复创建。", 5000);
+        }).catch((reason) => {
+            if (alive) showMessage("项目已创建，但展示刷新失败，请勿重复创建。", 5000);
+            console.warn("[WorkspaceFormalProjectPanel] created project refresh failed", reason);
+        });
     }
 
     async function saveField(): Promise<void> {
@@ -406,6 +441,8 @@
         document.addEventListener("keydown", handleFilterKeydown);
     });
     onDestroy(() => {
+        alive = false;
+        refreshGeneration += 1;
         document.removeEventListener("click", handleFilterPopoverClick);
         document.removeEventListener("keydown", handleFilterKeydown);
     });
@@ -448,8 +485,8 @@
     <header class="wk-page-header project-header">
         <div><h2 class="wk-page-title">项目</h2><p class="wk-page-description">项目文档负责长期结构；任务和记录仍保存在日记中。</p></div>
         <div class="header-actions">
-            <button type="button" class="wk-btn wk-btn-primary" onclick={openCreateRoot} disabled={!storageReady || busy}><WorkspaceProjectIcon name="projectAdd" />新建项目</button>
-            <button type="button" class="wk-btn wk-btn-secondary" onclick={() => refresh(selectedTargetId, true)} disabled={!storageReady || busy}><WorkspaceProjectIcon name="activity" />刷新索引</button>
+            <button type="button" class="wk-btn wk-btn-primary" onclick={openCreateRoot} disabled={!storageReady || busy || loading}><WorkspaceProjectIcon name="projectAdd" />新建项目</button>
+            <button type="button" class="wk-btn wk-btn-secondary" onclick={() => refresh(selectedTargetId, true)} disabled={!storageReady || busy || loading}><WorkspaceProjectIcon name="activity" />刷新索引</button>
         </div>
     </header>
 

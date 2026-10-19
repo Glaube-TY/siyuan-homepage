@@ -1,5 +1,6 @@
 <script lang="ts">
-    import { onMount } from "svelte";
+    import { onMount, onDestroy } from "svelte";
+    import { showMessage } from "siyuan";
     import type { EnhancedDiaryWorkspaceTask } from "../enhancedDiaryWorkspaceTaskService";
     import type { GenerateTasksPlusTaskInput } from "@/features/task-data/task-parser";
     import WorkspaceIcon from "./WorkspaceIcon.svelte";
@@ -13,7 +14,7 @@
         task?: EnhancedDiaryWorkspaceTask | null;
         initialInput?: Partial<GenerateTasksPlusTaskInput>;
         mode: "create" | "edit";
-        onSubmit: (input: GenerateTasksPlusTaskInput) => void | Promise<void>;
+        onSubmit: (input: GenerateTasksPlusTaskInput) => boolean | void | Promise<boolean | void>;
         onClose: () => void;
         projectStorage?: EnhancedDiaryProjectStorageConfig;
         tagSuggestions?: string[];
@@ -34,6 +35,10 @@
     let projectTargetId = $state("");
     let projectIndex = $state<EnhancedDiaryProjectIndexPayload | null>(null);
     let projectLoading = $state(false);
+    let submitting = $state(false);
+    let submitted = $state(false);
+    let alive = true;
+    onDestroy(() => { alive = false; });
 
     const priorityOptions = [
         { value: "", label: "无" },
@@ -56,22 +61,31 @@
             .filter(Boolean);
     }
 
-    function submit(): void {
-        onSubmit({
-            taskname,
-            completed: task?.completed || false,
-            priority,
-            startDate,
-            deadline,
-            recurrence,
-            reminder,
-            location,
-            tags: parseTags(tagsText),
-            projectTargetId,
-            projectTitle: projectTargetId && projectIndex
-                ? resolveEnhancedDiaryProjectTarget(projectIndex, projectTargetId)?.title
-                : undefined,
-        });
+    async function submit(): Promise<void> {
+        if (submitting || submitted || !alive) return;
+        submitting = true;
+        try {
+            const result = await onSubmit({
+                taskname,
+                completed: task?.completed || false,
+                priority,
+                startDate,
+                deadline,
+                recurrence,
+                reminder,
+                location,
+                tags: parseTags(tagsText),
+                projectTargetId,
+                projectTitle: projectTargetId && projectIndex
+                    ? resolveEnhancedDiaryProjectTarget(projectIndex, projectTargetId)?.title
+                    : undefined,
+            });
+            if (alive && result !== false) submitted = true;
+        } catch (err) {
+            if (alive) showMessage(err instanceof Error ? err.message : "任务提交失败，请重试", 4000);
+        } finally {
+            if (alive) submitting = false;
+        }
     }
 
     function addSuggestedTag(tag: string): void {
@@ -99,6 +113,7 @@
             projectLoading = true;
             loadEnhancedDiaryProjectIndexForWorkspace(projectStorage!)
                 .then((value) => {
+                    if (!alive) return;
                     projectIndex = value;
                     if (mode === "create" && projectTargetId &&
                         !isEnhancedDiaryProjectEffectivelyActive(value, projectTargetId)) {
@@ -106,7 +121,8 @@
                         projectAssociationEnabled = false;
                     }
                 })
-                .finally(() => (projectLoading = false));
+                .catch(() => { if (alive) showMessage("项目树加载失败，请重新打开弹窗重试", 4000); })
+                .finally(() => { if (alive) projectLoading = false; });
         }
     });
 </script>
@@ -214,9 +230,9 @@
     {/if}
 
     <div class="panel-footer">
-        <button type="button" class="wk-btn wk-btn-ghost" onclick={onClose}>取消</button>
-        <button type="button" class="wk-btn wk-btn-primary" onclick={submit}>
-            {mode === "create" ? "创建任务" : "保存更改"}
+        <button type="button" class="wk-btn wk-btn-ghost" onclick={onClose} disabled={submitting}>取消</button>
+        <button type="button" class="wk-btn wk-btn-primary" onclick={submit} disabled={submitting || submitted} aria-busy={submitting}>
+            {submitting ? (mode === "create" ? "创建中…" : "保存中…") : mode === "create" ? "创建任务" : "保存更改"}
         </button>
     </div>
 </div>

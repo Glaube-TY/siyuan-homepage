@@ -1,5 +1,6 @@
 <script lang="ts">
-    import { onMount } from "svelte";
+    import { onMount, onDestroy } from "svelte";
+    import { showMessage } from "siyuan";
     import WorkspaceIcon from "./WorkspaceIcon.svelte";
     import WorkspaceProjectPicker from "./WorkspaceProjectPicker.svelte";
     import { loadEnhancedDiaryProjectIndexForWorkspace } from "../enhancedDiaryWorkspaceProjectService";
@@ -13,7 +14,7 @@
         initialCategoryTitle?: string;
         initialContent?: string;
         suggestedCategories?: string[];
-        onSubmit: (input: QuickRecordDialogSubmitInput) => void | Promise<void>;
+        onSubmit: (input: QuickRecordDialogSubmitInput) => boolean | void | Promise<boolean | void>;
         onClose: () => void;
         initialTags?: string[];
         initialProjectTargetId?: string;
@@ -39,6 +40,10 @@
     let projectTargetId = $state("");
     let isKeyRecord = $state(false);
     let projectIndex = $state<EnhancedDiaryProjectIndexPayload | null>(null);
+    let submitting = $state(false);
+    let submitted = $state(false);
+    let alive = true;
+    onDestroy(() => { alive = false; });
 
     const showCustomInput = $derived(!suggestedCategories.includes(categoryTitle) && categoryTitle !== "");
 
@@ -59,19 +64,28 @@
         }
     }
 
-    function submit(): void {
-        const title = showCustomInput ? (customCategory.trim() || categoryTitle.trim() || "未分类") : (categoryTitle.trim() || "未分类");
-        const target = projectTargetId && projectIndex ? resolveEnhancedDiaryProjectTarget(projectIndex, projectTargetId) : null;
-        onSubmit({
-            categoryTitle: title, content,
-            tags: tagsText.split(/[，,\s]+/).map((tag) => tag.replace(/^#+|#+$/g, "").trim()).filter(Boolean),
-            projectTargetId: projectTargetId || undefined,
-            projectTitle: target?.title,
-            rootProjectId: target?.rootProjectId,
-            projectPath: target?.pathTitles,
-            projectAncestorTargetIds: target?.ancestorTargetIds,
-            isKeyRecord: !!projectTargetId && isKeyRecord,
-        });
+    async function submit(): Promise<void> {
+        if (submitting || submitted || !alive) return;
+        submitting = true;
+        try {
+            const title = showCustomInput ? (customCategory.trim() || categoryTitle.trim() || "未分类") : (categoryTitle.trim() || "未分类");
+            const target = projectTargetId && projectIndex ? resolveEnhancedDiaryProjectTarget(projectIndex, projectTargetId) : null;
+            const result = await onSubmit({
+                categoryTitle: title, content,
+                tags: tagsText.split(/[，,\s]+/).map((tag) => tag.replace(/^#+|#+$/g, "").trim()).filter(Boolean),
+                projectTargetId: projectTargetId || undefined,
+                projectTitle: target?.title,
+                rootProjectId: target?.rootProjectId,
+                projectPath: target?.pathTitles,
+                projectAncestorTargetIds: target?.ancestorTargetIds,
+                isKeyRecord: !!projectTargetId && isKeyRecord,
+            });
+            if (alive && result !== false) submitted = true;
+        } catch (err) {
+            if (alive) showMessage(err instanceof Error ? err.message : "记录提交失败，请重试", 4000);
+        } finally {
+            if (alive) submitting = false;
+        }
     }
 
     onMount(() => {
@@ -87,13 +101,14 @@
         isKeyRecord = !!initialProjectTargetId && initialIsKeyRecord;
         if (isEnhancedDiaryProjectStorageReady(projectStorage)) {
             loadEnhancedDiaryProjectIndexForWorkspace(projectStorage!).then((value) => {
+                if (!alive) return;
                 projectIndex = value;
                 if (mode === "create" && projectTargetId &&
                     !isEnhancedDiaryProjectEffectivelyActive(value, projectTargetId)) {
                     projectTargetId = "";
                     projectAssociationEnabled = false;
                 }
-            });
+            }).catch(() => { if (alive) showMessage("项目树加载失败，请重新打开弹窗重试", 4000); });
         }
     });
 
@@ -151,9 +166,9 @@
     </div>
 
     <div class="panel-footer">
-        <button type="button" class="wk-btn wk-btn-ghost" onclick={onClose}>取消</button>
-        <button type="button" class="wk-btn wk-btn-primary" onclick={submit}>
-            {mode === "edit" ? "保存更改" : "添加记录"}
+        <button type="button" class="wk-btn wk-btn-ghost" onclick={onClose} disabled={submitting}>取消</button>
+        <button type="button" class="wk-btn wk-btn-primary" onclick={submit} disabled={submitting || submitted} aria-busy={submitting}>
+            {submitting ? (mode === "edit" ? "保存中…" : "添加中…") : mode === "edit" ? "保存更改" : "添加记录"}
         </button>
     </div>
 </div>

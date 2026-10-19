@@ -16,7 +16,7 @@ async function schedulingMethods(path, names) {
     const ast = parse(source.slice(0,source.lastIndexOf("<style")), {modern:true});
     return names.map(name=>{const node=ast.instance.content.body.find(node=>node.type==="FunctionDeclaration"&&node.id.name===name);assert(node);return source.slice(node.start,node.end);}).join("\n");
 }
-const workspaceMethods = await schedulingMethods("src/components/utils/widgetBlock/widget/enhancedDiary/workspace/enhancedDiaryWorkspacePage.svelte",["scheduleExternalWorkspaceRefresh","handleTaskDataUpdated"]);
+const workspaceMethods = await schedulingMethods("src/components/utils/widgetBlock/widget/enhancedDiary/workspace/enhancedDiaryWorkspacePage.svelte",["scheduleExternalWorkspaceRefresh","handleTaskDataUpdated","drainWorkspaceRefresh"]);
 const homepageMethods = await schedulingMethods("src/components/utils/widgetBlock/widget/enhancedDiary/enhancedDiary.svelte",["scheduleHomepageSnapshotRefresh","handleTaskDataUpdated"]);
 const stubs = {
     "favorites-store": ["addFavoriteItem", "removeFavoriteItem", "removeFavoriteItemsByIds", "reorderFavoriteItems", "readFavoritesIndexStrict", "doesFavoritesIndexExist"],
@@ -36,8 +36,9 @@ const bundle = await build({
         export * from "./src/utils/performance/runtimePerformance";
         ${baseline ? "const recordTaskIndexMetric=()=>{};" : 'import {recordTaskIndexMetric} from "./src/utils/performance/runtimePerformance";'}
         export function workspaceScheduler() {
-            let advancedEnabled=true,actionBusy=false,externalWorkspaceRefreshPending=false,taskIndexRefreshPending=false,refreshTimer=null,indexRefreshTimer=null,refreshFlight=null,runs=0;
-            const window=globalThis.window,refresh=async()=>{runs++;};
+            let advancedEnabled=true,componentAlive=true,actionBusy=false,externalWorkspaceRefreshPending=false,taskIndexRefreshPending=false,indexRefreshTimer=null,refreshFlight=null,runs=0;
+            let workspaceRefreshVersion=0,workspaceLifetime=0,failedRefreshVersion=-1,refreshMutationQueued=false,refreshMutationTail=Promise.resolve();
+            const window=globalThis.window,refresh=async()=>{runs++;externalWorkspaceRefreshPending=false;taskIndexRefreshPending=false;return true;};
             ${workspaceMethods}
             return {event:handleTaskDataUpdated,get runs(){return runs;}};
         }

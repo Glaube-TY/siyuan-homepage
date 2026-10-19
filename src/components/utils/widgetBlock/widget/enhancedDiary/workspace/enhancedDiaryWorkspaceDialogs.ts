@@ -172,6 +172,7 @@ export function openTaskEditorSvelteDialog(options: OpenTaskEditorOptions): void
                         if (result !== false) {
                             closeDialog();
                         }
+                        return result !== false;
                     },
                     onClose: closeDialog,
                 },
@@ -223,6 +224,7 @@ export function openQuickRecordSvelteDialog(options: OpenQuickRecordOptions): vo
                         if (result !== false) {
                             closeDialog();
                         }
+                        return result !== false;
                     },
                     onClose: closeDialog,
                 },

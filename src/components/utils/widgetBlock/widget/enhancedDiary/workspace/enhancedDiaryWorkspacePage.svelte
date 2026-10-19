@@ -489,26 +489,67 @@
         ];
     });
 
-    let refreshFlight: Promise<void> | null = null;
+    let refreshFlight: Promise<boolean> | null = null;
     let refreshFlightForce = false;
+    let workspaceRefreshVersion = 0;
+    let workspaceStateVersion = 0;
+    let projectRefreshVersion = 0;
+    let workspaceLifetime = 0;
+    let pendingTask = $state<EnhancedDiaryWorkspaceTask | null>(null);
+    let pendingTaskVersion = $state(0);
+    let failedRefreshVersion = -1;
 
-    function refresh(options: { forceTaskIndexRefresh?: boolean } = {}): Promise<void> {
+    function refresh(options: { forceTaskIndexRefresh?: boolean } = {}): Promise<boolean> {
+        if (!componentAlive || !advancedEnabled) return Promise.resolve(false);
         const forceTaskIndexRefresh = options.forceTaskIndexRefresh === true;
         if (refreshFlight) {
             if (!forceTaskIndexRefresh || refreshFlightForce) return refreshFlight;
             return refreshFlight.then(() => refresh({ forceTaskIndexRefresh: true }));
         }
-        const run = (async () => {
-            loading = true;
+        const version = workspaceRefreshVersion;
+        const lifetime = workspaceLifetime;
+        const current = () => componentAlive && advancedEnabled && lifetime === workspaceLifetime && version === workspaceRefreshVersion;
+        const run = Promise.resolve().then(async () => {
             let loadSucceeded = false;
             try {
+                if (!current()) return false;
+                loading = true;
+                const nextState = await loadEnhancedDiaryWorkspaceState(plugin, { forceTaskIndexRefresh });
+                if (!current()) return false;
+                const month = new Date(calendarDate);
+                const date = selectedCalendarDate;
+                const [nextCalendar, nextDetail] = await Promise.all([
+                    buildWorkspaceCalendarMonth(plugin, month.getFullYear(), month.getMonth(), nextState.config),
+                    loadWorkspaceDayDetail(parseLocalDate(date), nextState.config),
+                ]);
+                if (!current()) return false;
+                state = nextState;
+                workspaceStateVersion += 1;
                 calendarMonthCache = new Map();
                 dayDetailCache = new Map();
-                state = await loadEnhancedDiaryWorkspaceState(plugin, { forceTaskIndexRefresh });
+                if (month.getFullYear() === calendarDate.getFullYear() && month.getMonth() === calendarDate.getMonth()) {
+                    calendarRequestVersion += 1;
+                    calendarDays = nextCalendar;
+                    calendarLoading = false;
+                }
+                if (date === selectedCalendarDate) {
+                    dayDetailRequestVersion += 1;
+                    selectedDayDetail = nextDetail;
+                    dayDetailLoading = false;
+                }
+                externalWorkspaceRefreshPending = false;
+                failedRefreshVersion = -1;
+                taskIndexRefreshPending = false;
+                if (projectRefreshVersion && projectRefreshVersion <= version) {
+                    projectRefreshVersion = 0;
+                    workspaceMutationVersion += 1;
+                }
+                if (pendingTask && pendingTaskVersion && pendingTaskVersion <= version) {
+                    pendingTask = null;
+                    pendingTaskVersion = 0;
+                }
                 historyRecordsLoaded = false;
                 reviewHistoryLoaded = false;
-                await loadCalendar();
-                await loadSelectedDayDetail(selectedCalendarDate);
                 if (activeTab === "records" && recordViewMode === "history") {
                     void ensureHistoryRecordsLoaded();
                 }
@@ -516,66 +557,54 @@
                     void ensureReviewHistoryLoaded();
                 }
                 loadSucceeded = true;
+                return true;
             } catch (err) {
-                pendingStartupAction = null;
+                if (!current()) return false;
                 console.warn("[enhancedDiaryWorkspacePage] load failed", err);
-                showMessage("强化日记工作台加载失败，请查看控制台日志", 4000);
+                showMessage("工作区刷新失败，保留上次数据；已确认的写入不受影响，请手动刷新重试", 5000);
+                return false;
             } finally {
-                loading = false;
+                if (componentAlive && advancedEnabled && lifetime === workspaceLifetime) loading = false;
                 if (refreshFlight === run) {
                     refreshFlight = null;
                     refreshFlightForce = false;
                 }
-                if (loadSucceeded) runPendingStartupAction();
+                if (loadSucceeded && current()) runPendingStartupAction();
             }
-        })();
+        });
         refreshFlight = run;
         refreshFlightForce = forceTaskIndexRefresh;
         return run;
     }
 
-    let refreshTimer: number | null = null;
     let indexRefreshTimer: number | null = null;
     let refreshMutationTail: Promise<void> = Promise.resolve();
+    let refreshMutationQueued = false;
     let externalWorkspaceRefreshPending = false;
     let taskIndexRefreshPending = false;
 
     function scheduleExternalWorkspaceRefresh(): void {
-        if (!advancedEnabled) return;
-        if (actionBusy) {
-            externalWorkspaceRefreshPending = true;
-            return;
-        }
-        if (refreshTimer) {
-            window.clearTimeout(refreshTimer);
-            refreshTimer = null;
-        }
+        if (!componentAlive || !advancedEnabled) return;
+        workspaceRefreshVersion += 1;
+        externalWorkspaceRefreshPending = true;
+        if (actionBusy) return;
         if (indexRefreshTimer) window.clearTimeout(indexRefreshTimer);
-        indexRefreshTimer = window.setTimeout(async () => {
+        indexRefreshTimer = window.setTimeout(() => {
             indexRefreshTimer = null;
-            if (actionBusy) {
-                externalWorkspaceRefreshPending = true;
-                return;
-            }
-            const running = refreshFlight;
-            if (running) await running;
-            if (actionBusy) {
-                externalWorkspaceRefreshPending = true;
-                return;
-            }
-            if (advancedEnabled) {
-                if (taskIndexRefreshPending) recordTaskIndexMetric("workspaceRefreshes");
-                taskIndexRefreshPending = false;
-                await refresh();
-            }
+            if (!actionBusy) void drainWorkspaceRefresh();
         }, 120);
     }
 
     function finishWorkspaceAction(): void {
+        if (!componentAlive || !advancedEnabled) return;
         actionBusy = false;
-        if (!externalWorkspaceRefreshPending) return;
-        externalWorkspaceRefreshPending = false;
-        scheduleExternalWorkspaceRefresh();
+        if (externalWorkspaceRefreshPending) void drainWorkspaceRefresh();
+    }
+
+    function beginWorkspaceAction(): void {
+        actionBusy = true;
+        // A read started before the write must not publish after it.
+        workspaceRefreshVersion += 1;
     }
 
     function handleEnhancedDiaryIndexesUpdated(): void {
@@ -587,26 +616,48 @@
         scheduleExternalWorkspaceRefresh();
     }
 
-    async function refreshAfterWorkspaceMutation(notifyProjectData = false): Promise<void> {
-        const queued = refreshMutationTail.catch(() => undefined).then(async () => {
-            if (refreshTimer) {
-                window.clearTimeout(refreshTimer);
-                refreshTimer = null;
+    function drainWorkspaceRefresh(allowWhileBusy = false): Promise<void> {
+        if (refreshMutationQueued || !componentAlive || !advancedEnabled) return refreshMutationTail;
+        if (failedRefreshVersion === workspaceRefreshVersion) return refreshMutationTail;
+        if (indexRefreshTimer) window.clearTimeout(indexRefreshTimer);
+        indexRefreshTimer = null;
+        refreshMutationQueued = true;
+        const lifetime = workspaceLifetime;
+        let attemptedVersion = -1;
+        const queued = refreshMutationTail.then(async () => {
+            while (componentAlive && advancedEnabled && lifetime === workspaceLifetime && externalWorkspaceRefreshPending) {
+                if (actionBusy && !allowWhileBusy) break;
+                if (refreshFlight) await refreshFlight;
+                if (!componentAlive || !advancedEnabled || lifetime !== workspaceLifetime) break;
+                if (actionBusy && !allowWhileBusy) break;
+                if (!externalWorkspaceRefreshPending) break;
+                const version = workspaceRefreshVersion;
+                attemptedVersion = version;
+                if (taskIndexRefreshPending) recordTaskIndexMetric("workspaceRefreshes");
+                const succeeded = await refresh();
+                // A newer event needs another read; a real failure waits for an event or manual retry.
+                if (!succeeded && version === workspaceRefreshVersion) {
+                    failedRefreshVersion = version;
+                    break;
+                }
             }
-            await refresh();
-            externalWorkspaceRefreshPending = false;
-            if (indexRefreshTimer) {
-                window.clearTimeout(indexRefreshTimer);
-                indexRefreshTimer = null;
-            }
-            if (notifyProjectData) workspaceMutationVersion += 1;
-            refreshTimer = window.setTimeout(() => {
-                refreshTimer = null;
-                void refresh();
-            }, 400);
+        }).catch((err) => {
+            console.warn("[enhancedDiaryWorkspacePage] coordinated refresh failed", err);
+        }).finally(() => {
+            refreshMutationQueued = false;
+            if (componentAlive && advancedEnabled && !actionBusy && externalWorkspaceRefreshPending &&
+                (lifetime !== workspaceLifetime || attemptedVersion !== workspaceRefreshVersion)) void drainWorkspaceRefresh();
         });
-        refreshMutationTail = queued.then(() => undefined, () => undefined);
-        await queued;
+        refreshMutationTail = queued;
+        return queued;
+    }
+
+    function refreshAfterWorkspaceMutation(notifyProjectData = false, deferRefresh = false): Promise<void> {
+        if (!componentAlive || !advancedEnabled) return Promise.resolve();
+        workspaceRefreshVersion += 1;
+        externalWorkspaceRefreshPending = true;
+        if (notifyProjectData) projectRefreshVersion = workspaceRefreshVersion;
+        return deferRefresh ? Promise.resolve() : drainWorkspaceRefresh(true);
     }
 
     async function saveWorkspaceSettings(config: EnhancedDiaryWorkspaceState["config"]): Promise<void> {
@@ -647,36 +698,50 @@
     }
 
     async function ensureHistoryRecordsLoaded(): Promise<void> {
-        if (!state || historyRecordsLoading || historyRecordsLoaded) return;
+        if (!componentAlive || !advancedEnabled || !state || historyRecordsLoading || historyRecordsLoaded) return;
         historyRecordsLoading = true;
+        const version = workspaceStateVersion;
+        const mutation = workspaceRefreshVersion;
+        const lifetime = workspaceLifetime;
+        const current = () => componentAlive && advancedEnabled && lifetime === workspaceLifetime && version === workspaceStateVersion && mutation === workspaceRefreshVersion;
         try {
             const historyRecords = await loadWorkspaceHistoryRecords(state.date, state.config);
-            if (state) {
+            if (current()) {
                 state = { ...state, historyRecords };
                 historyRecordsLoaded = true;
             }
         } catch (err) {
             console.warn("[enhancedDiaryWorkspacePage] history records load failed", err);
-            showMessage("历史记录加载失败，可稍后重试或刷新工作台", 3000);
+            if (current()) showMessage("历史记录加载失败，可稍后重试或刷新工作台", 3000);
         } finally {
-            historyRecordsLoading = false;
+            if (componentAlive && advancedEnabled && lifetime === workspaceLifetime) {
+                historyRecordsLoading = false;
+                if (!current() && activeTab === "records" && recordViewMode === "history" && !historyRecordsLoaded) void ensureHistoryRecordsLoaded();
+            }
         }
     }
 
     async function ensureReviewHistoryLoaded(): Promise<void> {
-        if (!state || reviewHistoryLoading || reviewHistoryLoaded) return;
+        if (!componentAlive || !advancedEnabled || !state || reviewHistoryLoading || reviewHistoryLoaded) return;
         reviewHistoryLoading = true;
+        const version = workspaceStateVersion;
+        const mutation = workspaceRefreshVersion;
+        const lifetime = workspaceLifetime;
+        const current = () => componentAlive && advancedEnabled && lifetime === workspaceLifetime && version === workspaceStateVersion && mutation === workspaceRefreshVersion;
         try {
             const reviewHistory = await loadWorkspaceReviewHistory(state.config, state.date);
-            if (state) {
+            if (current()) {
                 state = { ...state, reviewHistory };
                 reviewHistoryLoaded = true;
             }
         } catch (err) {
             console.warn("[enhancedDiaryWorkspacePage] review history load failed", err);
-            showMessage("复盘历史加载失败，可稍后重试或刷新工作台", 3000);
+            if (current()) showMessage("复盘历史加载失败，可稍后重试或刷新工作台", 3000);
         } finally {
-            reviewHistoryLoading = false;
+            if (componentAlive && advancedEnabled && lifetime === workspaceLifetime) {
+                reviewHistoryLoading = false;
+                if (!current() && activeTab === "review" && !reviewHistoryLoaded) void ensureReviewHistoryLoaded();
+            }
         }
     }
 
@@ -735,6 +800,11 @@
     }
 
     async function loadSelectedDayDetail(dateStr: string): Promise<void> {
+        if (!componentAlive || !advancedEnabled || !state) return;
+        const request = ++dayDetailRequestVersion;
+        const lifetime = workspaceLifetime;
+        const version = workspaceRefreshVersion;
+        const current = () => componentAlive && advancedEnabled && lifetime === workspaceLifetime && version === workspaceRefreshVersion && request === dayDetailRequestVersion;
         selectedCalendarDate = dateStr;
         if (dayDetailCache.has(dateStr)) {
             selectedDayDetail = dayDetailCache.get(dateStr) || null;
@@ -742,17 +812,27 @@
         }
         dayDetailLoading = true;
         try {
-            selectedDayDetail = await loadWorkspaceDayDetail(parseLocalDate(dateStr), state.config);
+            const detail = await loadWorkspaceDayDetail(parseLocalDate(dateStr), state.config);
+            if (!current()) return;
+            selectedDayDetail = detail;
             dayDetailCache.set(dateStr, selectedDayDetail);
         } catch (err) {
             console.warn("[enhancedDiaryWorkspace] load day detail failed", err);
-            selectedDayDetail = null;
+            if (current()) showMessage("日期详情加载失败，保留上次数据，请重试", 3000);
         } finally {
-            dayDetailLoading = false;
+            if (current()) dayDetailLoading = false;
         }
     }
 
+    let calendarRequestVersion = 0;
+    let dayDetailRequestVersion = 0;
+
     async function loadCalendar(): Promise<void> {
+        if (!componentAlive || !advancedEnabled || !state) return;
+        const request = ++calendarRequestVersion;
+        const lifetime = workspaceLifetime;
+        const version = workspaceRefreshVersion;
+        const current = () => componentAlive && advancedEnabled && lifetime === workspaceLifetime && version === workspaceRefreshVersion && request === calendarRequestVersion;
         const cacheKey = `${calendarDate.getFullYear()}-${calendarDate.getMonth()}`;
         if (calendarMonthCache.has(cacheKey)) {
             calendarDays = calendarMonthCache.get(cacheKey) || [];
@@ -760,18 +840,20 @@
         }
         calendarLoading = true;
         try {
-            calendarDays = await buildWorkspaceCalendarMonth(
+            const days = await buildWorkspaceCalendarMonth(
                 plugin,
                 calendarDate.getFullYear(),
                 calendarDate.getMonth(),
                 state.config
             );
+            if (!current()) return;
+            calendarDays = days;
             calendarMonthCache.set(cacheKey, calendarDays);
         } catch (err) {
             console.warn("[enhancedDiaryWorkspacePage] calendar load failed", err);
-            showMessage("日历加载失败，请稍后重试", 3000);
+            if (current()) showMessage("日历加载失败，请稍后重试", 3000);
         } finally {
-            calendarLoading = false;
+            if (current()) calendarLoading = false;
         }
     }
 
@@ -870,14 +952,17 @@
     }
 
     async function submitNewTaskForWorkspace(input: GenerateTasksPlusTaskInput): Promise<boolean> {
+        if (!componentAlive || !advancedEnabled || !state) return false;
         if (!taskManagementEnabled) {
             showMessage("任务管理已关闭", 3000);
             return false;
         }
         if (actionBusy) return false;
-        actionBusy = true;
+        const lifetime = workspaceLifetime;
+        beginWorkspaceAction();
         try {
             const todayDoc = await getOrCreateTodayDiaryDocument(plugin, state.config);
+            if (!componentAlive || !advancedEnabled || lifetime !== workspaceLifetime) return false;
             if (!todayDoc.ok || !todayDoc.docId) {
                 showMessage("未能打开或创建今日日记，任务未写入", 4000);
                 return false;
@@ -891,16 +976,20 @@
                 mapping: state.config.templateFieldMapping,
                 projectStorage: state.config.projectStorage,
             });
+            if (!componentAlive || !advancedEnabled || lifetime !== workspaceLifetime) return result.ok;
             if (result.ok) {
-                showMessage(result.message || "任务已写入「新建任务」区块", result.message ? 5000 : 3000);
-                await refreshAfterWorkspaceMutation(true);
+                showMessage(result.message || (result.partial ? "任务已写入，但索引或关联同步不完整，请刷新索引，勿重复创建" : "任务已写入「新建任务」区块"), result.partial || result.message ? 5000 : 3000);
+                void refreshAfterWorkspaceMutation(true, true);
                 return true;
             } else {
                 showMessage(result.message || "新增任务失败", 4000);
                 return false;
             }
+        } catch (err) {
+            if (componentAlive && advancedEnabled && lifetime === workspaceLifetime) showMessage(err instanceof Error ? err.message : "新增任务失败", 4000);
+            return false;
         } finally {
-            finishWorkspaceAction();
+            if (lifetime === workspaceLifetime) finishWorkspaceAction();
         }
     }
 
@@ -959,6 +1048,7 @@
     }
 
     function openEditTaskDialog(task: EnhancedDiaryWorkspaceTask): void {
+        if (pendingTask?.blockId === task.blockId) return;
         editingTask = task;
         openTaskEditorSvelteDialog({
             mode: "edit",
@@ -977,7 +1067,7 @@
             projectStorage: state?.config.projectStorage,
             tagSuggestions: getTaskTagSuggestions(),
             onSubmit: async (input) => {
-                await editTask(input);
+                return await editTask(input);
             },
             onClose: () => {
                 editingTask = null;
@@ -985,17 +1075,19 @@
         });
     }
 
-    async function editTask(input: GenerateTasksPlusTaskInput): Promise<void> {
-        if (!editingTask || actionBusy) return;
-        actionBusy = true;
+    async function editTask(input: GenerateTasksPlusTaskInput): Promise<boolean> {
+        if (!editingTask || actionBusy || pendingTask?.blockId === editingTask.blockId) return false;
+        beginWorkspaceAction();
         try {
             const result = await updateWorkspaceTask(editingTask, input, state.config.projectStorage);
             if (result.ok) {
                 showMessage(result.partial ? result.message || "任务已更新，但项目关系同步不完整" : "任务已更新", result.partial ? 5000 : 3000);
                 editingTask = null;
                 await refreshAfterWorkspaceMutation(true);
+                return true;
             } else {
                 showMessage(result.message || "任务更新失败", 4000);
+                return false;
             }
         } finally {
             finishWorkspaceAction();
@@ -1003,24 +1095,35 @@
     }
 
     async function toggleTask(task: EnhancedDiaryWorkspaceTask): Promise<void> {
-        if (actionBusy) return;
-        actionBusy = true;
+        if (!componentAlive || !advancedEnabled || actionBusy || pendingTask) return;
+        const lifetime = workspaceLifetime;
+        beginWorkspaceAction();
+        pendingTask = task;
+        pendingTaskVersion = 0;
         try {
             const result = await toggleWorkspaceTaskComplete(task, !task.completed);
+            if (!componentAlive || !advancedEnabled || lifetime !== workspaceLifetime) return;
             if (result.ok) {
                 showMessage(result.partial ? result.message || "任务状态已更新，但项目关系同步不完整" : "任务状态已更新", result.partial ? 5000 : 3000);
-                await refreshAfterWorkspaceMutation(true);
+                void refreshAfterWorkspaceMutation(true, true);
+                pendingTaskVersion = workspaceRefreshVersion;
             } else {
+                pendingTask = null;
                 showMessage(result.message || "任务状态更新失败", 3000);
             }
+        } catch (err) {
+            if (componentAlive && advancedEnabled && lifetime === workspaceLifetime) {
+                pendingTask = null;
+                showMessage(err instanceof Error ? err.message : "任务状态更新失败", 4000);
+            }
         } finally {
-            finishWorkspaceAction();
+            if (lifetime === workspaceLifetime) finishWorkspaceAction();
         }
     }
 
     async function confirmDeleteTask(task: EnhancedDiaryWorkspaceTask | null, mode: "log" | "delete"): Promise<boolean> {
-        if (!state || !task || actionBusy) return false;
-        actionBusy = true;
+        if (!state || !task || actionBusy || pendingTask?.blockId === task.blockId) return false;
+        beginWorkspaceAction();
         try {
             const result = await deleteWorkspaceTask(plugin, state.config, task, mode);
             if (result.ok) {
@@ -1038,12 +1141,12 @@
     }
 
     async function confirmMigrateTask(task = migratingTask): Promise<boolean> {
-        if (!state || !task || actionBusy) return false;
+        if (!state || !task || actionBusy || pendingTask?.blockId === task.blockId) return false;
         if (task.isTodayTask || task.sourceKind === "migrated") {
             showMessage("该任务已经在今日日记中，无需迁移", 3000);
             return false;
         }
-        actionBusy = true;
+        beginWorkspaceAction();
         try {
             const result = await migrateWorkspaceTaskToToday(plugin, state.config, task);
             if (result.ok) {
@@ -1066,8 +1169,8 @@
     }
 
     async function postponeTask(task: EnhancedDiaryWorkspaceTask, target: "tomorrow" | "nextWeek"): Promise<void> {
-        if (actionBusy) return;
-        actionBusy = true;
+        if (actionBusy || pendingTask?.blockId === task.blockId) return;
+        beginWorkspaceAction();
         try {
             const result = await postponeWorkspaceTask(task, target);
             if (result.ok) {
@@ -1085,8 +1188,8 @@
     }
 
     async function batchCompleteTasks(tasks: EnhancedDiaryWorkspaceTask[]): Promise<void> {
-        if (actionBusy || tasks.length === 0) return;
-        actionBusy = true;
+        if (actionBusy || pendingTask || tasks.length === 0) return;
+        beginWorkspaceAction();
         try {
             const result = await completeWorkspaceTasksSequentially(tasks);
             const message = result.partialCount > 0
@@ -1100,8 +1203,8 @@
     }
 
     async function batchPostponeTasks(tasks: EnhancedDiaryWorkspaceTask[], target: "tomorrow" | "nextWeek"): Promise<void> {
-        if (actionBusy || tasks.length === 0) return;
-        actionBusy = true;
+        if (actionBusy || pendingTask || tasks.length === 0) return;
+        beginWorkspaceAction();
         try {
             const targets = tasks.filter((task) => !task.completed);
             let successCount = 0;
@@ -1137,20 +1240,25 @@
     async function createRecord(
         input: QuickRecordDialogSubmitInput
     ): Promise<boolean> {
-        if (!state || actionBusy) return false;
-        actionBusy = true;
+        if (!componentAlive || !advancedEnabled || !state || actionBusy) return false;
+        const lifetime = workspaceLifetime;
+        beginWorkspaceAction();
         try {
             const result = await addWorkspaceQuickRecord(plugin, state.config, input.categoryTitle, input.content, input);
+            if (!componentAlive || !advancedEnabled || lifetime !== workspaceLifetime) return result.ok;
             if (result.ok) {
-                showMessage(result.message || "记录已写入「快速记录」区块", result.message ? 5000 : 3000);
-                await refreshAfterWorkspaceMutation(true);
+                showMessage(result.message || (result.partial ? "记录已写入，但索引或关联同步不完整，请刷新索引，勿重复添加" : "记录已写入「快速记录」区块"), result.partial || result.message ? 5000 : 3000);
+                void refreshAfterWorkspaceMutation(true, true);
                 return true;
             } else {
                 showMessage(result.message || "新增记录失败", 4000);
                 return false;
             }
+        } catch (err) {
+            if (componentAlive && advancedEnabled && lifetime === workspaceLifetime) showMessage(err instanceof Error ? err.message : "新增记录失败", 4000);
+            return false;
         } finally {
-            finishWorkspaceAction();
+            if (lifetime === workspaceLifetime) finishWorkspaceAction();
         }
     }
 
@@ -1195,7 +1303,7 @@
                 pendingTaskCount: pendingTasks.length,
                 onSelect: async (mode) => {
                     if (!state || actionBusy) return { accepted: false };
-                    actionBusy = true;
+                    beginWorkspaceAction();
                     try {
                         if (mode === "verify_and_archive" || mode === "complete_and_archive") {
                             let currentPendingTasks: EnhancedDiaryWorkspaceTask[];
@@ -1315,7 +1423,7 @@
 
     async function restoreProjectForWorkspace(targetId: string): Promise<void> {
         if (!state || actionBusy) return;
-        actionBusy = true;
+        beginWorkspaceAction();
         try {
             const result = await restoreEnhancedDiaryProject(state.config.projectStorage, targetId);
             if (result.status === "blocked") {
@@ -1377,7 +1485,7 @@
 
     async function confirmDeleteRecord(record: EnhancedDiaryWorkspaceRecord | null): Promise<boolean> {
         if (!record || actionBusy) return false;
-        actionBusy = true;
+        beginWorkspaceAction();
         try {
             const expectedDate = record.date ? record.date.replace(/-/g, "") : "";
             if (!expectedDate || expectedDate.length !== 8) {
@@ -1466,7 +1574,7 @@
         input: QuickRecordDialogSubmitInput
     ): Promise<boolean> {
         if (!editingRecord || actionBusy) return false;
-        actionBusy = true;
+        beginWorkspaceAction();
         try {
             const expectedDate = editingRecord.date ? editingRecord.date.replace(/-/g, "") : "";
             if (!expectedDate || expectedDate.length !== 8) {
@@ -1787,10 +1895,16 @@
 
         const onReady = () => {
             advancedEnabled = true;
-            refresh();
+            void refreshAfterWorkspaceMutation();
         };
         const onUnavailable = () => {
+            workspaceLifetime += 1;
+            if (indexRefreshTimer) window.clearTimeout(indexRefreshTimer);
+            indexRefreshTimer = null;
             advancedEnabled = false;
+            actionBusy = false;
+            pendingTask = null;
+            pendingTaskVersion = 0;
             pendingStartupAction = null;
             state = null;
             loading = false;
@@ -1813,6 +1927,7 @@
 
         return () => {
             componentAlive = false;
+            workspaceLifetime += 1;
             pendingStartupAction = null;
             window.removeEventListener("keydown", handleWorkspaceKeydown);
             window.removeEventListener("siyuan-homepage:enhanced-diary-workspace-tab", handleWorkspaceTabRequest);
@@ -1821,9 +1936,7 @@
             window.removeEventListener("homepage-advanced-ready", onReady);
             window.removeEventListener("homepage-advanced-unavailable", onUnavailable);
             if (indexRefreshTimer) window.clearTimeout(indexRefreshTimer);
-            if (refreshTimer) window.clearTimeout(refreshTimer);
             indexRefreshTimer = null;
-            refreshTimer = null;
             externalWorkspaceRefreshPending = false;
         };
     });
@@ -1874,6 +1987,9 @@
                 onSelect={selectTab}
             />
             <main bind:this={mainScrollElement}>
+                {#if pendingTask}
+                    <p role="status" aria-live="polite">任务「{pendingTask.taskname}」：{pendingTaskVersion ? "写入已确认，正在同步视图；若刷新失败请手动刷新。" : "正在更新状态…"}</p>
+                {/if}
                 {#if activeTab === "overview"}
                     <WorkspaceOverview
                         {state}
