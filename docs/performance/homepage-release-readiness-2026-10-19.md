@@ -594,3 +594,73 @@ TypeError: Cannot set properties of null (setting 'innerHTML')
 测试端口只允许上述只读接口，所有维护/写入入口直接拒绝；实际写入请求 **0**，被尝试的写入 **0**。没有创建、编辑或删除用户文档，没有直接覆盖正式索引或修改配置。Token 只进入遮蔽输入的进程环境，退出清理；临时摘要只含响应类别、字节数、耗时及成功布尔值，不含私人内容。
 
 **结论：日期详情三态及错误/缓存/竞态自动化验收通过，正常读取和真实缺失的本地 Kernel 只读核对通过。** 本轮没有替换安装文件或重载插件；当前已安装前端仍为上一轮已完成 Tooltip 实机复验的构建。新版错误态按钮、失败后重试及新版浏览器迟到请求表现尚未做部署后 UI 复验，需另获部署许可后验证，不据本地构建宣称新版实机通过。此前所有真实测量数值保持不变；版本 5.1.10、所有索引 schema 和依赖均未修改。
+
+
+## 日期详情部署复验、HTTP 失败挂起补修及业务写入准备（2026-10-20）
+
+### 安装与执行证据
+
+本轮基线 `33f9d41d4e59e175d04053db48845038846294d2`，初始工作区干净，CodeGraph 核对日期详情、日历、插件加载与正式业务写入链路。本仓库 Vite watch 为 0，开始验收复用上轮构建，没有重复构建。用户分别批准以下两个不同构建的 index.js 单文件部署与官方重载：
+
+- 日期三态构建：从 `2dda0f5f842afae1439f72196fe9ced4750aa96eca21cc605e98ac89132ce54b` 替换为 `c6f140dfad24f54a0bd684bc291bc8629e49152ac5697c15dc7454688398d44d`，7,528,247 字节。
+- 发现下述真实问题后重新验证/构建并获新批准，替换为补修构建 `578cc4a60cdb15303dc2eac0f85d1b3fc7abb60aa66354a8d81a1bf828f4e90e`，7,528,366 字节。
+
+两次均校验目标归属、备份并验哈希、同目录原子替换 `/data/plugins/siyuan-homepage/index.js`、Kernel getFile 回读一致，再各调用一次 `/api/petal/setPetalEnabled`（仅本插件、enabled=true），HTTP 200/code 0，返回 JS 匹配目标。Kernel 均 running/stateCode=2，原文件备份留在本机临时目录。CSS、kernel.js、manifest、业务配置没有替换。dist/kernel.js 因共享源码打包与已安装文件不同，本轮授权只更新前端，不能宣称全部安装文件与新 dist 相同。
+
+Edge 155.0.4283.62 使用独立临时 profile，CDP 实查仅监听 127.0.0.1。用户通过官方页面解锁，浏览器没有注入 API Token。c6f 构建的真实前端插件实例存在，执行脚本主体完整匹配 dist；578 补修构建也通过直接页面 CDP 核对执行脚本主体匹配，但这不等于已完成其可见 UI 复验。
+
+### c6f 构建正常日期的真实 UI 与统一测量
+
+实际通过主页按钮、思源命令面板打开工作台，进入日历。日期来自真实基础索引，使用真实 Canvas 鼠标点击，没有调用内部选日函数。分别显示正确日期、“有日记”及正常统计结构，或“无日记”，无错误重试按钮，未点击创建日记。
+
+视口 1440×1400。T1 为 click 后详情区域首个可见帧（允许仍 loading，不代表业务就绪）；T2 为正确选中日期、loading 消失、预期结果连续两帧稳定。滚动条造成画布宽度从 892 到 902 像素时重新检查截图和定位，定位等待不计为点击耗时。
+
+- 有日记样本 1：T1 **44.2ms**，T2 **96.8ms**，未缓存；点击窗口 4 个 API，其中详情相关 3 个：索引读取 **28ms**、单 ID SQL **3ms**、Markdown 导出 **8ms**，均 HTTP 200。另 1 个请求未归因为日期详情。
+- 有日记样本 2：**19.0/23.2ms**，0 个 API，符合成功缓存命中。
+- 有日记样本 3：**11.5/26.3ms**，0 个 API，符合成功缓存命中。样本 2/3 均先选另一日期再返回，是独立点击。
+- 无日记样本 1：**18.8/55.0ms**；样本 2：**15.8/40.2ms**；样本 3：**14.9/50.0ms**。三个不同未缓存日期各读索引 1 次，分别 **17/4/5ms**，HTTP 200。
+
+六次正常点击及其后 2200ms 监听：pageerror、Runtime.exceptionThrown、unhandledrejection、Console warning/error 均 **0**。此前 Tooltip TypeError 在这些点击中没有复发。以上均对应 c6f 构建，不冒充 578 构建完整复测，不与历史不同测量终点计算提升比例。
+
+### 精确单次故障注入发现的新缺陷
+
+实际 getFile 为 POST JSON `{path}`，索引响应为文件 JSON。先捕获正常选日请求 initiator stack，核对 bundle 的日期详情函数及 onSelectDate，再仅在本轮页面、指定未缓存日期点击窗口，对基础日记索引请求且调用栈属于选日链路时，注入 **1 次 HTTP 503/code=-1**。没有统一拦截 getFile、拦截 putFile 或改写 Kernel 文件；后续已禁用并移除 Fetch 拦截。
+
+这是 **真实浏览器 UI + 受控故障注入**，不是 Kernel 自发故障。结果不通过：503 请求约 **35ms** 结束，但 **10 秒** 后详情仍 loading，没有错误与重试按钮。仅出现预期的浏览器 503 Console error；pageerror、Runtime.exceptionThrown、unhandledrejection 均 0。实际切任务页再返回、选择已成功缓存日期可以恢复显示（T1 21.2ms/T2 25.1ms、0 请求），不能据此宣布错误重试或迟到请求通过。
+
+根因是 `src/index.ts` 的前端 getFile runtime 适配器只把 SDK success callback 包装为 Promise，未接 SDK failure callback。HTTP 失败不调用 success，Promise 永不结束，上层 getFileChecked/严格索引/日期详情 catch 无法执行。没有误显示无日记，但错误态也没有机会发布。
+
+局部补修仅给该适配器接上 reject、SDK 已有第五参数 failCallback，并捕获 fetchPost 自身 Promise rejection。保留现有 SDK、正常 JSON/Blob、正式缺失语义和上层三态逻辑，没有新增传输架构、吞异常或修改 Tooltip。参数依据项目已安装 siyuan 1.2.9 的 FetchPost/APIPostTail 声明。
+
+### 自动化结果及补修后的实机限制
+
+扩展已有 API verifier，通过 TypeScript AST 提取真实 onload 注册的 getFile 适配器，执行该适配器和真实 checked wrappers，覆盖 JSON、Blob、显式 404、API 错误、SDK HTTP 失败回调和网络 rejection。旧代码新增断言 exit 1（pending 而非 rejected）；补修后通过。没有改变 Mock 期望规避失败。
+
+- `pnpm verify:siyuan-api-compat`：**A–J，exit 0**。
+- `pnpm verify:enhanced-diary-workspace-actions`：**37 组，exit 0**。
+- `pnpm verify:enhanced-diary-project-index`、`pnpm verify:remote-kernel-compat`：均 exit 0。
+- `pnpm typecheck`、`npx tsc --noEmit`、`pnpm lint`：均 exit 0。
+- `pnpm build:app`、`pnpm build:kernel`、`pnpm build`：均 exit 0，设置 SIYUAN_SKIP_DEV_DEPLOY=1。app 单项 37.86s、kernel 单项 4.41s 是构建耗时。正式部署另获批准，并非构建自动部署。
+
+补修后恢复浏览器会话时，Playwright CDP 附着/导航超时；直接页面 CDP 求值也发生阻塞。一次恢复窗口为 hidden，该阶段点击不作为可见 UI 证据。独立有界进程的导航在 **60 秒** 内未完成，没有取得新日期样本。此调试/前端加载阻塞未归因，不能直接认定为插件性能回归，也不能拿未选日时零异常宣称补修实机通过。
+
+**578 构建的“503 后错误提示 → 点击重试 → 恢复及缓存”尚未完成真实 UI 复验。** 快速交错选日、跨月迟到、请求期间离开、关闭再打开的本轮完整竞态也未全部取得真实证据，仍以生产函数回归为限。taskIndexDiagnostics 前后完整差值及逐文件 putFile 次数未成功采集，不报告为 0、不从哈希反推次数。
+
+仅本轮 Edge 已关闭，端口及所属进程均消失。删除本轮临时认证 profile 的 PowerShell 操作被自动审批拒绝，工具仅返回 blocked by policy，未提供具体原因；未改用其他删除方式。该目录 **homepage-detail-edge-bnIfPR** 仍留在本机 TEMP，需手动清理认证数据。故障拦截已移除；诊断仅启用于本轮页面实例，没有更改持久化设置。
+
+### 真实业务写入准备与共享状态
+
+只读复核原专用测试账本：原文档仍在专用笔记本，测试任务恰好 1 条且已完成，正式任务索引对应 root 一致；任务索引仍 **55 条**，项目索引 **2 根/16 节点**。dailyNotebookId 指向正式笔记本；projectStorage.mode=**parentDoc**，父文档及其笔记本均非专用测试对象，真实单 ID 元数据有效，项目索引 complete=true、containerSignature 与配置一致。当前基础索引没有今日日记，正式任务/记录入口可能创建正式今日日记，专用测试笔记本不构成业务隔离。
+
+最初与末次只读比较：配置、任务索引、项目索引大小/哈希不变；recent-doc 快照和项目记录索引有变化，大小仍 **97,351/2,430 字节**。相对于第二次部署后基线，末次仅 recent-doc 哈希变化。没有完整逐文件请求证据，不将变化排他归因或当作写入次数，没有恢复旧哈希。末次 5 次 getFile 均 HTTP 200，未直接写正式配置或业务索引。
+
+后续整批授权的具体范围如下；**本轮仅准备，未取得该批业务写入批准，未执行**：
+
+1. 在当前正式项目父文档下新增 1 个唯一测试标记的根项目文档，仅在新项目内新增 1 个子项目标题，不操作已有项目块、不切换项目配置。
+2. 工作台新增 1 条同标记任务关联新项目，只完成及撤销该任务各一次；根据真实 operation ID/块树定位并写后回读，不重试不确定的创建。
+3. 在当前正式日记笔记本新增 1 条同标记快速记录并关联测试项目，可能涉及创建当日日记。若新文档缺少正式模板结构则停止报告，不擅自补模板或修改已有日记结构。
+4. 经正式服务增量维护 `/data/storage/petal/siyuan-homepage/` 下 task-index.json、enhanced-diary-project-index.json、enhanced-diary-project-record-index.json、enhanced-diary-index.json、recent-doc-snapshot.json。这些为全局共享文件，不是隔离副本；不直接覆盖、清空或重建。既有后台事件的其他派生维护需实测观察，不能承诺整个工作空间零副作用。
+5. 不改插件配置。执行前复核当日、配置与签名；每个真实新对象的 ID、根文档、父子关系、属性和索引关联只记本机临时账本，同批使用唯一测试标记，每项创建只提交一次，部分成功或未知即停止后续写入。
+6. 测试后保留对象，清理需另获批准：只按账本 ID 删除本轮新任务/记录块和新项目文档；新日记仅在确认没有后来用户内容时才能删，已有日记不删。走正式失效维护，不回写整份旧索引，不按名称批量删除。
+
+**结论：部分完成，不能宣布发布验收通过。** c6f 正常三态已有真实 UI 证据；HTTP 失败挂起有真实受控复现、最小补修、自动化验证及获批部署，补修后的错误/重试与本轮完整竞态仍待实机验收。先补齐新版只读故障态验收，再按上述完整范围取得一次业务批准。版本 5.1.10、schema、Tooltip 修复不变，业务创建/编辑/删除 0；历史测量未重写。

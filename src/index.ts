@@ -475,8 +475,10 @@ export default class PluginHomepage extends Plugin {
         const startupTrace = createRuntimePerformanceTrace("plugin-startup");
         setSiyuanRuntimePort({
             post: (path, payload) => fetchSyncPost(path, payload),
-            getFile: (path) => new Promise((resolve) => {
-                fetchPost("/api/file/getFile", { path }, (content: unknown) => resolve(content));
+            getFile: (path) => new Promise((resolve, reject) => {
+                // SDK failures do not invoke the success callback; settle both paths.
+                void fetchPost("/api/file/getFile", { path }, (content: unknown) => resolve(content), undefined,
+                    (response) => reject(new Error(`[getFile] 思源文件读取失败：code=${response?.code ?? "unknown"}`))).catch(reject);
             }),
             getFrontend: () => getFrontend(),
             platform: {

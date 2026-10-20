@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
-import { build } from "esbuild";
+import { build, transform } from "esbuild";
+import ts from "typescript";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -13,7 +14,7 @@ const [indexSource, settingsSource] = await Promise.all([
 const bundle = await build({
     stdin: {
         contents: `export { removeTopBarWithFallback, supportsDynamicDock, supportsDynamicToolbar } from "./src/utils/siyuanPluginApiCompat";
-            export { createNotebook, createNotebookChecked, getChildBlocksChecked, getBlockKramdownChecked } from "./src/api";
+            export { createNotebook, createNotebookChecked, getChildBlocksChecked, getBlockKramdownChecked, getFileChecked, getFileOrNullChecked } from "./src/api";
             export { setSiyuanRuntimePort } from "./src/runtime/siyuan-runtime-port";`,
         loader: "ts",
         resolveDir: root,
@@ -190,4 +191,47 @@ apiCompat.setSiyuanRuntimePort({
 assert.deepEqual(await apiCompat.getChildBlocksChecked(listId), childBlocks);
 assert.deepEqual(await apiCompat.getBlockKramdownChecked(taskId), kramdownResult);
 
-console.log("SiYuan plugin API compatibility verification passed (A-I)");
+// Exercise the actual frontend adapter, including the SDK failure callback.
+const sourceFile = ts.createSourceFile("index.ts", indexSource, ts.ScriptTarget.Latest, true);
+let fileReaderSource;
+function findRuntimePort(node) {
+    if (ts.isCallExpression(node) && node.expression.getText(sourceFile) === "setSiyuanRuntimePort") {
+        fileReaderSource = node.arguments[0].properties.find((property) => property.name?.getText(sourceFile) === "getFile").initializer.getText(sourceFile);
+    }
+    ts.forEachChild(node, findRuntimePort);
+}
+findRuntimePort(sourceFile);
+assert(fileReaderSource);
+const readerBuild = await transform(`export const createReader = (fetchPost) => (${fileReaderSource});`, { loader: "ts", format: "esm" });
+const { createReader } = await import(`data:text/javascript;base64,${Buffer.from(readerBuild.code).toString("base64")}`);
+let fileMode = "json";
+const bytes = new Blob(["fixture"]);
+const reader = createReader(async (url, payload, success, _headers, failure) => {
+    assert.equal(url, "/api/file/getFile");
+    assert.deepEqual(payload, { path: "/fixture.json" });
+    if (fileMode === "http-failure") { failure?.({ code: -1, msg: "503 fixture" }); return; }
+    if (fileMode === "network-failure") throw new Error("network fixture");
+    success(fileMode === "blob" ? bytes : fileMode === "missing" ? { code: 404 } :
+        fileMode === "api-failure" ? { code: -1, msg: "fixture" } : { version: 1, items: [] });
+});
+apiCompat.setSiyuanRuntimePort({ post: async () => assert.fail("unexpected post"), getFile: reader });
+assert.deepEqual(await apiCompat.getFileChecked("/fixture.json"), { version: 1, items: [] });
+fileMode = "blob";
+assert.equal(await (await apiCompat.getFileChecked("/fixture.json")).text(), "fixture");
+fileMode = "missing";
+assert.equal(await apiCompat.getFileOrNullChecked("/fixture.json"), null);
+fileMode = "api-failure";
+await assert.rejects(apiCompat.getFileChecked("/fixture.json"), /code=-1/);
+for (fileMode of ["http-failure", "network-failure"]) {
+    for (const read of [apiCompat.getFileChecked, apiCompat.getFileOrNullChecked]) {
+        let timer;
+        try {
+            const result = await Promise.race([
+                read("/fixture.json").then(() => "resolved", () => "rejected"),
+                new Promise((resolve) => { timer = setTimeout(() => resolve("pending"), 100); }),
+            ]);
+            assert.equal(result, "rejected", `${fileMode} must reject, never hang or become missing`);
+        } finally { clearTimeout(timer); }
+    }
+}
+console.log("SiYuan plugin API compatibility verification passed (A-J; frontend file failures settle)");
