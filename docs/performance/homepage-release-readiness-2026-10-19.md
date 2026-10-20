@@ -2,7 +2,7 @@
 
 审查基线：`be26b2181d20ca86744081b92c208c55bc77b8cd`。版本保持 5.1.10，最低思源 3.8.6，SDK 1.2.9。
 
-> 前半部分保留历史记录；2026-10-20 本地只读与受限真实写入实测的基线、结果分别在文末单列。最新结论：受限 Kernel 读写 PASS；完整强化日记业务与 UI 仍未验收，不代表发布 PASS。
+> 前半部分保留历史记录；2026-10-20 本地只读、受限真实写入、实际安装版本核对分别在文末单列。最新结论：受限 Kernel 读写 PASS；已安装调试包的仓库源码与当前 HEAD 相符，但与正式 dist 的 JS 哈希不同，前端内存实例与真实 UI 性能仍未验收，不代表发布 PASS。
 
 **2026-10-19 历史结论：BLOCKED，核心 A～M 尚未实测。2026-10-20 已补齐本机只读 Kernel API 验收，结论为 API PASS，见文末；完整 UI 与业务写入验收仍未完成，不得据 API PASS 宣布可以发布。**
 
@@ -286,3 +286,65 @@ recent-doc-snapshot 的**真实客户端频率、单次耗时和同步影响均�
 - `pnpm verify:task-index-sync-performance`：exit 0，28 场景；另列上述真实 live-read 结果。
 - `pnpm typecheck`、`npx tsc --noEmit`、`pnpm lint`：均 exit 0。
 - `pnpm build:app`、`pnpm build:kernel`、`pnpm build`：均 exit 0；构建使用 `SIYUAN_SKIP_DEV_DEPLOY=1`，只生成仓库产物及既有仓库 dev 镜像，不部署正式实例。`git diff --check` 通过，修改文件均保留 LF。版本 5.1.10、最低思源 3.8.6、SDK 1.2.9 及各索引 schema 均不变。
+
+## 本机实际插件版本与 UI 验收入口核对（2026-10-20）
+
+基线 `89340e48e61cd1439b2afea5c4af98885e2cde93`，开始时 HEAD 一致、main 工作区干净。已读 AGENTS、data-and-indexing、performance、DESIGN 及既有报告，使用 CodeGraph 检查部署、初始化、工作区刷新链路，并对索引未同步提示的文件核对当前磁盘源码。本轮没有修改生产代码、重新生成 Mock、重跑合成性能测试、构建或部署；只读连接本机 Kernel 3.8.7。
+
+### 安装文件、构建产物与实际运行边界
+
+使用真实 `/api/file/getFile` 读取本机 Kernel 所提供的插件根目录文件，并与仓库 dist 及现有开发部署配置所指目录逐字节哈希核对。四个配置目标文件均与 Kernel 实际提供的文件相同，目标是独立普通目录，既非仓库 dev 路径也非该路径的符号链接。因此没有仅以版本号推断代码状态，也没有把仓库 dev 镜像误当成正式安装文件。
+
+- `index.js`：dist **7,527,324 字节**，SHA-256 `21273fe0f8d6478943c03c3cffea4ee446e5f135996bfebd010289442e1f1708`；已安装 **46,620,495 字节**，SHA-256 `9f054aa8e9c97e03fd2e12d17164dacbc71383ba15dbbedfbe12a8aa74a7eb3c`。**不一致**，安装文件含内联 source map。
+- `kernel.js`：dist **1,787,293 字节**，SHA-256 `72b0374f3972ab7a8957595c3fd37f8c8db1ad23935d35cef8d9e485cf362090`；已安装 **10,410,978 字节**，SHA-256 `6f1401973ce7539f363548a035327e178fb8c9dff4bef9d9c395f6d87051dee8`。**不一致**，安装文件含内联 source map。
+- `index.css`：两边均 **1,354,453 字节**，SHA-256 `7b5c06207fc0c4f4b37c316ce3a6c0b38154449aa84af69003b3a414b22478eb`，完全一致。
+- `plugin.json`：两边均 **1,402 字节**，SHA-256 `e61aa3fe0b34cb1d562aba5dadb57194ce28d4d6fca00ccb539da6b805641a7e`，完全一致；都为 5.1.10，最低版本 3.8.6。没有根据此相同版本号推断两个 JS 相同。
+
+进一步解析安装文件已有的 inline source map，未执行其中代码或保存源码副本：前端包 2,436 个 source 中，1,142 个可映射的仓库 src 源文件全部与当前工作区一致（1,122 个字节级一致，其余 20 个仅差构建移除的文件头 BOM）；Kernel 包 511 个 source 中，422 个仓库 src 源文件全部一致（411 个字节级一致、11 个仅差 BOM）。API、任务数据 API、项目索引、项目创建服务、任务运行时、工作区 Svelte 的嵌入源码均直接匹配。第三方/非仓库 sources 未与本机依赖逐个重验。没有改动任何源文件 BOM。
+
+因此本机文件应描述为 **与当前仓库源码相符的调试构建，尚非 dist 正式产物**，不能据哈希不同就认定为旧功能代码。source map 只证明安装包中所带源码，不是当前前端内存实例已重新加载的证明。未取得前端内存中实际执行脚本的哈希或插件实例，不能宣布“最新正式构建已在当前 UI 验收”。
+
+真实 `POST /api/plugin/getLoadedPlugin`（仅指定本插件）返回 HTTP 200/code 0，`state="running"、stateCode=2`，确认 Kernel 插件在运行；这不等同于前端插件实例已就绪。依据 [思源 v3.8.7 官方前端 loader](https://github.com/siyuan-note/siyuan/blob/v3.8.7/app/src/plugin/loader.ts)，前端从 loadPetals 返回的 js 执行插件，不能仅看静态文件或 Kernel running 状态推断前端内存代码。本轮没有请求加载全部插件源码、触发 loadPlugins、reloadPlugin、启停插件或调用业务 RPC。
+
+只读进程检查发现 **4 个含本仓库路径的 Vite watch Node 进程**。未停止或更改它们；不据进程数量推断重复 UI 刷新。若切换正式构建，须先与用户协调暂停这些 watch，避免后续自动部署覆盖待测产物。已在本机临时目录准备两文件哈希及目标检查计划，**尚未执行**。
+
+需要一致化的目标仅为本机 `/data/plugins/siyuan-homepage/index.js` 和 `kernel.js`，来源为当前 dist；CSS、manifest 无需更换。部署前应重新核对源/目标哈希并本地备份两个原文件；替换 kernel.js 可能触发 Kernel 文件监听自动重载，前端需单独重载。本轮已提出一次部署/重载确认，未获批准前保持原文件。该确认不包含停止任意其他任务、修改配置、切换项目容器或业务写入。
+
+### 既有测试对象与当前业务配置
+
+仅使用上一轮本机临时归属账本中的真实 ID，没有创建新的笔记本或文档。实际 API 重新核对通过：测试文档仍在专用笔记本，根目录只有该 1 篇文档；其列表中恰好 1 条原测试任务且仍为完成状态；正式任务索引恰好包含该任务 1 次、root_id 一致、checked=true。本轮直接写入 **0 次**，测试对象未清理，未修改其他用户笔记。
+
+从真实 `enhancedDiaryConfig.json` 与当前项目索引只读核对，仅输出目标是否匹配：
+
+- dailyNotebookId 已配置，**不指向专用测试笔记本**。
+- projectStorage.mode 为 **parentDoc**；目标不是测试文档，所属笔记本也不是专用测试笔记本。
+- 共享项目索引 containerSignature **与当前正式配置匹配，不指向测试目标**。报告与日志不记录实际签名、ID、用户名称或私人路径。
+- 所以本轮创建项目/任务、添加快速记录等强化日记业务写入 **未获授权、未执行**。不能通过切换容器或重建项目索引来使测试“通过”；实际配置不能保证测试只作用于既有专用对象。
+
+相关共享文件仍位于插件自己的 `/data/storage/petal/siyuan-homepage/`：`task-index.json`、`enhanced-diary-project-index.json`、`enhanced-diary-project-record-index.json`、`recent-doc-snapshot.json`。当前实测分别为 52,717 / 8,267 / 2,430 / 95,801 字节，version 均为 1，任务 55 条、项目 roots 2/nodes 16、记录关系 3 条、近期文档 130 条。两个项目域索引哈希仍与上一轮相同；任务与近期文档哈希已不同，但此为跨验收轮次的观察，不能归因于本轮 UI 或推算写入次数。
+
+继续完整业务测试需要先确认安全配置及这四个共享文件和必要日记索引的影响，并单独取得用户明确许可。本轮部署确认没有授权覆盖、清空或恢复这些共享文件。没有把临时笔记本当作共享索引已经隔离的证据。
+
+### 实际 UI 探查结果与真实耗时
+
+Windows computer-use 成功列出正在运行的 SiYuan、Edge，并取得唯一思源窗口对象。首次窗口无可用导航文本；截图捕获返回 `FrameArrived timed out`，按恢复规则重新选择窗口、尝试激活并重试一次，仍为 `window capture timed out`。没有使用旧坐标或盲点输入，没有实际点击主页、工作区、页签或日期。
+
+其他已存在的入口也分别检查：CUA 只有 IAB/MCP Apps、没有可用 Edge/思源页面连接；Chrome DevTools 和 Playwright 当前配置均指向缺失的 Chrome 可执行文件，读取页面清单失败。进程元数据未发现思源或 Edge 的 remote-debugging-port/pipe。未安装 Chrome、重复安装浏览器、重启 Edge、修改浏览器配置/调试端口或绕过认证来制造 UI 可用性。不能以这些工具失败认定插件卡顿。
+
+真实 UI 已完成操作 **0 项**；首屏、核心状态、各页切换、月份/日期、关闭重开、弹窗关闭和最新状态展示的耗时均 **未测量**。没有访问实际前端 `taskIndexDiagnostics`，没有开启诊断；databaseCommits、targetedRefreshes、broadCleanups、indexReads、indexWrites、writeBytes、noopWritesSkipped、dataUpdatedEvents、workspaceRefreshes 的 UI 操作差值均 **未知，不是 0**。未证实也未排除真实 UI 卡顿、重复刷新或无变化索引重复写入。
+
+本次成功的 16 次有界真实只读请求均 HTTP 200，普通 envelope code 0；固定 loopback、环境凭据、15 秒超时、不跟随重定向、请求间隔 150ms。主要请求耗时：安装 index.js **1451.80ms**、kernel.js **569.35ms**、CSS **51.64ms**、manifest **48.08ms**；getLoadedPlugin **28.18ms**；测试文档路径 **28.70ms**、列表 **57.99ms**、两次子块 **27.25/27.78ms**；配置读取 **44.91ms**、项目容器路径 **19.23ms**；任务/项目/近期文档/记录索引读取 **29.13/38.19/36.72/98.07ms**。均为单次 fetch 至响应体读完，不含安全间隔及后续哈希计算；不是 UI 耗时。
+
+初次读取 index.js 因临时脚本原有 16 MiB 上限主动停止，未得到完整哈希；随后先只读核对配置目标文件确为 46.62MB，再将插件文件读取上限调整为 64 MiB 后完整读取。该次截断尝试及其先行 version 请求另计，未重试任何写入。调试文件体积会影响受测条件，但本轮没有比较正式构建的真实 UI 加载，**不能把大包判定为业务卡顿根因或宣称部署后必然改善**。
+
+### 人工补齐与本轮结论
+
+1. 让本机桌面会话保持可观察，人工确认思源窗口正常；若自动化仍不能捕获，直接人工操作，不反复安装浏览器。
+2. 经批准并协调 watch 后，只替换上述两份 JS 并重载；重新从本机 API 核对安装哈希与 dist，再在前端确认 `window.siyuan.ws.app.plugins` 中本插件实例存在。文件一致与实例加载分别核对。
+3. 在该真实前端 DevTools 中取得本插件的 `taskIndexDiagnostics`，确认存在后 `reset()`、`enable(true)`，保存操作前 `snapshot()`；不要输出整个插件实例或配置。
+4. 先只读交互：打开主页 → 工作区 → 任务/项目/记录/日历 → 月份/日期切换 → 关闭重开。逐项记录点击时刻和目标核心内容可见时刻；每项取前后 snapshot 的上述数值差异，并使用 Network 汇总主要 Kernel API 耗时，不输出请求正文。工作区按现有实现可能正常维护共享索引，不把无业务写入等同于零文件维护。
+5. 结束后在 finally 或手动收尾中 `enable(false)`。若需业务写入，必须另行确认测试配置/共享索引影响；每次只提交一次，未知结果不重试，用真实 API 回读。当前配置下不要点击创建/完成/记录等业务按钮。
+
+**结论：本机安装文件和关键源码核对已完成、既有测试数据安全性复核 PASS；正式产物的一致化及真实前端 UI/性能验收 BLOCKED。** 阻塞是未批准部署/重载、当前 UI 控制链路不可观察及业务目标不是测试数据，不是“没有连接本机 Kernel”。没有新增性能回归的实测证据，也没有依据继续修改索引算法或拆分文件。
+
+本轮仅更新本报告；按 AGENTS 执行 `git diff --check`，不机械重复既有 Fixture、typecheck/lint/build；没有生产代码改动、正式部署、版本修改、tag 或 Release。详细脱敏摘要、source map 对比及待批准两文件计划仅保存在本机临时目录，凭据不进入文件或报告。
