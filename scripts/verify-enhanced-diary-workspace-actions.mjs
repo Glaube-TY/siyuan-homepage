@@ -32,6 +32,16 @@ async function factory(source, name) {
     const { code } = await transform(source, { loader: "ts", format: "esm" });
     return (await import(`data:text/javascript;base64,${Buffer.from(code).toString("base64")}`))[name];
 }
+let detailRetry;
+function walkTemplate(node) {
+    if (!node || typeof node !== "object") return;
+    if (node.type === "InlineComponent" && node.name === "WorkspaceCalendarDayDetail") {
+        detailRetry = node.attributes.find((attribute) => attribute.name === "onRetry")?.value[0].expression;
+    }
+    Object.values(node).forEach((child) => Array.isArray(child) ? child.forEach(walkTemplate) : walkTemplate(child));
+}
+walkTemplate(parse(page).html);
+assert(detailRetry, "production retry event is wired");
 const pageFunctions = functions(page, ["submitNewTaskForWorkspace", "createRecord", "toggleTask", "loadCalendar", "loadSelectedDayDetail", "ensureHistoryRecordsLoaded", "ensureReviewHistoryLoaded", "previousMonth", "nextMonth", "jumpCalendarToToday"]);
 const pageMount = nodes(page).findLast((n) => n.type === "ExpressionStatement" && n.expression.callee?.name === "onMount");
 const createPage = await factory(`
@@ -39,7 +49,7 @@ export function createPage(api) {
 const {$state,window,showMessage,loadEnhancedDiaryWorkspaceState,buildWorkspaceCalendarMonth,loadWorkspaceDayDetail,
 getOrCreateTodayDiaryDocument,addNewTaskToDiary,addWorkspaceQuickRecord,toggleWorkspaceTaskComplete,loadWorkspaceHistoryRecords,loadWorkspaceReviewHistory}=api;
 const console={warn:(...args)=>api.warnings.push(String(args[0]))};
-let state=api.initialState, loading=false, actionBusy=false, calendarLoading=false, dayDetailLoading=false;
+let state=api.initialState, loading=false, actionBusy=false, calendarLoading=false, dayDetailLoading=false, dayDetailError="";
 let historyRecordsLoaded=false,reviewHistoryLoaded=false,historyRecordsLoading=false,reviewHistoryLoading=false;
 let calendarDate=new Date(2026,9,19),selectedCalendarDate='2026-10-19',calendarDays=[],selectedDayDetail=null;
 let calendarMonthCache=new Map(),dayDetailCache=new Map(),calendarRequestVersion=0,dayDetailRequestVersion=0;
@@ -57,9 +67,9 @@ ${pageFunctions}
 return {refresh,submit:submitNewTaskForWorkspace,createRecord,toggleTask,beginWorkspaceAction,finishWorkspaceAction,
 event:handleEnhancedDiaryIndexesUpdated,taskEvent:handleTaskDataUpdated,refreshAfterWorkspaceMutation,
 loadCalendar,loadSelectedDayDetail,ensureHistoryRecordsLoaded,ensureReviewHistoryLoaded,
-previousMonth,nextMonth,jumpCalendarToToday,
+previousMonth,nextMonth,jumpCalendarToToday,retry:${page.slice(detailRetry.start,detailRetry.end)},
 mount(){${page.slice(pageMount.start,pageMount.end)}},destroy(){destroy?.();},
-snapshot:()=>({state,loading,actionBusy,calendarDays,selectedDayDetail,calendarDate,selectedCalendarDate,calendarLoading,dayDetailLoading,pendingTask,pendingTaskVersion,workspaceMutationVersion,workspaceRefreshVersion,workspaceStateVersion,projectRefreshVersion,externalWorkspaceRefreshPending,failedRefreshVersion,advancedEnabled}),
+snapshot:()=>({state,loading,actionBusy,calendarDays,selectedDayDetail,calendarDate,selectedCalendarDate,calendarLoading,dayDetailLoading,dayDetailError,dayDetailCache,pendingTask,pendingTaskVersion,workspaceMutationVersion,workspaceRefreshVersion,workspaceStateVersion,projectRefreshVersion,externalWorkspaceRefreshPending,failedRefreshVersion,advancedEnabled}),
 tab(value){activeTab=value;recordViewMode='history';},settle:()=>refreshMutationTail,flight:()=>refreshFlight};
 }`, "createPage");
 
@@ -255,7 +265,7 @@ await check("isolation A/B initial optional panel failures still publish tasks, 
         const current=f.runtime.snapshot();assert.equal(current.loading,false);assert.equal(current.state.tasks.length,1);
         assert.equal(current.state.records[0].content,'fixture record');assert.equal(current.state.projects[0].id,'fixture project');
         assert.equal(current.calendarLoading,false);assert.equal(current.dayDetailLoading,false);
-        assert.equal(f.messages.length,1);assert(f.messages[0].includes(panel==='calendar'?'日历加载失败':'日期详情加载失败'));
+        assert.equal(f.messages.length,1);assert(f.messages[0].includes(panel==='calendar'?'日历加载失败':'日期详情读取失败'));
         f.runtime.destroy();
     }
 });
@@ -290,7 +300,7 @@ await check("isolation F confirmed record closes once and publishes despite fail
     await d.submit();await f.runtime.settle();await tick();
     assert.equal(h.closed(),1);assert.equal(f.runtime.snapshot().state.records[0].content,'new record');
     await d.submit();assert.equal(f.calls.record,1);assert.equal(f.calls.load,2);
-    assert.equal(f.runtime.snapshot().dayDetailLoading,false);assert(f.messages.some((m)=>m.includes('日期详情加载失败')));
+    assert.equal(f.runtime.snapshot().dayDetailLoading,false);assert(f.messages.some((m)=>m.includes('日期详情读取失败')));
     fail=false;await f.runtime.loadSelectedDayDetail('2026-10-20');assert.equal(f.runtime.snapshot().selectedCalendarDate,'2026-10-20');
     assert.equal(f.runtime.snapshot().dayDetailLoading,false);
 });
@@ -351,7 +361,7 @@ await check("panel loading ownership survives stale completions, cached navigati
     const h=fixture({load:(state)=>{if(fail)throw new Error('core failed');return state;},detail:(date)=>date.getDate()===21?retired.promise:{day:19}});await h.mount();
     const pending=h.runtime.loadSelectedDayDetail('2026-10-21');fail=true;await h.runtime.refreshAfterWorkspaceMutation();
     retired.resolve({day:21});await pending;
-    assert.equal(h.runtime.snapshot().dayDetailLoading,false);assert.deepEqual(h.runtime.snapshot().selectedDayDetail,{day:19});
+    assert.equal(h.runtime.snapshot().dayDetailLoading,false);assert.equal(h.runtime.snapshot().selectedDayDetail,null);
     assert.equal(h.runtime.snapshot().externalWorkspaceRefreshPending,true);
 });
 await check("obsolete lazy history reads are discarded and the visible history loads the latest snapshot",async()=>{
@@ -470,6 +480,124 @@ await check("N/O real root/child creation services retain location, heading, att
     }
     delete globalThis.__workspaceProjectFixture;
 });
+
+// Real lookup/index/Markdown parsing and detail service; only Kernel I/O is controlled.
+const diaryBase = "src/components/utils/widgetBlock/widget/enhancedDiary/";
+const detailBundle = await build({
+    stdin: {resolveDir:root, contents:`
+        export {loadWorkspaceDayDetail} from "./${base}enhancedDiaryWorkspaceDayDetail.ts";
+        export {lookupDiaryDocumentForDate} from "./${diaryBase}enhancedDiaryDoc.ts";
+        export {DEFAULT_ENHANCED_DIARY_CONFIG} from "./${diaryBase}enhancedDiaryTypes.ts";
+        export {default as DetailPanel} from "./${base}components/WorkspaceCalendarDayDetail.svelte";
+        export {render} from "svelte/server";
+    `},bundle:true,write:false,format:'esm',platform:'node',alias:{'@':resolve(root,'src')},
+    plugins:[{name:'day-detail-kernel-fixture',setup(builder){
+        builder.onResolve({filter:/^@\/api$|^@\/components\/tools\/siyuanComponentDataApi$|^@\/components\/tools\/openDocs$/},({path})=>({path,namespace:'day-io'}));
+        builder.onLoad({filter:/.*/,namespace:'day-io'},({path})=>{
+            const names=path==='@/api'?['exportMdContent','renderSprig','createDailyNote','appendBlockChecked','insertBlockChecked','updateBlockChecked','deleteBlockChecked','getChildBlocksChecked','sqlChecked','getFile','getFileChecked','getFileOrNullChecked','listDocsByPathChecked','putFileChecked']:
+                path.endsWith('openDocs')?['openDocs']:['prepareChangedRecentDocsForIndex'];
+            return {contents:names.map(name=>`export const ${name}=(...args)=>globalThis.__dayDetailKernel.${name}(...args);`).join('\n'),loader:'js'};
+        });
+        builder.onLoad({filter:/\.svelte$/},async({path})=>({contents:compile(await readFile(path,'utf8'),{filename:path,generate:'server',css:'external'}).js.code,loader:'js',resolveDir:resolve(path,'..')}));
+    }}],
+});
+const detailService=await import(`data:text/javascript;base64,${Buffer.from(detailBundle.outputFiles[0].text).toString('base64')}`);
+function detailKernel() {
+    const book='20261001000000-bbbbbbb',ids=new Map([19,20,21,22].map(day=>[day,`202610${day}000000-aaaaaaa`]));
+    const config={...structuredClone(detailService.DEFAULT_ENHANCED_DIARY_CONFIG),dailyNotebookId:book};
+    const payload={version:4,updatedAt:'2026-10-19T00:00:00Z',notebookId:book,complete:true,
+        docs:Object.fromEntries([...ids].map(([day,id])=>[`202610${day}`,{id,date:`202610${day}`,box:book,title:'fixture'}]))};
+    const calls=[],gates=new Map();let mode='ok';
+    const readIndex=async(path)=>{calls.push('index-read');assert(path.endsWith('/enhanced-diary-index.json'));
+        if(mode==='index-error')throw new Error('index transport failed');
+        return new Blob([JSON.stringify(mode==='index-corrupt'?{version:4}:mode==='index-incomplete'?{...payload,complete:false}:payload)]);};
+    globalThis.__dayDetailKernel={getFile:readIndex,getFileChecked:readIndex,getFileOrNullChecked:readIndex,
+        sqlChecked:async(stmt)=>{calls.push('sql');assert(/WHERE id = '[^']+' LIMIT 1$/.test(stmt));
+            if(mode==='sql-error')throw new Error('SQL unavailable');if(mode==='sql-missing')return [];
+            const [day,id]=[...ids].find(([,id])=>stmt.includes(id));
+            return [{id,type:'d',box:book,content:'fixture',ial:`{: custom-dailynote-202610${day}="202610${day}"}`}];},
+        exportMdContent:async(id)=>{calls.push('markdown');if(gates.has(id))return gates.get(id).promise;
+            if(mode==='markdown-error')throw new Error('export failed');if(mode==='markdown-null')return null;
+            return {content:config.templates.day};},
+        putFileChecked:async(path,_isDir,blob)=>{calls.push('write');assert.equal(mode,'sql-missing','only confirmed deletion may clean the index');
+            if(path.endsWith('/enhanced-diary-index.json'))Object.assign(payload,JSON.parse(await blob.text()));},
+    };
+    for(const name of ['renderSprig','createDailyNote','appendBlockChecked','insertBlockChecked','updateBlockChecked','deleteBlockChecked','getChildBlocksChecked','listDocsByPathChecked','openDocs','prepareChangedRecentDocsForIndex']) {
+        globalThis.__dayDetailKernel[name]=()=>{throw new Error(`unexpected ${name}`);};
+    }
+    return {config,payload,calls,ids,gates,mode(value){mode=value;},date(day){return new Date(2026,9,day);},
+        workspace(){return fixture({load:(state)=>({...state,config}),detail:(date,cfg)=>detailService.loadWorkspaceDayDetail(date,cfg)});}};
+}
+await check("day detail missing and existing documents use real strict lookup and formal template parsing",async()=>{
+    const k=detailKernel();
+    const exists=await detailService.loadWorkspaceDayDetail(k.date(19),k.config);
+    assert.equal(exists.hasDiary,true);assert.equal(exists.templateValid,true);assert.equal(exists.date,'2026-10-19');
+    const existingHtml=detailService.render(detailService.DetailPanel,{props:{detail:exists,onOpenDoc:()=>{}}}).body;
+    assert(existingHtml.includes('有日记')&&!existingHtml.includes('无日记'));
+    delete k.payload.docs['20261020'];
+    const missing=await detailService.loadWorkspaceDayDetail(k.date(20),k.config);
+    assert.equal(missing.hasDiary,false);assert.equal(missing.reviewStatusText,'无日记');
+    const missingHtml=detailService.render(detailService.DetailPanel,{props:{detail:missing,onOpenDoc:()=>{}}}).body;
+    assert(missingHtml.includes('无日记')&&!missingHtml.includes('日期详情读取失败'));
+    assert(!k.calls.includes('write'));
+    k.mode('sql-missing');assert.equal((await detailService.loadWorkspaceDayDetail(k.date(19),k.config)).hasDiary,false);
+    assert(!k.payload.docs['20261019'],'authoritatively confirmed missing docs retain normal cleanup');
+});
+await check("unreadable Markdown, SQL and index states reject without empty details or writes",async()=>{
+    for(const mode of ['markdown-error','markdown-null','sql-error','index-error','index-corrupt','index-incomplete']){
+        const k=detailKernel();k.mode(mode);
+        await assert.rejects(detailService.loadWorkspaceDayDetail(k.date(19),k.config));
+        assert(!k.calls.includes('write'),mode);assert.equal(Object.keys(k.payload.docs).length,4);
+    }
+    const k=detailKernel(),invalid={...k.config,headingStructure:new Proxy({}, {get(){throw new Error('parser input failed');}})};
+    await assert.rejects(detailService.loadWorkspaceDayDetail(k.date(19),invalid),/parser input failed/);
+    assert(!k.calls.includes('write'));
+});
+await check("real service failure renders an error, is not cached, and the production retry event recovers",async()=>{
+    const k=detailKernel(),f=k.workspace();await f.mount();await tick();const core=f.runtime.snapshot().state;
+    k.mode('markdown-error');await f.runtime.loadSelectedDayDetail('2026-10-20');
+    let snap=f.runtime.snapshot();assert.equal(snap.state,core);assert.equal(snap.selectedDayDetail,null);
+    assert.equal(snap.selectedCalendarDate,'2026-10-20');assert.equal(snap.dayDetailError,'日期详情读取失败');
+    assert(!snap.dayDetailCache.has('2026-10-20'));assert(snap.dayDetailCache.has('2026-10-19'));
+    const html=detailService.render(detailService.DetailPanel,{props:{detail:{date:'2099-01-01',hasDiary:false},
+        error:snap.dayDetailError,selectedDate:snap.selectedCalendarDate,onRetry:()=>{},onOpenDoc:()=>{}}}).body;
+    assert(html.includes('role="alert"')&&html.includes('日期详情读取失败')&&html.includes('重试'));
+    assert(!html.includes('无日记')&&!html.includes('2099-01-01'));
+    const reads=k.calls.length;await tick();assert.equal(k.calls.length,reads,'no automatic retry loop');
+    k.mode('ok');await f.runtime.retry();snap=f.runtime.snapshot();assert.equal(snap.dayDetailError,'');
+    assert.equal(snap.selectedCalendarDate,'2026-10-20');assert.equal(snap.selectedDayDetail.hasDiary,true);
+    assert(snap.dayDetailCache.has('2026-10-20'));const cachedReads=k.calls.length;
+    await f.runtime.loadSelectedDayDetail('2026-10-20');assert.equal(k.calls.length,cachedReads);
+    f.runtime.destroy();
+});
+await check("real day reads isolate old failures, late success, leaving calendar, close and permission revocation",async()=>{
+    for(const rejectOld of [false,true]){
+        const k=detailKernel(),f=k.workspace();await f.mount();await tick();
+        const old=deferred();k.gates.set(k.ids.get(20),old);
+        const pending=f.runtime.loadSelectedDayDetail('2026-10-20');await tick();
+        await f.runtime.loadSelectedDayDetail('2026-10-21');
+        if(rejectOld)old.reject(new Error('late export'));else old.resolve({content:k.config.templates.day});
+        await pending;const snap=f.runtime.snapshot();assert.equal(snap.selectedCalendarDate,'2026-10-21');
+        assert.equal(snap.selectedDayDetail.date,'2026-10-21');assert.equal(snap.dayDetailError,'');
+        assert(!snap.dayDetailCache.has('2026-10-20'));f.runtime.destroy();
+    }
+    for(const ending of ['leave','close','revoke']){
+        const k=detailKernel(),f=k.workspace();await f.mount();await tick();const waiting=deferred();k.gates.set(k.ids.get(20),waiting);
+        const reading=f.runtime.loadSelectedDayDetail('2026-10-20');await tick();f.runtime.tab('tasks');
+        if(ending==='close')f.runtime.destroy();if(ending==='revoke')f.emit('homepage-advanced-unavailable');
+        waiting.resolve({content:k.config.templates.day});await reading;const snap=f.runtime.snapshot();
+        assert.equal(snap.dayDetailError,'');assert.equal(snap.dayDetailCache.has('2026-10-20'),ending==='leave');
+        if(ending==='leave')assert.equal(snap.selectedDayDetail.date,'2026-10-20');else assert.equal(snap.selectedDayDetail,null);
+        f.runtime.destroy();
+    }
+});
+await check("an initial real detail failure cannot block core publication or create a missing-day cache",async()=>{
+    const k=detailKernel();k.mode('sql-error');const f=k.workspace();await coreCompletes(f.mount());await tick();
+    const snap=f.runtime.snapshot();assert(snap.state);assert.equal(snap.loading,false);
+    assert.equal(snap.dayDetailLoading,false);assert.equal(snap.dayDetailError,'日期详情读取失败');
+    assert.equal(snap.dayDetailCache.size,0);assert(!k.calls.includes('write'));f.runtime.destroy();
+});
+delete globalThis.__dayDetailKernel;
 
 // Use the real ECharts model/view lifecycle, not a setOption stub.
 echarts.use([ScatterChart, CalendarComponent, TooltipComponent, SVGRenderer]);

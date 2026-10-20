@@ -553,3 +553,44 @@ TypeError: Cannot set properties of null (setting 'innerHTML')
 - 本轮 Edge 已退出，临时认证 profile 经目录边界校验后移除，没有关闭用户原浏览器。脱敏记录和旧 JS 备份保留在本机临时目录；Token 仅进入遮蔽输入的进程环境，退出清理，凭据/Cookie 不进入 Git 或报告。
 
 本轮仓库仅追加本报告，执行 `git diff --check`；不重复上一提交已通过的 32 组工作区测试、项目索引/API verifier、typecheck、tsc、lint 与构建。**该 TypeError 场景的实机关闭条件已补齐；完整发布验收并未因此全部通过**：有日记日期、快速选日、API 故障/迟到请求仍主要为自动化覆盖，业务写入、原生客户端和多端同步未在本轮验收，未获得新增业务写入许可。版本、schema 和依赖保持不变。
+
+
+## 日期详情读取失败与无日记分离（2026-10-20）
+
+### 已确认的调用链与最小修复
+
+本轮基线 `eee8ff85b33f359a516307b88388728e1ef0ebe6`，初始工作区干净。CodeGraph 核对 `loadSelectedDayDetail → loadWorkspaceDayDetail → getDiaryDocumentForDate → lookupDiaryDocumentForDate`，并继续核对基础日记索引读取链路。
+
+原日期详情服务调用的 `getDiaryDocumentForDate` 将 missing/unreadable 都压成 null，服务自身 catch 又把其他异常转成 `emptyDetail`。页面把该返回当作成功结果缓存，因此 Markdown 导出、SQL 确认或解析失败可能显示为“无日记”，而且短期重选同日仍命中错误空态。另有一处同链路边界：宽松索引读取遇到不可读/不匹配时可返回空集合，仅切换三态查找仍不足以区分索引失败。
+
+修复仅限日期详情链路：
+
+- 服务直接使用 `lookupDiaryDocumentForDate`。exists 沿用原摘要/复习解析和详情结构；只有 missing 返回原无日记详情；unreadable 明确抛出“日期详情读取失败”，其余索引/解析异常向页面传递，不再转成空详情。
+- 在已有 lookup 增加默认关闭的 `strictIndexRead` 选项，仅日期详情启用，复用现成 `getEnhancedDiaryIndexEntriesStrict` 验证磁盘文件、版本、完整性、笔记本及条目。其他日记查询调用方默认行为和 `getDiaryDocumentForDate` 返回契约保持原样。没有新索引或 schema；每次未缓存的详情只读一个现有索引文件，文档确认仍为单 ID 的有界 SQL，没有全文扫描或自动全量重建。
+- 页面新增独立日期详情错误状态。新日期未缓存时先清空上一日期的详情；失败显示选中日期、“日期详情读取失败”和“重试”，不会显示成无日记。重试使用现有加载函数且不改变选择，不自动循环重试。使用现有工作区样式和提示方式，没有新弹窗体系。
+- 仅当前请求成功后进入日期缓存，真实 missing 可以正常缓存；失败不缓存。成功重试恢复详情和缓存。仍然沿用 requestVersion、workspaceRefreshVersion、workspaceLifetime、componentAlive、advancedEnabled 保护；旧日期成功/失败不能覆盖新日期，卸载或权限撤销后不得发布迟到结果。离开日历但工作区仍存活时可保留当前日期已验证的缓存，不影响任务页。
+- 非关键详情仍由原独立加载路径启动，失败或慢请求不阻塞核心任务、记录和项目发布。未更改核心刷新协调、ECharts Tooltip 修复、任务/项目写入服务或正式失效清理规则。只有现有权威缺失确认路径仍可清理真正失效的基础索引条目；读取失败不触发清理。
+
+### 真实生产函数与受控故障回归
+
+扩展既有 workspace-actions verifier，打包真实日记三态查找、严格索引验证、Markdown/摘要解析和日期详情服务，只控制 Kernel I/O。页面函数与重试事件表达式从真实 Svelte AST 提取，错误/有日记/无日记界面由真实 Svelte 组件 SSR 渲染，不以源码字符串存在性代替业务测试。
+
+新增用例覆盖：合法缺失与正常日记、Markdown 导出失败/无效响应、SQL 暂时不可用、索引读取失败/损坏/未完整、解析异常、手动重试恢复、失败不缓存、已有有效缓存保留、旧日期迟到成功/失败、快速选日、离开日历、关闭与权限撤销、首次详情失败不阻塞核心状态，以及无自动重试和故障场景零写入。已有跨月份、慢请求、核心刷新协调及真实 ECharts model/view Tooltip 生命周期回归继续执行。
+
+- `pnpm verify:enhanced-diary-workspace-actions`：**37 组，exit 0**（此前 32 组及本轮新增 5 组）。
+- `pnpm verify:enhanced-diary-project-index`：聚合 PASS，exit 0。
+- `pnpm verify:siyuan-api-compat`：A–I，exit 0。
+- `pnpm typecheck`、`npx tsc --noEmit`、`pnpm lint`：均 exit 0。
+- `pnpm build:app`、`pnpm build:kernel`、`pnpm build`：均 exit 0，设置 `SIYUAN_SKIP_DEV_DEPLOY=1`，没有向正式思源实例部署或重载。构建日志中的既有 dev 镜像不代表正式插件被替换。
+
+异常场景为生产函数配合受控 fixture 的验证，没有人为损坏用户日记、索引或配置来制造错误，也不宣称真实用户数据发生过这些全部故障。
+
+### 本机真实只读核对与实机边界
+
+通过进程环境变量鉴权连接 `127.0.0.1:6806`，真实 Kernel 版本 **3.8.7**。从真实配置及已验证索引取得一个现有日期/文档标识，再调用本轮新生产日期详情服务；Kernel I/O 连接真实 getFile、单 ID SQL 和 exportMdContent，未替换其返回数据。正常日期实际 hasDiary=true、docId 与索引一致；另一个索引中确认无条目的日期实际 hasDiary=false、状态为“无日记”。不记录实际日记日期、名称、标识、正文或配置。
+
+共 **7 次请求，均 HTTP 200**：版本 1 次，getFile 4 次，SQL 1 次，Markdown 导出 1 次；普通 envelope 均 code 0。getFile 为真实文件 JSON，而非假定通用 envelope。正常日期生产服务调用 **43.17ms**（单次，含严格索引读取、SQL、导出与解析），对应三次请求分别 **12.63ms、7.24ms、17.22ms**；无日记验证的严格索引读取 **15.05ms**。这些是本次有界本机接口/服务测量，不是 UI 点击耗时，不与此前浏览器测量混算。
+
+测试端口只允许上述只读接口，所有维护/写入入口直接拒绝；实际写入请求 **0**，被尝试的写入 **0**。没有创建、编辑或删除用户文档，没有直接覆盖正式索引或修改配置。Token 只进入遮蔽输入的进程环境，退出清理；临时摘要只含响应类别、字节数、耗时及成功布尔值，不含私人内容。
+
+**结论：日期详情三态及错误/缓存/竞态自动化验收通过，正常读取和真实缺失的本地 Kernel 只读核对通过。** 本轮没有替换安装文件或重载插件；当前已安装前端仍为上一轮已完成 Tooltip 实机复验的构建。新版错误态按钮、失败后重试及新版浏览器迟到请求表现尚未做部署后 UI 复验，需另获部署许可后验证，不据本地构建宣称新版实机通过。此前所有真实测量数值保持不变；版本 5.1.10、所有索引 schema 和依赖均未修改。

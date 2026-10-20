@@ -129,6 +129,7 @@
     let selectedCalendarDate = $state(formatDiaryDate(new Date()));
     let selectedDayDetail = $state<EnhancedDiaryWorkspaceDayDetail | null>(null);
     let dayDetailLoading = $state(false);
+    let dayDetailError = $state("");
     let editingTask = $state<EnhancedDiaryWorkspaceTask | null>(null);
     let deletingTask = $state<EnhancedDiaryWorkspaceTask | null>(null);
     let editingRecord = $state<EnhancedDiaryWorkspaceRecord | null>(null);
@@ -793,11 +794,13 @@
         const active = () => componentAlive && advancedEnabled && lifetime === workspaceLifetime && request === dayDetailRequestVersion;
         const current = () => active() && version === workspaceRefreshVersion && dateStr === selectedCalendarDate;
         selectedCalendarDate = dateStr;
+        dayDetailError = "";
         if (dayDetailCache.has(dateStr)) {
             selectedDayDetail = dayDetailCache.get(dateStr) || null;
             dayDetailLoading = false;
             return;
         }
+        selectedDayDetail = null;
         dayDetailLoading = true;
         try {
             const detail = await loadWorkspaceDayDetail(parseLocalDate(dateStr), state.config);
@@ -805,8 +808,10 @@
             selectedDayDetail = detail;
             dayDetailCache.set(dateStr, selectedDayDetail);
         } catch (err) {
+            if (!current()) return;
             console.warn("[enhancedDiaryWorkspace] load day detail failed", err);
-            if (current()) showMessage("日期详情加载失败，保留上次数据，请重试", 3000);
+            dayDetailError = "日期详情读取失败";
+            showMessage("日期详情读取失败，请重试", 3000);
         } finally {
             if (active()) dayDetailLoading = false;
         }
@@ -2064,6 +2069,9 @@
                         <WorkspaceCalendarDayDetail
                             detail={selectedDayDetail}
                             loading={dayDetailLoading}
+                            error={dayDetailError}
+                            selectedDate={selectedCalendarDate}
+                            onRetry={() => loadSelectedDayDetail(selectedCalendarDate)}
                             onOpenDoc={openDoc}
                             onOpenRecords={goRecordsByDate}
                             onOpenReview={goReviewByDate}

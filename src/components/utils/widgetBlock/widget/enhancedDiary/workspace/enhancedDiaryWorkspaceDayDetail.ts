@@ -1,4 +1,4 @@
-import { getDiaryDocumentForDate } from "../enhancedDiaryDoc";
+import { lookupDiaryDocumentForDate } from "../enhancedDiaryDoc";
 import { buildEnhancedDiaryWorkspaceSummary } from "../enhancedDiaryWorkspaceSummary";
 import { formatDiaryDate, scanDiaryContentForPeriod } from "../enhancedDiaryUtils";
 import { isEnhancedDiaryTaskManagementEnabled } from "../enhancedDiaryTemplateFieldMapping";
@@ -42,51 +42,45 @@ export async function loadWorkspaceDayDetail(
 ): Promise<EnhancedDiaryWorkspaceDayDetail> {
     const dateText = formatDiaryDate(date);
 
-    try {
-        const doc = await getDiaryDocumentForDate(date);
+    const lookup = await lookupDiaryDocumentForDate(date, config?.dailyNotebookId, { strictIndexRead: true });
+    if (lookup.status === "missing") return emptyDetail(dateText);
+    if (lookup.status === "unreadable") throw new Error("日期详情读取失败");
+    const doc = lookup.doc;
 
-        if (!doc) {
-            return emptyDetail(dateText);
+    const taskManagementEnabled = isEnhancedDiaryTaskManagementEnabled(config);
+    const summary = buildEnhancedDiaryWorkspaceSummary(
+        doc.content,
+        config?.headingStructure,
+        config?.templateFieldMapping,
+        taskManagementEnabled,
+    );
+
+    const periods: EnhancedDiaryPeriod[] = ["day", "week", "month", "year"];
+    let completedReviewCount = 0;
+    let pendingReviewCount = 0;
+
+    for (const period of periods) {
+        const scan = scanDiaryContentForPeriod(doc.content, period, config?.templateFieldMapping);
+        if (scan.completed) {
+            completedReviewCount += 1;
+        } else if (scan.hasCompletionMarker && !scan.skipped) {
+            pendingReviewCount += 1;
         }
-
-        const taskManagementEnabled = isEnhancedDiaryTaskManagementEnabled(config);
-        const summary = buildEnhancedDiaryWorkspaceSummary(
-            doc.content,
-            config?.headingStructure,
-            config?.templateFieldMapping,
-            taskManagementEnabled,
-        );
-
-        const periods: EnhancedDiaryPeriod[] = ["day", "week", "month", "year"];
-        let completedReviewCount = 0;
-        let pendingReviewCount = 0;
-
-        for (const period of periods) {
-            const scan = scanDiaryContentForPeriod(doc.content, period, config?.templateFieldMapping);
-            if (scan.completed) {
-                completedReviewCount += 1;
-            } else if (scan.hasCompletionMarker && !scan.skipped) {
-                pendingReviewCount += 1;
-            }
-        }
-
-        return {
-            date: dateText,
-            hasDiary: true,
-            docId: doc.id,
-            docTitle: doc.title,
-            templateValid: summary.templateValid,
-            missingSections: summary.missing,
-            newTaskCount: summary.newTaskCount,
-            migratedTaskCount: summary.migratedTaskCount,
-            quickRecordCount: summary.quickRecordCount,
-            projectCount: summary.projectCount,
-            completedReviewCount,
-            pendingReviewCount,
-            reviewStatusText: `${completedReviewCount}/4 已完成`,
-        };
-    } catch (err) {
-        console.warn("[enhancedDiaryWorkspaceDayDetail] loadWorkspaceDayDetail failed", err);
-        return emptyDetail(dateText);
     }
+
+    return {
+        date: dateText,
+        hasDiary: true,
+        docId: doc.id,
+        docTitle: doc.title,
+        templateValid: summary.templateValid,
+        missingSections: summary.missing,
+        newTaskCount: summary.newTaskCount,
+        migratedTaskCount: summary.migratedTaskCount,
+        quickRecordCount: summary.quickRecordCount,
+        projectCount: summary.projectCount,
+        completedReviewCount,
+        pendingReviewCount,
+        reviewStatusText: `${completedReviewCount}/4 已完成`,
+    };
 }

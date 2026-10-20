@@ -7,6 +7,9 @@
     interface Props {
         detail: EnhancedDiaryWorkspaceDayDetail | null;
         loading?: boolean;
+        error?: string;
+        selectedDate?: string;
+        onRetry?: () => void | Promise<void>;
         onOpenDoc: (docId?: string) => void;
         onClose?: () => void;
         onOpenRecords?: (date: string) => void;
@@ -17,10 +20,10 @@
         displaySettings?: EnhancedDiaryWorkspaceCalendarSettings;
     }
 
-    let { detail, loading = false, onOpenDoc, onClose, onOpenRecords, onOpenTasks, onOpenReview, taskManagementEnabled = true, calendarMetadata = null, displaySettings }: Props = $props();
+    let { detail, loading = false, error = "", selectedDate = "", onRetry, onOpenDoc, onClose, onOpenRecords, onOpenTasks, onOpenReview, taskManagementEnabled = true, calendarMetadata = null, displaySettings }: Props = $props();
 </script>
 
-<section class="day-detail-panel">
+<section class="day-detail-panel" aria-busy={loading}>
     <div class="detail-header">
         <span class="detail-title">日期详情</span>
         {#if onClose}
@@ -34,6 +37,15 @@
         <div class="detail-loading">
             <span class="loading-spinner"></span>
             日期详情加载中...
+        </div>
+    {:else if error}
+        <div class="empty-state" role="alert">
+            {#if selectedDate}<span class="detail-date-text">{selectedDate}</span>{/if}
+            <WorkspaceIcon name="warning" size={30} />
+            <p>{error}</p>
+            {#if onRetry}
+                <button type="button" class="wk-btn wk-btn-ghost wk-btn-sm" onclick={onRetry}>重试</button>
+            {/if}
         </div>
     {:else if !detail}
         <div class="empty-state">

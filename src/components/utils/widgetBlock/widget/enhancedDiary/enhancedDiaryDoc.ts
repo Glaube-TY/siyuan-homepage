@@ -25,7 +25,7 @@ import {
     getPrimaryFieldTitle,
 } from "./enhancedDiaryTemplateFieldMapping";
 import { pruneTaskSectionsFromDayTemplate } from "./enhancedDiaryTemplatePrune";
-import { getEnhancedDiaryIndexEntry, getDiaryIndexEntriesForDisplay, indexCreatedEnhancedDiaryDocument, removeStaleEnhancedDiaryEntry, resolveEnhancedDiaryDateFromMetadata, initializeEnhancedDiaryIndex } from "./enhancedDiaryIndex";
+import { getEnhancedDiaryIndexEntry, getEnhancedDiaryIndexEntriesStrict, getDiaryIndexEntriesForDisplay, indexCreatedEnhancedDiaryDocument, removeStaleEnhancedDiaryEntry, resolveEnhancedDiaryDateFromMetadata, initializeEnhancedDiaryIndex } from "./enhancedDiaryIndex";
 
 let activeDiaryNotebookId = "";
 
@@ -166,12 +166,15 @@ export async function validateEnhancedDiaryWriteTarget(
  */
 export async function lookupDiaryDocumentForDate(
     date: Date,
-    notebookId?: string
+    notebookId?: string,
+    options: { strictIndexRead?: boolean } = {}
 ): Promise<DiaryDocumentLookupResult> {
     const targetNotebookId = notebookId || activeDiaryNotebookId;
     if (!targetNotebookId) return { status: "missing" };
 
-    const entry = await findDiaryDocumentByDate(date, targetNotebookId);
+    const entry = options.strictIndexRead
+        ? (await getEnhancedDiaryIndexEntriesStrict(targetNotebookId))[formatDiaryAttrDate(date)]
+        : await findDiaryDocumentByDate(date, targetNotebookId);
     if (!entry) return { status: "missing" };
 
     // Authoritative metadata check — type, box, date must all match
