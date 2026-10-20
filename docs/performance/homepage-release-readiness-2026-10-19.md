@@ -946,3 +946,53 @@ Edge 155.0.4283.62 使用独立临时 profile，CDP 实查仅监听 127.0.0.1。
 本机仍存在需用户自行处理的临时认证 profile：homepage-detail-edge-bnIfPR、homepage-recovery-edge-ohWB7e、homepage-workflow-edge-BH98m4。本轮仅核对名称和存在性，没有读取其中认证内容，也没有尝试删除或绕过此前策略。归属账本及脱敏证据留本机供清理核对，截图/认证资料不进入 Git。读写观察器、计数器、重启可见性探针均已停止，DevTools 已关闭，思源保持打开。
 
 本轮仅追加此文档，执行 git diff --check；未重复 verifier、类型检查、lint 或构建，不将以前通过的结果伪称为本轮重新执行。无版本、发布、tag 或业务配置变更。
+
+## 2026-10-20：跳过近期文档快照无语义变化提交（源码与 Fixture 验收，尚未部署）
+
+基线 b38ef1ff156ec39be6c83e611b191ca9f15fc94c，工作区初始干净。先读取 AGENTS、数据/索引及性能规则，使用 CodeGraph 并对照真实源码核对共享快照的读取、提交队列和六个消费者。本轮只改近期快照提交路径、对应 verifier/fixture 和本报告；没有操作本机 Kernel、用户业务文档或正式索引，没有重新部署、重载或清理测试对象。此前业务、桌面 UI 和重启持久化结论保持原样，不将本轮 Fixture 结果当作修复后实机结果。
+
+### 根因与修改边界
+
+上一节真实客户端证据是五次约 98,975 字节的近期快照写入，间隔约 180 秒、每次约 16.2–16.8ms，只有顶层 updatedAt 改变。源码中的 prepareChangedRecentDocsForIndex().commit() 在 recentDocSnapshotWriteTail 内无条件调用 writeJsonIndexPayload()，后者先创建目录再 putFile；即使 changedDocs 为空也写新时间。通用 readJsonIndexPayload() 还会把读取异常、损坏 JSON 或空结果退回默认值，不适合作为这个共享文件的写回基线。
+
+当前正式结构仍为 version=1、updatedAt 字符串、按文档 ID 保存的 docs，以及按消费者名称保存“文档 ID → 更新时间字符串”的 consumers。文档的 rootID/box/path/hpath/created/updated/content/ial 字符串字段及额外 JSON 语义字段继续保留；没有增加字段、迁移或改变 schema/version。当前正式写入器一直生成 consumers，缺失该根字段现在会报错，不做内部旧格式兼容或静默补全。源码中没有消费者用这个文件的顶层 updatedAt 判断心跳或有效期；原有刷新 TTL 使用内存时间。
+
+- 保留 prepare/commit、changedDocs 按当前消费者文档更新时间判断的契约、20 篇近期文档上限和单实例提交队列。六个实际消费者为 task、enhanced-diary、enhanced-diary-project、enhanced-diary-project-record、statistical、heatmap。
+- 队列内部每次通过 getFileOrNullChecked 重新读取最新磁盘文件；仅官方明确 code=404 视为不存在。网络/权限/API 错误、未知 null/undefined、损坏/空 JSON、版本或根结构异常、文档和游标字段异常均拒绝提交，保留原文件。没有修改其他索引使用的通用 fallback 读取入口。
+- 在最新快照上合并本消费者游标与当前文档，保留其他消费者、历史文档以及未知 JSON 字段。使用递归排序对象键的 JSON 比较，数组顺序仍有意义；仅无变化判断时排除顶层 updatedAt，文档/游标/嵌套时间、version 和所有其他字段均参与比较。对象键的排列差异不会造成写入。
+- 完全相同则立即返回，既不创建目录也不 putFile，不改变 updatedAt。新增消费者（即便其游标为空）属于真实语义变化，首次会保存一次。
+- 真实变化时才设置当前 updatedAt，使用 putFileChecked 保存，并严格回读完整内容验证（回读也比较顶层时间）。复用已有任务索引的官方 putFile 自动创建父目录方式，无需额外目录写入。写入失败、丢失写入或回读失败/不一致均不报告已确认保存。
+- 准备后文件消失、相同文档被较新提交改变且本次会覆盖它、消费者游标被改变/删除时，拒绝迟到提交而非回滚新数据；调用方可在后续正式刷新重新准备。不同消费者的非冲突更新正常合并，失败的队列项不丢弃后续项，不新增无限重试或锁系统。
+
+### 修复前后生产函数证据
+
+新增 scripts/verify-recent-doc-snapshot.mjs（pnpm verify:recent-doc-snapshot），esbuild 加载真实生产 prepare/commit，文件/API I/O 完全受控，任何其他业务写入 API 都会使测试失败。不是源码字符串匹配，也未对正式索引做性能写入。
+
+在修改生产代码前，同一测量模式 --measure 的五次无变化提交得到：文件写入 **5**、目录写入 **5**、updatedAt 保持不变为 **false**。第一批 37 项测试实际为 **2 通过、35 失败**：除了无变化写入，旧代码还丢弃额外语义字段、未校验回读、将损坏读取当空数据，并允许迟到文档覆盖。修复后继续扩展边界用例，最终 **49 通过、0 失败**；相同五次提交的测量为文件写入 **0**、目录写入 **0**、updatedAt 保持不变为 **true**。这些是 Fixture 写入次数，不是新的客户端耗时或实机频率数据。
+
+覆盖确认缺失初始化、重复无变化、键顺序、新文档/更新时间/路径/内容/属性变化、消费者游标变化、六个消费者及额外消费者/字段保留、并发消费者、同消费者重复、较新文档和外部删除保护、网络/权限/API 错误、损坏/不完整/不兼容文件、写入失败、并发失败后队列继续、写后回读错误、嵌套时间/数组顺序/特殊 JSON 键比较，以及空近期集合不删除历史内容。
+
+现有任务 verifier 的文件 fixture 现会真正保存近期快照并在回读返回该内容，以验证新增回读要求；未降低任务索引断言。项目创建性能 verifier 中原来明确期望两次无条件写快照的用例已按本轮目标修正：第一次登记 enhanced-diary-project 消费者写一次，第二次保留完全相同的文件；总读 5 次（包含首次写后回读），项目索引写入始终为 0。该集成用例实测通过。
+
+### 本轮验证结果
+
+以下命令均实际执行且退出码为 0：
+
+- pnpm verify:recent-doc-snapshot：49 项通过，0 失败；--measure 再确认五次重复提交 0 文件写入、0 目录写入。
+- pnpm verify:task-index-sync-performance：28 个生产场景通过；原 4500 条任务的前台读取仍无逐块验证、无写入。
+- pnpm verify:enhanced-diary-project-index：通过；脚本不输出数值总计，未另造通过数量。
+- pnpm verify:enhanced-diary-project-create-performance：23 组通过，另完成 24 项维护、21 项服务和 18 项生命周期合成测量；不把这些耗时当作客户端耗时。
+- pnpm verify:enhanced-diary-workspace-actions：39 组通过，含 14 组日记创建就绪回归。
+- pnpm typecheck、npx tsc --noEmit、pnpm lint：通过。
+- pnpm build:app、pnpm build:kernel、pnpm build：通过；所有构建均设置 SIYUAN_SKIP_DEV_DEPLOY=1。最终 sync-dev 仅镜像到仓库内普通 dev 目录（非链接），没有同步到正在使用的插件目录。
+- git diff --check：通过；原文件 UTF-8 无 BOM、LF 行尾保持不变。插件/package 版本仍为 5.1.10，minAppVersion 3.8.6，SDK 1.2.9，没有增加依赖。
+
+正式构建产物 dist/index.js 为 **7,532,929 字节**，SHA-256：**3c863491d0137db47ab69dc99661baeb72d37d3b3c147305fb809b1c278a54dc**。dist/kernel.js 为 **1,790,699 字节**，SHA-256：**072b71490b639952f2c04dcdd63c4c2c56eb92a971a38f99937bdb28b788fe64**。这些是待验收产物指纹，未声称当前前端已执行新代码。
+
+### 数据完整性、部署批准与剩余边界
+
+本轮没有修改正式索引或用户文档，不需要拆分 task-index.json、修改项目索引算法或共享存储架构。版本及字段格式不变；新增严格校验可能让原本被静默覆盖的损坏/缺字段文件显式报错，这是数据保护行为，不能靠清空文件消除。写后回读失败表示保存结果未确认，不能据此重复创建业务对象。
+
+单实例队列已通过有界并发测试；**不具备跨客户端全局原子 CAS**。其他实例在最后读取与 putFile 之间写入仍可能竞争，回读只验证观察到的结果，不能证明其他端从未写入；本轮没有做多端测试，也没有新建锁系统。
+
+**修复后真实客户端验收：尚未执行，等待用户批准部署及重载。** 获批后用原生 Win32/DevTools 观察工作区只读切换和至少跨过原约 180 秒周期的空闲窗口，按具体文件记录近期快照读写、任务/项目维护和页面异常；真实变化保存需复用已有对象的已授权变更或自然增量，不新增项目、任务或日记。本轮合成写入 5→0 证明代码路径，不能代替该实机结论，也不能擅自改写此前性能 CONDITIONAL 状态。

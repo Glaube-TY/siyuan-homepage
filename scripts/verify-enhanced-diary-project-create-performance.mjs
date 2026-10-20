@@ -228,10 +228,14 @@ await test('incremental unknown, incomplete, foreign and damaged snapshots never
         assert.equal(result.lastStatus,mode==='incomplete'?'idle':'error');assert.equal(f.state.writes,0);assert.equal(f.state.file,retained);
     }
 });
-await test('unchanged real recent-doc preparation still commits only the shared snapshot',async()=>{
+await test('real recent-doc preparation initializes the consumer once then skips unchanged writes',async()=>{
     const f=await fixture(5,{realRecent:true});
-    for(let n=0;n<2;n++)await f.app.validateEnhancedDiaryProjectWriteTarget(storage,id(1));
-    assert.equal(f.state.writes,0);assert.equal(f.state.recentWrites,2);assert.equal(f.state.recentReads,4);
+    await f.app.validateEnhancedDiaryProjectWriteTarget(storage,id(1));
+    assert.equal(f.state.recentWrites,1);
+    const retained=f.state.recentFile;
+    await f.app.validateEnhancedDiaryProjectWriteTarget(storage,id(1));
+    assert.equal(f.state.writes,0);assert.equal(f.state.recentWrites,1);assert.equal(f.state.recentReads,5);
+    assert.equal(f.state.recentFile,retained);
     assert.deepEqual(JSON.parse(f.state.recentFile).docs,{});
     console.log(JSON.stringify({unchangedSharedSnapshot:{projectIndexWrites:f.state.writes,recentSnapshotWrites:f.state.recentWrites,recentSnapshotReads:f.state.recentReads}}));
 });

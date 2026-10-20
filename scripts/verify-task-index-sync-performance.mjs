@@ -69,7 +69,7 @@ async function fixture(items = [task(1)]) {
     const recentSnapshotPath="/data/storage/petal/siyuan-homepage/recent-doc-snapshot.json";
     app.setSiyuanRuntimePort({
         async getFile(path) {
-            if(state.workspaceRead&&path===recentSnapshotPath)return {code:404};
+            if(state.workspaceRead&&path===recentSnapshotPath)return state.recentSnapshotText ?? {code:404};
             assert.equal(path, PATH);
             state.reads++;
             if(state.readGate)await state.readGate;
@@ -79,7 +79,7 @@ async function fixture(items = [task(1)]) {
         },
         async putFile(path, dir, blob) {
             if (dir) return { code: 0 };
-            if(state.workspaceRead&&path===recentSnapshotPath){state.snapshotWrites=(state.snapshotWrites||0)+1;return {code:0};}
+            if(state.workspaceRead&&path===recentSnapshotPath){state.snapshotWrites=(state.snapshotWrites||0)+1;state.recentSnapshotText=await blob.text();return {code:0};}
             assert.equal(path, PATH, "no other data domain may be written");
             if (state.writeError) return {code:-1,msg:"synthetic write error"};
             state.activeWrites = (state.activeWrites || 0) + 1;

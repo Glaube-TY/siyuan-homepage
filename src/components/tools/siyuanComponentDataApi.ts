@@ -19,6 +19,7 @@ import {
     sql,
     sqlChecked,
 } from "@/api";
+import { isPlainJsonObject } from "@/homepage/deviceView/jsonSafe";
 import { validateSafeSelectSql } from "@/features/kb/services/siyuan/safe-sql";
 import type { ComponentMigrationStatus } from "@/components/utils/widgetBlock/widget/common/componentMigrationTypes";
 import {
@@ -174,7 +175,7 @@ interface RecentDocSnapshotPayload {
     version: number;
     updatedAt: string;
     docs: Record<string, ComponentRecentDocSnapshotDoc>;
-    consumers?: Record<string, Record<string, string>>;
+    consumers: Record<string, Record<string, string>>;
 }
 
 interface HeatmapDocContribution {
@@ -426,6 +427,64 @@ export async function filterExistingItems<T extends { id?: string }>(
         }
     }
     return result;
+}
+
+// Sort object keys only; array order and every persisted field remain significant.
+function recentDocSnapshotValuesEqual(left: unknown, right: unknown): boolean {
+    const encode = (value: unknown) => JSON.stringify(value, (_key, item) => isPlainJsonObject(item)
+        ? Object.fromEntries(Object.entries(item).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0))
+        : item);
+    return encode(left) === encode(right);
+}
+
+function isRecentDocSnapshotJson(value: unknown, ancestors = new Set<object>()): boolean {
+    if (value === null || typeof value === "string" || typeof value === "boolean") return true;
+    if (typeof value === "number") return Number.isFinite(value);
+    if ((!Array.isArray(value) && !isPlainJsonObject(value)) || ancestors.has(value)) return false;
+    ancestors.add(value);
+    try {
+        return (Array.isArray(value) ? Array.from(value) : Object.values(value)).every(
+            (item) => isRecentDocSnapshotJson(item, ancestors),
+        );
+    } finally {
+        ancestors.delete(value);
+    }
+}
+
+function validateRecentDocSnapshot(value: unknown): asserts value is RecentDocSnapshotPayload {
+    const idPattern = /^\d{14}-[a-z0-9]{7}$/;
+    if (!isPlainJsonObject(value) || !isRecentDocSnapshotJson(value) || value.version !== INDEX_VERSION ||
+        typeof value.updatedAt !== "string" || !isPlainJsonObject(value.docs) || !isPlainJsonObject(value.consumers)) {
+        throw new Error("近期文档快照结构或版本异常，已停止提交并保留原文件。");
+    }
+    for (const [id, doc] of Object.entries(value.docs)) {
+        if (!idPattern.test(id) || !isPlainJsonObject(doc) || doc.id !== id ||
+            ["rootID", "box", "path", "hpath", "created", "updated", "content", "ial"].some(
+                (key) => key in doc && typeof doc[key] !== "string",
+            )) {
+            throw new Error("近期文档快照文档字段异常，已停止提交并保留原文件。");
+        }
+    }
+    for (const [consumer, cursors] of Object.entries(value.consumers)) {
+        if (!consumer.trim() || !isPlainJsonObject(cursors) || Object.entries(cursors).some(
+            ([id, cursor]) => !idPattern.test(id) || typeof cursor !== "string",
+        )) {
+            throw new Error("近期文档快照消费者游标异常，已停止提交并保留原文件。");
+        }
+    }
+}
+
+async function readRecentDocSnapshotStrict(): Promise<RecentDocSnapshotPayload | null> {
+    const raw = await getFileOrNullChecked(RECENT_DOC_SNAPSHOT_PATH);
+    if (raw === null) return null;
+    let parsed: unknown;
+    try {
+        parsed = await fileContentToObject(raw);
+    } catch {
+        throw new Error("近期文档快照 JSON 无法读取，已停止提交并保留原文件。");
+    }
+    validateRecentDocSnapshot(parsed);
+    return parsed;
 }
 
 function emptyRecentDocSnapshot(): RecentDocSnapshotPayload {
@@ -1282,6 +1341,7 @@ export interface PreparedRecentDocs {
 }
 
 export async function prepareChangedRecentDocsForIndex(consumer: string): Promise<PreparedRecentDocs> {
+    if (!consumer.trim()) throw new Error("近期文档快照消费者不能为空。");
     const records = await loadRecentDocRecords("updated");
     const rows = await hydrateDocBlockFields(
         records
@@ -1299,38 +1359,44 @@ export async function prepareChangedRecentDocsForIndex(consumer: string): Promis
         if (currentDocs.size >= RECENT_DOC_REFRESH_LIMIT) break;
     }
 
-    const snapshot = await readJsonIndexPayload<RecentDocSnapshotPayload>(
-        RECENT_DOC_SNAPSHOT_PATH,
-        emptyRecentDocSnapshot(),
-    );
-    const consumerSnapshot = snapshot.consumers?.[consumer] || {};
+    const snapshot = await readRecentDocSnapshotStrict();
+    const consumerSnapshot = snapshot?.consumers[consumer] || {};
     const changed = Array.from(currentDocs.values()).filter((doc) => consumerSnapshot[doc.id] !== (doc.updated || ""));
 
     async function commit(): Promise<void> {
         const previousWrite = recentDocSnapshotWriteTail;
         const queuedWrite = previousWrite.catch(() => undefined).then(async () => {
-            const latest = await readJsonIndexPayload<RecentDocSnapshotPayload>(
-                RECENT_DOC_SNAPSHOT_PATH,
-                emptyRecentDocSnapshot(),
-            );
-            const nextConsumers = {
-                ...(latest.consumers || {}),
-                [consumer]: {
-                    ...(latest.consumers?.[consumer] || {}),
-                },
-            };
+            const latest = await readRecentDocSnapshotStrict();
+            if (snapshot && !latest) throw new Error("近期文档快照在准备后消失，未确认提交结果。");
+            const base = latest || emptyRecentDocSnapshot();
+            const nextDocs = { ...base.docs };
+            const nextConsumer = { ...base.consumers[consumer] };
             for (const doc of currentDocs.values()) {
-                nextConsumers[consumer][doc.id] = doc.updated || "";
+                const previous = base.docs[doc.id];
+                const merged = { ...previous, ...doc };
+                // A prepared consumer must not acknowledge stale data over a newer queued/external update.
+                if ((!recentDocSnapshotValuesEqual(previous, snapshot?.docs[doc.id]) &&
+                    !recentDocSnapshotValuesEqual(previous, merged)) ||
+                    (previous?.updated && previous.updated > (doc.updated || "")) ||
+                    (nextConsumer[doc.id] !== consumerSnapshot[doc.id] &&
+                        nextConsumer[doc.id] !== (doc.updated || ""))) {
+                    throw new Error("近期文档快照在准备后发生冲突，请重新读取后提交。");
+                }
+                nextDocs[doc.id] = merged;
+                nextConsumer[doc.id] = doc.updated || "";
             }
-            await writeJsonIndexPayload(RECENT_DOC_SNAPSHOT_PATH, {
-                version: INDEX_VERSION,
-                updatedAt: new Date().toISOString(),
-                docs: {
-                    ...(latest.docs || {}),
-                    ...Object.fromEntries(currentDocs.entries()),
-                },
-                consumers: nextConsumers,
-            } satisfies RecentDocSnapshotPayload);
+            const next = { ...base, docs: nextDocs, consumers: { ...base.consumers, [consumer]: nextConsumer } };
+            validateRecentDocSnapshot(next);
+            // Only the top-level timestamp is excluded; nested updatedAt fields are semantic content.
+            if (latest && recentDocSnapshotValuesEqual({ ...latest, updatedAt: "" }, { ...next, updatedAt: "" })) return;
+            next.updatedAt = new Date().toISOString();
+            // putFile creates parent directories; unchanged commits perform no mutations at all.
+            // shortcut: this queue protects one instance, not cross-client atomic CAS; reread and verify every write.
+            await putFileChecked(RECENT_DOC_SNAPSHOT_PATH, false, makeJsonBlob(next));
+            const verified = await readRecentDocSnapshotStrict();
+            if (!recentDocSnapshotValuesEqual(verified, next)) {
+                throw new Error("近期文档快照写后校验失败，未确认保存结果。");
+            }
         });
         recentDocSnapshotWriteTail = queuedWrite.then(() => undefined, () => undefined);
         await queuedWrite;
