@@ -664,3 +664,68 @@ Edge 155.0.4283.62 使用独立临时 profile，CDP 实查仅监听 127.0.0.1。
 6. 测试后保留对象，清理需另获批准：只按账本 ID 删除本轮新任务/记录块和新项目文档；新日记仅在确认没有后来用户内容时才能删，已有日记不删。走正式失效维护，不回写整份旧索引，不按名称批量删除。
 
 **结论：部分完成，不能宣布发布验收通过。** c6f 正常三态已有真实 UI 证据；HTTP 失败挂起有真实受控复现、最小补修、自动化验证及获批部署，补修后的错误/重试与本轮完整竞态仍待实机验收。先补齐新版只读故障态验收，再按上述完整范围取得一次业务批准。版本 5.1.10、schema、Tooltip 修复不变，业务创建/编辑/删除 0；历史测量未重写。
+
+
+## HTTP 失败恢复闭环及获批业务批次实测（2026-10-20）
+
+### 新证据与最小补修
+
+本轮基线 `d14e90ca307de989990ff1f8f6b35d2d926af4c6`，起始工作区干净。先核对安装文件、Kernel 回读及 dist 均为 `578cc4a60cdb15303dc2eac0f85d1b3fc7abb60aa66354a8d81a1bf828f4e90e`，没有先行重复部署。第 1 次有界浏览器恢复即成功：独立 Edge profile、CDP 仅监听 127.0.0.1，官方解锁后真实前端可用。没有把先前 Playwright 导航超时归因为插件性能问题。
+
+578 构建在真实选日调用链中再次精确注入一次索引 getFile HTTP 503：请求 **31ms** 结束，**7 秒**后仍 loading；SDK failure callback 断点命中 **0**，没有外层 Promise rejection。由当前实际执行的思源前端 `main.4fd9fe98adb7cf8c365c.js:7426` 的 fetchPost 实现确认：JSON 错误被 processMessage 消费后，SDK 的 Promise 正常 fulfill，但 success/failure 两种 callback 均不调用。上一轮只补 failure callback 和 catch 没有覆盖这个实际分支，不能宣布 578 已完成故障恢复验收。
+
+同一 SDK 还明确将 getFile 的 HTTP 202 交给 failure callback；结合此前真实 Kernel 的 code=404 缺失响应，旧补修直接 reject 所有 failure callback 也会破坏 getFileOrNullChecked 的确认缺失语义。本轮只修改 `src/index.ts` 原有 getFile 适配器：保留显式 code=404 响应供 checked wrapper 判断；其他失败回调拒绝；SDK Promise 结束仍未返回数据时拒绝未完成读取。正常 callback 已先 resolve，末尾 reject 不改变其结果。没有新增网络实现、重试定时器、吞异常、索引改造或 Tooltip 改动。
+
+现有 API verifier 仍从生产 onload 的 AST 提取适配器，新增“SDK 吞掉错误但 Promise fulfill”分支，并把缺失 fixture 修正为实际 failure callback 分支，另测合法空字符串。新 fixture 在旧代码下先失败，补修后通过，不以调整空数据期望掩盖错误。
+
+- `pnpm verify:siyuan-api-compat`：**A–K，exit 0**。
+- `pnpm verify:enhanced-diary-workspace-actions`：**37 组，exit 0**。
+- `pnpm verify:enhanced-diary-project-index`、`pnpm verify:remote-kernel-compat`：均 exit 0。
+- `pnpm typecheck`、`npx tsc --noEmit`、`pnpm lint`：均 exit 0。
+- `pnpm build:app`、`pnpm build:kernel`、`pnpm build`：均 exit 0；设置 `SIYUAN_SKIP_DEV_DEPLOY=1`，没有构建自动部署。app 单项 47.45s 仅是构建时间。
+
+用户针对新哈希再次明确批准后，只备份并原子替换 index.js，Kernel 回读一致，调用一次官方 setPetalEnabled 后 running；刷新当前已解锁页面，并通过 CDP 实际执行脚本主体完整匹配 dist。受测新文件 **7,528,471 字节**，SHA-256 `5fbdcc3453b82ab31ac3a85942805a908b305ac96a4d6f9e610033b985ba52b4`。CSS、kernel.js、manifest 和业务配置未部署；版本、依赖与所有 schema 不变。
+
+### 5fbd 构建可见 UI 错误、重试与缓存
+
+通过真实命令面板打开工作台、进入日历，并按实际 Canvas 布局鼠标选日；没有调用内部选日函数。页面重载后先重新关联 Network initiator：两次未命中拦截的选日实际正常读取，**不作为故障验收**。最终命中的请求同时满足当前页面 POST JSON 的精确基础索引 path、选日函数栈及本次未缓存日期点击窗口，只 fulfill **1 次 HTTP 503/code=-1**，未拦截 putFile、未改写 Kernel 文件，也未影响其他窗口。这是浏览器受控故障，不能描述为 Kernel 自发故障。
+
+沿用 T1=点击后详情区域首个可见帧，T2=正确日期、loading 结束、目标状态连续两帧稳定。以下均先 bringToFront 并确认 visibility=visible、document.hasFocus=true，1440×1400 视口；单次有界样本，不与历史不同边界数字计算性能提升：
+
+- 正常未缓存无日记：**T1 14.1ms / T2 50.8ms**；索引读取 1 次，HTTP 200、13ms。
+- 正常成功缓存命中：**12.1 / 25.0ms**；API 0 次。
+- 单次故障后错误态：**14.9 / 69.2ms**；目标索引 HTTP 503、33ms。窗口内还有 1 次加密笔记本租约请求 6ms，不归因为日期详情。
+- 移除拦截后真实点击“重试”：**11.6 / 44.5ms**；重新读取索引 1 次，HTTP 200、12ms。
+- 重试成功后先选另一日期再返回：**13.4 / 16.9ms**；API 0 次，符合成功详情缓存命中。
+
+故障后正确选中日期保留，aria-busy=false，显示“日期详情读取失败”和“重试”，没有“无日记”或上一日期的有日记详情。至少 2.1 秒尾部观察只有一次失败索引读取，没有自动重试。点击重试后显示该日期真实无日记、错误消失、loading 结束，再观察至少 2.1 秒。任务页和项目页仍可切换使用。新页面最初三个未做前台焦点校准的样本 T1/T2 为 989.1/2002.3、784.2/1781.9、782.0/1797.5ms（对应请求分别 3、1、0 次），保留其测量边界，不将这些差异擅自归因于 Kernel 或插件卡顿。
+
+有限竞态实测：跨月到两个基础索引中确有日记的日期连续真实点击，最终所选日期正确，T1/T2 **13.3/81.7ms**，两个选日合计索引/SQL/导出各 2 次；2.1 秒后旧结果未覆盖新日期。另对一个未缓存日期暂停单个基础索引请求，真实返回任务页后释放，再回日历，日期正确且 loading 结束。之后真实关闭重开工作台。上述监听期 pageerror、Runtime.exceptionThrown、unhandledrejection 均 **0**，Tooltip TypeError 没有复发；预期 503 Console error 与 SDK 故障提示不计为未捕获异常。没有在本轮人为撤销会员权限；该情形仍只有既有生产函数回归证据。
+
+**HTTP 故障恢复只读 UI 验收：PASS，证据属于 5fbd 补修构建，578 的失败结论保留。**
+
+### 已获批准业务批次：项目通过，任务阶段按规则停止
+
+用户已明确批准此前列明的整批正式业务操作及共享索引正常维护，条件为只读错误恢复先通过。本轮通过后再次只读验证配置和项目索引哈希/签名与前轮一致，才执行。没有切换日记笔记本、项目容器或修改配置。所有新对象使用同一唯一测试标记；真实 ID 与清理范围只留本机临时账本，不提交名称、路径、ID 或正文。
+
+1. 在当前正式 parentDoc 下，通过 UI **仅提交一次**根项目创建。createDocWithMd HTTP 200/code 0、请求 **35ms**，响应监听在提交后约 **98ms**取得真实文档 ID。随后 getPathByID 确认与正式父文档同笔记本且位于其子路径，项目索引及界面均包含该根项目。未对根项目表单关闭时刻安装连续采样，故不填精确关闭/显示耗时。
+2. 在该新根项目中，通过 UI **仅提交一次**子项目创建。处理中 **1.7ms**、表单关闭 **288.0ms**、子项目详情标题出现 **302.2ms**。appendBlock HTTP 200/code 0、**7ms**，属性写入 **5ms**、回读 **2ms**。真实 getChildBlocks 回读为 h/h1；项目索引 rootProjectId、parentTargetId、ancestorTargetIds 均正确指向本次新根项目。没有重建完整项目索引。
+3. 在任务表单中填写唯一测试任务，关联本次新子项目，**只点击一次“创建任务”**；处理中 **0.5ms**出现。正式服务调用 createDailyNote 一次，HTTP 200/code 0，真实 data.id 已存账本；该请求 **56ms**。但任务未确认写入，表单恢复可提交而未关闭，按规则立即停止后续业务写入，没有再次提交。
+
+实际请求证据显示：新日记可导出 Markdown，但创建后的 5 次有界元数据查询均返回 0 行，其中任务最终写入前验证约在提交后 **191.1ms**执行；其他查询约为 187.9、353.3、664.5、1120.8ms。`submitNewTaskForWorkspace → getOrCreateTodayDiaryDocument → addNewTaskToDiary → validateEnhancedDiaryWriteTarget` 在无法确认目标元数据时拒绝写任务，没有把未知状态当空文档。稍后的只读复查 getPathByID 成功、单 ID 元数据为 1 行且属于配置日记笔记本，说明创建成功与 SQL 当时可见性不同步；本轮没有连续测定恢复可见的准确时间，不能给出其延迟阈值。对新日记的真实块读取只有 1 个非标题块、0 个标题及 0 个任务列表，也尚不具备正式强化日记模板结构。没有擅自补模板或改变日记格式。
+
+因此不能宣布任务创建成功，也不能把“文档创建成功”写成“任务成功”。未继续完成/撤销任务、未添加快速记录、未执行这些对象的项目双链验收；这些仍需处理新日记准备/元数据可见性问题后，另行安排有界业务复验。本轮不扩大为任务服务或索引架构修复。已确认的根项目、子项目及本次新日记保留，**不自动删除**；日记没有测试任务，清理前仍须确认是否存在后来用户内容并另获清理许可。
+
+关闭重开工作台后，新根项目和子项目仍可见，索引可回读。相较新增根项目后的快照，原有 16 个节点及原有 2 个根项目条目逐项相等；本次新根项目仅 updated 随子项目写入改变。项目索引从 **2 根/16 节点**变为 **3 根/17 节点**。任务索引始终 **55 条、52,717 字节，哈希不变**，无测试任务；没有清空、覆盖或恢复旧共享文件。
+
+### 计数、共享状态与剩余边界
+
+业务窗口内 taskIndexDiagnostics（启用前为 0，采集后已关闭）：databaseCommits=**3**、targetedRefreshes=**3**、broadCleanups=**0**、indexReads=**13**、indexWrites=**0**、writeBytes=**0**、noopWritesSkipped=**3**、dataUpdatedEvents=**0**、workspaceRefreshes=**0**。这只覆盖本页面运行时的该窗口；项目使用局部面板刷新，不能据此宣称全部环境永久无重复刷新。
+
+同一较长观察窗口还包含人工只读回查、项目切换及其他正常前台活动：getFile 206 次、putFile 16 次（12–21ms，均 HTTP 200）。本轮 Network 全量元信息保留了次数，但 multipart 写入的逐文件归类不完整，**不能把这 16 次全归因为某一个索引或某一次创建，也不能用哈希变化倒推写入次数**。已有 recent-doc 重复写入风险未在本轮重构。
+
+末次共享文件只读摘要（位于 `/data/storage/petal/siyuan-homepage/`，未提交文件内容）：配置 2,719 字节、哈希不变；任务索引如上；项目索引 9,091 字节、3 根/17 节点，预期变化；项目记录索引 2,430 字节、3 条，哈希变化；recent-doc 快照 98,675 字节/132 条，哈希变化；基础日记索引仍 10,891 字节/28 日，没有新增今日日记条目。后三者需与正常前台维护、元数据可见性分别解释，不声称它们被本测试排他改变或全部一致性已验收。没有直接写任何索引 JSON、重建索引、修改已有用户任务或回滚正常更新。
+
+测试 Edge 已关闭，清理本轮 Cookie，相关测试进程和 49630/51110 监听均为 0。上一轮临时 profile `homepage-detail-edge-bnIfPR` 仍在；本轮 `homepage-recovery-edge-ohWB7e` 的常规 PowerShell 删除同样被自动审批拒绝（blocked by policy，未提供具体原因），未尝试替代删除方式。两个 TEMP profile 需用户手动清理，报告不包含其中认证内容。部署备份及测试对象账本仍留本机，未提交凭据。
+
+**本轮结论：只读 HTTP 错误恢复 PASS；正式业务批次部分完成，任务创建阶段停止，完整业务/发布验收尚未通过。** 新增局部补修已有自动化与安装后真实 UI 证据；任务完成/撤销、快速记录、相应关联和持久化仍未验收。后续先处理新日记 SQL 可见性与模板准备的明确边界，不凭本轮结果继续重构索引，不重试或自动删除已创建对象。

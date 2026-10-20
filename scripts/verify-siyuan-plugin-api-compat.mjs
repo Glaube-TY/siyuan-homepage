@@ -210,19 +210,25 @@ const reader = createReader(async (url, payload, success, _headers, failure) => 
     assert.equal(url, "/api/file/getFile");
     assert.deepEqual(payload, { path: "/fixture.json" });
     if (fileMode === "http-failure") { failure?.({ code: -1, msg: "503 fixture" }); return; }
+    // The live SDK suppresses processed JSON errors; its Promise still fulfills.
+    if (fileMode === "suppressed-http-failure") return;
+    // getFile's actual HTTP 202/code=404 path uses failCallback, not success.
+    if (fileMode === "missing") { failure?.({ code: 404, msg: "file does not exist", data: null }); return; }
     if (fileMode === "network-failure") throw new Error("network fixture");
-    success(fileMode === "blob" ? bytes : fileMode === "missing" ? { code: 404 } :
+    success(fileMode === "blob" ? bytes : fileMode === "empty" ? "" :
         fileMode === "api-failure" ? { code: -1, msg: "fixture" } : { version: 1, items: [] });
 });
 apiCompat.setSiyuanRuntimePort({ post: async () => assert.fail("unexpected post"), getFile: reader });
 assert.deepEqual(await apiCompat.getFileChecked("/fixture.json"), { version: 1, items: [] });
 fileMode = "blob";
 assert.equal(await (await apiCompat.getFileChecked("/fixture.json")).text(), "fixture");
+fileMode = "empty";
+assert.equal(await apiCompat.getFileChecked("/fixture.json"), "");
 fileMode = "missing";
 assert.equal(await apiCompat.getFileOrNullChecked("/fixture.json"), null);
 fileMode = "api-failure";
 await assert.rejects(apiCompat.getFileChecked("/fixture.json"), /code=-1/);
-for (fileMode of ["http-failure", "network-failure"]) {
+for (fileMode of ["http-failure", "suppressed-http-failure", "network-failure"]) {
     for (const read of [apiCompat.getFileChecked, apiCompat.getFileOrNullChecked]) {
         let timer;
         try {
@@ -234,4 +240,4 @@ for (fileMode of ["http-failure", "network-failure"]) {
         } finally { clearTimeout(timer); }
     }
 }
-console.log("SiYuan plugin API compatibility verification passed (A-J; frontend file failures settle)");
+console.log("SiYuan plugin API compatibility verification passed (A-K; suppressed SDK errors settle and explicit absence survives)");

@@ -476,9 +476,12 @@ export default class PluginHomepage extends Plugin {
         setSiyuanRuntimePort({
             post: (path, payload) => fetchSyncPost(path, payload),
             getFile: (path) => new Promise((resolve, reject) => {
-                // SDK failures do not invoke the success callback; settle both paths.
+                // Keep explicit absence; SDK-consumed errors may finish without either callback.
                 void fetchPost("/api/file/getFile", { path }, (content: unknown) => resolve(content), undefined,
-                    (response) => reject(new Error(`[getFile] 思源文件读取失败：code=${response?.code ?? "unknown"}`))).catch(reject);
+                    (response) => response?.code === 404 ? resolve(response)
+                        : reject(new Error(`[getFile] 思源文件读取失败：code=${response?.code ?? "unknown"}`))).then(
+                    () => reject(new Error("[getFile] SDK 请求结束但未返回文件数据")), reject,
+                );
             }),
             getFrontend: () => getFrontend(),
             platform: {
