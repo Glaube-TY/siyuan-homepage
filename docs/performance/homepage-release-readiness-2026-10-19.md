@@ -996,3 +996,70 @@ Edge 155.0.4283.62 使用独立临时 profile，CDP 实查仅监听 127.0.0.1。
 单实例队列已通过有界并发测试；**不具备跨客户端全局原子 CAS**。其他实例在最后读取与 putFile 之间写入仍可能竞争，回读只验证观察到的结果，不能证明其他端从未写入；本轮没有做多端测试，也没有新建锁系统。
 
 **修复后真实客户端验收：尚未执行，等待用户批准部署及重载。** 获批后用原生 Win32/DevTools 观察工作区只读切换和至少跨过原约 180 秒周期的空闲窗口，按具体文件记录近期快照读写、任务/项目维护和页面异常；真实变化保存需复用已有对象的已授权变更或自然增量，不新增项目、任务或日记。本轮合成写入 5→0 证明代码路径，不能代替该实机结论，也不能擅自改写此前性能 CONDITIONAL 状态。
+
+## 2026-10-20：recent-doc-snapshot 跳写修复最终原生桌面验收
+
+基线 abb35e8d17cc6bb7477513373c85a4089444bcac，初始工作区干净。本轮读取规则、历史报告并使用 CodeGraph 核对快照提交及前端/Kernel 边界；仅使用本机 127.0.0.1:6806、原生 Windows 思源客户端和既有 Win32/.NET CopyFromScreen/DPI/DevTools 方法。没有新建 Edge、连接其他实例、创建或删除业务对象，也没有修改源码、版本、配置、schema、同步设置或执行 Release。两份现有 dist 产物与指定哈希一致，**未重新构建**。
+
+### 兼容性预检与已批准部署
+
+通过桌面已登录的同源官方 API 会话读取文件，没有读取、注入或保存 Token/Cookie。部署前将真实 recent-doc-snapshot 响应交给从当前生产源码 AST 取得并转译的正式结构校验函数，仅验证、不提交：文件存在，version=1，docs=132，consumers=6，98,975 字节，文档 ID/字段类型、全部消费者游标及根结构校验通过；当时 SHA-256 为 1dd090a5fbd6d9d9875b3ef26bac621a52bd58c5daa4815c795c8e0c823da7e2。没有因兼容性检查清空、迁移或覆盖文件。
+
+Kernel 并非只包含无关的同名字符串：CodeGraph 核对 createRobotKernel → buildRobotKernelToolRegistry → registerSiyuanTools/共享日记任务工具 → validateEnhancedDiaryProjectWriteTarget → 项目增量维护 → prepareChangedRecentDocsForIndex；正式 kernel.js 也保留实际调用该提交函数的 task、日记、项目及项目记录消费者。因此向用户说明两文件范围并取得本轮明确批准后，才同时替换 index.js、kernel.js；并非仅凭 Kernel 哈希不同决定部署。
+
+- index.js：旧 SHA-256 4d069e451e386483a1cdf60626c7f1baec6ea6c506c65d8026cd5dcc242d7267 → **3c863491d0137db47ab69dc99661baeb72d37d3b3c147305fb809b1c278a54dc**，新文件 7,532,929 字节。
+- kernel.js：旧 SHA-256 72b0374f3972ab7a8957595c3fd37f8c8db1ad23935d35cef8d9e485cf362090 → **072b71490b639952f2c04dcdd63c4c2c56eb92a971a38f99937bdb28b788fe64**，新文件 1,790,699 字节。
+- index.css 保持 7b5c06207fc0c4f4b37c316ce3a6c0b38154449aa84af69003b3a414b22478eb；plugin.json 保持 e61aa3fe0b34cb1d562aba5dadb57194ce28d4d6fca00ccb539da6b805641a7e，与 dist 一致，未替换这两文件。
+
+先确认安装目录的插件身份、边界及非符号链接目标；备份到 **%TEMP%/homepage-snapshot-noop-backup-275f74f3-d0e3-4744-8f1f-f16adca8ee7e**，逐文件校验备份哈希，写临时同目录文件后逐个原子 rename，并本地及经 Kernel getFile 回读验证。未对两文件整体事务性作额外承诺。仅一次调用官方 /api/petal/setPetalEnabled（packageName=siyuan-homepage、enabled=true），返回 JS 指纹吻合；/api/plugin/getLoadedPlugin 返回 running/stateCode=2。没有重启客户端，也没有启动 Vite watch。
+
+原生 DevTools 中的实际插件构造函数 SHA-256 为 **55385842c57b0ff7d2bdd0be5cac090b1e13637583d82c74ff97a372c23facf4**，与从 dist/index.js AST 提取的导出插件类完全一致。重载前的旧标签组件已被卸载，关闭旧工作区标签后，经思源真实命令面板“打开强化日记工作台”重新打开；核心数据正常显示。收尾关闭了旧主页标签，保留新工作区打开，没有把重载后旧空标签当作新工作区验收结果。
+
+### 450 秒连续观察与维护路径覆盖
+
+观察窗为 **2026-10-20T11:38:37.450Z–11:46:07.461Z，450,011.5ms（450.012 秒）**，包含重新打开工作区、任务 → 项目 → 记录 → 日历 → 总览的真实原生鼠标切换及随后空闲。这是整段观察时长，**不是任何一次页面加载耗时，也不是纯空闲 450 秒**。没有点击创建、编辑、完成、删除、索引重建等按钮。辅助导航时曾误开闪卡面板并立即退出，只有 getRiffDueCards 读取、没有评分；相关请求不归因为插件索引维护。
+
+复用临时 fetch/XHR 观察器，只在内存提取 JSON/FormData 的 path 并立即分类；不保存业务正文、multipart 文件内容、完整请求体或 HAR。五文件的原文只在内存计算哈希、条目保护及回读关系检查，落地证据只有脱敏汇总。观测上限 5000 未触达，结束时在途请求 0；辅助基线/回读校验 28 次使用保留的原始 fetch，不计入下面 **333 次当前 renderer 应用 API 请求**。这些请求不是全部属于本插件，也不覆盖其他窗口、Kernel 内部或直接文件系统写入。
+
+实际按文件分类的 getFile/putFile 结果（网络耗时到响应头/结束事件，不是纯 Kernel CPU 或落盘耗时）：
+
+- **近期快照：读 13、写 0**。读平均 7.96ms，范围 6.8–10.1ms；没有写入，故无写入耗时数据。
+- **任务索引：读 18、写 0**。读平均 7.04ms，范围 6.0–8.6ms。
+- **项目索引：读 4、写 0**。读平均 7.92ms，范围 6.2–10.2ms。
+- **项目记录索引：读 2、写 1**。读平均 8.75ms，范围 7.1–10.4ms；写入 20.9ms，HTTP 200。相应插件目录 putFile 1 次、14.3ms。这一对写入不属于近期快照。
+- **基础日记索引：读 3、写 0**。读平均 31.87ms，范围 7.2–78.6ms。
+- 本插件其他文件读 228、写 0；其他文件及 unknown 类文件读写均 0。没有把全页面 putFile 归为近期快照写入。
+
+**维护路径确实执行，跳写判定 PASS，而非仅因未触发维护得到零写入。** 捕获 7 次 getRecentDocs（12.5–15.8ms）；其中四组规律请求均由任务索引读取衔接 getRecentDocs → SQL → recent getFile → recent getFile → 任务索引读取，均 HTTP 200。四组起点间隔实际为 **120,088.5、120,061.2、120,065.8ms**，另三次发生于工作区初始化相关维护。对照 prepareTaskData → refreshTaskIndexFromRecentDocuments → prepare/commit 源码，无变化分支会读取准备快照，并在提交队列内再读取最新快照后比较返回；有写入才会额外做写后回读。本轮反复观察到这对正式读取而没有 putFile，不能解释成仅命中前台显示缓存。
+
+此前真实观测是四窗合计 **5 次**近期快照无语义变化写入，间隔约 180 秒；本轮实际维护间隔约 120 秒，仍跨过至少两个原约 180 秒周期，450 秒内近期快照 **0 次写入**。不将两个不同窗口的总请求数或间隔差异解释为任务操作耗时提升，也不改写此前五次测量。
+
+### 数据保护、异常与独立剩余事项
+
+任务诊断实测 indexReads=18、readParseMs≈142.0ms；databaseCommits、targetedRefreshes、broadCleanups、indexWrites、writeBytes、writeMs、noopWritesSkipped、dataUpdatedEvents、workspaceRefreshes 均为 0。这里任务 noopWritesSkipped=0 表示未进入数据库变更维护，不是近期快照跳写计数；不把它当作本次优化未生效。
+
+五文件前后 version、大小及条目数正常：任务 version 1/56 条/54,114 字节，项目 version 1/3 根17节点/9,091 字节，项目记录 version 1/4 条/3,175 字节，基础日记 version 4/29 日/11,275 字节，近期快照 version 1/132 文档6消费者/98,975 字节。除项目记录文件顶层时间外，各文件原始哈希均未变化，五文件完整语义哈希均未变化。
+
+近期快照观察前后 SHA-256 均为 **8e95cc3e83544a8f5f781f5cd7d736ba0bcdfd19d63a6c862edda01b9520fbb6**；仅排除顶层 updatedAt 的语义哈希均为 **e5da68cc4011665d3e468e1f3173d3f5ff0896b74868334debe7e3fb1a609ad1**。docs 哈希均为 6f9a33b7784029dc177b181dab4650cca9a4dc7d3b660a3b27f987863eb1c40b，全部 consumers 哈希均为 3a2bba4ffff4dfb5928bb7ab623608f88245308f8787373ddea7c1d7b6b0af89，顶层时间也保持不变。部署前预检哈希与观察基线不同，不能混作同一时点；正式比较使用重载后重新取得的观察基线，没有恢复历史文件。
+
+原测试日记、根项目、子项目、唯一任务及快速记录真实 ID 均从既有本机账本取出，再由单 ID SQL、属性和路径 API 只读回读确认。任务仍未完成，日记归属正确、任务关联原测试子项目；项目父子/根关系正确；记录唯一、relationStatus=normal 且目标正确。全部原 56 条任务逐条语义保护通过，原项目记录 items 整体语义保护通过，项目文件原始哈希不变。日记与项目容器分属不同笔记本，不以二者必须同笔记本作错误判定。
+
+项目记录那一次 20.9ms 写入只有顶层 updatedAt 改变，4 条记录与完整语义哈希均未变；结合请求时序和源码，该写入符合原有工作区初始化中项目记录 refresh → writeDirect 的独立维护路径；本轮没有追加函数级调用栈取证。本轮如实保留这个有限写入证据，不宣称“所有共享索引均已零写入”，也不顺带修改它；单次约 3KB 时间戳维护未造成数据损失或阻塞，作为独立剩余事项留审查，不推翻本次近期快照目标通过。
+
+本观察窗 window.error 和 unhandledrejection **0 次**，没有永久 loading，五个页面及原测试数据正常显示。另有一次辅助 getFullHPathByID fetch 失败，观察器记 HTTP=0、22.2ms；没有保留其错误原因，不能判断是取消还是网络失败，也不能据此认定为本修复回归。它不属于五个目标文件，未伴随未捕获异常或界面失败。控制台已有 getCloudUser timeout fallback 警告在本轮观察前已存在；未将完整 Console 日志作为零错误证明。
+
+后续只读 postflight 再次通过新快照结构校验，Kernel 服务的两份 JS 仍为已批准新哈希，CSS/manifest 仍未变，实际前端构造函数仍匹配；强化日记业务配置哈希与此前验收基线一致。观察器、监听器和安全 timer 均已停止并恢复 fetch/XHR，taskIndexDiagnostics 已确认关闭，DevTools 已关闭，思源工作区保持打开。测试对象、备份和既有临时认证 profile 全部保留，没有清理或读取认证文件。
+
+### 分项结论与收尾
+
+- 新构建实际部署：**PASS**。
+- 当前前端执行新代码：**PASS**。
+- 无变化近期快照跳写：**PASS**，覆盖上述真实维护读取及完整 450 秒窗口。
+- 修复后真实变化保存：**NOT TESTED**；生产函数回归此前 PASS，本轮没有为制造变化创建或改动业务对象，也没有把那一轮合成变更算作实机变更。
+- 任务索引正常：**PASS**。
+- 项目及记录索引正常：**PASS**（数据与关系范围；项目记录单次时间戳维护另行保留）。
+- 桌面业务界面：**PASS**。
+- 数据一致性：**PASS**（已核对文件、原条目与测试对象范围）。
+- 跨端同步：**NOT TESTED**；跨实例原子 CAS 边界保持原样，没有新增承诺。
+
+**本批性能优化的本机验收完成，可结束本批优化并交由 ChatGPT 最终审查。** 不代表 Release、跨端同步或测试对象清理已经完成，也不隐去项目记录单次时间戳维护及辅助路径查询失败这两项独立记录。本轮仅追加本报告，执行文档范围 git diff/status/stat/check；未重复构建或合成基准，没有修改版本、创建 tag 或发布插件。
