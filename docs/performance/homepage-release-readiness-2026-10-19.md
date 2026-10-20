@@ -729,3 +729,57 @@ Edge 155.0.4283.62 使用独立临时 profile，CDP 实查仅监听 127.0.0.1。
 测试 Edge 已关闭，清理本轮 Cookie，相关测试进程和 49630/51110 监听均为 0。上一轮临时 profile `homepage-detail-edge-bnIfPR` 仍在；本轮 `homepage-recovery-edge-ohWB7e` 的常规 PowerShell 删除同样被自动审批拒绝（blocked by policy，未提供具体原因），未尝试替代删除方式。两个 TEMP profile 需用户手动清理，报告不包含其中认证内容。部署备份及测试对象账本仍留本机，未提交凭据。
 
 **本轮结论：只读 HTTP 错误恢复 PASS；正式业务批次部分完成，任务创建阶段停止，完整业务/发布验收尚未通过。** 新增局部补修已有自动化与安装后真实 UI 证据；任务完成/撤销、快速记录、相应关联和持久化仍未验收。后续先处理新日记 SQL 可见性与模板准备的明确边界，不凭本轮结果继续重构索引，不重试或自动删除已创建对象。
+
+
+## 新建日记 SQL 就绪确认与既有测试对象保护（2026-10-20）
+
+本轮基线 `07787dd8e28c3060ba22470f90a8b03cecbb8a3b`。首先读取规则并由 CodeGraph 核对创建、元数据校验、基础索引及工作区提交链路。没有新增正式项目、任务、快速记录或日记，没有重复上轮创建，也没有清理对象、补模板、修改配置、部署或重载插件。
+
+### 已创建对象的当前真实状态（只读）
+
+复用上轮本机临时归属账本中的真实日记、根项目和子项目 ID，不按标题猜对象。首次 10 个、补充恢复查询后 11 个有界只读请求均 HTTP 200：配置、getPathByID、单 ID SQL、Markdown 导出、getChildBlocks、getBlockAttrs、基础索引、项目索引及任务索引。基础索引通过打包的生产 `getEnhancedDiaryIndexEntriesStrict` 读取校验；没有调用维护/写入入口。
+
+末轮请求耗时：日记 getPathByID **13.68ms**、单 ID SQL **16.03ms**、Markdown 导出 **14.49ms**、日记子块 **7.09ms**、块属性 **7.82ms**、严格基础索引读取 **15.95ms**；新增受限官方日期属性恢复查询 **18.35ms**。这些是本机只读单次 API 测量，不是新文档就绪耗时或 UI 点击耗时。
+
+- 上轮日记现已可读，type=d，所属笔记本、官方 `custom-dailynote-YYYYMMDD` 属性和业务日期均正确。
+- 子块仍只有 1 个非标题块，**0 个标题、0 个任务列表**；没有本次测试任务，任务索引也没有该任务。没有为了通过测试追加模板。
+- 严格基础索引 complete=true、version=4、28 日，**仍缺该日日记条目**。只记录待受控补登记状态，本轮没有修改正式索引。
+- 上轮新根项目和子项目仍存在，真实子块 ID 与账本一致、父子索引关系正确；项目索引仍 **3 根/17 节点**。任务索引 **55 条、52,717 字节，哈希与上轮相同**。没有发现已知条目丢失。
+- 按指定笔记本、type=d、官方属性名及日期值的元数据查询实际返回账本中的同一日记，LIMIT 2，用于检测歧义而非随意挑选。
+
+### 根因与本轮修复
+
+原链路为 `getOrCreateTodayDiaryDocument → createTodayDailyNoteForWidget → readDiaryMarkdownResult → addNewTaskToDiary → validateEnhancedDiaryWriteTarget`。原创建包装器异步启动 `indexCreatedEnhancedDiaryDocument`，后者只有 0/150/450ms 三次尝试；调用方仅确认 Markdown 可导出便继续，未等 SQL 元数据可用。上轮约 191ms 写前校验以及约 1121ms 内的查询均为空，但稍后真实读取可见的事实保留，不能解释为文档创建失败。
+
+官方依据：核对 [v3.8.6 model/file.go](https://github.com/siyuan-note/siyuan/blob/v3.8.6/kernel/model/file.go)、[v3.8.7 model/file.go](https://github.com/siyuan-note/siyuan/blob/v3.8.7/kernel/model/file.go) 和 [v3.8.7 API filetree.go](https://github.com/siyuan-note/siyuan/blob/v3.8.7/kernel/api/filetree.go)。创建成功表示已有文档树可载入并返回其 ID，不保证随后普通 SQL 已处理完索引队列；没有配置原生日记模板时，创建末尾不强制 SQL FlushQueue。这与本机“导出成功、SQL 暂不可见”一致。未通过再次创建来验证延迟，也不把 fixture 延迟当作 Kernel 实测。
+
+1. `enhancedDiaryDoc.ts` 新增只针对真实返回 ID 的有限就绪确认。只读该 ID，检查响应结构、同一 ID、type=d、box 和官方日期；明确 out_of_scope/date_mismatch 立即失败。只有 missing/unknown 进入退避，最终仍为 unknown，不将超时转换为不存在。
+2. 间隔 **0、150、300、600、1000、1500ms**，通常累计等待 **3550ms**、最多 6 次；整个元数据确认阶段设 **4000ms deadline**，单次 SQL 挂起也由剩余预算结束等待，清理计时器。迟到 SQL 仅为只读结果，不会发布就绪或启动写入。不承诺包含创建和索引 I/O 的整次操作 4 秒完成，也不宣称所有真实 SQL 延迟均在预算内。正常已存在并验证的日记没有新增退避等待，正式任务写前校验继续执行。
+3. `enhancedDiaryActions.ts` 对同笔记本/本地业务日的并发准备复用同一个 flight。取得 ID 后按顺序等待就绪、定向索引登记及回读、Markdown 读取；任一阶段失败保留真实 docId/created/reason，不把日记成功当作任务成功。
+4. 任务准备入口改为严格读取现有基础索引，不再因索引损坏、版本/笔记本不符或不完整而自动完整重建。`indexCreatedEnhancedDiaryDocument` 在原维护队列内重新读磁盘，只合并已验证的这一篇，保留其他日期、schema/version/notebookId/complete；同日另一 ID 冲突安全失败。写后回读并比较全部条目，失败返回 false，不用空索引覆盖未知文件，也不因写后错误重复写三次。
+5. 失败分类保留 `metadata_pending`、`out_of_scope`、`date_mismatch`、`index_not_ready`、`read_failed`、`existing_doc_unreadable`、`creation_unknown`。工作区明确提示“今日日记已创建，但尚未确认可以写入任务。任务未写入，请勿重复创建日记。”，并补充具体失败阶段。创建状态不明时单独提示，保持表单与输入。任务真实写入成功/写后部分成功的既有规则不变。
+6. 文档就绪不代表标题模板完整。真实 `addNewTaskToDiary` 仍通过正式标题定位器检查；缺少标题时不插入任务，并引导现有“补充今日模板”入口。本轮没有自动调用该入口，也没有修改正式模板结构。
+
+### 防重复与恢复边界
+
+同一运行时按笔记本及本地日期记住已返回 ID；未知创建响应也留保护标记，不能再次提交 createDailyNote。失败重试优先复核同一 ID，不会因为基础索引缺条目而重新创建。对于页面重挂载或重启，先以受限 SQL 查询官方日期元数据：唯一候选交给同一就绪校验，多个候选或查询错误均停止，不扫描正文，不执行全库重建。
+
+如没有候选，仍只调用现有官方原生日记入口。官方 3.8.6/3.8.7 的创建锁和当前日记路径复用已由实现核对，不假设其在任意命名模板/路径变化下都绝对幂等；本轮没有修改这些配置。已有日记在本机只读恢复查询中已被找到，所以不会需要再调用创建入口。跨窗口/进程的最终路径复用依赖 Kernel 的该实现，本轮不新增持久化创建日志或分布式锁。
+
+### 生产函数回归与构建
+
+新增 focused verifier `scripts/verify-enhanced-diary-creation-readiness.mjs`，由原 workspace-actions verifier 一并执行，打包真实 getOrCreateTodayDiaryDocument、validateEnhancedDiaryWriteTarget、indexCreatedEnhancedDiaryDocument、addNewTaskToDiary 和标题定位器，仅控制 Kernel I/O。覆盖立即可见、前 3 次为空、超过 1 秒恢复、始终为空、SQL 网络/错误结构/永久挂起、错误笔记本/日期、导出失败、索引写入/回读失败、跨实例未索引日记恢复、未知创建响应禁止重复、缺模板零任务写入、完整模板一次插入和正式写前复验，以及严格索引损坏/版本/笔记本/完整性/读取失败与队列内读取最新状态保留其他日期。该 verifier 的任务同步 I/O 是边界 stub，不宣称其替代真实任务索引维护验收；后者运行既有独立 verifier。
+
+工作区原真实 handler、dialog host 和任务表单还验证：各类已创建但未就绪结果均不写任务、不关闭表单，原输入保留，未知创建也明确提示勿重复创建。没有用源码字符串存在性替代这些业务断言。
+
+验证实际结果：
+
+- `pnpm verify:enhanced-diary-workspace-actions`：**39 组，exit 0**，其中新增生产就绪 verifier **14 组**，以及已创建未就绪的表单保留测试；原 Tooltip/日期详情/刷新协调测试继续通过。
+- `pnpm verify:enhanced-diary-project-index`：聚合 PASS，exit 0。
+- `pnpm verify:siyuan-api-compat`：A–K，exit 0。
+- `pnpm verify:task-index-sync-performance`：**28 个生产场景，exit 0**，继续覆盖确认任务的正式索引维护。
+- `pnpm typecheck`、`npx tsc --noEmit`：均 exit 0。首次 lint 发现新 verifier 有 1 个未使用 import，移除后 `pnpm lint` exit 0，没有放宽规则。
+- `pnpm build:app`、`pnpm build:kernel`、`pnpm build`：均 exit 0，`SIYUAN_SKIP_DEV_DEPLOY=1`。app 单项 24.90s 是构建时间，非 Kernel 性能数据。只更新构建产物及既有本地 dev 镜像，不自动部署运行中的实例。
+- 正式安装 index.js 仍为 `5fbdcc3453b82ab31ac3a85942805a908b305ac96a4d6f9e610033b985ba52b4`，只读哈希核对未变。`git diff --check` 通过。
+
+没有部署本轮新前端或重载，当前安装仍是上轮已实测 HTTP 恢复的 5fbd 构建。因此新就绪等待、准确提示及模板缺失后的 UI 行为尚需另获部署许可后复验；本轮没有真实写入新任务，不宣称已完成业务验收。上轮已创建对象继续按本机账本保留，补登记正式索引和清理均未执行。版本 5.1.10、索引 schema、Tooltip 修复及共享 recent-doc 架构不变。

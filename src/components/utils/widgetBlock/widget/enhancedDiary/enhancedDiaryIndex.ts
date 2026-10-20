@@ -34,6 +34,7 @@ export interface EnhancedDiaryIndexPayload {
 type DiaryMetadataRow = {
     id: string;
     box?: string;
+    type?: string;
     path?: string;
     hpath?: string;
     content?: string;
@@ -180,7 +181,7 @@ async function queryRowsByIds(ids: string[]): Promise<Map<string, DiaryMetadataR
     for (let i = 0; i < ids.length; i += SQL_BATCH_SIZE) {
         const batch = ids.slice(i, i + SQL_BATCH_SIZE);
         const escaped = batch.map((id) => `'${escapeSql(id)}'`).join(",");
-        const result = await sqlChecked(`SELECT id, box, path, hpath, content, ial, updated FROM blocks WHERE id IN (${escaped})`);
+        const result = await sqlChecked(`SELECT id, type, box, path, hpath, content, ial, updated FROM blocks WHERE id IN (${escaped})`);
         for (const row of result) if (row?.id) rows.set(String(row.id), row as DiaryMetadataRow);
     }
     return rows;
@@ -372,27 +373,36 @@ export async function getEnhancedDiaryIndexEntry(notebookId: string, date: strin
 
 function delay(ms: number): Promise<void> { return new Promise((resolve) => setTimeout(resolve, ms)); }
 
-export async function indexCreatedEnhancedDiaryDocument(notebookId: string, docId: string): Promise<boolean> {
+export async function indexCreatedEnhancedDiaryDocument(notebookId: string, docId: string, expectedDate?: string): Promise<boolean> {
     let succeeded = false;
     await queueIndexWrite(notebookId, async () => {
-        for (let attempt = 0; attempt < 3; attempt++) {
-            try {
+        try {
+            let entry: DiaryIndexEntry | null = null;
+            for (let attempt = 0; attempt < 3; attempt++) {
                 const row = (await queryRowsByIds([docId])).get(docId);
-                const entry = rowToEntry(row, notebookId);
-                if (!entry) {
-                    if (attempt < 2) await delay(150 * (attempt + 1));
-                    continue;
+                if (row) {
+                    entry = row.type === "d" ? rowToEntry(row, notebookId) : null;
+                    if (!entry || (expectedDate && entry.date !== expectedDate)) return;
+                    break;
                 }
-                const loaded = await readIndex(notebookId);
-                const index = loaded.matched ? { ...loaded.index, docs: { ...loaded.index.docs } } : emptyIndex(notebookId, false);
-                removeEntriesById(index.docs, docId);
-                if (prefers(entry, index.docs[entry.date])) index.docs[entry.date] = entry;
-                await writeIndex(index);
-                succeeded = true;
-                return;
-            } catch {
                 if (attempt < 2) await delay(150 * (attempt + 1));
             }
+            if (!entry) return;
+            // Read inside the maintenance queue; never replace corrupt/mismatched data with empty docs.
+            const parsed = await fileToObject(await getFileChecked(INDEX_PATH));
+            const docs = validateStrictEntries(parsed, notebookId);
+            if (docs[entry.date] && docs[entry.date].id !== docId) return;
+            removeEntriesById(docs, docId);
+            docs[entry.date] = entry;
+            const index = { ...parsed, docs };
+            await writeIndex(index);
+            const stored = await fileToObject(await getFileChecked(INDEX_PATH));
+            const verified = validateStrictEntries(stored, notebookId);
+            if (JSON.stringify(verified) !== JSON.stringify(docs)) throw new Error("日记索引写后回读不一致");
+            succeeded = true;
+        } catch {
+            cache = null;
+            cacheNotebookId = "";
         }
     });
     return succeeded;

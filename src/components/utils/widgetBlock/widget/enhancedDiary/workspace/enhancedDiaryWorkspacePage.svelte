@@ -883,6 +883,9 @@
                 existing_doc_unreadable: "今日日记已存在但暂时无法读取内容，请稍后重试。",
                 create_failed: "创建今日日记失败，请检查日记笔记本设置。",
                 read_failed: "今日日记已创建但读取内容失败，请刷新后重试。",
+                metadata_pending: "今日日记已创建，但元数据尚未就绪，请勿重复创建日记。",
+                creation_unknown: "日记创建结果尚未确认，请勿重复创建日记。",
+                out_of_scope: "日记归属异常，操作已停止。", date_mismatch: "日记日期异常，操作已停止。",
             };
             showMessage(messages[result.reason || ""] || "操作失败", 4000);
             return;
@@ -959,7 +962,15 @@
             const todayDoc = await getOrCreateTodayDiaryDocument(plugin, state.config);
             if (!componentAlive || !advancedEnabled || lifetime !== workspaceLifetime) return false;
             if (!todayDoc.ok || !todayDoc.docId) {
-                showMessage("未能打开或创建今日日记，任务未写入", 4000);
+                const reasonHints: Record<string, string> = {
+                    metadata_pending: "文档元数据尚未就绪。", index_not_ready: "日记索引尚未确认。",
+                    read_failed: "日记内容暂时无法读取。", out_of_scope: "日记归属异常。", date_mismatch: "日记日期异常。",
+                };
+                showMessage((todayDoc.created
+                    ? "今日日记已创建，但尚未确认可以写入任务。任务未写入，请勿重复创建日记。"
+                    : todayDoc.reason === "creation_unknown" ? "日记创建结果尚未确认，任务未写入，请勿重复创建日记。"
+                    : todayDoc.reason === "existing_doc_unreadable" ? "今日日记已存在但暂时无法读取，任务未写入。"
+                        : "未能确认今日日记已就绪，任务未写入；请检查日记归属、日期和索引状态。") + (reasonHints[todayDoc.reason || ""] || ""), 5000);
                 return false;
             }
             const result = await addNewTaskToDiary({

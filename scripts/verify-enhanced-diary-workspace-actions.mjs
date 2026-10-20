@@ -107,7 +107,7 @@ function host(onSubmit, kind="task") {
 function deferred(){let resolve,reject;const promise=new Promise((a,b)=>{resolve=a;reject=b;});return {promise,resolve,reject};}
 const tick=async()=>{for(let i=0;i<35;i++) await Promise.resolve();};
 const coreCompletes=(promise)=>Promise.race([promise,setImmediate().then(()=>{throw new Error('core refresh waited for an optional panel');})]);
-function fixture({load,write,calendar,detail,history,review,initialState}={}) {
+function fixture({load,write,calendar,detail,history,review,initialState,today}={}) {
     const timers=new Map(),listeners=new Map(),messages=[],calls={load:0,calendar:0,detail:0,task:0,record:0,toggle:0};
     let timerId=0,revision=0,completed=false;
     const records=[];
@@ -116,7 +116,7 @@ function fixture({load,write,calendar,detail,history,review,initialState}={}) {
         window:{setTimeout(fn){const id=++timerId;timers.set(id,fn);return id;},clearTimeout(id){timers.delete(id);},addEventListener(n,f){listeners.set(n,f);},removeEventListener(n){listeners.delete(n);}},
         loadEnhancedDiaryWorkspaceState:async(...args)=>{calls.load++;return load?load(snapshot(),...args):snapshot();},
         buildWorkspaceCalendarMonth:async(...args)=>{calls.calendar++;return calendar?calendar(...args):[{revision}];},loadWorkspaceDayDetail:async(...args)=>{calls.detail++;return detail?detail(...args):{revision};},
-        getOrCreateTodayDiaryDocument:async()=>({ok:true,docId:'diary'}),
+        getOrCreateTodayDiaryDocument:async()=>today?today():({ok:true,docId:'diary'}),
         addNewTaskToDiary:async()=>{calls.task++;return write?write():{ok:true};},
         addWorkspaceQuickRecord:async(_plugin,_config,categoryTitle,content)=>{calls.record++;const result=write?await write():{ok:true};if(result.ok)records.push({headingBlockId:`record-${calls.record}`,categoryTitle,content});return result;},
         toggleWorkspaceTaskComplete:async()=>{calls.toggle++;const result=write?await write():{ok:true};if(result.ok){completed=!completed;revision++;}return result;},
@@ -669,5 +669,14 @@ await check("Svelte production components compile with submitting states and sco
         assert(!result.warnings.some((w)=>w.code==='non_reactive_update'),name);
     }
 });
+await check("created-but-unready diary keeps task input and does not close or write",async()=>{
+    for(const reason of ['metadata_pending','index_not_ready','read_failed','out_of_scope','date_mismatch','creation_unknown']) {
+        const f=fixture({today:async()=>({ok:false,docId:'known-diary',created:reason!=='creation_unknown',reason})});await f.mount();
+        const h=host(f.runtime.submit),d=await createDialog('TaskEditorDialog',{...h.props,initialInput:{taskname:'retained without duplicate'}},f.messages);
+        await d.submit();assert.equal(h.closed(),0);assert.equal(d.snapshot().taskname,'retained without duplicate');assert.equal(d.snapshot().submitting,false);
+        assert.equal(f.calls.task,0);assert(f.messages.some(m=>m.includes('任务未写入')&&m.includes('请勿重复创建日记')));
+    }
+});
+await check("created diary metadata readiness production regressions", async()=>{ await import("./verify-enhanced-diary-creation-readiness.mjs"); });
 console.log(JSON.stringify({syntheticRefreshMeasurements:refreshMeasurements},null,2));
 console.log(`Passed ${groups} workspace action groups. Fixtures exercise production handlers/hosts and refresh coordination; no real user documents were modified.`);

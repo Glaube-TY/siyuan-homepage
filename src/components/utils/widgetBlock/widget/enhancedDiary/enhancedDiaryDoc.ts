@@ -110,8 +110,10 @@ export async function inspectEnhancedDiaryDocumentTarget(
         return { status: "unknown" };
     }
 
+    if (!Array.isArray(rows) || rows.length > 1) return { status: "unknown" };
     const block = rows[0] as { id?: string; type?: string; box?: string; content?: string; ial?: string; hpath?: string; path?: string } | undefined;
-    if (!block) return { status: "missing" };
+    if (!block) return rows.length === 0 ? { status: "missing" } : { status: "unknown" };
+    if (block.id !== docId || typeof block.type !== "string" || typeof block.box !== "string" || typeof block.ial !== "string") return { status: "unknown" };
 
     if (block.type !== "d") return { status: "out_of_scope" };
 
@@ -127,6 +129,26 @@ export async function inspectEnhancedDiaryDocumentTarget(
     if (expectedDate && resolved.date !== expectedDate) return { status: "date_mismatch" };
 
     return { status: "valid", diaryDate: resolved.date, title: block.content };
+}
+
+// Only a returned creation ID may use this bounded SQL visibility wait.
+export async function waitForCreatedDiaryDocument(docId: string, notebookId: string, date: string): Promise<DiaryDocumentInspectionResult> {
+    const deadline = Date.now() + 4000;
+    for (const ms of [0, 150, 300, 600, 1000, 1500]) {
+        if (Date.now() + ms >= deadline) break;
+        if (ms) await new Promise((resolve) => setTimeout(resolve, ms));
+        const remaining = deadline - Date.now();
+        if (remaining <= 0) break;
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        try {
+            const result = await Promise.race([
+                inspectEnhancedDiaryDocumentTarget(docId, notebookId, date),
+                new Promise<DiaryDocumentInspectionResult>((resolve) => { timer = setTimeout(() => resolve({ status: "unknown" }), remaining); }),
+            ]);
+            if (result.status !== "missing" && result.status !== "unknown") return result;
+        } finally { clearTimeout(timer); }
+    }
+    return { status: "unknown" };
 }
 
 export async function getDiaryDocumentForDate(date: Date, notebookId?: string): Promise<EnhancedDiaryDocumentInfo | null> {
@@ -261,29 +283,38 @@ export function isSameLocalDate(a: Date, b: Date): boolean {
         && a.getDate() === b.getDate();
 }
 
-export async function createTodayDailyNoteForWidget(plugin: any, notebookId?: string): Promise<string | null> {
+// A lost creation response is not permission to create again in this runtime.
+const createdDailyNotes = new Map<string, string | null>();
+export function hasUnconfirmedDailyNoteCreation(notebookId: string): boolean {
+    return createdDailyNotes.get(`${notebookId}:${formatDiaryAttrDate(new Date())}`) === null;
+}
+export async function createTodayDailyNoteForWidget(plugin: any, notebookId?: string, options: { deferIndex?: boolean } = {}): Promise<string | null> {
     const notebook = notebookId;
     const app = getSiyuanAppId(plugin);
-    if (!notebook) {
-        console.warn("[enhancedDiaryDoc] missing daily notebook id");
-        return null;
-    }
-    if (!app) {
-        console.warn("[enhancedDiaryDoc] missing siyuan app id");
-        return null;
-    }
+    if (!notebook || !app) return null;
+    const date = formatDiaryAttrDate(new Date());
+    const key = `${notebook}:${date}`;
+    let docId = createdDailyNotes.get(key);
     try {
-        const result = await createDailyNote(notebook, app);
-        const docId = normalizeCreatedDailyNoteId(result);
-        if (docId) {
-            setEnhancedDiaryIndexNotebook(notebook);
-            void indexCreatedEnhancedDiaryDocument(notebook, docId).catch((err) => {
-                console.warn("[enhancedDiaryDoc] index created daily note failed", err);
-            });
+        if (!docId) {
+            const escaped = notebook.replace(/'/g, "''");
+            // Recover an unindexed diary after remount/restart using official date metadata only.
+            const rows = await sqlChecked(`SELECT id FROM blocks WHERE type = 'd' AND box = '${escaped}' AND id IN (SELECT block_id FROM attributes WHERE name = 'custom-dailynote-${date}' AND value = '${date}') LIMIT 2`);
+            if (!Array.isArray(rows) || rows.length > 1 || rows.some((row) => !/^[0-9]{14}-[a-z0-9]{7}$/.test(row?.id))) return null;
+            if (rows.length) docId = rows[0].id;
+            else {
+                if (createdDailyNotes.has(key)) return null;
+                createdDailyNotes.set(key, null);
+                // Kernel serializes creation and reuses its current daily-note path (3.8.6+).
+                docId = normalizeCreatedDailyNoteId(await createDailyNote(notebook, app));
+                if (!docId || !/^[0-9]{14}-[a-z0-9]{7}$/.test(docId)) return null;
+            }
+            createdDailyNotes.set(key, docId!);
         }
-        return docId;
-    } catch (err) {
-        console.warn("[enhancedDiaryDoc] createTodayDailyNoteForWidget: createDailyNote failed", err);
+        setEnhancedDiaryIndexNotebook(notebook);
+        if (!options.deferIndex) void indexCreatedEnhancedDiaryDocument(notebook, docId!, date).catch(() => undefined);
+        return docId!;
+    } catch {
         return null;
     }
 }

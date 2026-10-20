@@ -7,10 +7,14 @@ import {
     readDiaryMarkdownResult,
     setEnhancedDiaryIndexNotebook,
     validateEnhancedDiaryWriteTarget,
+    waitForCreatedDiaryDocument,
+    formatDiaryAttrDate,
+    hasUnconfirmedDailyNoteCreation,
     type EnhancedDiaryDocumentInfo,
 } from "./enhancedDiaryDoc";
 import {
-    initializeEnhancedDiaryIndex,
+    getEnhancedDiaryIndexEntriesStrict,
+    indexCreatedEnhancedDiaryDocument,
 } from "./enhancedDiaryIndex";
 import {
     appendMarkdownToDaySection,
@@ -33,7 +37,7 @@ export interface EnhancedDiaryTodayDocumentResult {
     created?: boolean;
     content?: string;
     doc?: EnhancedDiaryDocumentInfo;
-    reason?: "missing_notebook" | "create_failed" | "read_failed" | "existing_doc_unreadable" | "index_not_ready";
+    reason?: "missing_notebook" | "create_failed" | "read_failed" | "existing_doc_unreadable" | "index_not_ready" | "metadata_pending" | "out_of_scope" | "date_mismatch" | "creation_unknown";
 }
 
 export interface EnhancedDiaryActionResult {
@@ -179,7 +183,7 @@ function formatInsertFailure(result: EnhancedDiaryInsertResult): EnhancedDiaryAc
         return {
             ok: false,
             reason: result.reason,
-            message: `当前日记缺少「${path}」区块，请补充模板或恢复标题。`,
+            message: `当前日记缺少「${path}」区块，请通过「补充今日模板」入口补充模板，或恢复标题。`,
         };
     }
 
@@ -198,64 +202,37 @@ function formatInsertFailure(result: EnhancedDiaryInsertResult): EnhancedDiaryAc
     };
 }
 
-export async function getOrCreateTodayDiaryDocument(
-    plugin: any,
-    config: EnhancedDiaryConfig
-): Promise<EnhancedDiaryTodayDocumentResult> {
-    // 1. Notebook must be configured
-    if (!config.dailyNotebookId) {
-        return { ok: false, reason: "missing_notebook" };
-    }
+const todayDocumentFlights = new Map<string, Promise<EnhancedDiaryTodayDocumentResult>>();
+export function getOrCreateTodayDiaryDocument(plugin: any, config: EnhancedDiaryConfig): Promise<EnhancedDiaryTodayDocumentResult> {
+    const key = `${config.dailyNotebookId}:${new Date().toDateString()}`;
+    const running = todayDocumentFlights.get(key);
+    if (running) return running;
+    const flight = prepareTodayDiaryDocument(plugin, config).finally(() => { if (todayDocumentFlights.get(key) === flight) todayDocumentFlights.delete(key); });
+    todayDocumentFlights.set(key, flight);
+    return flight;
+}
 
-    setEnhancedDiaryIndexNotebook(config.dailyNotebookId);
-
-    // 2. Initialize index first — prevents creation when index is not ready
-    const initStatus = await initializeEnhancedDiaryIndex(config.dailyNotebookId);
-    if (initStatus.lastStatus !== "success") {
-        return { ok: false, reason: "index_not_ready" };
-    }
-
-    // 3. Three-state query
+async function prepareTodayDiaryDocument(plugin: any, config: EnhancedDiaryConfig): Promise<EnhancedDiaryTodayDocumentResult> {
+    if (!config.dailyNotebookId) return { ok: false, reason: "missing_notebook" };
+    const notebook = config.dailyNotebookId;
+    setEnhancedDiaryIndexNotebook(notebook);
+    // Creation must not rebuild or replace an unreadable/incomplete index.
+    try { await getEnhancedDiaryIndexEntriesStrict(notebook); }
+    catch { return { ok: false, reason: "index_not_ready" }; }
     const today = new Date();
-    const lookup = await lookupDiaryDocumentForDate(today, config.dailyNotebookId);
-
-    if (lookup.status === "exists") {
-        return {
-            ok: true,
-            docId: lookup.doc.id,
-            content: lookup.doc.content,
-            doc: lookup.doc,
-            created: false,
-        };
-    }
-
-    if (lookup.status === "unreadable") {
-        // Doc exists but content temporarily unreadable — do NOT create new doc
-        return {
-            ok: false,
-            reason: "existing_doc_unreadable",
-            docId: lookup.docId,
-        };
-    }
-
-    // 4. status === "missing" — only then create
-    const docId = await createTodayDailyNoteForWidget(plugin, config.dailyNotebookId);
-    if (!docId) {
-        return { ok: false, reason: "create_failed" };
-    }
-
-    // 5. Verify the created doc is readable — use readDiaryMarkdownResult, not readDiaryMarkdown
+    const lookup = await lookupDiaryDocumentForDate(today, notebook);
+    if (lookup.status === "exists") return { ok: true, docId: lookup.doc.id, content: lookup.doc.content, doc: lookup.doc, created: false };
+    if (lookup.status === "unreadable") return { ok: false, reason: "existing_doc_unreadable", docId: lookup.docId };
+    const docId = await createTodayDailyNoteForWidget(plugin, notebook, { deferIndex: true });
+    if (!docId) return { ok: false, reason: hasUnconfirmedDailyNoteCreation(notebook) ? "creation_unknown" : "create_failed" };
+    const date = formatDiaryAttrDate(today);
+    const ready = await waitForCreatedDiaryDocument(docId, notebook, date);
+    if (ready.status !== "valid") return { ok: false, docId, created: true,
+        reason: ready.status === "out_of_scope" || ready.status === "date_mismatch" ? ready.status : "metadata_pending" };
+    if (!await indexCreatedEnhancedDiaryDocument(notebook, docId, date)) return { ok: false, docId, created: true, reason: "index_not_ready" };
     const readResult = await readDiaryMarkdownResult(docId);
-    if (!readResult.ok) {
-        return { ok: false, reason: "read_failed", docId, created: true };
-    }
-
-    return {
-        ok: true,
-        docId,
-        content: readResult.content,
-        created: true,
-    };
+    if (!readResult.ok) return { ok: false, reason: "read_failed", docId, created: true };
+    return { ok: true, docId, content: readResult.content, created: true };
 }
 
 export async function addNewTaskToDiary(params: {
