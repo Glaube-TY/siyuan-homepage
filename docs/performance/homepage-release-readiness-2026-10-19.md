@@ -448,3 +448,71 @@ C 的请求为 touchEncryptedNotebooks（**3.73**）；D 为 getChildBlocks（**
 完整业务创建/完成/撤销、快速记录及项目关联仍**未获本轮授权、未执行**，当前配置仍指向正式日记和项目容器；不能自动切换到测试笔记本或覆盖共享索引。弹窗提交响应、业务一致性、重启与同步也未补验。没有创建新测试对象、清理旧对象、改版本/索引 schema/插件配置或执行发布。
 
 本轮仅追加本报告；按 AGENTS 执行 `git diff --check`，不重复构建、部署、Mock、typecheck/lint。浏览器工具超时与 pageerror 分别记录，未把自动化失败当作插件卡顿根因。
+
+## 日历选日 TypeError 定位与最小修复（2026-10-20）
+
+基线 `7e172239ea3bcda49b86766e475a78f3d1b247ce`，开始时工作区干净。本轮按 AGENTS 读取 DESIGN、performance、data-and-indexing，使用 CodeGraph 核对 `handleChartClick → onSelectDate → loadSelectedDayDetail`、Svelte 更新与图表 render/dispose 路径。没有更改版本、索引 schema、刷新协调、存储架构或用户日记正文。
+
+### 真实复现与完整技术证据
+
+复用已安装 Edge 155.0.4283.62 与已有 Playwright；独立临时 profile、CDP 实查仅监听 127.0.0.1。首次准备窗口正常退出时尚未选日，重新打开本轮专用 profile 后，通过思源官方锁屏表单完成解锁，没有注入 API Token 或读取认证 Cookie。点击前已安装 `pageerror`、Console、CDP `Runtime.exceptionThrown` 和 `unhandledrejection` 监听，只保存技术异常及脱敏文件类别。
+
+真实操作：打开主页 → 思源命令面板打开强化日记工作台 → 日历 → 下月。DOM 月份确认 **2026 年 10 月 → 2026 年 11 月**，根据本次实际 Canvas 截图与尺寸点击 15 日，详情 DOM 确认 `2026-11-15`。**仅执行 1 次日期点击**，详情检查后继续监听 **2200ms**，捕获完整错误即停止复现，没有点击任何创建/完成/编辑按钮。
+
+- 点击：`2026-10-20T04:48:32.240Z`；CDP 异常：`04:48:32.276Z`，约 **36.2ms** 后；pageerror 接收于 `04:48:32.277Z`。
+- 错误：**TypeError: Cannot set properties of null (setting 'innerHTML')**。
+- 同一次异常由 pageerror 与 CDP 各报告一次，**不是两次业务异常**；CDP 未标记 Promise rejection，window unhandledrejection 未收到事件。
+- 本轮详情检查于点击后约 46.7ms 完成，是断言确认时刻，不是首次绘制帧；不据此推算本轮异常与详情首次可见的先后。上一轮已有可见帧在异常之前的独立记录。
+
+实际脱敏堆栈（V8 行列均从 1 开始；CDP 对应 0-based 436:18388）：
+
+```text
+TypeError: Cannot set properties of null (setting 'innerHTML')
+    at t.setContent (plugin:siyuan-homepage:437:18389)
+    at e._showTooltipContent (plugin:siyuan-homepage:439:2372)
+    at e.eval (plugin:siyuan-homepage:439:907)
+    at e._showOrMove (plugin:siyuan-homepage:437:26090)
+    at e._showSeriesItemTooltip (plugin:siyuan-homepage:439:877)
+    at e._tryShow (plugin:siyuan-homepage:437:25811)
+    at e.manuallyShowTip (plugin:siyuan-homepage:437:24651)
+    at eval (plugin:siyuan-homepage:437:23588)
+```
+
+通过 CDP `Debugger.getScriptSource` 取得该执行脚本，在内存去除思源 `(function anonymous(require, module, exports){...})` 及 sourceURL 包装后，**整个主体与修改前正式 dist/index.js 完全一致**；该 dist 为 7,527,324 字节，SHA-256 `21273fe0f8d6478943c03c3cffea4ee446e5f135996bfebd010289442e1f1708`，抛错所在 437/439 行逐行相同。最初直接比较含包装的脚本不相等，去掉完整宿主包装后才确认一致，没有把版本号或近似函数名当作代码匹配。正式包无 source map；依据一致 bundle 的具体语句和项目已安装 ECharts 5.6.0 的同名函数定位，而非猜测 Svelte 源码行。
+
+### 真实根因与归属
+
+归属为 **B：本插件打包的 ECharts 依赖，受插件图表更新方式触发**，不是日期详情数据结构错误，也不是本次捕获的思源本体或其他扩展堆栈。页面另有 3 条发生于选日前的浏览器扩展 Console error，其内容未保留；与上述明确的 plugin:siyuan-homepage 堆栈分开记录。
+
+1. `WorkspaceCalendarChart.svelte:97–100` 正常选中日期，父页面 `loadSelectedDayDetail()` 更新选择与详情；`selectedDate` 的 Svelte effect 触发 `renderChart()`。
+2. `renderChart()` 原有 `chart.resize()` 会刷新已悬浮的 Tooltip；ECharts `TooltipView._keepShow()` 安排 `_refreshUpdateTimeout`，稍后再执行 `manuallyShowTip()`。bundle 最后一个堆栈位置 437:23588 正是此 setTimeout 内调用，已直接核对语句。
+3. 随后的 `chart.setOption(option, true)` 使用 notMerge，重建 Tooltip view。`TooltipView.dispose()` 未取消 `_refreshUpdateTimeout`；`TooltipHTMLContent.dispose()` 将 `el` 置 null。此时整个 ECharts 实例仍在运行，延迟回调的 `api.isDisposed()` 检查不能识别“仅旧 Tooltip 已销毁”。
+4. 旧回调继续执行 `_showTooltipContent → TooltipHTMLContent.setContent`，在 `el.innerHTML = content + arrow` 抛错。对应已安装 `node_modules/echarts/lib/component/tooltip/TooltipHTMLContent.js:313`；dispose 在 391–397，`TooltipView.js` 的延迟刷新在 132–155、dispose 在 691–698。官方版本依据：[TooltipView 5.6.0](https://github.com/apache/echarts/blob/5.6.0/src/component/tooltip/TooltipView.ts)、[TooltipHTMLContent 5.6.0](https://github.com/apache/echarts/blob/5.6.0/src/component/tooltip/TooltipHTMLContent.ts)。
+
+这是详情/选择更新后的独立 Tooltip 定时回调，因此详情可以已经显示而后续仍抛异常；不是 Promise 加载成功就能排除的错误。相同日历组件还用于总览紧凑日历，复用相同更新逻辑，故修复同时覆盖 full/compact。未发现证据要求修改任务/项目/记录服务，也不据此宣布所有其他图表均不存在类似依赖问题。真实旧版页面离开日历返回总览后另监听 2200ms，没有新增异常。
+
+### 最小修复与行为回归
+
+生产改动仅位于 `WorkspaceCalendarChart.svelte` 的一次 setOption：使用 **`{ replaceMerge: ["series"] }`** 更新，复用 Tooltip view，同时替换数据系列以移除旧月份条目。添加一行解释兼容原因的注释。没有关闭 Tooltip、屏蔽点击事件、吞掉异常、修改依赖或修改日期规则；原有权限、请求代次、销毁检查及核心刷新协调完全保留。
+
+扩展现有 `verify-enhanced-diary-workspace-actions.mjs`，调用真实日历生产函数及 ECharts 5.6.0 的实际 model/view 生命周期，使用 Node SVG SSR 检查 Tooltip 身份复用、悬浮 formatter 可用、跨月数据替换、full/compact 两种布局和销毁期间的迟到 render；联动现有真实页面函数验证有/无日记、快速选日、旧请求迟到、加载失败、跨月、离开日历、关闭工作区、权限失效及卸载后返回。没有用 setOption 字符串匹配或纯 stub 宣称行为通过。
+
+新增 Tooltip 身份断言在旧生产代码上 **exit 1**，提示 `selection must not dispose the tooltip while its keep-show callback can still run`；应用修复后专项验证 **32 组、exit 0**。最初用对象相等断言输出完整 ECharts 对象时，验证进程格式化过大而被终止；已改为布尔身份断言，该中断不计通过。SSR 验证覆盖实际模型生命周期，不替代浏览器 HTML Tooltip 的修复后实机复验。
+
+### 网络附带观察及安全边界
+
+本轮从工作台打开到选日尾部监听结束的有界观察中，已能识别的 getFile 类别为：task-index 2 次（最大 10.57ms）、recent-doc-snapshot 5 次（10.75ms）、项目索引 3 次（9.63ms）、项目记录索引 2 次（9.61ms）。同期捕获 **6 次 putFile**（最大 18.77ms），本次 multipart 元数据提取没有取得可靠目的文件，均保留为未分类，不能将其指认成某个共享索引或据此重构。保存的是类别、请求时刻、HTTP 状态与 Network 耗时，不保存文件内容、完整网络响应或 HAR。
+
+较长的整个监听会话共观察到 21 次未分类 putFile（最大 59.16ms），包含等待和其他前台活动；与上述复现窗口分开，不与上一轮 10 次做性能比较，也不把请求数等同于某索引落盘次数。脚本未直接写入任何正式索引、文档或设置。关闭后已确认本轮 Edge 实例退出，并校验边界后删除仅本轮创建的临时认证 profile；未关闭用户原浏览器。脱敏异常摘要保留在本机临时目录，凭据和 Cookie 不进入诊断或 Git。
+
+### 验证状态与实机复验边界
+
+- `pnpm verify:enhanced-diary-workspace-actions`：32 组，exit 0。
+- `pnpm verify:enhanced-diary-project-index`：聚合 PASS，exit 0。
+- `pnpm verify:siyuan-api-compat`：A–I，exit 0。
+- `pnpm typecheck`、`npx tsc --noEmit`、`pnpm lint`：均 exit 0。
+- `pnpm build:app`、`pnpm build:kernel`、`pnpm build`：均 exit 0，设置 `SIYUAN_SKIP_DEV_DEPLOY=1`；仅生成仓库产物及既有 dev 镜像，没有部署正式实例。单独 app 构建 56.72s、kernel 4.30s（Vite 输出，不是 UI 耗时），最终打包及 sync-dev 成功。
+- 新 dist/index.js SHA-256 为 `2dda0f5f842afae1439f72196fe9ced4750aa96eca21cc605e98ac89132ce54b`；CSS 与 kernel.js 哈希仍分别为 `7b5c06207fc0c4f4b37c316ce3a6c0b38154449aa84af69003b3a414b22478eb`、`72b0374f3972ab7a8957595c3fd37f8c8db1ad23935d35cef8d9e485cf362090`，与旧正式产物一致。版本 5.1.10、minAppVersion 3.8.6、SDK 1.2.9 及依赖均未修改。
+- `git diff --check` 通过；本轮三份修改文件均保留原 LF/UTF-8 格式。
+
+**真实 TypeError 已定位，源码最小修复及专项回归已完成；修复后的正式插件尚未部署或重载，不能声称真实思源 UI 已复验通过。** 当前运行的仍是取得上述堆栈的旧正式 JS。需经用户另行批准备份并替换本机前端 JS、重载插件，确认实际执行新代码后，再执行相同真实 Canvas 选日及至少 2 秒尾部监听。批准前不覆盖正式插件，不把仓库新 dist 或 SSR 测试当成当前客户端已经修好。该异常的发布前关闭条件仍是这次真实复验，其他业务写入验收边界不变。

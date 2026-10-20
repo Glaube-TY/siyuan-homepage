@@ -182,7 +182,8 @@
         chart.resize();
         const colors = readThemeColors();
         const option = buildOption(colors, geometry.cellSize);
-        chart.setOption(option, true);
+        // Keep the tooltip alive: ECharts 5.6 retains its deferred refresh after view disposal.
+        chart.setOption(option, { replaceMerge: ["series"] });
     }
 
     function calcActivityScore(day: EnhancedDiaryCalendarDay): number {

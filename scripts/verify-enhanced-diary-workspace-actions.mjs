@@ -4,6 +4,10 @@ import { resolve } from "node:path";
 import { build, transform } from "esbuild";
 import { parse, compile } from "svelte/compiler";
 import { setImmediate } from "node:timers/promises";
+import * as echarts from "echarts/core.js";
+import { ScatterChart } from "echarts/charts.js";
+import { CalendarComponent, TooltipComponent } from "echarts/components.js";
+import { SVGRenderer } from "echarts/renderers.js";
 
 const root = resolve(import.meta.dirname, "..");
 const base = "src/components/utils/widgetBlock/widget/enhancedDiary/workspace/";
@@ -467,8 +471,72 @@ await check("N/O real root/child creation services retain location, heading, att
     delete globalThis.__workspaceProjectFixture;
 });
 
+// Use the real ECharts model/view lifecycle, not a setOption stub.
+echarts.use([ScatterChart, CalendarComponent, TooltipComponent, SVGRenderer]);
+const calendarSource = await read("components/WorkspaceCalendarChart.svelte");
+const calendarDestroy = nodes(calendarSource).find((n) => n.expression?.callee?.name === "onDestroy");
+const createCalendar = await factory(`export function calendar(api) {
+const {echarts,tick,onSelectDate}=api;
+let chart=api.chart,days=api.days,year=2026,month=10,selectedDate='',isDestroyed=false,chartHeight=0;
+let chartContainer={clientWidth:760},isCompact=api.compact,taskManagementEnabled=true,displaySettings={};
+let initTimeout=null,themeTimeout=null,resizeRaf=null,resizeObserver=null,themeObserver=null,destroy;
+const onDestroy=(fn)=>destroy=fn;
+const readThemeColors=()=>({bg:'#fff',surface:'#fff',onBg:'#111',onSurface:'#111',muted:'#666',primary:'#08f',error:'#f00',border:'#ccc'});
+${functions(calendarSource,['renderChart','getCalendarGeometry','getCalendarRowCount','getDateRange','calcActivityScore','buildOption','isImportantLunarDay','formatToday','handleChartClick'])}
+${calendarSource.slice(calendarDestroy.start,calendarDestroy.end)}
+return {renderChart,click:handleChartClick,select:(date)=>selectedDate=date,
+month:(next,entries)=>{month=next;days=entries;},destroy:()=>destroy()};
+}`, 'calendar');
+const calendarDay=(date,hasDiary=false)=>({date,hasDiary,newTaskCount:0,migratedTaskCount:0,quickRecordCount:0,
+completedReviewCount:0,pendingReviewCount:0,metadata:{lunarDayName:'初七',solarTermName:'',solarFestivalName:'',lunarFestivalName:'',legalHolidayName:''}});
+await check("calendar selection retains the live ECharts tooltip across diary/empty dates, month and resize updates",async()=>{
+    for(const compact of [false,true]){
+        const days=[calendarDay('2026-11-14',true),calendarDay('2026-11-15')];
+        const f=fixture({detail:(date)=>({hasDiary:date.getDate()===14})});await f.mount();
+        const chart=echarts.init(null,null,{renderer:'svg',ssr:true,width:760,height:584});
+        const c=createCalendar({chart,echarts,days,compact,tick:async()=>{},onSelectDate:(day)=>f.runtime.loadSelectedDayDetail(day.date)});
+        try{
+            await c.renderChart();
+            const tooltip=chart.getViewOfComponentModel(chart.getModel().getComponent('tooltip'));
+            for(const day of days){
+                c.click({componentType:'series',value:[day.date,0]});await tick();
+                assert.equal(f.runtime.snapshot().selectedCalendarDate,day.date);
+                assert.equal(f.runtime.snapshot().selectedDayDetail.hasDiary,day.hasDiary);
+                c.select(day.date);await c.renderChart();chart.resize();
+                assert.ok(chart.getViewOfComponentModel(chart.getModel().getComponent('tooltip'))===tooltip,
+                    'selection must not dispose the tooltip while its keep-show callback can still run');
+                const formatter=chart.getModel().getComponent('tooltip').get('formatter');
+                assert(formatter({value:[day.date,0]}).includes(day.date),'hover details remain available');
+            }
+            const december=[calendarDay('2026-12-01')];c.month(11,december);await c.renderChart();
+            assert.equal(chart.getModel().getSeriesByIndex(0).getData().count(),1,'old month rows are replaced');
+            assert.deepEqual(chart.getModel().getSeriesByIndex(0).getData().getRawDataItem(0).value,['2026-12-01',0]);
+            assert.ok(chart.getViewOfComponentModel(chart.getModel().getComponent('tooltip'))===tooltip);
+            c.destroy();assert.equal(chart.isDisposed(),true,'leaving calendar disposes the chart');
+            await c.renderChart();
+        }finally{if(!chart.isDisposed())c.destroy();f.runtime.destroy();}
+    }
+});
+await check("calendar destruction during a pending render cannot resize or update the disposed chart",async()=>{
+    const waiting=deferred(),chart=echarts.init(null,null,{renderer:'svg',ssr:true,width:760,height:584});
+    const c=createCalendar({chart,echarts,days:[calendarDay('2026-11-15')],compact:false,tick:()=>waiting.promise});
+    const rendering=c.renderChart();c.destroy();waiting.resolve();await rendering;assert.equal(chart.isDisposed(),true);
+});
+await check("leaving calendar during a day read preserves core state; closing drops the late response",async()=>{
+    for(const close of [false,true]){
+        const waiting=deferred();let held=false;
+        const f=fixture({detail:(date)=>held?waiting.promise:{day:date.getDate()}});await f.mount();held=true;
+        f.runtime.tab('calendar');const reading=f.runtime.loadSelectedDayDetail('2026-11-15');
+        const core=f.runtime.snapshot().state;f.runtime.tab('tasks');if(close)f.runtime.destroy();
+        const before=f.runtime.snapshot().selectedDayDetail;waiting.resolve({day:15,hasDiary:false});await reading;
+        assert.equal(f.runtime.snapshot().state,core);
+        assert.deepEqual(f.runtime.snapshot().selectedDayDetail,close?before:{day:15,hasDiary:false});
+        f.runtime.destroy();
+    }
+});
+
 await check("Svelte production components compile with submitting states and scoped styles",async()=>{
-    for(const name of ['enhancedDiaryWorkspacePage.svelte','components/TaskEditorDialog.svelte','components/QuickRecordDialog.svelte','components/WorkspaceFormalProjectPanel.svelte']){
+    for(const name of ['enhancedDiaryWorkspacePage.svelte','components/TaskEditorDialog.svelte','components/QuickRecordDialog.svelte','components/WorkspaceFormalProjectPanel.svelte','components/WorkspaceCalendarChart.svelte','components/WorkspaceCalendarPanel.svelte','components/WorkspaceCalendarDayDetail.svelte']){
         const result=compile(await read(name),{filename:resolve(root,base,name),generate:'client'});
         assert(!result.warnings.some((w)=>w.code==='non_reactive_update'),name);
     }
