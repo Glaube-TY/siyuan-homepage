@@ -12,7 +12,9 @@ const [indexSource, settingsSource] = await Promise.all([
 
 const bundle = await build({
     stdin: {
-        contents: `export { removeTopBarWithFallback, supportsDynamicDock, supportsDynamicToolbar } from "./src/utils/siyuanPluginApiCompat";`,
+        contents: `export { removeTopBarWithFallback, supportsDynamicDock, supportsDynamicToolbar } from "./src/utils/siyuanPluginApiCompat";
+            export { createNotebook, createNotebookChecked, getChildBlocksChecked, getBlockKramdownChecked } from "./src/api";
+            export { setSiyuanRuntimePort } from "./src/runtime/siyuan-runtime-port";`,
         loader: "ts",
         resolveDir: root,
         sourcefile: "verify-siyuan-plugin-api-compat.ts",
@@ -155,4 +157,37 @@ assert.match(openKbDock, /await this\.waitForKbDockButton\(\)/);
 assert.equal((indexSource.match(/const DOCK_TYPE = "homepage_dock";/) ?? []).length, 1);
 assert.equal((indexSource.match(/const KB_DOCK_TYPE = "homepage_kb_dock";/) ?? []).length, 1);
 
-console.log("SiYuan plugin API compatibility verification passed (A-H)");
+// Local Kernel evidence: createNotebook returns data.notebook, not data.id.
+const notebookResult = { notebook: { id: "20260101000000-abcdefg", name: "Fixture", icon: "", sort: 0, closed: false } };
+let notebookCode = 0;
+let notebookCalls = 0;
+apiCompat.setSiyuanRuntimePort({
+    async post(path, payload) {
+        assert.equal(path, "/api/notebook/createNotebook");
+        assert.deepEqual(payload, { name: "Fixture" });
+        notebookCalls += 1;
+        return { code: notebookCode, msg: notebookCode ? "permission denied" : "", data: notebookCode ? null : notebookResult };
+    },
+});
+assert.deepEqual(await apiCompat.createNotebookChecked("Fixture"), notebookResult);
+assert.deepEqual(await apiCompat.createNotebook("Fixture"), notebookResult);
+notebookCode = -1;
+await assert.rejects(apiCompat.createNotebookChecked("Fixture"), /code=-1/);
+assert.equal(await apiCompat.createNotebook("Fixture"), null);
+assert.equal(notebookCalls, 4);
+
+const taskId = "20260101000000-task001";
+const listId = "20260101000000-list001";
+const childBlocks = [{ id: taskId, type: "i", subType: "t", content: "Fixture", markdown: "- [ ] Fixture" }];
+const kramdownResult = { id: taskId, kramdown: `- {: id="${taskId}"}[ ] Fixture` };
+apiCompat.setSiyuanRuntimePort({
+    async post(path, payload) {
+        assert(["/api/block/getChildBlocks", "/api/block/getBlockKramdown"].includes(path));
+        assert.deepEqual(payload, { id: path.endsWith("getChildBlocks") ? listId : taskId });
+        return { code: 0, msg: "", data: path.endsWith("getChildBlocks") ? childBlocks : kramdownResult };
+    },
+});
+assert.deepEqual(await apiCompat.getChildBlocksChecked(listId), childBlocks);
+assert.deepEqual(await apiCompat.getBlockKramdownChecked(taskId), kramdownResult);
+
+console.log("SiYuan plugin API compatibility verification passed (A-I)");

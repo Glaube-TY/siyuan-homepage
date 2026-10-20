@@ -475,7 +475,7 @@ export async function renameNotebook(notebook: NotebookId, name: string) {
 }
 
 
-export async function createNotebook(name: string): Promise<Notebook> {
+export async function createNotebook(name: string): Promise<{ notebook: Notebook } | null> {
     let url = '/api/notebook/createNotebook';
     return request(url, { name: name });
 }
@@ -1990,7 +1990,7 @@ export async function renameNotebookChecked(notebook: NotebookId, name: string):
     await requestChecked('/api/notebook/renameNotebook', { notebook, name }, 'renameNotebook');
 }
 
-export async function createNotebookChecked(name: string): Promise<Notebook> {
+export async function createNotebookChecked(name: string): Promise<{ notebook: Notebook }> {
     return await requestChecked('/api/notebook/createNotebook', { name }, 'createNotebook');
 }
 

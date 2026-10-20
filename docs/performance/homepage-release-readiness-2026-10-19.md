@@ -2,11 +2,11 @@
 
 审查基线：`be26b2181d20ca86744081b92c208c55bc77b8cd`。版本保持 5.1.10，最低思源 3.8.6，SDK 1.2.9。
 
-> 前半部分保留 2026-10-19 历史记录；2026-10-20 本地只读实测的基线与结果在文末单列。历史隔离环境限制不适用于用户新授权的本地只读验证。
+> 前半部分保留历史记录；2026-10-20 本地只读与受限真实写入实测的基线、结果分别在文末单列。最新结论：受限 Kernel 读写 PASS；完整强化日记业务与 UI 仍未验收，不代表发布 PASS。
 
 **2026-10-19 历史结论：BLOCKED，核心 A～M 尚未实测。2026-10-20 已补齐本机只读 Kernel API 验收，结论为 API PASS，见文末；完整 UI 与业务写入验收仍未完成，不得据 API PASS 宣布可以发布。**
 
-本轮只增加本报告，不改生产逻辑、测试期望、版本、索引格式或共享快照架构。不创建 tag、Release 或发布分支，不部署在线插件。
+2026-10-19 该轮只增加本报告，不改生产逻辑、测试期望、版本、索引格式或共享快照架构。不创建 tag、Release 或发布分支，不部署在线插件。
 
 ## 隔离环境调查
 
@@ -219,3 +219,70 @@ recent-doc-snapshot 的**真实客户端频率、单次耗时和同步影响均�
 | `git diff --check` | exit 0 |
 
 最终修改仅为真实只读 verifier、mtime 类型声明及本报告；版本与 schema 未改。未生成用户真实数据的 Fixture 或导出业务内容；正式索引从未被用于写入基准测试。
+
+## 本地 Kernel 真实写入验证（2026-10-20）
+
+本轮基线 `68bb648a6ae468159275e5d84a899a23682db5b7`，本机 Kernel **3.8.7**，固定连接 loopback，Authorization 成功。已读取规则、上一轮报告并用 CodeGraph 检查 checked API、创建文档、标题解析及调用方。开始时工作区干净。以下为真实请求与生产函数结果，未用合成耗时代替实测，也未连接其他实例。
+
+### 授权、测试对象与边界
+
+- 先只读列出笔记本；没有把任何已有笔记本当作测试对象。终端列明范围，用户明确确认本阶段 Kernel 写入后，创建 **1 个唯一标记测试笔记本、1 篇测试文档（H1、H2、普通段落）、1 条测试任务**。
+- 所有目标 ID 均来自真实返回或该文档的子块读取。写入前记录意图，结果未知时停止、不自动重试。只在本轮文档中设置 1 个测试属性、将这 1 条任务完成；总计 **5 次写入请求**：笔记本、文档、属性、插入任务、完成任务各 1 次。没有删除、重复创建、修改已有业务文档或设置。
+- 使用 `src/api.ts` 的生产函数，经运行时端口发送实际请求，未替换 Kernel 响应。传输固定本机、15 秒超时、8 MiB 响应上限、64 次单进程请求预算、请求间隔 150ms，禁止重定向；端点和有效载荷逐项放行。没有调用共享文件写入、索引重建、删除或配置 API。
+- Token 仅放在遮蔽输入的进程环境，进程退出清理。测试脚本、对象归属账本和脱敏测量仅保留在本机临时目录，未提交实际名称、ID、路径、正文或凭据。账本 `homepage-local-write-objects.json` 可供维护者本机定位清理范围；**测试笔记本及全部内容仍保留，由用户决定清理**。
+- 本次仅获 Kernel 写入及其可能触发正常共享索引维护的确认。没有确认强化日记测试配置安全，也没有授权直接维护正式业务索引，因此没有执行完整强化日记业务 A～H。
+
+### 真实字段、错误假设与最小修正
+
+1. `createNotebookChecked()` 实际返回的 `data` 为 `{ notebook: object }`，并非直接的 Notebook。第一次创建 HTTP 200/code 0 后，验证脚本原本读取顶层 id 的断言失败，立即停止；通过再次只读列出笔记本，精确匹配本轮保存的唯一标记及已确认创建记录，取得真实 ID，**没有再次创建**。修正 `createNotebookChecked` 的返回声明为 `{ notebook: Notebook }`，同时修正同接口旧入口声明（旧入口失败仍为 null）。运行时返回与现有调用方不变，未把已成功创建误作可重试失败。
+2. 文档创建返回有效 ID；`listDocsByPathChecked()` 恰好列出 1 篇文档，`getPathByID()` 的 notebook/path 与该笔记本和目录结果一致。
+3. 实际 H1/H2 都返回 `id:string、type:string、subType:string、content:string、markdown:string`，分别为 **type=h、subType=h1/h2**，不是小写字段 subtype。生产 `getEnhancedDiaryHeadingLevel()` 真实解析结果为 1、2，无需修改标题运行时逻辑。
+4. 测试属性通过 `setBlockAttrsChecked()` 写入，并经 `getBlockAttrsChecked()` 与 `batchGetBlockAttrs()` 两种真实路径回读一致；批量响应为块 ID 到属性对象的映射。
+5. `appendBlockChecked()` 返回 1 个事务、1 个 doOperation；事务含 timestamp:number、doOperations:array、undoOperations:null。operation.id 指向新列表块，真实子块继续定位唯一任务项。任务实际结构为 **list type=l/subType=t → list item type=i/subType=t**。两者含 id/type/subType/content/markdown；补充本地 `BlockSubType` 声明缺失的 `t` 字面量，未改变运行时。
+6. `getBlockKramdownChecked()` 返回 `{ id:string, kramdown:string }`，其中列表标记与复选框之间可以存在 `{: ...}` 内联属性。临时脚本最初按普通 Markdown 的标记位置断言失败，后续只读检查确认此格式，再剥除测试断言中的 IAL 进行标记检查；没有修改生产返回、Mock 或任务正文来满足断言。这些停顿均在完成写入前，没有重复插入任务。
+7. `updateTaskListItemMarkerChecked(id,"x")` 成功后，重新读取 Kramdown 及父列表的子块，确认同一任务从 `[ ]` 变为 `[x]`。任务属性含 id:string、updated:string。受限 `sqlChecked()` 只查询本次根文档内 3 个已知标题/任务 ID，返回 id/type/subtype/root_id/box/updated 字符串，3 条均属于新文档与新笔记本；SQL 使用小写 subtype，与子块 API 的 subType 区别已确认。
+8. 后续只读检查正式任务索引：测试任务恰好 1 条、root_id 匹配、checked=true、Markdown 为已完成状态。该观察证明本次新增任务最终进入正常索引维护结果；没有调用手动合并、重建或写入索引来制造此结果。
+
+以上 notebook 包装、标题和任务结构、属性回读、完成状态均有真实接口证据；新增兼容 fixture 仅使用合成标识和文本，执行生产 wrapper，保留 notebook 包装与 Kramdown IAL，覆盖 checked 错误抛出、旧入口失败 null。它是回归保护，不是额外实机证据。
+
+### 真实本地请求耗时
+
+以下写请求各执行一次；计时从 fetch 发出到响应体读完，单位 ms，不含人为安全间隔、脚本打包、断言排查或用户确认等待，**不是点击到界面反馈时间**：
+
+- 创建笔记本 **41.58**；创建文档 **93.71**；插入任务 **27.54**。
+- 设置标题属性 **22.27**；单条属性回读 **17.21**；批量属性回读 **17.64**。
+- 文档列表 **18.64**；首次路径读取 **18.43**；首次 H1/H2 子块读取 **4.16**。
+- 完成任务请求 **39.97**；紧随其后的 Kramdown 回读 **16.97**；最终任务子块回读 **18.14**；受限 SQL **18.92**。
+- 任务索引直接 getFile：初始 **19.87**、写入后 **21.94**、后续一致性检查 **41.49**，响应分别为 51,958 / 52,717 / 52,717 字节。
+- 既有 `verify-task-index-sync-performance.mjs --live-read` 生产 `getTaskIndexResult()`：**48.3ms，55 条，1 次文件读取、0 次逐块 API、0 次写入，exit 0**。与上一轮 54 条的小样本分别记录，不据此推断大型库或 UI 性能改善。
+- 核心写入脚本累计 **42 次请求**（含安全停止后的只读恢复检查），全部 HTTP 200，普通 envelope 均 code 0；后续一致性读取 1 次、生产 live-read 1 次，准备阶段另有 2 次只读请求。断言失败属于验证脚本假设，不是 HTTP/API 失败。
+- 未执行项目业务索引维护、UI 点击、弹窗关闭、项目面板刷新或重启；这些耗时及完整刷新次数均 **未测量**。
+
+### 共享文件前后观察
+
+四个文件均存在、JSON version 均为 1；只读取得字节数、条目数、顶层 updatedAt、SHA-256，未保存或输出完整文件内容。以下更新时间为 UTC：
+
+- `task-index.json`：51,958 → 52,717 字节，items **54 → 55**；updatedAt `2026-10-20T02:33:39.613Z` → 首次后读 `2026-10-20T02:37:43.334Z`，后续 `2026-10-20T02:39:44.707Z`。哈希先 `244c526416424c4a…` → `91d43abd18269588…`，后续为 `aff0fc06d7839f74…`；后续确认新任务已完成。不同观察时间存在异步维护，不能用时间戳差值冒充单次任务状态更新延迟。
+- `enhanced-diary-project-index.json`：8,267 字节，roots 2、nodes 16；updatedAt `2026-10-13T14:55:18.634Z`，哈希 `633ed7efe1615ddb…` 前后相同。
+- `recent-doc-snapshot.json`：95,176 → 95,801 字节，docs **129 → 130**；updatedAt `2026-10-20T02:33:39.332Z` → `2026-10-20T02:37:42.344Z`，哈希 `6a90c5fcc007bf03…` → `bedc6a8d82086a8c…`。
+- `enhanced-diary-project-record-index.json`：2,430 字节，items 3；updatedAt `2026-10-13T14:55:19.037Z`，哈希 `85809488b042e708…` 前后相同。
+
+脚本直接写入只有本轮笔记本、文档和块，**共享文件直接写入 0 次**。变化与新增文档/任务及插件正常维护相符，但没有连接实际插件 diagnostics 或捕获每次写入，不排除其他前台活动；**哈希变化不是写入次数**。不能确认无变化时 recent-doc-snapshot 的真实重复写入频率。没有回写旧文件恢复哈希，没有清空正式任务或替换无关项目；两个项目索引原字节哈希保持一致。没有观察到本轮测试对象重复或写后状态不一致，不能据此证明所有既有条目及跨端并发完全无风险。
+
+### 尚未完成的业务与 UI 验收
+
+**受限 Kernel 读写：PASS。完整插件业务/UI：未验收；整体发布条件未补齐。** 本轮没有自动点击界面、修改正式强化日记配置、调用项目/任务/记录业务写入服务或开启实际插件诊断。没有测量弹窗与渲染、工作区完整刷新次数、重启恢复或跨端同步，不宣称最初卡顿已在真实 UI 证明改善。
+
+继续业务验收前，维护者需先确认强化日记目标笔记本、日期文档、项目容器都指向专用测试数据，并明确同意共享 `task-index.json`、`enhanced-diary-project-index.json`、`recent-doc-snapshot.json`、`enhanced-diary-project-record-index.json` 及必要的日记索引维护。不能仅因有临时笔记本就视为这些文件隔离。
+
+确认后人工顺序：进入工作区 → 创建根项目 → 创建子项目 → 创建任务 → 完成 → 取消完成 → 添加关联测试项目的快速记录 → 关闭重开工作区。每步只提交一次，回读核对文档/关系/索引；短期开启既有 taskIndexDiagnostics 记录数值差异，完成后关闭，分别测处理中、写入确认、弹窗关闭、状态展示及刷新次数。如不能确保目标范围，停止业务写入。测试笔记本保留供维护者定位及自主清理，不能删除共享索引以清理测试痕迹。
+
+### 本轮回归与构建
+
+- `pnpm verify:siyuan-api-compat`：exit 0，A–I，新增真实结构对应的合成 wrapper 回归。
+- `pnpm verify:enhanced-diary-project-index`：exit 0，聚合 PASS。
+- `pnpm verify:enhanced-diary-project-create-performance`：exit 0，23 组，24 项维护、21 项服务、18 项生命周期合成测量。
+- `pnpm verify:enhanced-diary-workspace-actions`：exit 0，29 组。
+- `pnpm verify:task-index-sync-performance`：exit 0，28 场景；另列上述真实 live-read 结果。
+- `pnpm typecheck`、`npx tsc --noEmit`、`pnpm lint`：均 exit 0。
+- `pnpm build:app`、`pnpm build:kernel`、`pnpm build`：均 exit 0；构建使用 `SIYUAN_SKIP_DEV_DEPLOY=1`，只生成仓库产物及既有仓库 dev 镜像，不部署正式实例。`git diff --check` 通过，修改文件均保留 LF。版本 5.1.10、最低思源 3.8.6、SDK 1.2.9 及各索引 schema 均不变。
