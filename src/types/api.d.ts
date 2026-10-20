@@ -71,7 +71,7 @@ interface DocFile {
     id: string;
     name: string;
     path: string;
-    mtime: string;
+    mtime: number;
 }
 
 interface IResListDocsByPath {
