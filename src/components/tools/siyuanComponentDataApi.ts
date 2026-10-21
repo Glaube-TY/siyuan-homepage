@@ -47,7 +47,6 @@ import {
     mergeHeatmapDocumentCountDays,
 } from "@/components/utils/widgetBlock/widget/heatmap/heatmapDocumentCounts";
 import { getDiaryIndexEntriesForDisplay, resolveEnhancedDiaryDateFromMetadata } from "@/components/utils/widgetBlock/widget/enhancedDiary/enhancedDiaryIndex";
-import { recordTaskIndexMetric, taskIndexMeasurementStart, finishTaskIndexMeasurement } from "@/utils/performance/runtimePerformance";
 
 export type ComponentDataStatus = "ok" | "empty" | "limited" | "disabled" | "unsupported" | "error";
 export type ComponentDataMode =
@@ -333,13 +332,9 @@ async function writeJsonIndex<T>(path: string, items: T[]): Promise<void> {
     if (path === TASK_INDEX_PATH) {
         if (!items.every(isValidTaskIndexItem)) throw new Error("拒绝写入结构异常的任务索引。");
         const payload = { version: INDEX_VERSION, updatedAt: new Date().toISOString(), items };
-        const started = taskIndexMeasurementStart();
         const blob = makeJsonBlob(payload);
         // putFile creates parent directories; no extra directory mutation is necessary.
         await putFileChecked(path, false, blob);
-        recordTaskIndexMetric("indexWrites");
-        recordTaskIndexMetric("writeBytes", blob.size);
-        finishTaskIndexMeasurement("writeMs", started);
         const verified = await readTaskIndexSnapshot();
         if (!verified.fileExists || verified.items.length !== items.length ||
             !taskIndexCollectionsEqual(items as ComponentTaskInfo[], verified.items)) {
@@ -1067,21 +1062,15 @@ export interface TaskIndexSnapshot {
 }
 
 export async function readTaskIndexSnapshot(): Promise<TaskIndexSnapshot> {
-    const started = taskIndexMeasurementStart();
-    recordTaskIndexMetric("indexReads");
-    try {
-        const raw = await getFileOrNullChecked(TASK_INDEX_PATH);
-        if (raw === null) return { fileExists: false, items: [] };
-        const parsed = await fileContentToObject(raw);
-        const payload = parsed as { version?: unknown; items?: unknown } | null | undefined;
-        const items = Array.isArray(parsed) ? parsed : payload?.version === INDEX_VERSION ? payload.items : undefined;
-        if (!Array.isArray(items) || items.some((item) => !isValidTaskIndexItem(item))) {
-            throw new Error("任务索引格式或版本异常，保留原文件，请检查后手动重建。");
-        }
-        return { fileExists: true, items: dedupeTaskIndexItems(items) };
-    } finally {
-        finishTaskIndexMeasurement("readParseMs", started);
+    const raw = await getFileOrNullChecked(TASK_INDEX_PATH);
+    if (raw === null) return { fileExists: false, items: [] };
+    const parsed = await fileContentToObject(raw);
+    const payload = parsed as { version?: unknown; items?: unknown } | null | undefined;
+    const items = Array.isArray(parsed) ? parsed : payload?.version === INDEX_VERSION ? payload.items : undefined;
+    if (!Array.isArray(items) || items.some((item) => !isValidTaskIndexItem(item))) {
+        throw new Error("任务索引格式或版本异常，保留原文件，请检查后手动重建。");
     }
+    return { fileExists: true, items: dedupeTaskIndexItems(items) };
 }
 
 function isValidTaskIndexItem(item: unknown): item is ComponentTaskInfo {
@@ -1152,7 +1141,6 @@ function mergeTaskIndexRows(
     items: Array<Partial<ComponentTaskInfo> & { id: string }>,
     options: { removeRootIds?: string[]; source?: string } = {},
 ): { nextRows: ComponentTaskInfo[]; count: number } {
-    const started = taskIndexMeasurementStart();
     const previousById = new Map(rows.map((row) => [row.id, row]));
     const removeRoots = new Set((options.removeRootIds || []).filter(Boolean));
     const map = new Map<string, ComponentTaskInfo>();
@@ -1173,7 +1161,6 @@ function mergeTaskIndexRows(
         if (!taskIndexItemsEqual(previous, map.get(id))) changedCount++;
     }
     for (const id of map.keys()) if (!previousById.has(id)) changedCount++;
-    finishTaskIndexMeasurement("mergeCompareMs", started);
     return { nextRows: Array.from(map.values()), count: changedCount };
 }
 
@@ -1185,7 +1172,7 @@ async function mergeTaskIndexItemsUnsafe(
     const { nextRows, count } = mergeTaskIndexRows(rows ?? await readTaskIndexItems(), items, options);
     if (count > 0) {
         await writeJsonIndex(TASK_INDEX_PATH, nextRows);
-    } else recordTaskIndexMetric("noopWritesSkipped");
+    }
     return { count, changed: count > 0 };
 }
 
@@ -1209,7 +1196,6 @@ async function replaceTaskIndexItemsUnsafe(
     }
     const deduped = dedupeTaskIndexItems(Array.from(map.values()));
     if (!previous.fileExists || !taskIndexCollectionsEqual(previous.items, deduped)) await writeJsonIndex(TASK_INDEX_PATH, deduped);
-    else recordTaskIndexMetric("noopWritesSkipped");
     return deduped.length;
 }
 
@@ -1253,7 +1239,7 @@ function verifyTaskOnce(task: ComponentTaskInfo, verification: Map<string, Promi
 async function pruneMissingTaskIndexItemsUnsafe(options: { includeCompleted?: boolean } = {}): Promise<{ rows: ComponentTaskInfo[]; removed: number }> {
     const rows = await readTaskIndexItems();
     const missing = await findInvalidTaskIndexIds(rows, options);
-    if (missing.size === 0) { recordTaskIndexMetric("noopWritesSkipped"); return { rows, removed: 0 }; }
+    if (missing.size === 0) return { rows, removed: 0 };
     const nextRows = rows.filter((row) => !missing.has(row.id));
     await writeJsonIndex(TASK_INDEX_PATH, nextRows);
     return { rows: nextRows, removed: missing.size };
@@ -1674,7 +1660,6 @@ export async function refreshTaskIndexAfterDatabaseCommit(
             const verification = new Map<string, Promise<Awaited<ReturnType<typeof verifyIndexedTaskBlock>>>>();
             let nextRows = snapshot.items, truncated = false, count = 0;
             if (uniqueRootIds.length) {
-                recordTaskIndexMetric("targetedRefreshes");
                 const query = await queryTaskBlocksByRootIds(uniqueRootIds, source);
                 if (!isActive()) return null;
                 truncated = query.truncated;
@@ -1686,7 +1671,6 @@ export async function refreshTaskIndexAfterDatabaseCommit(
             }
             let removedCount = 0;
             if (options.broad && isActive()) {
-                recordTaskIndexMetric("broadCleanups");
                 const invalid = await findInvalidTaskIndexIds(nextRows, { includeCompleted: true }, verification, isActive);
                 removedCount = invalid.size;
                 if (removedCount) nextRows = nextRows.filter((row) => !invalid.has(row.id));
@@ -1695,7 +1679,6 @@ export async function refreshTaskIndexAfterDatabaseCommit(
             count += removedCount;
             const changed = count > 0;
             if (changed) await writeJsonIndex(TASK_INDEX_PATH, nextRows);
-            else recordTaskIndexMetric("noopWritesSkipped");
             return { changed, count, removedCount, truncated };
         });
         if (!result) return { source, changed: false, lastRunAt: now, lastStatus: "idle", lastMessage: "任务索引尚未初始化或刷新已取消。", migratedCount: 0, skippedCount: uniqueRootIds.length };

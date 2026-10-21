@@ -73,7 +73,6 @@
     import { saveEnhancedDiaryConfig } from "../enhancedDiaryConfig";
     import { ENHANCED_DIARY_INDEXES_UPDATED_EVENT } from "../enhancedDiaryIndex";
     import { TASK_DATA_UPDATED_EVENT } from "@/features/task-data/task-data-runtime";
-    import { recordTaskIndexMetric } from "@/utils/performance/runtimePerformance";
     import type { GenerateTasksPlusTaskInput } from "@/features/task-data/task-parser";
     import {
         addNewTaskToDiary,
@@ -523,7 +522,6 @@
                 dayDetailCache = new Map();
                 externalWorkspaceRefreshPending = false;
                 failedRefreshVersion = -1;
-                taskIndexRefreshPending = false;
                 if (projectRefreshVersion && projectRefreshVersion <= version) {
                     projectRefreshVersion = 0;
                     workspaceMutationVersion += 1;
@@ -568,7 +566,6 @@
     let refreshMutationTail: Promise<void> = Promise.resolve();
     let refreshMutationQueued = false;
     let externalWorkspaceRefreshPending = false;
-    let taskIndexRefreshPending = false;
 
     function scheduleExternalWorkspaceRefresh(): void {
         if (!componentAlive || !advancedEnabled) return;
@@ -599,7 +596,6 @@
     }
 
     function handleTaskDataUpdated(): void {
-        taskIndexRefreshPending = true;
         scheduleExternalWorkspaceRefresh();
     }
 
@@ -620,7 +616,6 @@
                 if (!externalWorkspaceRefreshPending) break;
                 const version = workspaceRefreshVersion;
                 attemptedVersion = version;
-                if (taskIndexRefreshPending) recordTaskIndexMetric("workspaceRefreshes");
                 const succeeded = await refresh();
                 // A newer event needs another read; a real failure waits for an event or manual retry.
                 if (!succeeded && version === workspaceRefreshVersion) {
