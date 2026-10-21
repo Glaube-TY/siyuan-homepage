@@ -283,7 +283,7 @@
     color: var(--homepage-banner-title-color, #fff);
     text-shadow: 0 2px 14px rgb(0 0 0 / 42%);
 }
-.homepage-container[data-hp-theme] .hp-top-layout[data-banner-content="all"] .hp-status__text {
+.homepage-container[data-hp-theme] .hp-top-layout[data-banner-content="all"] .hp-status__text:not(.hp-status__text--error) {
     color: var(--homepage-banner-status-color, #fff);
     text-shadow: 0 1px 10px rgb(0 0 0 / 38%);
 }
