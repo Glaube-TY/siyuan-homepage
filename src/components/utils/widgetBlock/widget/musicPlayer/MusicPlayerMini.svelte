@@ -90,8 +90,8 @@
     }
 </script>
 
-<div class="music-player-mini mode-{layoutMode}" bind:this={rootEl}>
-    <div class="mini-card">
+<div class="music-player-mini mode-{layoutMode}" class:micro-short={containerHeight < 144} class:micro-tiny={containerHeight < 88} bind:this={rootEl}>
+    <div class="mini-card" class:mini-card--without-cover={!showCover}>
         <button class="mini-cover" onclick={onOpenDetail} title="展开详细播放器" aria-label="展开详细播放器">
             {#if showCover && currentTrack?.coverObjectUrl}
                 <img src={currentTrack.coverObjectUrl} alt="封面" />
@@ -177,9 +177,17 @@
 
         &.mode-micro {
             padding: 0.35rem;
-            .mini-card { width: 100%; gap: 0.4rem; padding: 0.5rem; justify-content: center; }
-            .mini-cover, .mini-album, .mini-lyric, .mini-volume-area, .mini-time { display: none; }
-            .mini-info { flex: 0 0 auto; justify-content: center; gap: 0.15rem; .mini-title-row { max-width: 100%; } .mini-title { font-size: 0.95rem; } .mini-artist { font-size: 0.7rem; } .mini-favorite { width: 1.4rem; height: 1.4rem; font-size: 0.85rem; } }
+            .mini-card { width: 100%; display: grid; grid-template-columns: 2.5rem minmax(0, 1fr); align-content: center; gap: 0.4rem; padding: 0.5rem; }
+            .mini-cover { width: 2.5rem; height: 2.5rem; padding: 0; .cover-icon { display: flex; :global(svg) { width: 24px; height: 24px; } } }
+            .mini-card--without-cover { grid-template-columns: minmax(0, 1fr); .mini-cover { display: none; } }
+            .mini-album, .mini-lyric, .mini-volume-area, .mini-time { display: none; }
+            .mini-info { width: 100%; align-items: flex-start; text-align: left; gap: 0.15rem; .mini-title-row { width: 100%; justify-content: flex-start; } .mini-title { font-size: 0.95rem; } .mini-artist { font-size: 0.7rem; } .mini-favorite { width: 1.4rem; height: 1.4rem; font-size: 0.85rem; } }
+            .mini-progress-area, .mini-primary-controls, .mini-secondary-controls { grid-column: 1 / -1; justify-self: center; }
+            &.micro-short {
+                .mini-primary-controls { grid-row: 3; justify-self: start; gap: 0.25rem; button { width: 1.6rem; height: 1.6rem; } .mini-play-button { width: 2rem; height: 2rem; } }
+                .mini-secondary-controls { grid-row: 3; justify-self: end; gap: 0.25rem; button { width: 1.5rem; height: 1.5rem; } }
+            }
+            &.micro-tiny { .mini-cover, .mini-info, .mini-progress-area { display: none; } .mini-card { grid-template-columns: minmax(0, 1fr); } }
             .mini-progress-area { margin-top: 0.1rem; .mini-progress { height: 2px; border-radius: 1px; } }
             .mini-primary-controls { gap: 0.5rem; margin-top: 0.2rem; button { width: 1.9rem; height: 1.9rem; } .mini-play-button { width: 2.4rem; height: 2.4rem; } }
             .mini-secondary-controls { gap: 0.5rem; button { width: 1.9rem; height: 1.9rem; } }

@@ -74,7 +74,7 @@ function fixture(width, height, { rem = 16, supportsBox = true, hasObserver = tr
     };
 }
 
-for (const [width, height, expected] of [[500,450,"full"],[360,300,"compact"],[280,300,"micro"]]) {
+for (const [width, height, expected] of [[500,450,"full"],[360,300,"compact"],[280,300,"micro"],[220,180,"micro"],[184,180,"micro"],[184,120,"micro"],[184,80,"micro"]]) {
     const f = fixture(width,height); f.fire(); f.flush(); assert.equal(f.runtime.snapshot.mode, expected);
     assert.deepEqual(f.observations, [{box:"border-box"}]); f.runtime.destroy(); assert.equal(f.disconnected,1);
 }
@@ -147,4 +147,23 @@ for(const text of [track.title,track.artist,track.album,track.coverObjectUrl,"�
 assert.deepEqual(vm,before,"render/layout does not mutate music state");
 const progressed=rt.render(rt.Mini,{props:{...props,vm:{...vm,currentTime:40}}}).body;
 assert(progressed.includes("第二句"));assert(progressed.includes("width: 40%"));
+for (const showCover of [true, false]) {
+    for (const coverObjectUrl of [undefined, "/assets/late-cover.png"]) {
+        const nextVm = { ...vm, showCover, musicFiles: [{ ...track, coverObjectUrl, title: "很长的歌曲名称".repeat(30) }] };
+        const snapshot = structuredClone(nextVm);
+        const rendered = rt.render(rt.Mini, { props: { ...props, vm: nextVm } }).body;
+        assert.equal(rendered.includes('mini-card--without-cover'), !showCover);
+        assert.equal(rendered.includes('<img '), showCover && !!coverObjectUrl);
+        assert.equal(rendered.includes('class="cover-icon'), !showCover || !coverObjectUrl);
+        for (const label of ["上一曲", "暂停", "下一曲", "展开详细播放器"]) assert(rendered.includes(label));
+        assert.deepEqual(nextVm, snapshot, "late cover and track updates never mutate playback state");
+    }
+}
+const miniCss = compileString(source.match(/<style lang="scss">([\s\S]*?)<\/style>/)[1]).css;
+assert.match(miniCss, /\.mode-micro \.mini-card[^{}]*\{[^}]*grid-template-columns: 2.5rem minmax\(0, 1fr\)/);
+assert.match(miniCss, /\.mode-micro \.mini-cover[^{}]*\{[^}]*width: 2.5rem;[^}]*height: 2.5rem/);
+assert.match(miniCss, /\.mini-card--without-cover \.mini-cover[^{}]*\{[^}]*display: none/);
+assert.match(miniCss, /text-overflow: ellipsis/);
+assert.equal((source.match(/new ResizeObserver\(/g) || []).length, 1, "reuse the single border-box observer");
+assert.doesNotMatch(source, /fetch\(|setInterval\(|setTimeout\(/, "covers reuse existing reactive data without requests or polling");
 console.log("PASS music mini layout: production computeLayoutMode/onMount/ResizeObserver; fixed border-box width/height feedback, rem padding, repeated events/RAF dedup, resizing/dialog recovery, zero/invalid/legacy/fallback geometry, destroy/rebind/multiple instances, real Svelte content/progress/lyrics render");

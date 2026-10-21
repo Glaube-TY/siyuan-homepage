@@ -287,8 +287,23 @@
     color: var(--homepage-banner-status-color, #fff);
     text-shadow: 0 1px 10px rgb(0 0 0 / 38%);
 }
-.homepage-container[data-hp-theme] .hp-top-layout[data-banner-content="all"] :is(.hp-action, .hp-status__refresh) {
+/* Keep the configured color above theme variants and interactive states, only inside banners. */
+.homepage-container[data-hp-theme] .hp-top-layout[data-banner-content="all"] :is(.hp-actions, .hp-status) :is(.hp-action, .hp-status__refresh),
+.homepage-container[data-hp-theme] .hp-top-layout[data-banner-content="all"] :is(.hp-actions, .hp-status) :is(.hp-action, .hp-status__refresh):is(:hover, :focus-visible, :disabled) {
     color: var(--homepage-banner-button-color, #fff);
+    border-color: currentColor;
+    text-shadow: 0 1px 2px rgb(0 0 0 / 80%);
+    box-shadow: 0 1px 3px rgb(0 0 0 / 35%), inset 0 0 1px rgb(0 0 0 / 35%);
+}
+.homepage-container[data-hp-theme] .hp-top-layout[data-banner-content="all"] :is(.hp-action, .hp-status__refresh):focus-visible {
+    outline: 2px solid var(--homepage-banner-button-color, #fff);
+    outline-offset: 2px;
+}
+.homepage-container[data-hp-theme] .hp-top-layout[data-banner-content="all"] :is(.hp-action, .hp-status__refresh) svg {
+    filter: drop-shadow(0 1px 2px rgb(0 0 0 / 80%));
+}
+.homepage-container[data-hp-theme] .hp-top-layout[data-banner-content="all"] .hp-action::after {
+    background: currentColor;
 }
 
 @container hp-homepage (max-width: 760px) {

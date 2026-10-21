@@ -4143,6 +4143,7 @@
     data-hp-widget-appearance-policy={themeResolution.definition.features?.widgetAppearance ?? "user-configurable"}
     data-hp-widget-shell={homepageWidgetShell?.id}
     style={homepageWidgetShellStyle}
+    style:--homepage-banner-button-color={bannerButtonColor}
     aria-busy={homepageInitialLoadState === "loading" || homepageInitialLoadState === "revealing" || homepageThemeTransition !== null}
     bind:this={homepageRootElement}
     use:initializeHomepageContextMenu
