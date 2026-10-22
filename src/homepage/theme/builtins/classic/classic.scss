@@ -74,12 +74,14 @@
         align-items: center;
         justify-content: center;
         max-width: min(100%, 720px);
+        padding-right: 36px;
+        box-sizing: border-box;
     }
 
     .hp-status::after {
         position: absolute;
-        inset: 0 -42px 0 auto;
-        width: 42px;
+        inset: 0 0 0 auto;
+        width: 36px;
         content: "";
     }
 
@@ -97,7 +99,7 @@
     .hp-status__refresh {
         position: absolute;
         top: calc(50% + 6px);
-        right: -32px;
+        right: 5px;
         z-index: 5;
         display: inline-flex;
         align-items: center;

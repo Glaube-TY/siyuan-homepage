@@ -168,6 +168,17 @@
     min-width: 0;
 }
 
+.homepage-container[data-hp-theme] .hp-status {
+    min-width: 0;
+}
+
+.homepage-container[data-hp-theme] .hp-status__text {
+    min-width: 0;
+    flex-shrink: 1;
+    overflow-wrap: anywhere;
+    white-space: pre-line;
+}
+
 .homepage-container[data-hp-theme] .widget-block[data-hp-widget-appearance="inherit"] {
     background: var(--hp-widget-background, rgba(0, 0, 0, .03));
     border: var(--hp-widget-border, 2px solid var(--b3-theme-primary));
