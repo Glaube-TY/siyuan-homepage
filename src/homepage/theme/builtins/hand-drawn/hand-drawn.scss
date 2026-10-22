@@ -349,6 +349,7 @@
     .hp-actions__menu-item:focus-visible { background: var(--hp-sketch-accent-soft); color: var(--hp-sketch-accent); }
 
     .hp-sketch-banner-stage {
+        box-sizing: border-box;
         position: relative;
         z-index: 1;
         margin: 0 5px;

@@ -134,6 +134,7 @@
     .hp-actions__menu-item:focus-visible { background: var(--hp-tech-cyan-soft); color: var(--hp-tech-cyan); }
 
     .hp-tech-banner-panel {
+        box-sizing: border-box;
         position: relative;
         margin-bottom: 13px;
         padding: 6px;
