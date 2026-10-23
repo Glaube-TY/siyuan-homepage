@@ -189,7 +189,7 @@ export async function validateEnhancedDiaryWriteTarget(
 export async function lookupDiaryDocumentForDate(
     date: Date,
     notebookId?: string,
-    options: { strictIndexRead?: boolean } = {}
+    options: { strictIndexRead?: boolean; pruneStale?: boolean } = {}
 ): Promise<DiaryDocumentLookupResult> {
     const targetNotebookId = notebookId || activeDiaryNotebookId;
     if (!targetNotebookId) return { status: "missing" };
@@ -222,13 +222,13 @@ export async function lookupDiaryDocumentForDate(
     }
 
     if (inspection.status === "missing") {
-        await removeStaleEnhancedDiaryEntry(targetNotebookId, entry.id).catch(() => undefined);
+        if (options.pruneStale !== false) await removeStaleEnhancedDiaryEntry(targetNotebookId, entry.id).catch(() => undefined);
         return { status: "missing" };
     }
 
     if (inspection.status === "out_of_scope" || inspection.status === "date_mismatch") {
         // Document moved out of scope or date changed — clean stale mapping
-        await removeStaleEnhancedDiaryEntry(targetNotebookId, entry.id).catch(() => undefined);
+        if (options.pruneStale !== false) await removeStaleEnhancedDiaryEntry(targetNotebookId, entry.id).catch(() => undefined);
         return { status: "missing" };
     }
 

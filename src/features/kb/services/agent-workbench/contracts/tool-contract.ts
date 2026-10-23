@@ -73,6 +73,8 @@ export interface ToolRuntimeContext {
   question: string;
   callCounts: Record<string, number>;
   abortSignal?: AbortSignal;
+  /** 内部调用约束，不进入工具参数 Schema，防止 MCP 隐式创建日记。 */
+  diaryTaskCreateTarget?: { docId: string; notebookId: string; date: string; headingId: string; configFingerprint: string };
 }
 
 /** Tool contract — thin interface */

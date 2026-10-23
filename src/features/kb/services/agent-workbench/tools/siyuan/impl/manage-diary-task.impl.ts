@@ -8,7 +8,10 @@ import {
   migrateWorkspaceTaskToToday,
 } from "@/components/utils/widgetBlock/widget/enhancedDiary/workspace/enhancedDiaryWorkspaceTaskService";
 import { addNewTaskToDiary, getOrCreateTodayDiaryDocument } from "@/components/utils/widgetBlock/widget/enhancedDiary/enhancedDiaryActions";
-import { formatDiaryAttrDate } from "@/components/utils/widgetBlock/widget/enhancedDiary/enhancedDiaryDoc";
+import SHA256 from "crypto-js/sha256";
+import type { ToolRuntimeContext } from "../../../contracts/tool-contract";
+import { findDayWorkspaceHeadingBlock } from "@/components/utils/widgetBlock/widget/enhancedDiary/enhancedDiaryBlockLocator";
+import { formatDiaryAttrDate, lookupDiaryDocumentForDate } from "@/components/utils/widgetBlock/widget/enhancedDiary/enhancedDiaryDoc";
 import type { EnhancedDiaryWorkspaceTask } from "@/components/utils/widgetBlock/widget/enhancedDiary/workspace/enhancedDiaryWorkspaceTaskService";
 import type { SiyuanToolDeps as KbRetrievalToolDeps } from "../siyuan-tool-deps";
 import type { ManageDiaryTaskInput, ManageDiaryTaskOutput } from "../contracts/manage-diary-task.contract";
@@ -78,8 +81,10 @@ async function ensureTodayDoc(
 async function executeCreate(
   deps: KbRetrievalToolDeps,
   args: ManageDiaryTaskInput,
+  target?: ToolRuntimeContext["diaryTaskCreateTarget"],
 ): Promise<ExecResult> {
-  const config = await prepareAgendaEnhancedDiaryIndex(deps, await loadAgendaEnhancedDiaryConfig(deps));
+  const loaded = await loadAgendaEnhancedDiaryConfig(deps);
+  const config = target ? loaded : await prepareAgendaEnhancedDiaryIndex(deps, loaded);
   const pluginAdapter = createDiaryToolPluginAdapter(deps);
   const taskInput = args.task!;
   let project = null;
@@ -89,7 +94,20 @@ async function executeCreate(
     const failure = projectError(reason);
     return { ok: false, errorCode: failure.errorCode, safeOutput: { operation: "create", changed: false, message: failure.message } };
   }
-  const doc = await ensureTodayDoc(pluginAdapter, config);
+  let doc: { docId: string; errorCode?: string; message?: string };
+  if (target) {
+    // MCP 目标消失时直接拒绝，绝不进入自动创建日记路径。
+    const lookup = await lookupDiaryDocumentForDate(new Date(), config.dailyNotebookId, { strictIndexRead: true, pruneStale: false });
+    const heading = lookup.status === "exists"
+      ? await findDayWorkspaceHeadingBlock(lookup.doc.id, "newTasks", config.headingStructure, config.templateFieldMapping) : null;
+    if (Object.keys(args).some((key) => !["operation", "task"].includes(key)) || !args.task ||
+      Object.keys(args.task).some((key) => key !== "taskname") || formatDiaryAttrDate(new Date()) !== target.date ||
+      config.dailyNotebookId !== target.notebookId || SHA256(JSON.stringify(config)).toString() !== target.configFingerprint ||
+      lookup.status !== "exists" || lookup.doc.id !== target.docId || !heading?.found || heading.heading?.id !== target.headingId) {
+      return { ok: false, errorCode: "diary_target_conflict", safeOutput: { operation: "create", changed: false, message: "已确认的现有日记目标已变化，未执行任务新建。" } };
+    }
+    doc = { docId: target.docId };
+  } else doc = await ensureTodayDoc(pluginAdapter, config);
   if (!doc.docId) {
     return { ok: false, errorCode: doc.errorCode, safeOutput: { operation: "create", changed: false, message: doc.message! } };
   }
@@ -115,6 +133,9 @@ async function executeCreate(
     projectStorage: config.projectStorage,
   });
 
+  if (result.ok && (result.partial || !result.blockId) || !result.ok && result.reason === "insert_failed") {
+    return { ok: false, errorCode: "write_result_unknown", safeOutput: { operation: "create", changed: result.ok, docId: doc.docId, taskname: taskInput.taskname, message: "任务写入或索引同步结果未知，请先回读，禁止自动重试。" } };
+  }
   if (!result.ok) {
     return {
       ok: false,
@@ -318,10 +339,11 @@ async function executeDelete(
 export async function executeManageDiaryTask(
   deps: KbRetrievalToolDeps,
   args: ManageDiaryTaskInput,
+  target?: ToolRuntimeContext["diaryTaskCreateTarget"],
 ): Promise<ExecResult> {
   switch (args.operation) {
     case "create":
-      return executeCreate(deps, args);
+      return executeCreate(deps, args, target);
     case "migrate":
       return executeMigrate(deps, args);
     case "set_status":

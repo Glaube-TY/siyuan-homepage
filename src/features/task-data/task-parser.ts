@@ -36,8 +36,8 @@ export interface GenerateTasksPlusTaskInput {
     visibleProjectReference?: string;
 }
 
-const TASK_META_SPLIT_RE = /[📅⌛❗🔁⏰📍📁#]/;
-const TASK_META_TOKEN_RE = /([📅⌛❗🔁⏰📍📁#]+)\s*(.*?)(?=\s*[📅⌛❗🔁⏰📍📁#]|$)/g;
+const TASK_META_SPLIT_RE = /[📅⌛❗🔁⏰📍📁#]/u;
+const TASK_META_TOKEN_RE = /([📅⌛❗🔁⏰📍📁#]+)\s*(.*?)(?=\s*[📅⌛❗🔁⏰📍📁#]|$)/gu;
 
 function firstMarkdownLine(markdown: string): string {
     return ((markdown || "").split("\n\n")[0]?.split("\n")[0] || "")

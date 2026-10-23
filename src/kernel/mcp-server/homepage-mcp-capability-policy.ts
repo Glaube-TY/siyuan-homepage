@@ -4,6 +4,17 @@ import type { HomepageMcpCapabilityEffects, HomepageMcpJsonSchema } from "./home
 import { getHomepageMcpWriteOperation, HOMEPAGE_MCP_WRITES_BY_TOOL } from "../../features/agent-platform/mcp-server/homepage-mcp-write-preview";
 
 const databaseIdSchema = { type: "string", pattern: "^\\d{14}-[a-z0-9]{7}$" };
+const diaryTaskCreateArgsSchema: HomepageMcpJsonSchema = {
+  type: "object", additionalProperties: false, required: ["operation", "task"],
+  properties: {
+    operation: { type: "string", const: "create" },
+    task: {
+      type: "object", additionalProperties: false, required: ["taskname"],
+      properties: { taskname: { type: "string", minLength: 1, maxLength: 200,
+        not: { pattern: "^\\s|\\s$|[\\x00-\\x1f\\x7f-\\x9f\u2028\u2029]" } } },
+    },
+  },
+};
 const databaseFieldNameSchema = { type: "string", minLength: 1, maxLength: 50, not: { pattern: "^\\s|\\s$" } };
 // 自定义 Zod refine 不会转成 JSON Schema；外部约束必须明确声明，handler 仍执行 Zod 校验。
 const databaseUpdateArgsSchema: HomepageMcpJsonSchema = {
@@ -193,7 +204,7 @@ function buildInputSchema(
         args: argsSchema,
         ...(!readOnly ? { confirmationId: { type: "string", pattern: "^[a-f0-9]{64}$" } } : {}),
       },
-      required: toolName === "siyuan_database" && !readOnly ? ["action", "args"] : ["action"],
+      required: (toolName === "siyuan_database" || toolName === "diary_task") && !readOnly ? ["action", "args"] : ["action"],
     })),
   };
 }
@@ -240,7 +251,7 @@ export function buildHomepageMcpCapabilityPolicies(
         continue;
       }
       const argsSchema = name === "siyuan_database" && isHomepageMcpWriteAction(name, action)
-        ? databaseWriteArgsSchemas[action] : metadata.argsSchema;
+        ? databaseWriteArgsSchemas[action] : name === "diary_task" && action === "manage_task" ? diaryTaskCreateArgsSchema : metadata.argsSchema;
       if (!argsSchema) {
         issues.push(`${name}.${action}: external_args_schema_required`);
         continue;

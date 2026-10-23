@@ -15,7 +15,7 @@ export type {
 } from "./contracts/manage-diary-task.contract";
 
 export interface ManageDiaryTaskDeps {
-  executeManageDiaryTask(args: ManageDiaryTaskInput): Promise<{ ok: boolean; safeOutput: ManageDiaryTaskOutput; errorCode?: string }>;
+  executeManageDiaryTask(args: ManageDiaryTaskInput, target?: ToolRuntimeContext["diaryTaskCreateTarget"]): Promise<{ ok: boolean; safeOutput: ManageDiaryTaskOutput; errorCode?: string }>;
 }
 
 export function createManageDiaryTaskTool(
@@ -75,7 +75,7 @@ export function createManageDiaryTaskTool(
 
     async execute(_ctx: ToolRuntimeContext, args: ManageDiaryTaskInput): Promise<ToolResult<ManageDiaryTaskOutput>> {
       try {
-        const result = await deps.executeManageDiaryTask(args);
+        const result = await deps.executeManageDiaryTask(args, _ctx.diaryTaskCreateTarget);
         if (!result.ok) {
           return {
             ok: false,
@@ -83,7 +83,7 @@ export function createManageDiaryTaskTool(
             error: {
               code: result.errorCode || "task_update_failed",
               message: result.safeOutput.message,
-              recoverable: true,
+              recoverable: result.errorCode !== "write_result_unknown",
             },
           };
         }
@@ -93,9 +93,9 @@ export function createManageDiaryTaskTool(
           ok: false,
           data: null,
           error: {
-            code: "tool_internal_error",
-            message: "管理日记任务执行异常。",
-            recoverable: true,
+            code: args.operation === "create" ? "write_result_unknown" : "tool_internal_error",
+            message: args.operation === "create" ? "任务写入结果未知，请先回读，禁止自动重试。" : "管理日记任务执行异常。",
+            recoverable: args.operation !== "create",
           },
         };
       }

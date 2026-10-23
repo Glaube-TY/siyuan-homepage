@@ -1,10 +1,11 @@
 import type { JsonSchemaObject } from "./native-tool-schema";
-import type { AggregateActionHelp, ToolSafetyInfo, ToolSource } from "../../agent-workbench/contracts/tool-contract";
+import type { AggregateActionHelp, ToolSafetyInfo, ToolSource, ToolRuntimeContext } from "../../agent-workbench/contracts/tool-contract";
 
 export interface ToolExecutionContext {
   question: string;
   callCounts: Record<string, number>;
   abortSignal?: AbortSignal;
+  diaryTaskCreateTarget?: ToolRuntimeContext["diaryTaskCreateTarget"];
 }
 
 export interface ToolExecutionResult {

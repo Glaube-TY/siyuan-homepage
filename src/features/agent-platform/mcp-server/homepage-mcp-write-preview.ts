@@ -33,9 +33,20 @@ export const HOMEPAGE_MCP_DATABASE_WRITES = {
   add_rows: { name: "新增数据库条目", consequence: "向指定数据库新增一条脱离块记录，只填写标题；不会创建独立思源文档，也不会修改已有数据库条目。" },
   remove_rows: { name: "移除数据库条目", consequence: "本操作只移除数据库中的指定记录。脱离块记录会被移除；绑定块记录只解除数据库关联，不会删除原始思源块或文档。" },
 } as const;
+export const HOMEPAGE_MCP_DIARY_TASK_WRITES = {
+  manage_task: { name: "新建日记任务", consequence: "仅在现有今日日记中新增一条普通任务。" },
+} as const;
+export const homepageMcpDiaryTaskCreateSchema = z.object({
+  operation: z.literal("create"),
+  task: z.object({ taskname: z.string().min(1).max(200).refine((value) => value === value.trim() && Array.from(value).every((char) => {
+    const code = char.codePointAt(0)!;
+    return code >= 32 && (code < 127 || code > 159) && code !== 0x2028 && code !== 0x2029;
+  })) }).strict(),
+}).strict();
 export const HOMEPAGE_MCP_WRITES_BY_TOOL: Record<string, Record<string, { name: string; consequence: string }>> = {
   homepage_components: HOMEPAGE_MCP_WRITES,
   siyuan_database: HOMEPAGE_MCP_DATABASE_WRITES,
+  diary_task: HOMEPAGE_MCP_DIARY_TASK_WRITES,
 };
 export const HOMEPAGE_MCP_DATABASE_BOUND_ADD = {
   name: "关联思源块到数据库",
@@ -80,7 +91,7 @@ export const homepageMcpDatabaseRemoveKeySchema = z.object({
 export const HOMEPAGE_MCP_DATABASE_REMOVE_KEY_WARNING = "删除后，该字段及其所有值均会从数据库中移除，无法通过本插件撤销。数据库、其他字段和原始思源文档不会被删除。";
 export type HomepageMcpDatabaseWriteAction = keyof typeof HOMEPAGE_MCP_DATABASE_WRITES;
 export type HomepageMcpAnniversaryWriteAction = keyof typeof HOMEPAGE_MCP_ANNIVERSARY_WRITES;
-export type HomepageMcpWriteAction = keyof typeof HOMEPAGE_MCP_WRITES | keyof typeof HOMEPAGE_MCP_DATABASE_WRITES;
+export type HomepageMcpWriteAction = keyof typeof HOMEPAGE_MCP_WRITES | keyof typeof HOMEPAGE_MCP_DATABASE_WRITES | keyof typeof HOMEPAGE_MCP_DIARY_TASK_WRITES;
 
 export function isHomepageMcpFavoriteWriteAction(action: string): action is HomepageMcpFavoriteWriteAction {
   return Object.prototype.hasOwnProperty.call(HOMEPAGE_MCP_FAVORITES_WRITES, action);
@@ -93,7 +104,7 @@ const text = z.string().min(1).max(1024).refine((value) => value.trim().length >
   Array.from(value).every((character) => character.charCodeAt(0) >= 32 && character.charCodeAt(0) !== 127));
 
 export const homepageMcpWritePreviewSchema = z.object({
-  action: z.enum([...Object.keys(HOMEPAGE_MCP_WRITES), ...Object.keys(HOMEPAGE_MCP_DATABASE_WRITES)] as [HomepageMcpWriteAction, ...HomepageMcpWriteAction[]]),
+  action: z.enum([...Object.keys(HOMEPAGE_MCP_WRITES), ...Object.keys(HOMEPAGE_MCP_DATABASE_WRITES), ...Object.keys(HOMEPAGE_MCP_DIARY_TASK_WRITES)] as [HomepageMcpWriteAction, ...HomepageMcpWriteAction[]]),
   operationName: text.max(60),
   targetName: text,
   targetId: text.max(128).nullable(),
@@ -101,6 +112,15 @@ export const homepageMcpWritePreviewSchema = z.object({
   affectedCount: z.number().int().min(0).max(1_000_000),
   details: z.array(z.object({ label: text.max(60), value: text }).strict()).max(16),
 }).strict().refine((value) => {
+  if (value.action === "manage_task") {
+    const operation = HOMEPAGE_MCP_DIARY_TASK_WRITES.manage_task;
+    const labels = ["日记文档标题", "日记文档 ID", "本地日期", "任务名称", "插入区域", "当前区域任务数量"];
+    return value.operationName === operation.name && value.consequence === operation.consequence && value.affectedCount === 1 &&
+      id.safeParse(value.targetId).success && value.details.length === labels.length && labels.every((label, i) => value.details[i].label === label) &&
+      value.details[0].value === value.targetName && value.details[1].value === value.targetId && /^\d{8}$/.test(value.details[2].value) &&
+      homepageMcpDiaryTaskCreateSchema.shape.task.shape.taskname.safeParse(value.details[3].value).success && value.details[4].value === "新任务" &&
+      /^(0|[1-9]\d{0,2})$/.test(value.details[5].value);
+  }
   if (value.action === "remove_key") {
     const operation = HOMEPAGE_MCP_DATABASE_WRITES.remove_key;
     const labels = ["数据库名称", "数据库 ID", "字段名称", "字段 ID", "字段类型", "当前数据库条目数量", "非空文本值数量", "已有单元格记录数量", "已有空文本单元格数量", "无单元格记录的条目数量", "永久删除警告"];
