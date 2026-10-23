@@ -5,7 +5,7 @@ import {
 } from "@/features/robot-assistant/runtime/robot-kernel-client";
 
 import type { HomepageMcpWriteRequest } from "@/kernel/mcp-server/homepage-mcp-write-access";
-import { homepageMcpWritePreviewSchema } from "./homepage-mcp-write-preview";
+import { getHomepageMcpWriteOperation, homepageMcpWritePreviewSchema } from "./homepage-mcp-write-preview";
 export type { HomepageMcpWriteRequest } from "@/kernel/mcp-server/homepage-mcp-write-access";
 
 export const HOMEPAGE_MCP_UNSUPPORTED_MESSAGE = "当前环境不支持对外 MCP 服务";
@@ -72,7 +72,7 @@ export async function getHomepageMcpPendingWrites(plugin: unknown): Promise<Home
   return response.requests.map((request: unknown) => {
     if (!isPlainRecord(request) ||
       typeof request.confirmationId !== "string" || !/^[a-f0-9]{64}$/.test(request.confirmationId) ||
-      request.toolName !== "homepage_components" ||
+      typeof request.toolName !== "string" || typeof request.action !== "string" || !getHomepageMcpWriteOperation(request.toolName, request.action) ||
       !isNonNegativeInteger(request.requestedAt) || !isNonNegativeInteger(request.expiresAt) ||
       request.expiresAt - request.requestedAt !== 120_000 ||
       (request.status !== "pending" && request.status !== "approved")) throw new Error(HOMEPAGE_MCP_RPC_ERROR_MESSAGE);

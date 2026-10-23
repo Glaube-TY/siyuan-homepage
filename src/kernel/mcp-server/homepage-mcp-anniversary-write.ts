@@ -130,6 +130,7 @@ export async function prepareHomepageMcpAnniversaryWrite(
         if (category!.archived) throw new Error("分类已经归档。");
       } else {
         if (args.expectedEventCount !== members.length) throw new HomepageMcpAnniversaryConflict();
+        preview.affectedCount = 1 + members.length;
         const destination = (args.moveToCategoryId as string | null | undefined)?.trim();
         if (destination === category!.id) throw new Error("目标分类不能与源分类相同。");
         detail("成员事件移入", categoryName(before, destination, true));

@@ -1,7 +1,8 @@
 import type { NativeTool } from "../../features/kb/services/agent-core/tools/native-tool";
 import type { NativeToolRegistry } from "../../features/kb/services/agent-core/tools/native-tool-registry";
 import type { HomepageMcpCapabilityEffects, HomepageMcpJsonSchema } from "./homepage-mcp-types";
-import { HOMEPAGE_MCP_WRITES } from "../../features/agent-platform/mcp-server/homepage-mcp-write-preview";
+import { z } from "zod";
+import { getHomepageMcpWriteOperation, HOMEPAGE_MCP_WRITES_BY_TOOL, homepageMcpDatabaseUpdateSchema } from "../../features/agent-platform/mcp-server/homepage-mcp-write-preview";
 
 /** 对外 MCP 的固定顶层能力与 action 白名单。 */
 export const HOMEPAGE_MCP_CAPABILITY_POLICY = {
@@ -40,7 +41,7 @@ export const HOMEPAGE_MCP_CAPABILITY_POLICY = {
 } as const;
 
 export function isHomepageMcpWriteAction(name: string, action: string): boolean {
-  return name === "homepage_components" && Object.prototype.hasOwnProperty.call(HOMEPAGE_MCP_WRITES, action);
+  return getHomepageMcpWriteOperation(name, action) !== undefined;
 }
 
 export const HOMEPAGE_MCP_CAPABILITY_NAMES = Object.keys(
@@ -106,6 +107,7 @@ function actionHelp(tool: NativeTool): Record<string, AggregateActionHelp> {
 
 function buildInputSchema(
   actions: Array<{ name: string; argsSchema: HomepageMcpJsonSchema; readOnly: boolean }>,
+  toolName: string,
 ): HomepageMcpJsonSchema {
   return {
     type: "object",
@@ -117,7 +119,7 @@ function buildInputSchema(
         args: argsSchema,
         ...(!readOnly ? { confirmationId: { type: "string", pattern: "^[a-f0-9]{64}$" } } : {}),
       },
-      required: ["action"],
+      required: toolName === "siyuan_database" && name === "update_cell" ? ["action", "args"] : ["action"],
     })),
   };
 }
@@ -147,7 +149,7 @@ export function buildHomepageMcpCapabilityPolicies(
       readOnly: boolean;
     }> = [];
     const actions: string[] = [...HOMEPAGE_MCP_CAPABILITY_POLICY[name]];
-    if (allowWrite && name === "homepage_components") actions.push(...Object.keys(HOMEPAGE_MCP_WRITES));
+    if (allowWrite && Object.prototype.hasOwnProperty.call(HOMEPAGE_MCP_WRITES_BY_TOOL, name)) actions.push(...Object.keys(HOMEPAGE_MCP_WRITES_BY_TOOL[name]));
     for (const action of actions) {
       const metadata = help[action];
       if (!metadata) {
@@ -163,7 +165,9 @@ export function buildHomepageMcpCapabilityPolicies(
         issues.push(`${name}.${action}: bounded_args_schema_required`);
         continue;
       }
-      validActions.push({ name: action, argsSchema: metadata.argsSchema, readOnly });
+      const argsSchema = name === "siyuan_database" && action === "update_cell"
+        ? z.toJSONSchema(homepageMcpDatabaseUpdateSchema) as HomepageMcpJsonSchema : metadata.argsSchema;
+      validActions.push({ name: action, argsSchema, readOnly });
     }
 
     if (validActions.length === 0) {
@@ -174,7 +178,7 @@ export function buildHomepageMcpCapabilityPolicies(
       name,
       tool,
       actions: validActions.map((item) => item.name),
-      inputSchema: buildInputSchema(validActions),
+      inputSchema: buildInputSchema(validActions, name),
       actionEffects: Object.fromEntries(
         validActions.map((item) => [item.name, item.readOnly ? { localRead: true } : { localWrite: true }]),
       ),

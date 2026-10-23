@@ -25,18 +25,40 @@ export const HOMEPAGE_MCP_ANNIVERSARY_WRITES = {
 } as const;
 
 export const HOMEPAGE_MCP_WRITES = { ...HOMEPAGE_MCP_FAVORITES_WRITES, ...HOMEPAGE_MCP_ANNIVERSARY_WRITES } as const;
+export const HOMEPAGE_MCP_DATABASE_WRITES = {
+  update_cell: { name: "修改数据库单元格", consequence: "仅修改指定数据库条目的一个普通文本字段。" },
+} as const;
+export const HOMEPAGE_MCP_WRITES_BY_TOOL: Record<string, Record<string, { name: string; consequence: string }>> = {
+  homepage_components: HOMEPAGE_MCP_WRITES,
+  siyuan_database: HOMEPAGE_MCP_DATABASE_WRITES,
+};
+export function getHomepageMcpWriteOperation(toolName: string, action: string) {
+  const actions = Object.prototype.hasOwnProperty.call(HOMEPAGE_MCP_WRITES_BY_TOOL, toolName) ? HOMEPAGE_MCP_WRITES_BY_TOOL[toolName] : undefined;
+  return actions && Object.prototype.hasOwnProperty.call(actions, action) ? actions[action] : undefined;
+}
+
+const id = z.string().regex(/^\d{14}-[a-z0-9]{7}$/);
+export const homepageMcpDatabaseUpdateSchema = z.object({
+  databaseId: id, rowId: id, keyId: id,
+  valueText: z.string().min(1).max(1000).refine((value) => value.trim().length > 0),
+  expectedFieldName: z.string().min(1).max(50).refine((value) => value.trim().length > 0 && value === value.trim()),
+}).strict();
+export type HomepageMcpDatabaseUpdate = z.infer<typeof homepageMcpDatabaseUpdateSchema>;
 export type HomepageMcpAnniversaryWriteAction = keyof typeof HOMEPAGE_MCP_ANNIVERSARY_WRITES;
-export type HomepageMcpWriteAction = keyof typeof HOMEPAGE_MCP_WRITES;
+export type HomepageMcpWriteAction = keyof typeof HOMEPAGE_MCP_WRITES | keyof typeof HOMEPAGE_MCP_DATABASE_WRITES;
 
 export function isHomepageMcpFavoriteWriteAction(action: string): action is HomepageMcpFavoriteWriteAction {
   return Object.prototype.hasOwnProperty.call(HOMEPAGE_MCP_FAVORITES_WRITES, action);
+}
+export function isHomepageMcpAnniversaryWriteAction(action: string): action is HomepageMcpAnniversaryWriteAction {
+  return Object.prototype.hasOwnProperty.call(HOMEPAGE_MCP_ANNIVERSARY_WRITES, action);
 }
 
 const text = z.string().min(1).max(1024).refine((value) => value.trim().length > 0 &&
   Array.from(value).every((character) => character.charCodeAt(0) >= 32 && character.charCodeAt(0) !== 127));
 
 export const homepageMcpWritePreviewSchema = z.object({
-  action: z.enum(Object.keys(HOMEPAGE_MCP_WRITES) as [HomepageMcpWriteAction, ...HomepageMcpWriteAction[]]),
+  action: z.enum([...Object.keys(HOMEPAGE_MCP_WRITES), ...Object.keys(HOMEPAGE_MCP_DATABASE_WRITES)] as [HomepageMcpWriteAction, ...HomepageMcpWriteAction[]]),
   operationName: text.max(60),
   targetName: text,
   targetId: text.max(128).nullable(),
@@ -44,9 +66,22 @@ export const homepageMcpWritePreviewSchema = z.object({
   affectedCount: z.number().int().min(0).max(1_000_000),
   details: z.array(z.object({ label: text.max(60), value: text }).strict()).max(16),
 }).strict().refine((value) => {
+  if (value.action === "update_cell") {
+    const operation = HOMEPAGE_MCP_DATABASE_WRITES.update_cell;
+    const labels = ["数据库名称", "数据库 ID", "条目标题", "条目 ID", "字段名称", "字段 ID", "原始文本值", "准备写入的新文本值"];
+    return value.operationName === operation.name && value.consequence === operation.consequence && value.affectedCount === 1 &&
+      value.targetId !== null && id.safeParse(value.targetId).success && value.details.length === labels.length &&
+      labels.every((label, index) => value.details[index].label === label) &&
+      value.details[2].value === value.targetName && value.details[3].value === value.targetId &&
+      id.safeParse(value.details[1].value).success && id.safeParse(value.details[5].value).success;
+  }
   const operation = HOMEPAGE_MCP_WRITES[value.action];
   if (Object.prototype.hasOwnProperty.call(HOMEPAGE_MCP_ANNIVERSARY_WRITES, value.action)) {
-    return value.operationName === operation.name && value.consequence === operation.consequence && value.affectedCount === 1 &&
+    const memberCount = value.details.find((detail) => detail.label === "关联事件数量（含已归档）")?.value;
+    const expectedCount = value.action === "homepage_anniversary.delete_category" && memberCount !== undefined && /^\d+$/.test(memberCount)
+      ? Number(memberCount) + 1 : 1;
+    return value.operationName === operation.name && value.consequence === operation.consequence && value.affectedCount === expectedCount &&
+      (value.action !== "homepage_anniversary.delete_category" || memberCount !== undefined && /^\d+$/.test(memberCount)) &&
       (["homepage_anniversary.add", "homepage_anniversary.create_category"].includes(value.action) ? value.targetId === null : value.targetId !== null);
   }
   const documentAction = ["homepage_favorites.add", "homepage_favorites.remove", "homepage_favorites.move_to_group"].includes(value.action);

@@ -21,6 +21,7 @@ export interface ReadAttributeViewSafeArgs {
   includeRows?: boolean;
   rowLimit?: number;
   includeRaw?: boolean;
+  renderView?: boolean;
 }
 
 export async function readAttributeViewSafeOutput(
@@ -48,7 +49,7 @@ export async function readAttributeViewSafeOutput(
 
   let renderResult: any = null;
   const warnings: string[] = [];
-  if (includeRows) {
+  if (includeRows && args.renderView !== false) {
     try {
       renderResult = await renderAttributeView({
         id: databaseId,

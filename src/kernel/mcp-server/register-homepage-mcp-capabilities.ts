@@ -1,7 +1,8 @@
 import { fingerprintHomepageMcpValue, type HomepageMcpWriteAccess } from "./homepage-mcp-write-access";
 import { HomepageMcpFavoritesConflict, prepareHomepageMcpFavoriteWrite, verifyHomepageMcpFavoriteWrite, type PreparedFavoriteWrite } from "./homepage-mcp-favorites-write";
 import { HomepageMcpAnniversaryConflict, prepareHomepageMcpAnniversaryWrite, verifyHomepageMcpAnniversaryWrite, type PreparedAnniversaryWrite } from "./homepage-mcp-anniversary-write";
-import { HOMEPAGE_MCP_WRITES, isHomepageMcpFavoriteWriteAction, type HomepageMcpFavoriteWriteAction, type HomepageMcpAnniversaryWriteAction, type HomepageMcpWriteAction } from "../../features/agent-platform/mcp-server/homepage-mcp-write-preview";
+import { prepareHomepageMcpDatabaseWrite, verifyHomepageMcpDatabaseWrite, type PreparedDatabaseWrite } from "./homepage-mcp-database-write";
+import { getHomepageMcpWriteOperation, homepageMcpDatabaseUpdateSchema, isHomepageMcpFavoriteWriteAction, isHomepageMcpAnniversaryWriteAction, type HomepageMcpFavoriteWriteAction, type HomepageMcpAnniversaryWriteAction } from "../../features/agent-platform/mcp-server/homepage-mcp-write-preview";
 import type { NativeTool } from "../../features/kb/services/agent-core/tools/native-tool";
 import type { NativeToolRegistry } from "../../features/kb/services/agent-core/tools/native-tool-registry";
 import {
@@ -194,11 +195,11 @@ function createCapabilityConfig(
   policy: HomepageMcpCapabilityPolicy,
 ): HomepageMcpCapabilityConfig {
   const writes = Object.entries(policy.actionEffects).filter(([, effect]) => effect.localWrite)
-    .map(([action]) => HOMEPAGE_MCP_WRITES[action as HomepageMcpWriteAction].name);
+    .map(([action]) => getHomepageMcpWriteOperation(policy.name, action)!.name);
   return {
-    title: writes.length ? "主页组件查询与确认写入" : CAPABILITY_TITLES[policy.name],
+    title: writes.length ? (policy.name === "siyuan_database" ? "思源数据库查询与确认写入" : "主页组件查询与确认写入") : CAPABILITY_TITLES[policy.name],
     description: writes.length
-      ? `读取主页业务组件数据；${writes.join("、")}仅限本次运行授权且经逐次用户确认。`
+      ? `${CAPABILITY_DESCRIPTIONS[policy.name]}${writes.join("、")}仅限本次运行授权且经逐次用户确认。`
       : CAPABILITY_DESCRIPTIONS[policy.name],
     inputSchema: policy.inputSchema,
     effects: { localRead: true, ...(writes.length ? { localWrite: true } : {}) },
@@ -238,6 +239,7 @@ function createCapabilityHandler(
     let toolInput: Record<string, unknown>;
     try {
       toolInput = { action, args: input.args === undefined ? {} : input.args };
+      if (write && policy.name === "siyuan_database") homepageMcpDatabaseUpdateSchema.parse(toolInput.args);
       if (write) {
         fingerprintHomepageMcpValue(toolInput);
         if (input.confirmationId !== undefined) {
@@ -255,16 +257,21 @@ function createCapabilityHandler(
       return failure("mcp_invalid_input", "MCP 参数校验失败。");
     }
 
-    let prepared: { domain: "favorites"; value: PreparedFavoriteWrite } | { domain: "anniversary"; value: PreparedAnniversaryWrite } | undefined;
+    let prepared: { domain: "favorites"; value: PreparedFavoriteWrite } | { domain: "anniversary"; value: PreparedAnniversaryWrite }
+      | { domain: "database"; value: PreparedDatabaseWrite } | undefined;
     if (write) {
       // 前面的异步校验期间权限可能已撤销；消费批准前再次检查。
       if (!(await options.isEntitlementAvailable())) return failure("mcp_entitlement_required", "当前会员状态不允许使用主页 MCP 服务。");
       if (!options.isActive() || !options.isWriteActive?.()) return failure("mcp_write_not_allowed", "MCP 写入授权已失效。");
       const args = toolInput.args as Record<string, unknown>;
       try {
-        prepared = isHomepageMcpFavoriteWriteAction(action)
-          ? { domain: "favorites", value: await prepareHomepageMcpFavoriteWrite(action, args) }
-          : { domain: "anniversary", value: await prepareHomepageMcpAnniversaryWrite(action as HomepageMcpAnniversaryWriteAction, args) };
+        if (policy.name === "homepage_components" && isHomepageMcpFavoriteWriteAction(action)) {
+          prepared = { domain: "favorites", value: await prepareHomepageMcpFavoriteWrite(action, args) };
+        } else if (policy.name === "homepage_components" && isHomepageMcpAnniversaryWriteAction(action)) {
+          prepared = { domain: "anniversary", value: await prepareHomepageMcpAnniversaryWrite(action, args) };
+        } else if (policy.name === "siyuan_database" && action === "update_cell") {
+          prepared = { domain: "database", value: await prepareHomepageMcpDatabaseWrite(args) };
+        } else return failure("mcp_write_not_allowed", "未知 MCP 写入业务域。");
         if (!(await options.isEntitlementAvailable())) return failure("mcp_entitlement_required", "当前会员状态不允许使用主页 MCP 服务。");
         if (!options.isActive() || !options.isWriteActive?.()) return failure("mcp_write_not_allowed", "MCP 写入授权已失效。");
         if (input.confirmationId === undefined) {
@@ -299,7 +306,9 @@ function createCapabilityHandler(
         }
         const verified = prepared!.domain === "favorites"
           ? await verifyHomepageMcpFavoriteWrite(action as HomepageMcpFavoriteWriteAction, toolInput.args as Record<string, unknown>, prepared!.value as PreparedFavoriteWrite, result.data)
-          : await verifyHomepageMcpAnniversaryWrite(action as HomepageMcpAnniversaryWriteAction, toolInput.args as Record<string, unknown>, prepared!.value as PreparedAnniversaryWrite, result.data);
+          : prepared!.domain === "anniversary"
+            ? await verifyHomepageMcpAnniversaryWrite(action as HomepageMcpAnniversaryWriteAction, toolInput.args as Record<string, unknown>, prepared!.value as PreparedAnniversaryWrite, result.data)
+            : await verifyHomepageMcpDatabaseWrite(toolInput.args as Record<string, unknown>, prepared!.value as PreparedDatabaseWrite, result.data);
         if (!verified) return uncertainWrite();
       } else if (!result.ok) {
         return failure(normalizeErrorCode(result.errorCode ?? result.code, "mcp_execution_failed"), "只读能力执行失败。");

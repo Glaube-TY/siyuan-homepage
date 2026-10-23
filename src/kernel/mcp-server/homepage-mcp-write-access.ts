@@ -1,5 +1,5 @@
 import SHA256 from "crypto-js/sha256";
-import { homepageMcpWritePreviewSchema, type HomepageMcpWritePreview } from "../../features/agent-platform/mcp-server/homepage-mcp-write-preview";
+import { getHomepageMcpWriteOperation, homepageMcpWritePreviewSchema, type HomepageMcpWritePreview } from "../../features/agent-platform/mcp-server/homepage-mcp-write-preview";
 export type { HomepageMcpWritePreview } from "../../features/agent-platform/mcp-server/homepage-mcp-write-preview";
 
 export interface HomepageMcpWriteRequest extends HomepageMcpWritePreview {
@@ -93,7 +93,7 @@ export class HomepageMcpWriteAccess {
     if (this.requests.has(confirmationId)) throw new Error("MCP 确认 ID 冲突，未创建请求。");
     const requestedAt = Date.now();
     const safePreview = homepageMcpWritePreviewSchema.parse(preview);
-    if (safePreview.action !== action || !/^[a-f0-9]{64}$/.test(stateFingerprint)) throw new Error("MCP 预览无效。");
+    if (!getHomepageMcpWriteOperation(toolName, action) || safePreview.action !== action || !/^[a-f0-9]{64}$/.test(stateFingerprint)) throw new Error("MCP 预览无效。");
     this.requests.set(confirmationId, {
       ...safePreview, confirmationId, toolName,
       requestedAt, expiresAt: requestedAt + CONFIRMATION_TTL_MS, status: "pending",
