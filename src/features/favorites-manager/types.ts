@@ -51,8 +51,10 @@ export type StrictReadResult =
 
 /** 写操作错误 */
 export class FavoritesWriteError extends Error {
+    readonly code: "conflict" | undefined;
     constructor(message: string, public readonly kind: "read" | "write" | "validate" | "lock") {
         super(message);
         this.name = "FavoritesWriteError";
+        this.code = kind === "lock" ? "conflict" : undefined;
     }
 }

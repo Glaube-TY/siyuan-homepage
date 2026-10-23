@@ -1,6 +1,6 @@
-import { getBlockInfo } from "../../api";
-import { loadFavoritesForUI } from "../../features/favorites-manager/favorites-store";
-import type { HomepageMcpWriteAccess, HomepageMcpWritePreview } from "./homepage-mcp-write-access";
+import { fingerprintHomepageMcpValue, type HomepageMcpWriteAccess } from "./homepage-mcp-write-access";
+import { HomepageMcpFavoritesConflict, prepareHomepageMcpFavoriteWrite, verifyHomepageMcpFavoriteWrite, type PreparedFavoriteWrite } from "./homepage-mcp-favorites-write";
+import type { HomepageMcpFavoriteWriteAction } from "../../features/agent-platform/mcp-server/homepage-mcp-write-preview";
 import type { NativeTool } from "../../features/kb/services/agent-core/tools/native-tool";
 import type { NativeToolRegistry } from "../../features/kb/services/agent-core/tools/native-tool-registry";
 import {
@@ -195,7 +195,7 @@ function createCapabilityConfig(
   return {
     title: policy.actionEffects["homepage_favorites.add"]?.localWrite ? "主页组件查询与确认写入" : CAPABILITY_TITLES[policy.name],
     description: policy.actionEffects["homepage_favorites.add"]?.localWrite
-      ? "读取主页业务组件数据；收藏新增仅限本次运行授权且经单次用户确认。"
+      ? "读取主页业务组件数据；七项收藏管理写入仅限本次运行授权且经逐次用户确认。"
       : CAPABILITY_DESCRIPTIONS[policy.name],
     inputSchema: policy.inputSchema,
     effects: { localRead: true, ...(policy.actionEffects["homepage_favorites.add"]?.localWrite ? { localWrite: true } : {}) },
@@ -235,34 +235,49 @@ function createCapabilityHandler(
     let toolInput: Record<string, unknown>;
     try {
       toolInput = { action, args: input.args === undefined ? {} : input.args };
+      if (write) {
+        fingerprintHomepageMcpValue(toolInput);
+        if (input.confirmationId !== undefined) {
+          const code = options.writeAccess!.check(input.confirmationId as string, policy.name, action, toolInput.args as Record<string, unknown>);
+          if (code) return failure(code, "确认未批准、已失效、已消费或与当前操作不符。");
+        }
+      }
       if (policy.tool.isReadOnlyCall?.(toolInput) !== !write) {
         return failure("mcp_write_not_allowed", "该调用的实际读写判定与授权不一致。");
       }
       if (!policy.tool.preflightValidate) return failure("mcp_schema_unavailable", "能力缺少严格参数校验。");
       if (!(await policy.tool.preflightValidate(toolInput)).ok) return failure("mcp_invalid_input", "MCP 参数校验失败。");
     } catch {
+      if (write && typeof input.confirmationId === "string") options.writeAccess?.invalidate(input.confirmationId);
       return failure("mcp_invalid_input", "MCP 参数校验失败。");
     }
 
+    let prepared: PreparedFavoriteWrite | undefined;
     if (write) {
       // 前面的异步校验期间权限可能已撤销；消费批准前再次检查。
       if (!(await options.isEntitlementAvailable())) return failure("mcp_entitlement_required", "当前会员状态不允许使用主页 MCP 服务。");
       if (!options.isActive() || !options.isWriteActive?.()) return failure("mcp_write_not_allowed", "MCP 写入授权已失效。");
       const args = toolInput.args as Record<string, unknown>;
-      if (input.confirmationId === undefined) {
-        try {
-          const preview = await readFavoriteWritePreview(args);
-          if (!(await options.isEntitlementAvailable())) return failure("mcp_entitlement_required", "当前会员状态不允许使用主页 MCP 服务。");
-          if (!options.isActive() || !options.isWriteActive?.()) return failure("mcp_write_not_allowed", "MCP 写入授权已失效。");
-          const confirmationId = options.writeAccess!.create(policy.name, action, args, preview);
+      try {
+        prepared = await prepareHomepageMcpFavoriteWrite(action as HomepageMcpFavoriteWriteAction, args);
+        if (!(await options.isEntitlementAvailable())) return failure("mcp_entitlement_required", "当前会员状态不允许使用主页 MCP 服务。");
+        if (!options.isActive() || !options.isWriteActive?.()) return failure("mcp_write_not_allowed", "MCP 写入授权已失效。");
+        if (input.confirmationId === undefined) {
+          const confirmationId = options.writeAccess!.create(policy.name, action, args, prepared.preview, prepared.stateFingerprint);
           if (!confirmationId) return failure("mcp_confirmation_queue_full", "待处理写入请求已满或授权已关闭。");
           return { ...failure("mcp_confirmation_required", "请在主页插件设置中确认，然后携带相同参数和确认 ID 重试。"), confirmationId };
-        } catch {
-          return failure("mcp_confirmation_unavailable", "无法可靠读取文档或分组，未生成写入确认。");
         }
+        const code = options.writeAccess!.consume(input.confirmationId as string, policy.name, action, args, prepared.stateFingerprint);
+        if (code) return failure(code, "确认已失效或收藏状态已变化，请重新读取并申请确认。");
+      } catch (error) {
+        if (typeof input.confirmationId === "string") {
+          options.writeAccess!.invalidate(input.confirmationId);
+          return failure("mcp_confirmation_state_changed", "收藏状态已变化或无法复核，确认已失效，请重新申请。");
+        }
+        return error instanceof HomepageMcpFavoritesConflict
+          ? failure("mcp_favorites_conflict", "收藏版本或成员数量已变化，请重新读取后申请确认。")
+          : failure("mcp_confirmation_unavailable", "无法可靠读取收藏目标，未生成写入确认。");
       }
-      const code = options.writeAccess!.consume(input.confirmationId as string, policy.name, action, args);
-      if (code) return { ...failure(code, "确认未批准、已失效、已消费或与当前操作不符。"), confirmationId: input.confirmationId as string };
     }
 
     try {
@@ -270,17 +285,16 @@ function createCapabilityHandler(
         question: "External MCP capability invocation", callCounts: {},
       });
       if (write) {
-        if (!result.ok) return uncertainWrite();
-        const args = toolInput.args as { docId: string; groupId?: string | null };
-        const after = await loadFavoritesForUI();
-        const item = after.items.find((row) => row.id === args.docId);
-        const data = result.data as { action?: string; result?: { docId?: string } } | undefined;
-        if (!item || data?.action !== action || data.result?.docId !== args.docId ||
-          (args.groupId !== undefined && (item.favoriteGroupId ?? null) !== (args.groupId?.trim() ?? null))) return uncertainWrite();
+        if (!result.ok) {
+          const code = normalizeErrorCode(result.errorCode ?? result.code, "mcp_execution_failed");
+          return code === "conflict" || code.endsWith("_conflict") || code === "revision_mismatch" || code === "stale_revision"
+            ? failure(code, "收藏业务层报告版本冲突，请重新读取后申请确认。") : uncertainWrite();
+        }
+        if (!(await verifyHomepageMcpFavoriteWrite(action as HomepageMcpFavoriteWriteAction, toolInput.args as Record<string, unknown>, prepared!, result.data))) return uncertainWrite();
       } else if (!result.ok) {
         return failure(normalizeErrorCode(result.errorCode ?? result.code, "mcp_execution_failed"), "只读能力执行失败。");
       }
-      return { ok: true, data: sanitizeExternalValue(result.data), summary: write ? "收藏新增并回读确认完成。" : "读取完成。" };
+      return { ok: true, data: sanitizeExternalValue(result.data), summary: write ? "收藏操作并回读确认完成。" : "读取完成。" };
     } catch {
       return write ? uncertainWrite() : failure("mcp_execution_failed", "只读能力执行失败。");
     }
@@ -293,30 +307,6 @@ function createCapabilityHandler(
       ? options.runWrite(() => invoke(call))
       : invoke(call);
   };
-}
-
-async function readFavoriteWritePreview(args: Record<string, unknown>): Promise<HomepageMcpWritePreview> {
-  const docId = args.docId as string;
-  const info = await getBlockInfo(docId);
-  if (!isPlainRecord(info) || info.rootID !== docId || info.rootTitleEmpty === true ||
-    !isPreviewText(info.rootTitle)) throw new Error("无法确认目标文档。");
-  const favorites = await loadFavoritesForUI();
-  const groupMode = args.groupId === undefined ? "preserve" : args.groupId === null ? "ungrouped" : "specified";
-  // 未指定分组时沿用收藏存储的保留语义；查询使用业务层同样的 trim，不改请求参数。
-  const groupId = args.groupId === undefined
-    ? favorites.items.find((item) => item.id === docId)?.favoriteGroupId
-    : typeof args.groupId === "string" ? args.groupId.trim() : null;
-  const group = groupId == null ? null : favorites.groups.find((item) => item.id === groupId);
-  if (groupId != null && (!group || !isPreviewText(group.name))) throw new Error("无法确认目标分组。");
-  return { docId, docTitle: info.rootTitle, groupMode, groupName: group?.name ?? null };
-}
-
-function isPreviewText(value: unknown): value is string {
-  return typeof value === "string" && value.trim().length > 0 && value.length <= 1024 &&
-    Array.from(value).every((character) => {
-      const code = character.charCodeAt(0);
-      return code >= 32 && code !== 127;
-    });
 }
 
 function uncertainWrite(): HomepageMcpCallResult {

@@ -1,16 +1,10 @@
 import SHA256 from "crypto-js/sha256";
-
-export interface HomepageMcpWritePreview {
-  docId: string;
-  docTitle: string;
-  groupMode: "preserve" | "ungrouped" | "specified";
-  groupName: string | null;
-}
+import { homepageMcpWritePreviewSchema, type HomepageMcpWritePreview } from "../../features/agent-platform/mcp-server/homepage-mcp-write-preview";
+export type { HomepageMcpWritePreview } from "../../features/agent-platform/mcp-server/homepage-mcp-write-preview";
 
 export interface HomepageMcpWriteRequest extends HomepageMcpWritePreview {
   confirmationId: string;
   toolName: string;
-  action: string;
   requestedAt: number;
   expiresAt: number;
   status: "pending" | "approved";
@@ -28,15 +22,47 @@ function createConfirmationId(): string {
   return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
+export function fingerprintHomepageMcpValue(value: unknown): string {
+  const ancestors = new Set<object>();
+  let nodes = 0;
+  let size = 0;
+  const encode = (child: unknown, depth: number): string => {
+    if (++nodes > 4096 || depth > 8) throw new Error("MCP 参数结构超出边界。");
+    let result: string;
+    if (child === null || typeof child === "boolean" || typeof child === "string" ||
+      (typeof child === "number" && Number.isFinite(child) && !Object.is(child, -0))) {
+      result = JSON.stringify(child);
+    } else if (typeof child === "object" && child !== null) {
+      if (ancestors.has(child)) throw new Error("MCP 参数不能循环引用。");
+      ancestors.add(child);
+      if (Array.isArray(child)) {
+        if (Object.keys(child).length !== child.length || child.length > 2048 || Object.getOwnPropertySymbols(child).length ||
+          Object.keys(child).some((key, index) => key !== String(index))) throw new Error("MCP 数组无效。");
+        result = "[" + child.map((item) => encode(item, depth + 1)).join(",") + "]";
+      } else {
+        const prototype = Object.getPrototypeOf(child);
+        if ((prototype !== Object.prototype && prototype !== null) || Object.getOwnPropertySymbols(child).length) throw new Error("MCP 参数必须为 JSON。");
+        const keys = Object.keys(child).sort();
+        if (keys.length > 256) throw new Error("MCP 对象字段过多。");
+        result = "{" + keys.map((key) => encode(key, depth + 1) + ":" + encode((child as Record<string, unknown>)[key], depth + 1)).join(",") + "}";
+      }
+      ancestors.delete(child);
+    } else throw new Error("MCP 参数包含不支持的值。");
+    size += result.length;
+    if (size > 65_536) throw new Error("MCP 参数过大。");
+    return result;
+  };
+  return SHA256(encode(value, 0)).toString();
+}
+
 function fingerprint(toolName: string, action: string, args: Record<string, unknown>): string {
-  // 唯一允许的写 action 只接受标量参数；字段排序保证对象顺序不影响绑定。
-  return SHA256(JSON.stringify([toolName, action, Object.keys(args).sort().map((key) => [key, typeof args[key], args[key]])])).toString();
+  return fingerprintHomepageMcpValue([toolName, action, args]);
 }
 
 /** 仅属于本次 Kernel 运行；不存原始参数，不借用 Robot 的确认或会话。 */
 export class HomepageMcpWriteAccess {
   private allowed = false;
-  private requests = new Map<string, HomepageMcpWriteRequest & { fingerprint: string }>();
+  private requests = new Map<string, HomepageMcpWriteRequest & { fingerprint: string; stateFingerprint: string }>();
   private cancelExpiry: (() => void) | null = null;
 
   constructor(private readonly timeout: (fn: () => void, ms: number) => () => void) {}
@@ -57,21 +83,22 @@ export class HomepageMcpWriteAccess {
 
   list(): HomepageMcpWriteRequest[] {
     this.prune();
-    return Array.from(this.requests.values(), ({ fingerprint: _fingerprint, ...request }) => ({ ...request }));
+    return Array.from(this.requests.values(), ({ fingerprint: _fingerprint, stateFingerprint: _stateFingerprint, ...request }) => structuredClone(request));
   }
 
-  create(toolName: string, action: string, args: Record<string, unknown>, preview: HomepageMcpWritePreview): string | null {
+  create(toolName: string, action: string, args: Record<string, unknown>, preview: HomepageMcpWritePreview, stateFingerprint: string): string | null {
     this.prune();
     if (!this.allowed || this.requests.size >= MAX_REQUESTS) return null;
     const confirmationId = createConfirmationId();
     if (this.requests.has(confirmationId)) throw new Error("MCP 确认 ID 冲突，未创建请求。");
     const requestedAt = Date.now();
+    const safePreview = homepageMcpWritePreviewSchema.parse(preview);
+    if (safePreview.action !== action || !/^[a-f0-9]{64}$/.test(stateFingerprint)) throw new Error("MCP 预览无效。");
     this.requests.set(confirmationId, {
-      confirmationId, toolName, action,
-      docId: preview.docId, docTitle: preview.docTitle,
-      groupMode: preview.groupMode, groupName: preview.groupName,
+      ...safePreview, confirmationId, toolName,
       requestedAt, expiresAt: requestedAt + CONFIRMATION_TTL_MS, status: "pending",
       fingerprint: fingerprint(toolName, action, args),
+      stateFingerprint,
     });
     this.scheduleExpiry();
     return confirmationId;
@@ -87,13 +114,29 @@ export class HomepageMcpWriteAccess {
     return true;
   }
 
-  consume(confirmationId: string, toolName: string, action: string, args: Record<string, unknown>): string | null {
+  check(confirmationId: string, toolName: string, action: string, args: Record<string, unknown>): string | null {
     this.prune();
     const request = this.requests.get(confirmationId);
     if (!this.allowed || !request || request.fingerprint !== fingerprint(toolName, action, args)) {
+      this.invalidate(confirmationId);
       return "mcp_confirmation_invalid";
     }
     if (request.status !== "approved") return "mcp_confirmation_required";
+    return null;
+  }
+
+  invalidate(confirmationId: string): void {
+    this.requests.delete(confirmationId);
+    this.scheduleExpiry();
+  }
+
+  consume(confirmationId: string, toolName: string, action: string, args: Record<string, unknown>, stateFingerprint: string): string | null {
+    const code = this.check(confirmationId, toolName, action, args);
+    if (code) return code;
+    if (this.requests.get(confirmationId)!.stateFingerprint !== stateFingerprint) {
+      this.invalidate(confirmationId);
+      return "mcp_confirmation_state_changed";
+    }
     // 无 await：批准在业务调用前原子消费，失败或结果未知都不能重放。
     this.requests.delete(confirmationId);
     this.scheduleExpiry();

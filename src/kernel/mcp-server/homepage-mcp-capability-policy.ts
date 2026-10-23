@@ -1,6 +1,7 @@
 import type { NativeTool } from "../../features/kb/services/agent-core/tools/native-tool";
 import type { NativeToolRegistry } from "../../features/kb/services/agent-core/tools/native-tool-registry";
 import type { HomepageMcpCapabilityEffects, HomepageMcpJsonSchema } from "./homepage-mcp-types";
+import { HOMEPAGE_MCP_FAVORITES_WRITES } from "../../features/agent-platform/mcp-server/homepage-mcp-write-preview";
 
 /** 对外 MCP 的固定顶层能力与 action 白名单。 */
 export const HOMEPAGE_MCP_CAPABILITY_POLICY = {
@@ -39,7 +40,7 @@ export const HOMEPAGE_MCP_CAPABILITY_POLICY = {
 } as const;
 
 export function isHomepageMcpWriteAction(name: string, action: string): boolean {
-  return name === "homepage_components" && action === "homepage_favorites.add";
+  return name === "homepage_components" && Object.prototype.hasOwnProperty.call(HOMEPAGE_MCP_FAVORITES_WRITES, action);
 }
 
 export const HOMEPAGE_MCP_CAPABILITY_NAMES = Object.keys(
@@ -146,7 +147,7 @@ export function buildHomepageMcpCapabilityPolicies(
       readOnly: boolean;
     }> = [];
     const actions: string[] = [...HOMEPAGE_MCP_CAPABILITY_POLICY[name]];
-    if (allowWrite && name === "homepage_components") actions.push("homepage_favorites.add");
+    if (allowWrite && name === "homepage_components") actions.push(...Object.keys(HOMEPAGE_MCP_FAVORITES_WRITES));
     for (const action of actions) {
       const metadata = help[action];
       if (!metadata) {

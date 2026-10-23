@@ -5,6 +5,7 @@ import {
 } from "@/features/robot-assistant/runtime/robot-kernel-client";
 
 import type { HomepageMcpWriteRequest } from "@/kernel/mcp-server/homepage-mcp-write-access";
+import { homepageMcpWritePreviewSchema } from "./homepage-mcp-write-preview";
 export type { HomepageMcpWriteRequest } from "@/kernel/mcp-server/homepage-mcp-write-access";
 
 export const HOMEPAGE_MCP_UNSUPPORTED_MESSAGE = "当前环境不支持对外 MCP 服务";
@@ -71,20 +72,18 @@ export async function getHomepageMcpPendingWrites(plugin: unknown): Promise<Home
   return response.requests.map((request: unknown) => {
     if (!isPlainRecord(request) ||
       typeof request.confirmationId !== "string" || !/^[a-f0-9]{64}$/.test(request.confirmationId) ||
-      request.toolName !== "homepage_components" || request.action !== "homepage_favorites.add" ||
-      typeof request.docId !== "string" || !/^[0-9]{14}-[a-z0-9]{7}$/.test(request.docId) ||
-      !isPreviewText(request.docTitle) ||
-      (request.groupMode !== "preserve" && request.groupMode !== "ungrouped" && request.groupMode !== "specified") ||
-      (request.groupName !== null && !isPreviewText(request.groupName)) ||
-      (request.groupMode === "specified" && request.groupName === null) ||
-      (request.groupMode === "ungrouped" && request.groupName !== null) ||
+      request.toolName !== "homepage_components" ||
       !isNonNegativeInteger(request.requestedAt) || !isNonNegativeInteger(request.expiresAt) ||
       request.expiresAt - request.requestedAt !== 120_000 ||
       (request.status !== "pending" && request.status !== "approved")) throw new Error(HOMEPAGE_MCP_RPC_ERROR_MESSAGE);
+    const preview = homepageMcpWritePreviewSchema.safeParse({
+      action: request.action, operationName: request.operationName, targetName: request.targetName,
+      targetId: request.targetId, consequence: request.consequence,
+      affectedCount: request.affectedCount, details: request.details,
+    });
+    if (!preview.success) throw new Error(HOMEPAGE_MCP_RPC_ERROR_MESSAGE);
     return {
-      confirmationId: request.confirmationId, toolName: request.toolName, action: request.action,
-      docId: request.docId, docTitle: request.docTitle, groupMode: request.groupMode,
-      groupName: typeof request.groupName === "string" ? request.groupName : null,
+      ...preview.data, confirmationId: request.confirmationId, toolName: request.toolName,
       requestedAt: request.requestedAt, expiresAt: request.expiresAt, status: request.status,
     };
   });
@@ -155,14 +154,6 @@ function parseSnapshot(value: unknown): HomepageMcpServerSnapshot {
     expectedCapabilityCount: value.expectedCapabilityCount,
     lastError: typeof value.lastError === "string" ? value.lastError : null,
   };
-}
-
-function isPreviewText(value: unknown): value is string {
-  return typeof value === "string" && value.trim().length > 0 && value.length <= 1024 &&
-    Array.from(value).every((character) => {
-      const code = character.charCodeAt(0);
-      return code >= 32 && code !== 127;
-    });
 }
 
 function isNonNegativeInteger(value: unknown): value is number {

@@ -153,12 +153,6 @@
             + " · " + state + "（" + Math.max(0, Math.ceil((request.expiresAt - now) / 1000)) + " 秒后过期）";
     }
 
-    function requestGroupLabel(request: HomepageMcpWriteRequest): string {
-        if (request.groupMode === "ungrouped") return "未分组（明确指定）";
-        if (request.groupMode === "specified") return request.groupName!;
-        return "保留已有收藏分组（当前：" + (request.groupName ?? "未分组") + "；新收藏不分组）";
-    }
-
     function resolveStatusLabel(
         current: HomepageMcpServerSnapshot | null,
         isLoading: boolean,
@@ -186,7 +180,7 @@
     <header class="center-header">
         <div>
             <h3 id="homepage-mcp-heading">对外 MCP 服务 <PremiumMark size={13} /></h3>
-            <p>外部 MCP 默认只读；本次运行授权并逐次确认后，可新增收藏。</p>
+            <p>外部 MCP 默认只读；本次运行授权后，支持经过审核并逐次确认的收藏管理操作。</p>
         </div>
     </header>
 
@@ -207,7 +201,7 @@
 
         <SettingRow
             title="允许本次运行 MCP 写入"
-            description="本次运行默认关闭，仅支持逐次确认的收藏新增。普通 OAuth MCP 客户端不能调用插件审批 RPC；管理员 Token 不受此审批隔离。关闭服务或重启后授权失效。"
+            description="本次运行默认关闭，支持经过审核并逐次确认的收藏管理操作。普通 OAuth MCP 客户端不能调用插件审批 RPC；管理员 Token 不受此审批隔离。关闭服务或重启后授权失效。"
         >
             <div class="status-control">
                 <span aria-live="polite">{snapshot ? snapshot.writeActive ? "已开启写入授权" : "只读" : "状态未知"}</span>
@@ -243,12 +237,16 @@
 
     <SettingSection title="待确认写入">
         {#each requests as request (request.confirmationId)}
-            <article class="write-request" aria-label="新增收藏审批">
+            <article class="write-request" aria-label={request.operationName + "审批"}>
                 <div class="write-request-info">
-                    <h4>新增收藏</h4>
-                    <p class="write-request-title">{request.docTitle}</p>
-                    <p>文档 ID：{request.docId}</p>
-                    <p>目标分组：{requestGroupLabel(request)}</p>
+                    <h4>{request.operationName}</h4>
+                    <p class="write-request-title">{request.targetName}</p>
+                    {#if request.targetId}<p>目标 ID：{request.targetId}</p>{/if}
+                    <p>受影响收藏：{request.affectedCount} 项</p>
+                    {#each request.details as detail}
+                        <p>{detail.label}：{detail.value}</p>
+                    {/each}
+                    <p>{request.consequence}</p>
                     <p>{requestDescription(request)}</p>
                 </div>
                 <div class="status-control">
