@@ -50,7 +50,7 @@ const listSchema = z.object({ scope: z.enum(["upcoming", "archived", "all"]).def
 const categoryFields = { name: z.string().trim().min(1).max(40), icon: iconSchema.optional(), color: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional() };
 const categoryIdSchema = z.object({ categoryId: z.string().trim().min(1) }).strict();
 const createCategorySchema = z.object(categoryFields).strict();
-const updateCategorySchema = z.object({ categoryId: z.string().trim().min(1), expectedUpdatedAt: z.string().min(1), patch: z.object(categoryFields).partial().strict() }).strict();
+const updateCategorySchema = z.object({ categoryId: z.string().trim().min(1), expectedUpdatedAt: z.string().min(1), patch: z.object(categoryFields).partial().strict().refine((patch) => Object.keys(patch).length > 0, "修改字段不能为空。") }).strict();
 const archiveCategorySchema = categoryIdSchema.extend({ expectedUpdatedAt: z.string().min(1) }).strict();
 const deleteCategorySchema = z.object({ categoryId: z.string().trim().min(1), moveToCategoryId: z.string().trim().min(1).nullable().optional(), expectedRevision: z.number().int().nonnegative(), expectedEventCount: z.number().int().nonnegative() }).strict();
 

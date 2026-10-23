@@ -17,6 +17,11 @@ export const HOMEPAGE_MCP_ANNIVERSARY_WRITES = {
   "homepage_anniversary.update": { name: "修改纪念日", consequence: "仅修改指定事件的请求字段，保留其他事件及分类。" },
   "homepage_anniversary.archive": { name: "归档纪念日", consequence: "事件归档，不永久删除。" },
   "homepage_anniversary.restore": { name: "恢复纪念日", consequence: "恢复事件展示，不修改其他事件及分类。" },
+  "homepage_anniversary.delete_permanently": { name: "永久删除纪念日", consequence: "高风险：永久删除插件纪念日记录，无法恢复；不会删除关联的思源文档。" },
+  "homepage_anniversary.create_category": { name: "创建纪念日分类", consequence: "创建新分类，不修改已有分类及事件。" },
+  "homepage_anniversary.update_category": { name: "修改纪念日分类", consequence: "仅修改指定分类的请求字段，不修改成员事件及其他分类。" },
+  "homepage_anniversary.archive_category": { name: "归档纪念日分类", consequence: "分类从活动分类中隐藏，成员事件及关联关系保留；不永久删除分类或事件。" },
+  "homepage_anniversary.delete_category": { name: "删除纪念日分类", consequence: "高风险：删除分类本身不可恢复；成员事件按预览转移或变为未分类，不删除事件或思源文档。" },
 } as const;
 
 export const HOMEPAGE_MCP_WRITES = { ...HOMEPAGE_MCP_FAVORITES_WRITES, ...HOMEPAGE_MCP_ANNIVERSARY_WRITES } as const;
@@ -42,7 +47,7 @@ export const homepageMcpWritePreviewSchema = z.object({
   const operation = HOMEPAGE_MCP_WRITES[value.action];
   if (Object.prototype.hasOwnProperty.call(HOMEPAGE_MCP_ANNIVERSARY_WRITES, value.action)) {
     return value.operationName === operation.name && value.consequence === operation.consequence && value.affectedCount === 1 &&
-      (value.action === "homepage_anniversary.add" ? value.targetId === null : value.targetId !== null);
+      (["homepage_anniversary.add", "homepage_anniversary.create_category"].includes(value.action) ? value.targetId === null : value.targetId !== null);
   }
   const documentAction = ["homepage_favorites.add", "homepage_favorites.remove", "homepage_favorites.move_to_group"].includes(value.action);
   const noId = value.action === "homepage_favorites.create_group" || value.action === "homepage_favorites.reorder";

@@ -677,6 +677,10 @@ export async function deleteCountdownCategory(
   options: { expectedRevision?: number; expectedEventCount?: number } = {},
 ): Promise<void> {
   await mutateFile((file) => {
+    if (!file.categories.some((category) => category.id === categoryId))
+      throw new Error("分类不存在");
+    if (moveToCategoryId === categoryId)
+      throw new Error("目标分类不能与源分类相同");
     if (options.expectedRevision !== undefined && file.revision !== options.expectedRevision)
       throw new Error("纪念日数据版本已变化，请重新读取。");
     const currentEventCount = file.events.filter((event) => event.categoryId === categoryId).length;

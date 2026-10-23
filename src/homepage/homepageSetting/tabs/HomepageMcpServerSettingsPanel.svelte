@@ -153,6 +153,12 @@
             + " · " + state + "（" + Math.max(0, Math.ceil((request.expiresAt - now) / 1000)) + " 秒后过期）";
     }
 
+    function approvalLabel(request: HomepageMcpWriteRequest): string {
+        if (request.action === "homepage_anniversary.delete_permanently") return "确认永久删除";
+        if (request.action === "homepage_anniversary.delete_category") return "确认删除分类";
+        return "同意";
+    }
+
     function resolveStatusLabel(
         current: HomepageMcpServerSnapshot | null,
         isLoading: boolean,
@@ -246,16 +252,17 @@
                     {#each request.details as detail}
                         <p>{detail.label}：{detail.value}</p>
                     {/each}
-                    <p>{request.consequence}</p>
+                    <p class:danger-warning={approvalLabel(request) !== "同意"}>{request.consequence}</p>
                     <p>{requestDescription(request)}</p>
                 </div>
                 <div class="status-control">
                     <button
                         type="button"
                         class="b3-button b3-button--small"
+                        class:danger-action={approvalLabel(request) !== "同意"}
                         disabled={saving || refreshing || !snapshot?.writeActive || request.status === "approved" || request.expiresAt <= now}
                         onclick={() => void handleDecision(request.confirmationId, true)}
-                    >同意</button>
+                    >{approvalLabel(request)}</button>
                     <button
                         type="button"
                         class="b3-button b3-button--small b3-button--outline"
@@ -351,6 +358,16 @@
     .status-control span.error,
     .state.error {
         color: var(--b3-theme-error);
+    }
+
+    .write-request-info .danger-warning {
+        color: var(--b3-theme-error);
+        font-weight: 600;
+    }
+
+    .danger-action {
+        background: var(--b3-theme-error);
+        color: var(--b3-theme-on-error, #fff);
     }
 
     .state.error {

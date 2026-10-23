@@ -1,4 +1,5 @@
 import SHA256 from "crypto-js/sha256";
+import { getBlockInfo } from "../../api";
 import {
   createCountdownEventDraft, loadCountdownCenterData, normalizeCountdownEvent,
   COUNTDOWN_KIND_LABELS, type CountdownCenterLoadResult, type CountdownEventInput, type CountdownEventRecord,
@@ -15,6 +16,7 @@ export interface PreparedAnniversaryWrite {
   preview: HomepageMcpWritePreview;
   stateFingerprint: string;
   before: CountdownCenterLoadResult;
+  linkedDocument?: { id: string; fingerprint: string };
 }
 
 function digest(value: unknown): string {
@@ -69,6 +71,14 @@ function dateLabel(event: CountdownEventRecord): string {
   return `农历 ${lunar.year}年${lunar.isLeapMonth ? "闰" : ""}${lunar.month}月${lunar.day}日`;
 }
 
+async function linkedDocumentFingerprint(id: string): Promise<string> {
+  const info = await getBlockInfo(id);
+  if (!info || typeof info.rootID !== "string" || !/^\d{14}-[a-z0-9]{7}$/.test(info.rootID)) {
+    throw new Error("无法复核关联思源文档。");
+  }
+  return digest(info);
+}
+
 const PATCH_LABELS: Record<string, string> = {
   name: "事件名称", kind: "事件类型", calendar: "历法", recurrence: "重复规则", date: "公历日期",
   lunarDate: "农历日期", categoryId: "目标分类", tags: "标签", priority: "优先级", note: "备注",
@@ -80,19 +90,58 @@ export async function prepareHomepageMcpAnniversaryWrite(
 ): Promise<PreparedAnniversaryWrite> {
   const before = await readState();
   const operation = HOMEPAGE_MCP_ANNIVERSARY_WRITES[action];
-  const current = action === "homepage_anniversary.add" ? undefined
+  const categoryAction = ["create_category", "update_category", "archive_category", "delete_category"]
+    .some((name) => action === `homepage_anniversary.${name}`);
+  const current = categoryAction || action === "homepage_anniversary.add" ? undefined
     : before.events.find((event) => event.id === (args.eventId as string).trim());
-  if (action !== "homepage_anniversary.add" && !current) throw new Error("纪念日事件不存在。");
+  const category = categoryAction && action !== "homepage_anniversary.create_category"
+    ? before.categories.find((row) => row.id === (args.categoryId as string).trim()) : undefined;
+  if (categoryAction && action !== "homepage_anniversary.create_category" && !category) throw new Error("分类不存在。");
+  if (!categoryAction && action !== "homepage_anniversary.add" && !current) throw new Error("纪念日事件不存在。");
   if (current && (args.expectedRevision !== before.revision || args.expectedUpdatedAt !== current.updatedAt)) {
     throw new HomepageMcpAnniversaryConflict();
   }
+  if (category && (action === "homepage_anniversary.delete_category"
+    ? args.expectedRevision !== before.revision : args.expectedUpdatedAt !== category.updatedAt)) throw new HomepageMcpAnniversaryConflict();
+  const target = category ?? current;
   const preview: HomepageMcpWritePreview = {
     action, operationName: operation.name, consequence: operation.consequence,
-    targetName: current ? text(current.name, 200) : text((args.name as string).trim(), 200),
-    targetId: current ? text(current.id, 128) : null, affectedCount: 1, details: [],
+    targetName: target ? text(target.name, 200) : text((args.name as string).trim(), 200),
+    targetId: target ? text(target.id, 128) : null, affectedCount: 1, details: [],
   };
   const detail = (label: string, value: string) => preview.details.push({ label, value: text(value) });
-  if (action === "homepage_anniversary.add") {
+  let linkedDocument: PreparedAnniversaryWrite["linkedDocument"];
+  if (categoryAction) {
+    const patch = action === "homepage_anniversary.create_category" ? args : args.patch as Record<string, unknown>;
+    if (action === "homepage_anniversary.create_category" || action === "homepage_anniversary.update_category") {
+      const labels: Record<string, string> = { name: "分类名称", icon: "图标", color: "颜色" };
+      const keys = action === "homepage_anniversary.create_category" ? ["name", "icon", "color"] : Object.keys(patch).sort();
+      if (!keys.length || keys.some((key) => !(key in labels))) throw new Error("分类修改字段为空或无效。");
+      const name = patch.name === undefined ? category!.name : text((patch.name as string).trim(), 40);
+      if (before.categories.some((row) => row.id !== category?.id && !row.archived && row.name === name)) throw new Error("分类名称已存在。");
+      if (category) detail("修改字段", keys.map((key) => labels[key]).join("、"));
+      for (const key of keys) detail(labels[key] + (category ? "变更后" : ""),
+        key === "name" ? name : key === "icon" ? String(patch.icon ?? "bookmark") : String(patch.color ?? "未设置"));
+    } else {
+      const members = before.events.filter((event) => event.categoryId === category!.id);
+      detail("当前归档状态", category!.archived ? "已归档" : "未归档");
+      detail("关联事件数量（含已归档）", String(members.length));
+      if (action === "homepage_anniversary.archive_category") {
+        if (category!.archived) throw new Error("分类已经归档。");
+      } else {
+        if (args.expectedEventCount !== members.length) throw new HomepageMcpAnniversaryConflict();
+        const destination = (args.moveToCategoryId as string | null | undefined)?.trim();
+        if (destination === category!.id) throw new Error("目标分类不能与源分类相同。");
+        detail("成员事件移入", categoryName(before, destination, true));
+      }
+    }
+  } else if (action === "homepage_anniversary.delete_permanently") {
+    detail("事件类型及日期", `${COUNTDOWN_KIND_LABELS[current!.kind]}；${dateLabel(current!)}`);
+    detail("当前归档状态", current!.archived ? "已归档" : "未归档");
+    detail("所属分类", categoryName(before, current!.categoryId));
+    if (current!.linkedBlockId) linkedDocument = { id: current!.linkedBlockId,
+      fingerprint: await linkedDocumentFingerprint(current!.linkedBlockId) };
+  } else if (action === "homepage_anniversary.add") {
     const proposed = proposedEvent(args);
     detail("事件类型", COUNTDOWN_KIND_LABELS[proposed.kind]);
     detail("日期", dateLabel(proposed));
@@ -129,29 +178,63 @@ export async function prepareHomepageMcpAnniversaryWrite(
   }
   const safePreview = homepageMcpWritePreviewSchema.parse(preview);
   const state = JSON.stringify([before.revision, before.file.events.map((event) => [event.id, digest(event)]),
-    before.file.categories.map((category) => [category.id, digest(category)]), safePreview]);
+    before.file.categories.map((category) => [category.id, digest(category)]), safePreview, linkedDocument ?? null]);
   if (state.length > 1_000_000) throw new Error("纪念日状态超出审批边界。");
-  return { before, preview: safePreview, stateFingerprint: SHA256(state).toString() };
+  return { before, preview: safePreview, stateFingerprint: SHA256(state).toString(), linkedDocument };
 }
 
 export async function verifyHomepageMcpAnniversaryWrite(
   action: HomepageMcpAnniversaryWriteAction, args: Record<string, unknown>, prepared: PreparedAnniversaryWrite, data: unknown,
 ): Promise<boolean> {
   if (!data || typeof data !== "object") return false;
-  const envelope = data as { action?: string; result?: { revision?: number; eventId?: string; action?: string; event?: { eventId?: string } } };
+  const envelope = data as { action?: string; result?: { revision?: number; eventId?: string; action?: string; event?: { eventId?: string };
+    category?: { categoryId?: string }; categoryId?: string; deleted?: boolean; archived?: boolean; movedEventCount?: number; moveToCategoryId?: string | null } };
   if (envelope.action !== action || !envelope.result) return false;
   const before = prepared.before, after = await readState(), result = envelope.result;
+  if (after.revision !== before.revision + 1 || result.revision !== after.revision) return false;
+  const sameRows = (left: unknown[], right: unknown[]) => JSON.stringify(left.map(digest)) === JSON.stringify(right.map(digest));
+  if (["create_category", "update_category", "archive_category", "delete_category"].some((name) => action === `homepage_anniversary.${name}`)) {
+    const created = action === "homepage_anniversary.create_category", deleted = action === "homepage_anniversary.delete_category";
+    const id = created || action === "homepage_anniversary.update_category" ? result.category?.categoryId : result.categoryId;
+    if (typeof id !== "string" || !id || (!created && id !== (args.categoryId as string).trim()) ||
+      after.categories.length !== before.categories.length + (created ? 1 : deleted ? -1 : 0) ||
+      !sameRows(before.file.categories.filter((row) => row.id !== id), after.file.categories.filter((row) => row.id !== id))) return false;
+    const current = before.categories.find((row) => row.id === id), actual = after.categories.find((row) => row.id === id);
+    if (deleted) {
+      const destination = (args.moveToCategoryId as string | null | undefined)?.trim();
+      if (actual || result.deleted !== true || result.movedEventCount !== args.expectedEventCount ||
+        (result.moveToCategoryId ?? undefined) !== destination || after.events.length !== before.events.length) return false;
+      return before.file.events.every((event, index) => {
+        const saved = after.file.events[index];
+        if (event.categoryId !== id) return digest(event) === digest(saved);
+        return saved?.id === event.id && digest(saved) === digest({ ...event, categoryId: destination, updatedAt: saved.updatedAt });
+      });
+    }
+    if (!actual || !sameRows(before.file.events, after.file.events)) return false;
+    if (created) return !current && digest({ name: actual.name, icon: actual.icon, color: actual.color, archived: actual.archived }) ===
+      digest({ name: (args.name as string).trim(), icon: args.icon ?? "bookmark", color: args.color, archived: false });
+    if (!current || actual.updatedAt === current.updatedAt) return false;
+    const patch = args.patch as Record<string, unknown> | undefined;
+    const expected = action === "homepage_anniversary.update_category"
+      ? { ...current, ...patch, name: patch!.name === undefined ? current.name : (patch!.name as string).trim() }
+      : { ...current, archived: true };
+    return digest(actual) === digest({ ...expected, updatedAt: actual.updatedAt }) &&
+      (action !== "homepage_anniversary.archive_category" || result.archived === true);
+  }
   const id = action === "homepage_anniversary.add" || action === "homepage_anniversary.update"
     ? result.event?.eventId : result.eventId;
   if (typeof id !== "string" || !id || (action !== "homepage_anniversary.add" && id !== (args.eventId as string).trim()) ||
     after.revision !== before.revision + 1 || result.revision !== after.revision ||
     JSON.stringify(before.file.categories.map(digest)) !== JSON.stringify(after.file.categories.map(digest))) return false;
   const added = action === "homepage_anniversary.add";
-  if (after.events.length !== before.events.length + (added ? 1 : 0) ||
+  const deleted = action === "homepage_anniversary.delete_permanently";
+  if (after.events.length !== before.events.length + (added ? 1 : deleted ? -1 : 0) ||
     (added && before.events.some((event) => event.id === id)) ||
     JSON.stringify(before.file.events.filter((event) => event.id !== id).map(digest)) !==
       JSON.stringify(after.file.events.filter((event) => event.id !== id).map(digest))) return false;
   const actual = after.events.find((event) => event.id === id);
+  if (deleted) return !actual && result.action === "delete_permanently" && (!prepared.linkedDocument ||
+    await linkedDocumentFingerprint(prepared.linkedDocument.id) === prepared.linkedDocument.fingerprint);
   if (!actual) return false;
   const current = before.events.find((event) => event.id === id);
   if (current && actual.updatedAt === current.updatedAt) return false;
