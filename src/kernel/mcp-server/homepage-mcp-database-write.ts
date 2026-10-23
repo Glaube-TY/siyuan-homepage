@@ -1,18 +1,29 @@
 import SHA256 from "crypto-js/sha256";
 import { readAttributeViewSafeOutput } from "../../features/kb/services/agent-workbench/tools/siyuan/impl/read-attribute-view.impl";
 import {
-  HOMEPAGE_MCP_DATABASE_WRITES, homepageMcpDatabaseUpdateSchema, homepageMcpDatabaseClearSchema, homepageMcpWritePreviewSchema,
+  HOMEPAGE_MCP_DATABASE_WRITES, homepageMcpDatabaseUpdateSchema, homepageMcpDatabaseClearSchema, homepageMcpDatabaseAddSchema, homepageMcpWritePreviewSchema,
   type HomepageMcpDatabaseClear, type HomepageMcpDatabaseWriteAction, type HomepageMcpWritePreview,
 } from "../../features/agent-platform/mcp-server/homepage-mcp-write-preview";
 import { fingerprintHomepageMcpValue } from "./homepage-mcp-write-access";
 
-export interface PreparedDatabaseWrite {
+interface PreparedDatabaseCellWrite {
+  action: "update_cell" | "clear_cell";
   preview: HomepageMcpWritePreview;
   stateFingerprint: string;
   metadataFingerprint: string;
   otherCellsFingerprint: string;
   oldTextFingerprint: string;
 }
+interface PreparedDatabaseRowWrite {
+  action: "add_rows";
+  preview: HomepageMcpWritePreview;
+  stateFingerprint: string;
+  rowIds: string[];
+  metadataFingerprint: string;
+  viewsFingerprint: string;
+  rowsFingerprint: string;
+}
+export type PreparedDatabaseWrite = PreparedDatabaseCellWrite | PreparedDatabaseRowWrite;
 
 const ORDINARY_TYPES = new Set(["block", "text", "number", "checkbox", "date", "select", "mSelect", "url", "email", "phone"]);
 const nodeId = /^\d{14}-[a-z0-9]{7}$/;
@@ -91,6 +102,24 @@ async function readTarget(args: HomepageMcpDatabaseClear) {
 }
 
 export async function prepareHomepageMcpDatabaseWrite(action: HomepageMcpDatabaseWriteAction, args: Record<string, unknown>): Promise<PreparedDatabaseWrite> {
+  if (action === "add_rows") {
+    const input = homepageMcpDatabaseAddSchema.parse(args);
+    const state = await readRowCreationState(input.databaseId);
+    const operation = HOMEPAGE_MCP_DATABASE_WRITES.add_rows;
+    const preview = homepageMcpWritePreviewSchema.parse({
+      action, operationName: operation.name, consequence: operation.consequence,
+      targetName: display(input.detachedRows[0].title), targetId: null, affectedCount: 1,
+      details: [
+        { label: "数据库名称", value: display(state.name) }, { label: "数据库 ID", value: input.databaseId },
+        { label: "新条目标题", value: display(input.detachedRows[0].title) }, { label: "类型", value: "脱离块记录" },
+        { label: "新增数量", value: "1" }, { label: "当前数据库记录数量", value: String(state.rowIds.length) },
+      ],
+    });
+    return { action, preview, rowIds: state.rowIds, metadataFingerprint: state.metadataFingerprint,
+      viewsFingerprint: state.viewsFingerprint, rowsFingerprint: state.rowsFingerprint,
+      stateFingerprint: digest([state.metadataFingerprint, state.viewsFingerprint, state.rowsFingerprint, preview]) };
+  }
+  if (action !== "update_cell" && action !== "clear_cell") throw new Error("未知数据库写入操作。");
   const input = (action === "clear_cell" ? homepageMcpDatabaseClearSchema : homepageMcpDatabaseUpdateSchema).parse(args);
   const target = await readTarget(input);
   if (action === "clear_cell" && target.oldText.length === 0) throw new Error("目标文本已经为空，不能重复清空。");
@@ -107,12 +136,30 @@ export async function prepareHomepageMcpDatabaseWrite(action: HomepageMcpDatabas
         : { label: "准备写入的新文本值", value: display(homepageMcpDatabaseUpdateSchema.parse(args).valueText) },
     ],
   });
-  return { preview, metadataFingerprint: target.metadataFingerprint, otherCellsFingerprint: target.otherCellsFingerprint,
+  return { action, preview, metadataFingerprint: target.metadataFingerprint, otherCellsFingerprint: target.otherCellsFingerprint,
     oldTextFingerprint: digest(target.oldText),
     stateFingerprint: SHA256(JSON.stringify([target.metadataFingerprint, target.otherCellsFingerprint, target.targetFingerprint, preview])).toString() };
 }
 
 export async function verifyHomepageMcpDatabaseWrite(action: HomepageMcpDatabaseWriteAction, args: Record<string, unknown>, prepared: PreparedDatabaseWrite, data: unknown): Promise<boolean> {
+  if (action !== prepared.action) return false;
+  if (action === "add_rows" && prepared.action === "add_rows") {
+    const input = homepageMcpDatabaseAddSchema.parse(args);
+    const envelope = record(data), result = record(envelope.result);
+    if (envelope.action !== action || result.status !== "success" || result.databaseId !== input.databaseId || result.addedCount !== 1 ||
+      !Array.isArray(result.rowIds) || result.rowIds.length !== 1 || typeof result.rowIds[0] !== "string" || !nodeId.test(result.rowIds[0]) ||
+      prepared.rowIds.includes(result.rowIds[0]) ||
+      (result.affectedBlockIds !== undefined && (!Array.isArray(result.affectedBlockIds) || result.affectedBlockIds.length !== 0))) return false;
+    const newId = result.rowIds[0];
+    const actual = await readRowCreationState(input.databaseId, newId);
+    const primary = actual.primaryValues.find((value) => value.blockID === newId);
+    return actual.rowIds.length === prepared.rowIds.length + 1 && actual.rowIds.includes(newId) &&
+      actual.rowIds.filter((id) => id !== newId).every((id) => prepared.rowIds.includes(id)) &&
+      primary?.isDetached === true && !primary.block.id && primary.block.content === input.detachedRows[0].title &&
+      actual.metadataFingerprint === prepared.metadataFingerprint && actual.viewsFingerprint === prepared.viewsFingerprint &&
+      actual.rowsFingerprint === prepared.rowsFingerprint;
+  }
+  if ((action !== "update_cell" && action !== "clear_cell") || prepared.action === "add_rows") return false;
   const input = (action === "clear_cell" ? homepageMcpDatabaseClearSchema : homepageMcpDatabaseUpdateSchema).parse(args);
   const envelope = record(data), result = record(envelope.result);
   if (envelope.action !== action || result.status !== "success" || result.databaseId !== input.databaseId) return false;
@@ -120,7 +167,7 @@ export async function verifyHomepageMcpDatabaseWrite(action: HomepageMcpDatabase
   if (action === "clear_cell") {
     if (result.rowId !== input.rowId || result.keyId !== input.keyId || result.fieldName !== input.expectedFieldName ||
       typeof result.oldValueText !== "string" || digest(result.oldValueText) !== prepared.oldTextFingerprint) return false;
-  } else {
+  } else if (action === "update_cell") {
     newText = homepageMcpDatabaseUpdateSchema.parse(args).valueText;
     if (result.total !== 1 || result.successCount !== 1 || result.failedCount !== 0 || !Array.isArray(result.results) || result.results.length !== 1) return false;
     const saved = record(result.results[0]);
@@ -131,4 +178,72 @@ export async function verifyHomepageMcpDatabaseWrite(action: HomepageMcpDatabase
   const actual = await readTarget(input);
   return actual.oldText === newText && actual.metadataFingerprint === prepared.metadataFingerprint &&
     actual.otherCellsFingerprint === prepared.otherCellsFingerprint;
+}
+
+/** 只读原始列和视图；省略的空 values/itemIds 是 3.8.8 的正常空库形态，显式异常值仍拒绝。 */
+async function readRowCreationState(databaseId: string, newId?: string) {
+  const output = await readAttributeViewSafeOutput({ databaseId, includeRows: true, includeRaw: true, rowLimit: 500, renderView: false });
+  const av = record(record(output.raw).av);
+  if (JSON.stringify(av).length > 1_000_000 || av.id !== databaseId || typeof av.name !== "string" || !av.name.trim() ||
+    output.database.name !== av.name || !Array.isArray(av.keyValues) || !Array.isArray(av.views) || av.views.length === 0 ||
+    !Array.isArray(output.rows) || output.schema.length === 0 || output.schema.length > 30 || av.keyValues.length !== output.schema.length) {
+    throw new Error("无法完整读取数据库状态。");
+  }
+  const columns = av.keyValues.map(record);
+  const keyIds = columns.map((column) => record(column.key).id);
+  if (keyIds.some((id) => typeof id !== "string" || !nodeId.test(id)) || new Set(keyIds).size !== keyIds.length ||
+    output.schema.some((field) => {
+      const column = columns.find((item) => item.key.id === field.keyId);
+      return !column || column.key.name !== field.name || column.key.type !== field.type;
+    })) throw new Error("数据库字段身份不完整或冲突。");
+  const primary = columns.filter((column) => column.key.type === "block");
+  if (primary.length !== 1) throw new Error("数据库缺少唯一的 block 主字段。");
+  const rowIds = new Set<string>();
+  const views = av.views.map((source) => {
+    const view = record(source);
+    const ids = view.itemIds === undefined ? [] : view.itemIds;
+    if (!nodeId.test(view.id) || !Array.isArray(ids) || view.itemIDs !== undefined || new Set(ids).size !== ids.length ||
+      ids.some((id) => typeof id !== "string" || !nodeId.test(id) || keyIds.includes(id))) throw new Error("视图行身份无法核对。");
+    ids.forEach((id) => rowIds.add(id));
+    return { ...view, id: view.id, itemIds: ids.filter((id) => id !== newId) };
+  });
+  if (new Set(views.map((view) => view.id)).size !== views.length || rowIds.size > (newId ? 501 : 500) ||
+    output.rowCount !== rowIds.size || output.rows.length !== Math.min(rowIds.size, 500) ||
+    new Set(output.rows.map((row) => row.rowId)).size !== output.rows.length || output.rows.some((row) => !rowIds.has(row.rowId)) ||
+    output.truncated !== (rowIds.size > 500)) throw new Error("条目身份缺失或超出安全范围。");
+  const cellIds = new Set<string>();
+  const cellsByKey = columns.map((column) => {
+    const values = column.values === undefined ? [] : column.values;
+    if (!Array.isArray(values)) throw new Error("原始字段列不完整。");
+    const seen = new Set<string>();
+    const cells = new Map<string, string>();
+    for (const source of values) {
+      const value = record(source);
+      if (!rowIds.has(value.blockID) || seen.has(value.blockID) || value.keyID !== column.key.id || value.type !== column.key.type ||
+        typeof value.id !== "string" || !nodeId.test(value.id) || rowIds.has(value.id) || keyIds.includes(value.id) || cellIds.has(value.id) ||
+        [value.itemID, value.itemId, value.rowID, value.rowId].some((id) => id !== undefined && id !== value.blockID)) throw new Error("原始单元格身份冲突或无法解释。");
+      seen.add(value.blockID);
+      cellIds.add(value.id);
+      const { createdAt: _createdAt, updatedAt: _updatedAt, ...business } = value;
+      if (business.block) {
+        const { created: _created, updated: _updated, ...block } = record(business.block);
+        business.block = block;
+      }
+      cells.set(value.blockID, digest(business));
+    }
+    return cells;
+  });
+  const primaryValues = primary[0].values === undefined ? [] : primary[0].values as Record<string, any>[];
+  if (primaryValues.length !== rowIds.size || primaryValues.some((value) => typeof value.block?.content !== "string" ||
+    typeof value.isDetached !== "boolean" || (value.isDetached ? !!value.block.id : !nodeId.test(value.block.id)))) {
+    throw new Error("无法完整核对条目标题或绑定关系。");
+  }
+  const { keyValues: _keyValues, views: _views, ...metadata } = av;
+  return {
+    name: av.name as string, rowIds: [...rowIds], primaryValues,
+    metadataFingerprint: digest([metadata, columns.map(({ values: _values, ...column }) => digest(column))]),
+    viewsFingerprint: SHA256(JSON.stringify(views.map((view) => digest(view)))).toString(),
+    rowsFingerprint: SHA256(JSON.stringify(primaryValues.filter((value) => value.blockID !== newId).map((value) =>
+      digest([value.blockID, cellsByKey.map((cells) => cells.get(value.blockID) ?? null)])))).toString(),
+  };
 }

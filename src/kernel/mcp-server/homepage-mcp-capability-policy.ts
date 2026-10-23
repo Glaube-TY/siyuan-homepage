@@ -25,6 +25,25 @@ const databaseClearArgsSchema: HomepageMcpJsonSchema = {
     expectedFieldName: databaseFieldNameSchema,
   },
 };
+const databaseAddArgsSchema: HomepageMcpJsonSchema = {
+  type: "object", additionalProperties: false, required: ["databaseId", "detachedRows"],
+  properties: {
+    databaseId: databaseIdSchema,
+    detachedRows: {
+      type: "array", minItems: 1, maxItems: 1,
+      items: {
+        type: "object", additionalProperties: false, required: ["title"],
+        properties: {
+          // 使用 JS 与宿主 Go regexp 均支持的十六进制转义。
+          title: { type: "string", minLength: 1, maxLength: 200, not: { pattern: "^\\s|\\s$|[\\x00-\\x1f\\x7f-\\x9f]" } },
+        },
+      },
+    },
+  },
+};
+const databaseWriteArgsSchemas: Record<string, HomepageMcpJsonSchema> = {
+  update_cell: databaseUpdateArgsSchema, clear_cell: databaseClearArgsSchema, add_rows: databaseAddArgsSchema,
+};
 
 /** 对外 MCP 的固定顶层能力与 action 白名单。 */
 export const HOMEPAGE_MCP_CAPABILITY_POLICY = {
@@ -188,7 +207,11 @@ export function buildHomepageMcpCapabilityPolicies(
         continue;
       }
       const argsSchema = name === "siyuan_database" && isHomepageMcpWriteAction(name, action)
-        ? action === "clear_cell" ? databaseClearArgsSchema : databaseUpdateArgsSchema : metadata.argsSchema;
+        ? databaseWriteArgsSchemas[action] : metadata.argsSchema;
+      if (!argsSchema) {
+        issues.push(`${name}.${action}: external_args_schema_required`);
+        continue;
+      }
       validActions.push({ name: action, argsSchema, readOnly });
     }
 

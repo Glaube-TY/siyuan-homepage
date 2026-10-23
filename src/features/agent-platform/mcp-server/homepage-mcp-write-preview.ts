@@ -28,6 +28,7 @@ export const HOMEPAGE_MCP_WRITES = { ...HOMEPAGE_MCP_FAVORITES_WRITES, ...HOMEPA
 export const HOMEPAGE_MCP_DATABASE_WRITES = {
   update_cell: { name: "修改数据库单元格", consequence: "仅修改指定数据库条目的一个普通文本字段。" },
   clear_cell: { name: "清空数据库单元格", consequence: "清空指定数据库条目的一个普通文本字段，原字段值将被移除；不会删除数据库、字段、条目或关联的思源文档。" },
+  add_rows: { name: "新增数据库条目", consequence: "向指定数据库新增一条脱离块记录，只填写标题；不会创建独立思源文档，也不会修改已有数据库条目。" },
 } as const;
 export const HOMEPAGE_MCP_WRITES_BY_TOOL: Record<string, Record<string, { name: string; consequence: string }>> = {
   homepage_components: HOMEPAGE_MCP_WRITES,
@@ -47,6 +48,18 @@ export const homepageMcpDatabaseUpdateSchema = z.object({
 export type HomepageMcpDatabaseUpdate = z.infer<typeof homepageMcpDatabaseUpdateSchema>;
 export const homepageMcpDatabaseClearSchema = homepageMcpDatabaseUpdateSchema.omit({ valueText: true }).strict();
 export type HomepageMcpDatabaseClear = z.infer<typeof homepageMcpDatabaseClearSchema>;
+export const homepageMcpDatabaseAddSchema = z.object({
+  databaseId: id,
+  detachedRows: z.array(z.object({
+    title: z.string().min(1).max(200).refine((value) => value === value.trim() && Array.from(value).every((char) =>
+      char.charCodeAt(0) >= 32 && (char.charCodeAt(0) < 127 || char.charCodeAt(0) > 159))),
+  }).strict()).length(1),
+}).strict();
+export const HOMEPAGE_MCP_DATABASE_WRITE_SCHEMAS = {
+  update_cell: homepageMcpDatabaseUpdateSchema,
+  clear_cell: homepageMcpDatabaseClearSchema,
+  add_rows: homepageMcpDatabaseAddSchema,
+} as const;
 export type HomepageMcpDatabaseWriteAction = keyof typeof HOMEPAGE_MCP_DATABASE_WRITES;
 export type HomepageMcpAnniversaryWriteAction = keyof typeof HOMEPAGE_MCP_ANNIVERSARY_WRITES;
 export type HomepageMcpWriteAction = keyof typeof HOMEPAGE_MCP_WRITES | keyof typeof HOMEPAGE_MCP_DATABASE_WRITES;
@@ -70,6 +83,15 @@ export const homepageMcpWritePreviewSchema = z.object({
   affectedCount: z.number().int().min(0).max(1_000_000),
   details: z.array(z.object({ label: text.max(60), value: text }).strict()).max(16),
 }).strict().refine((value) => {
+  if (value.action === "add_rows") {
+    const operation = HOMEPAGE_MCP_DATABASE_WRITES.add_rows;
+    const labels = ["数据库名称", "数据库 ID", "新条目标题", "类型", "新增数量", "当前数据库记录数量"];
+    return value.operationName === operation.name && value.consequence === operation.consequence && value.affectedCount === 1 &&
+      value.targetId === null && value.details.length === labels.length && labels.every((label, index) => value.details[index].label === label) &&
+      id.safeParse(value.details[1].value).success && value.details[2].value === value.targetName &&
+      value.details[3].value === "脱离块记录" && value.details[4].value === "1" && /^(0|[1-9]\d{0,2})$/.test(value.details[5].value) &&
+      Number(value.details[5].value) <= 500;
+  }
   if (value.action === "update_cell" || value.action === "clear_cell") {
     const operation = HOMEPAGE_MCP_DATABASE_WRITES[value.action];
     const labels = ["数据库名称", "数据库 ID", "条目标题", "条目 ID", "字段名称", "字段 ID", "原始文本值", value.action === "clear_cell" ? "清空后的目标状态" : "准备写入的新文本值"];
