@@ -109,6 +109,9 @@ export async function createRobotKernel(host: RobotKernelHost, options: RobotKer
       getState: () => homepageMcpServer.getSnapshot(),
       setEnabled: (enabled) => homepageMcpServer.setEnabled(enabled),
       reconcile: () => homepageMcpServer.reconcile(),
+      setWriteEnabled: (enabled) => homepageMcpServer.setWriteEnabled(enabled),
+      getPendingWrites: () => homepageMcpServer.getPendingWrites(),
+      decideWrite: (id, approved) => homepageMcpServer.decideWrite(id, approved),
     },
   });
   return runtime;

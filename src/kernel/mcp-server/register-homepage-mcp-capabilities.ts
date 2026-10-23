@@ -1,8 +1,11 @@
+import { loadFavoritesForUI } from "../../features/favorites-manager/favorites-store";
+import type { HomepageMcpWriteAccess } from "./homepage-mcp-write-access";
 import type { NativeTool } from "../../features/kb/services/agent-core/tools/native-tool";
 import type { NativeToolRegistry } from "../../features/kb/services/agent-core/tools/native-tool-registry";
 import {
   buildHomepageMcpCapabilityPolicies,
   isHomepageMcpActionAllowed,
+  isHomepageMcpWriteAction,
   type HomepageMcpCapabilityPolicy,
 } from "./homepage-mcp-capability-policy";
 import type {
@@ -46,12 +49,17 @@ export interface UnregisterHomepageMcpCapabilitiesResult {
 export interface HomepageMcpHandlerOptions {
   isActive(): boolean;
   isEntitlementAvailable(): Promise<boolean>;
+  writeAccess?: HomepageMcpWriteAccess;
+  isWriteActive?(): boolean;
+  runWrite?<T>(operation: () => Promise<T>): Promise<T>;
 }
 
 export interface HomepageMcpCallResult {
   ok: boolean;
   data?: unknown;
   summary?: string;
+  confirmationId?: string;
+  sideEffectState?: "unknown";
   error?: { code: string; message: string };
 }
 
@@ -100,7 +108,7 @@ export async function registerHomepageMcpCapabilities(
 
   let policies: HomepageMcpCapabilityPolicy[];
   try {
-    policies = buildHomepageMcpCapabilityPolicies(registry);
+    policies = buildHomepageMcpCapabilityPolicies(registry, options.writeAccess?.enabled === true);
   } catch (error) {
     throw new HomepageMcpCapabilityRegistrationError(
       `主页 MCP 能力策略校验失败：${safeErrorSummary(error)}`,
@@ -110,23 +118,27 @@ export async function registerHomepageMcpCapabilities(
 
   const names: string[] = [];
   const records: HomepageMcpRegisteredCapability[] = [];
+  let registeringName: string | null = null;
   try {
     for (const policy of policies) {
       const config = createCapabilityConfig(policy);
+      registeringName = policy.name;
       const record = await agent.registerCapability(
         policy.name,
         config,
         createCapabilityHandler(policy, options),
       );
-      if (!record || typeof record !== "object") {
+      if (!record || typeof record !== "object" || Array.isArray(record)) {
         throw new Error(`${policy.name}: invalid registration record`);
       }
       names.push(policy.name);
       records.push(record);
+      registeringName = null;
     }
   } catch (error) {
+    // 宿主可能已提交注册但未返回有效响应，失败的最后一次尝试也必须清理。
     const rollback = await unregisterHomepageMcpCapabilities(agent, {
-      names,
+      names: registeringName ? [...names, registeringName] : names,
       records,
     });
     const rollbackMessage = rollback.errors.length > 0
@@ -180,10 +192,12 @@ function createCapabilityConfig(
   policy: HomepageMcpCapabilityPolicy,
 ): HomepageMcpCapabilityConfig {
   return {
-    title: CAPABILITY_TITLES[policy.name],
-    description: CAPABILITY_DESCRIPTIONS[policy.name],
+    title: policy.actionEffects["homepage_favorites.add"]?.localWrite ? "主页组件查询与确认写入" : CAPABILITY_TITLES[policy.name],
+    description: policy.actionEffects["homepage_favorites.add"]?.localWrite
+      ? "读取主页业务组件数据；收藏新增仅限本次运行授权且经单次用户确认。"
+      : CAPABILITY_DESCRIPTIONS[policy.name],
     inputSchema: policy.inputSchema,
-    effects: { localRead: true },
+    effects: { localRead: true, ...(policy.actionEffects["homepage_favorites.add"]?.localWrite ? { localWrite: true } : {}) },
     actionEffects: policy.actionEffects,
   };
 }
@@ -192,71 +206,93 @@ function createCapabilityHandler(
   policy: HomepageMcpCapabilityPolicy,
   options: HomepageMcpHandlerOptions,
 ): HomepageMcpCapabilityHandler {
-  return async (input): Promise<HomepageMcpCallResult> => {
-    if (!options.isActive()) {
-      return failure("mcp_not_active", "主页 MCP 服务当前未启用。");
-    }
+  const invoke = async (input: Record<string, unknown>): Promise<HomepageMcpCallResult> => {
+    if (!options.isActive()) return failure("mcp_not_active", "主页 MCP 服务当前未启用。");
     if (!(await options.isEntitlementAvailable())) {
       return failure("mcp_entitlement_required", "当前会员状态不允许使用主页 MCP 服务。");
     }
-    if (!isPlainRecord(input)) {
-      return failure("mcp_invalid_input", "MCP 输入必须是结构化对象。");
+    if (!isPlainRecord(input) || Object.keys(input).some((key) => !["action", "args", "confirmationId"].includes(key))) {
+      return failure("mcp_invalid_input", "MCP 输入字段无效。");
     }
-
     const action = input.action;
-    if (typeof action !== "string") {
-      return failure("mcp_invalid_input", "MCP 输入缺少合法的 action。");
-    }
-    if (!isHomepageMcpActionAllowed(policy.name, action)) {
-      const metadata = getAggregateActionHelp(policy.tool, action);
+    if (typeof action !== "string") return failure("mcp_invalid_input", "MCP 输入缺少合法的 action。");
+    const write = isHomepageMcpWriteAction(policy.name, action);
+    const metadata = getAggregateActionHelp(policy.tool, action);
+    if (!policy.actions.includes(action) || !isHomepageMcpActionAllowed(policy.name, action, write)) {
       return metadata?.readOnly === false
-        ? failure("mcp_write_not_allowed", "对外 MCP 服务仅允许只读 action。")
-        : failure("mcp_action_not_allowed", "该 action 不在对外 MCP 只读白名单中。");
+        ? failure("mcp_write_not_allowed", "该写操作未获对外 MCP 授权。")
+        : failure("mcp_action_not_allowed", "该 action 不在对外 MCP 白名单中。");
+    }
+    if (metadata?.readOnly !== !write) return failure("mcp_action_not_allowed", "action 安全元数据不一致。");
+    if (write && (!options.isWriteActive?.() || !options.writeAccess?.enabled || !options.runWrite)) {
+      return failure("mcp_write_not_allowed", "本次运行的 MCP 写入授权未开启。");
+    }
+    if (input.confirmationId !== undefined && (!write || typeof input.confirmationId !== "string" || !/^[a-f0-9]{64}$/.test(input.confirmationId))) {
+      return failure("mcp_invalid_input", "确认 ID 无效。");
     }
 
-    const toolInput = { ...input, action };
-    let readOnly = false;
+    let toolInput: Record<string, unknown>;
     try {
-      readOnly = policy.tool.isReadOnlyCall?.(toolInput) === true;
-    } catch {
-      readOnly = false;
-    }
-    if (!readOnly) {
-      return failure("mcp_write_not_allowed", "对外 MCP 服务仅允许只读 action。");
-    }
-    if (!policy.tool.preflightValidate) {
-      return failure("mcp_schema_unavailable", "该只读能力缺少可用的参数校验 Schema。");
-    }
-
-    try {
-      const validation = await policy.tool.preflightValidate(toolInput);
-      if (!validation.ok) {
-        return failure("mcp_invalid_input", "MCP 输入未通过该只读能力的参数校验。");
+      toolInput = { action, args: input.args === undefined ? {} : input.args };
+      if (policy.tool.isReadOnlyCall?.(toolInput) !== !write) {
+        return failure("mcp_write_not_allowed", "该调用的实际读写判定与授权不一致。");
       }
+      if (!policy.tool.preflightValidate) return failure("mcp_schema_unavailable", "能力缺少严格参数校验。");
+      if (!(await policy.tool.preflightValidate(toolInput)).ok) return failure("mcp_invalid_input", "MCP 参数校验失败。");
     } catch {
-      return failure("mcp_invalid_input", "MCP 输入未通过该只读能力的参数校验。");
+      return failure("mcp_invalid_input", "MCP 参数校验失败。");
+    }
+
+    if (write) {
+      // 前面的异步校验期间权限可能已撤销；消费批准前再次检查。
+      if (!(await options.isEntitlementAvailable())) return failure("mcp_entitlement_required", "当前会员状态不允许使用主页 MCP 服务。");
+      if (!options.isActive() || !options.isWriteActive?.()) return failure("mcp_write_not_allowed", "MCP 写入授权已失效。");
+      const args = toolInput.args as Record<string, unknown>;
+      if (input.confirmationId === undefined) {
+        try {
+          const confirmationId = options.writeAccess!.create(policy.name, action, args);
+          if (!confirmationId) return failure("mcp_confirmation_queue_full", "待处理写入请求已满或授权已关闭。");
+          return { ...failure("mcp_confirmation_required", "请在主页插件设置中确认，然后携带相同参数和确认 ID 重试。"), confirmationId };
+        } catch {
+          return failure("mcp_confirmation_unavailable", "无法安全创建写入确认。");
+        }
+      }
+      const code = options.writeAccess!.consume(input.confirmationId as string, policy.name, action, args);
+      if (code) return { ...failure(code, "确认未批准、已失效、已消费或与当前操作不符。"), confirmationId: input.confirmationId as string };
     }
 
     try {
       const result = await policy.tool.execute(toolInput, {
-        question: "External MCP capability invocation",
-        callCounts: {},
+        question: "External MCP capability invocation", callCounts: {},
       });
-      if (!result.ok) {
-        return failure(
-          normalizeErrorCode(result.errorCode ?? result.code, "mcp_execution_failed"),
-          "只读能力执行失败。",
-        );
+      if (write) {
+        if (!result.ok) return uncertainWrite();
+        const args = toolInput.args as { docId: string; groupId?: string | null };
+        const after = await loadFavoritesForUI();
+        const item = after.items.find((row) => row.id === args.docId);
+        const data = result.data as { action?: string; result?: { docId?: string } } | undefined;
+        if (!item || data?.action !== action || data.result?.docId !== args.docId ||
+          (args.groupId !== undefined && (item.favoriteGroupId ?? null) !== (args.groupId?.trim() ?? null))) return uncertainWrite();
+      } else if (!result.ok) {
+        return failure(normalizeErrorCode(result.errorCode ?? result.code, "mcp_execution_failed"), "只读能力执行失败。");
       }
-      return {
-        ok: true,
-        data: sanitizeExternalValue(result.data),
-        summary: "读取完成。",
-      };
+      return { ok: true, data: sanitizeExternalValue(result.data), summary: write ? "收藏新增并回读确认完成。" : "读取完成。" };
     } catch {
-      return failure("mcp_execution_failed", "只读能力执行失败。");
+      return write ? uncertainWrite() : failure("mcp_execution_failed", "只读能力执行失败。");
     }
   };
+  return (input) => {
+    let call: Record<string, unknown>;
+    try { call = structuredClone(input); }
+    catch { return failure("mcp_invalid_input", "MCP 输入不是可用的结构化数据。"); }
+    return isHomepageMcpWriteAction(policy.name, call?.action as string) && options.runWrite
+      ? options.runWrite(() => invoke(call))
+      : invoke(call);
+  };
+}
+
+function uncertainWrite(): HomepageMcpCallResult {
+  return { ...failure("mcp_write_result_uncertain", "写入结果未能确认，请先回读核对；不得自动重试。"), sideEffectState: "unknown" };
 }
 
 function getAggregateActionHelp(

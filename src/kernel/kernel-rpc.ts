@@ -5,6 +5,7 @@ import type {
   RobotProviderStatus,
   RobotProviderAvailability,
 } from "../features/robot-assistant/contracts/robot-provider";
+import type { HomepageMcpWriteRequest } from "./mcp-server/homepage-mcp-write-access";
 import type { HomepageMcpServerSnapshot } from "./mcp-server/homepage-mcp-runtime-controller";
 
 const ROBOT_PROVIDER_STATUSES = new Set<string>([
@@ -39,6 +40,9 @@ export interface RobotKernelRpcOptions {
     getState(): HomepageMcpServerSnapshot;
     setEnabled(enabled: boolean): Promise<HomepageMcpServerSnapshot>;
     reconcile(): Promise<HomepageMcpServerSnapshot>;
+    setWriteEnabled(enabled: boolean): Promise<HomepageMcpServerSnapshot>;
+    getPendingWrites(): Promise<HomepageMcpWriteRequest[]>;
+    decideWrite(confirmationId: string, approved: boolean): Promise<HomepageMcpServerSnapshot>;
   };
 }
 
@@ -496,5 +500,38 @@ export async function registerRobotKernelRpc(
       ? { ok: true, snapshot }
       : { ok: false, errorCode: "not_implemented" };
   });
+  // 仅插件控制 RPC 可批准请求；不进入任何外部 MCP capability/action。
+  const mcpWriteControl = (method: string, handler: (payload: unknown) => Promise<unknown>) => {
+    rpc(method, async (payload) => {
+      try { return await handler(payload); }
+      catch { return { ok: false, errorCode: "homepage_mcp_write_control_failed", message: "MCP 写入授权操作失败，请刷新状态后重试。" }; }
+    });
+  };
+  mcpWriteControl("homepageMcp.setWriteEnabled", async (payload) => {
+    const value = mcpWritePayload(payload, ["enabled"]);
+    if (!value || typeof value.enabled !== "boolean") return { ok: false, errorCode: "invalid_homepage_mcp_write_settings" };
+    const snapshot = await options.homepageMcp?.setWriteEnabled(value.enabled);
+    return snapshot ? { ok: true, snapshot } : { ok: false, errorCode: "not_implemented" };
+  });
+  mcpWriteControl("homepageMcp.getPendingWrites", async (payload) => {
+    if (payload != null && !mcpWritePayload(payload, [])) return { ok: false, errorCode: "invalid_homepage_mcp_write_request" };
+    const requests = await options.homepageMcp?.getPendingWrites();
+    return requests ? { ok: true, requests } : { ok: false, errorCode: "not_implemented" };
+  });
+  mcpWriteControl("homepageMcp.decideWrite", async (payload) => {
+    const value = mcpWritePayload(payload, ["confirmationId", "approved"]);
+    if (!value || typeof value.confirmationId !== "string" || !/^[a-f0-9]{64}$/.test(value.confirmationId) ||
+      typeof value.approved !== "boolean") return { ok: false, errorCode: "invalid_homepage_mcp_write_request" };
+    const snapshot = await options.homepageMcp?.decideWrite(value.confirmationId, value.approved);
+    return snapshot ? { ok: true, snapshot } : { ok: false, errorCode: "not_implemented" };
+  });
   await Promise.all(bindings);
+}
+
+function mcpWritePayload(payload: unknown, keys: string[]): Record<string, unknown> | null {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return null;
+  const prototype = Object.getPrototypeOf(payload);
+  if (prototype !== Object.prototype && prototype !== null) return null;
+  const value = payload as Record<string, unknown>;
+  return Object.keys(value).length === keys.length && keys.every((key) => Object.prototype.hasOwnProperty.call(value, key)) ? value : null;
 }

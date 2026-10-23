@@ -1,6 +1,6 @@
 import type { NativeTool } from "../../features/kb/services/agent-core/tools/native-tool";
 import type { NativeToolRegistry } from "../../features/kb/services/agent-core/tools/native-tool-registry";
-import type { HomepageMcpJsonSchema } from "./homepage-mcp-types";
+import type { HomepageMcpCapabilityEffects, HomepageMcpJsonSchema } from "./homepage-mcp-types";
 
 /** 对外 MCP 的固定顶层能力与 action 白名单。 */
 export const HOMEPAGE_MCP_CAPABILITY_POLICY = {
@@ -38,6 +38,10 @@ export const HOMEPAGE_MCP_CAPABILITY_POLICY = {
   ],
 } as const;
 
+export function isHomepageMcpWriteAction(name: string, action: string): boolean {
+  return name === "homepage_components" && action === "homepage_favorites.add";
+}
+
 export const HOMEPAGE_MCP_CAPABILITY_NAMES = Object.keys(
   HOMEPAGE_MCP_CAPABILITY_POLICY,
 ) as Array<keyof typeof HOMEPAGE_MCP_CAPABILITY_POLICY>;
@@ -58,7 +62,7 @@ export interface HomepageMcpCapabilityPolicy {
   tool: NativeTool;
   actions: string[];
   inputSchema: HomepageMcpJsonSchema;
-  actionEffects: Record<string, { localRead: true }>;
+  actionEffects: Record<string, HomepageMcpCapabilityEffects>;
 }
 
 export class HomepageMcpPolicyError extends Error {
@@ -100,16 +104,17 @@ function actionHelp(tool: NativeTool): Record<string, AggregateActionHelp> {
 }
 
 function buildInputSchema(
-  actions: Array<{ name: string; argsSchema: HomepageMcpJsonSchema }>,
+  actions: Array<{ name: string; argsSchema: HomepageMcpJsonSchema; readOnly: boolean }>,
 ): HomepageMcpJsonSchema {
   return {
     type: "object",
-    oneOf: actions.map(({ name, argsSchema }) => ({
+    oneOf: actions.map(({ name, argsSchema, readOnly }) => ({
       type: "object",
       additionalProperties: false,
       properties: {
         action: { type: "string", const: name },
         args: argsSchema,
+        ...(!readOnly ? { confirmationId: { type: "string", pattern: "^[a-f0-9]{64}$" } } : {}),
       },
       required: ["action"],
     })),
@@ -117,11 +122,12 @@ function buildInputSchema(
 }
 
 /**
- * 从共享 NativeTool Registry 生成只读 MCP 的过滤后 Schema。
- * 任一正式 allowlist action 缺失/非只读/无边界 Schema 都使本轮注册失败。
+ * 从共享 NativeTool Registry 生成默认只读、精确授权写入的 MCP Schema。
+ * 任一正式 allowlist action 缺失/读写元数据不符/无边界 Schema 都使本轮注册失败。
  */
 export function buildHomepageMcpCapabilityPolicies(
   registry: NativeToolRegistry,
+  allowWrite = false,
 ): HomepageMcpCapabilityPolicy[] {
   const policies: HomepageMcpCapabilityPolicy[] = [];
   const issues: string[] = [];
@@ -137,22 +143,26 @@ export function buildHomepageMcpCapabilityPolicies(
     const validActions: Array<{
       name: string;
       argsSchema: HomepageMcpJsonSchema;
+      readOnly: boolean;
     }> = [];
-    for (const action of HOMEPAGE_MCP_CAPABILITY_POLICY[name]) {
+    const actions: string[] = [...HOMEPAGE_MCP_CAPABILITY_POLICY[name]];
+    if (allowWrite && name === "homepage_components") actions.push("homepage_favorites.add");
+    for (const action of actions) {
       const metadata = help[action];
       if (!metadata) {
         issues.push(`${name}.${action}: action_missing`);
         continue;
       }
-      if (metadata.readOnly !== true) {
-        issues.push(`${name}.${action}: read_only_required`);
+      const readOnly = !isHomepageMcpWriteAction(name, action);
+      if (metadata.readOnly !== readOnly) {
+        issues.push(`${name}.${action}: ${readOnly ? "read_only_required" : "write_required"}`);
         continue;
       }
       if (!isBoundedObjectSchema(metadata.argsSchema)) {
         issues.push(`${name}.${action}: bounded_args_schema_required`);
         continue;
       }
-      validActions.push({ name: action, argsSchema: metadata.argsSchema });
+      validActions.push({ name: action, argsSchema: metadata.argsSchema, readOnly });
     }
 
     if (validActions.length === 0) {
@@ -165,7 +175,7 @@ export function buildHomepageMcpCapabilityPolicies(
       actions: validActions.map((item) => item.name),
       inputSchema: buildInputSchema(validActions),
       actionEffects: Object.fromEntries(
-        validActions.map((item) => [item.name, { localRead: true }]),
+        validActions.map((item) => [item.name, item.readOnly ? { localRead: true } : { localWrite: true }]),
       ),
     });
   }
@@ -177,7 +187,9 @@ export function buildHomepageMcpCapabilityPolicies(
 export function isHomepageMcpActionAllowed(
   name: string,
   action: string,
+  allowWrite = false,
 ): boolean {
+  if (allowWrite && isHomepageMcpWriteAction(name, action)) return true;
   const actions =
     HOMEPAGE_MCP_CAPABILITY_POLICY[name as HomepageMcpCapabilityName];
   return actions?.some((candidate) => candidate === action) === true;

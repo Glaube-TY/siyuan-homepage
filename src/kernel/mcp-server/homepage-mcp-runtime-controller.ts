@@ -1,3 +1,4 @@
+import { HomepageMcpWriteAccess, type HomepageMcpWriteRequest } from "./homepage-mcp-write-access";
 import type { NativeToolRegistry } from "../../features/kb/services/agent-core/tools/native-tool-registry";
 import {
   HOMEPAGE_MCP_CAPABILITY_NAMES,
@@ -33,6 +34,9 @@ export interface HomepageMcpServerSnapshot {
   schemaVersion: typeof HOMEPAGE_MCP_SERVER_SETTINGS_SCHEMA_VERSION;
   enabled: boolean;
   active: boolean;
+  writeEnabled: boolean;
+  writeActive: boolean;
+  pendingWriteCount: number;
   entitlementAvailable: boolean;
   status: HomepageMcpServerStatus;
   capabilityCount: number;
@@ -69,8 +73,12 @@ export class HomepageMcpRuntimeController {
   private shuttingDown = false;
   private cancelReconcileTimer: (() => void) | null = null;
   private operationQueue: Promise<void> = Promise.resolve();
+  private readonly writeAccess: HomepageMcpWriteAccess;
+  private writeRevision = 0;
 
-  constructor(private readonly options: HomepageMcpRuntimeControllerOptions) {}
+  constructor(private readonly options: HomepageMcpRuntimeControllerOptions) {
+    this.writeAccess = new HomepageMcpWriteAccess(options.timeout);
+  }
 
   initialize(): Promise<void> {
     return this.enqueue(async () => {
@@ -111,6 +119,9 @@ export class HomepageMcpRuntimeController {
       schemaVersion: HOMEPAGE_MCP_SERVER_SETTINGS_SCHEMA_VERSION,
       enabled: this.enabled,
       active: this.isActive(),
+      writeEnabled: this.writeAccess.enabled,
+      writeActive: this.isWriteActive(),
+      pendingWriteCount: this.writeAccess.list().filter((request) => request.status === "pending").length,
       entitlementAvailable: this.entitlementAvailable,
       status: this.status,
       capabilityCount: this.registered.names.length,
@@ -124,6 +135,7 @@ export class HomepageMcpRuntimeController {
       return Promise.reject(new Error("homepageMcp.setEnabled 需要 boolean 类型的 enabled 参数"));
     }
 
+    if (!enabled) this.revokeWrites();
     return this.enqueue(async () => {
       if (!this.initialized) throw new Error("主页 MCP 控制器尚未初始化");
       if (this.shuttingDown) throw new Error("主页 MCP 控制器正在关闭");
@@ -143,6 +155,80 @@ export class HomepageMcpRuntimeController {
       }
       return this.disable();
     });
+  }
+
+  setWriteEnabled(enabled: boolean): Promise<HomepageMcpServerSnapshot> {
+    if (typeof enabled !== "boolean") return Promise.reject(new Error("MCP 写入开关必须为 boolean。"));
+    const revision = ++this.writeRevision;
+    const wasEnabled = this.writeAccess.enabled;
+    if (!enabled) this.writeAccess.revoke();
+    return this.enqueue(async () => {
+      if (!this.initialized || this.shuttingDown) throw new Error("MCP Runtime 当前不可操作。");
+      const entitled = await this.readEntitlement();
+      if (revision !== this.writeRevision) return this.getSnapshot();
+      if (enabled && (!entitled || !this.isActive() || this.status !== "enabled")) {
+        this.revokeWrites();
+        throw new Error("仅在 MCP 服务完整开启且会员有效时允许授权写入。");
+      }
+      if (enabled === wasEnabled) return this.getSnapshot();
+      this.status = "initializing";
+      let stage = "secure_random";
+      try {
+        if (enabled) this.writeAccess.enable();
+        stage = "unregister";
+        const cleanup = await this.unregisterAll();
+        if (!cleanup.allUnregistered) throw new Error("旧能力注销未完成。");
+        stage = "register";
+        await this.registerAll();
+        if (enabled && (revision !== this.writeRevision || !this.writeAccess.enabled)) {
+          stage = "authorization_revoked";
+          throw new Error("写入授权已撤销。");
+        }
+        this.status = "enabled";
+        this.lastError = null;
+      } catch {
+        this.revokeWrites();
+        const cleanup = await this.unregisterAll();
+        this.status = "error";
+        this.lastError = "mcp_write_registration_failed [" + stage + "]：写入授权未开启，能力清理或注册失败。";
+        if (cleanup.allUnregistered && this.enabled && !this.shuttingDown && await this.readEntitlement()) {
+          try {
+            await this.registerAll();
+            this.status = "enabled";
+            this.lastError = "mcp_write_registration_failed [" + stage + "]：已恢复安全只读服务。";
+          } catch {
+            this.lastError = "mcp_readonly_recovery_failed：能力恢复失败，写入授权已关闭。";
+          }
+        }
+      }
+      this.scheduleReconcile();
+      return this.getSnapshot();
+    });
+  }
+
+  getPendingWrites(): Promise<HomepageMcpWriteRequest[]> {
+    return this.enqueue(async () => {
+      if (!(await this.readEntitlement()) || !this.isWriteActive()) return [];
+      return this.writeAccess.list();
+    });
+  }
+
+  decideWrite(confirmationId: string, approved: boolean): Promise<HomepageMcpServerSnapshot> {
+    return this.enqueue(async () => {
+      if (!(await this.readEntitlement()) || !this.isWriteActive()) throw new Error("MCP 写入授权已失效。");
+      if (!/^[a-f0-9]{64}$/.test(confirmationId) || typeof approved !== "boolean" ||
+        !this.writeAccess.decide(confirmationId, approved)) throw new Error("MCP 确认已失效或不可重复批准。");
+      return this.getSnapshot();
+    });
+  }
+
+  private revokeWrites(): void {
+    this.writeRevision += 1;
+    this.writeAccess.revoke();
+  }
+
+  private isWriteActive(): boolean {
+    return this.writeAccess.enabled && this.isActive() && this.status === "enabled" && !this.shuttingDown;
   }
 
   reconcile(): Promise<HomepageMcpServerSnapshot> {
@@ -199,6 +285,7 @@ export class HomepageMcpRuntimeController {
   }
 
   shutdown(): Promise<void> {
+    this.revokeWrites();
     return this.enqueue(async () => {
       if (this.shuttingDown) return;
       this.shuttingDown = true;
@@ -234,6 +321,7 @@ export class HomepageMcpRuntimeController {
       this.lastError = null;
       this.scheduleReconcile();
     } catch (error) {
+      this.revokeWrites();
       const previousEnabled = this.enabled;
       const cleanup = await this.unregisterAll();
       this.enabled = previousEnabled;
@@ -284,7 +372,14 @@ export class HomepageMcpRuntimeController {
         this.options.registry,
         {
           isActive: () => this.isActive(),
-          isEntitlementAvailable: () => this.readEntitlement(),
+          isEntitlementAvailable: async () => {
+            const available = await this.readEntitlement();
+            if (!available) void this.reconcile().catch(() => undefined);
+            return available;
+          },
+          writeAccess: this.writeAccess,
+          isWriteActive: () => this.isWriteActive(),
+          runWrite: (operation) => this.enqueue(operation),
         },
       );
     } catch (error) {
@@ -303,7 +398,7 @@ export class HomepageMcpRuntimeController {
   }
 
   private isActive(): boolean {
-    return this.enabled
+    return !this.shuttingDown && this.enabled
       && this.entitlementAvailable
       && this.registered.names.length === EXPECTED_HOMEPAGE_MCP_CAPABILITY_COUNT
       && this.registered.records.length === EXPECTED_HOMEPAGE_MCP_CAPABILITY_COUNT
@@ -343,11 +438,13 @@ export class HomepageMcpRuntimeController {
   }
 
   private async readEntitlement(): Promise<boolean> {
-    try {
-      return (await this.options.isEntitlementAvailable()) === true;
-    } catch {
-      return false;
+    let available = false;
+    try { available = (await this.options.isEntitlementAvailable()) === true; } catch { /* 授权状态未知按失效处理。 */ }
+    if (!available) {
+      this.entitlementAvailable = false;
+      this.revokeWrites();
     }
+    return available;
   }
 
   private scheduleReconcile(): void {

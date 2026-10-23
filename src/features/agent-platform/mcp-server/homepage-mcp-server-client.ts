@@ -4,6 +4,9 @@ import {
   RobotKernelClient,
 } from "@/features/robot-assistant/runtime/robot-kernel-client";
 
+import type { HomepageMcpWriteRequest } from "@/kernel/mcp-server/homepage-mcp-write-access";
+export type { HomepageMcpWriteRequest } from "@/kernel/mcp-server/homepage-mcp-write-access";
+
 export const HOMEPAGE_MCP_UNSUPPORTED_MESSAGE = "当前环境不支持对外 MCP 服务";
 export const HOMEPAGE_MCP_RPC_ERROR_MESSAGE = "对外 MCP 服务 RPC 不可用";
 
@@ -18,6 +21,9 @@ export interface HomepageMcpServerSnapshot {
   schemaVersion: 1;
   enabled: boolean;
   active: boolean;
+  writeEnabled: boolean;
+  writeActive: boolean;
+  pendingWriteCount: number;
   entitlementAvailable: boolean;
   status: HomepageMcpServerStatus;
   capabilityCount: number;
@@ -45,6 +51,36 @@ export async function setHomepageMcpServerEnabled(
 ): Promise<HomepageMcpServerSnapshot> {
   if (typeof enabled !== "boolean") throw new Error(HOMEPAGE_MCP_RPC_ERROR_MESSAGE);
   return callSnapshot(clientFor(plugin), "homepageMcp.setEnabled", { enabled });
+}
+
+export async function setHomepageMcpWriteEnabled(plugin: unknown, enabled: boolean): Promise<HomepageMcpServerSnapshot> {
+  if (typeof enabled !== "boolean") throw new Error(HOMEPAGE_MCP_RPC_ERROR_MESSAGE);
+  return callSnapshot(clientFor(plugin), "homepageMcp.setWriteEnabled", { enabled });
+}
+
+export async function decideHomepageMcpWrite(plugin: unknown, confirmationId: string, approved: boolean): Promise<HomepageMcpServerSnapshot> {
+  if (!/^[a-f0-9]{64}$/.test(confirmationId) || typeof approved !== "boolean") throw new Error(HOMEPAGE_MCP_RPC_ERROR_MESSAGE);
+  return callSnapshot(clientFor(plugin), "homepageMcp.decideWrite", { confirmationId, approved });
+}
+
+export async function getHomepageMcpPendingWrites(plugin: unknown): Promise<HomepageMcpWriteRequest[]> {
+  const response = await clientFor(plugin).call<unknown>("homepageMcp.getPendingWrites");
+  if (!isPlainRecord(response) || response.ok !== true || !Array.isArray(response.requests) || response.requests.length > 20) {
+    throw new Error(HOMEPAGE_MCP_RPC_ERROR_MESSAGE);
+  }
+  return response.requests.map((request: unknown) => {
+    if (!isPlainRecord(request) ||
+      typeof request.confirmationId !== "string" || !/^[a-f0-9]{64}$/.test(request.confirmationId) ||
+      request.toolName !== "homepage_components" || request.action !== "homepage_favorites.add" ||
+      typeof request.targetSummary !== "string" || !/^收藏文档 [0-9]{14}-[a-z0-9]{7}$/i.test(request.targetSummary) ||
+      !isNonNegativeInteger(request.requestedAt) || !isNonNegativeInteger(request.expiresAt) ||
+      request.expiresAt - request.requestedAt !== 120_000 ||
+      (request.status !== "pending" && request.status !== "approved")) throw new Error(HOMEPAGE_MCP_RPC_ERROR_MESSAGE);
+    return {
+      confirmationId: request.confirmationId, toolName: request.toolName, action: request.action,
+      targetSummary: request.targetSummary, requestedAt: request.requestedAt, expiresAt: request.expiresAt, status: request.status,
+    };
+  });
 }
 
 export async function reconcileHomepageMcpServer(
@@ -87,6 +123,9 @@ function parseSnapshot(value: unknown): HomepageMcpServerSnapshot {
     value.schemaVersion !== 1 ||
     typeof value.enabled !== "boolean" ||
     typeof value.active !== "boolean" ||
+    typeof value.writeEnabled !== "boolean" ||
+    typeof value.writeActive !== "boolean" ||
+    !isNonNegativeInteger(value.pendingWriteCount) || value.pendingWriteCount > 20 ||
     typeof value.entitlementAvailable !== "boolean" ||
     typeof value.status !== "string" ||
     !statuses.includes(value.status as HomepageMcpServerStatus) ||
@@ -100,6 +139,9 @@ function parseSnapshot(value: unknown): HomepageMcpServerSnapshot {
     schemaVersion: 1,
     enabled: value.enabled,
     active: value.active,
+    writeEnabled: value.writeEnabled,
+    writeActive: value.writeActive,
+    pendingWriteCount: value.pendingWriteCount,
     entitlementAvailable: value.entitlementAvailable,
     status: value.status as HomepageMcpServerStatus,
     capabilityCount: value.capabilityCount,
