@@ -1,6 +1,6 @@
 import SHA256 from "crypto-js/sha256";
 import { getBlockInfo } from "../../api";
-import { loadFavoritesForUI, readFavoritesIndexStrict } from "../../features/favorites-manager/favorites-store";
+import { loadFavoritesForUI, readFavoritesIndexStrict, verifyFavoritesReorder } from "../../features/favorites-manager/favorites-store";
 import type { FavoritesIndexPayloadV2 } from "../../features/favorites-manager/types";
 import {
   HOMEPAGE_MCP_FAVORITES_WRITES, homepageMcpWritePreviewSchema,
@@ -144,8 +144,7 @@ export async function verifyHomepageMcpFavoriteWrite(action: HomepageMcpFavorite
     }
     case "homepage_favorites.reorder": {
       const ids = args.docIds as string[];
-      const actual = after.items.slice().sort((a, b) => Number(a.favoriteOrder ?? 0) - Number(b.favoriteOrder ?? 0)).filter((row) => ids.includes(row.id)).map((row) => row.id);
-      return sameMembers && JSON.stringify(actual) === JSON.stringify(ids);
+      return JSON.stringify(result.docIds) === JSON.stringify(ids) && verifyFavoritesReorder(before, after, ids);
     }
   }
 }

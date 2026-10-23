@@ -8,6 +8,7 @@ import {
   removeFavoriteItem,
   renameGroup,
   reorderFavoriteItems,
+  verifyFavoritesReorder,
   setItemGroup,
 } from "@/features/favorites-manager/favorites-store";
 import { alwaysAvailable, homepageComponentFailure } from "./homepage-component-tool-utils";
@@ -49,6 +50,12 @@ export function createHomepageFavoritesActionTools(): Array<{ action: string; to
     { action: "create_group", tool: actionTool("create_group", groupSchema, false, async ({ name }) => { const group = await createGroup(name); return { groupId: group.id, name: group.name, order: group.order, updatedAt: group.updatedAt }; }) },
     { action: "rename_group", tool: actionTool("rename_group", renameSchema, false, async ({ groupId, name, expectedUpdatedAt, expectedGroupUpdatedAt }) => { await renameGroup(groupId, name, { expectedUpdatedAt, expectedGroupUpdatedAt }); const payload = await loadFavoritesForUI(); const group = payload.groups.find((item) => item.id === groupId); if (group?.name !== name) throw new Error("收藏分组重命名后验证失败。"); return { groupId, name, groupUpdatedAt: group.updatedAt, updatedAt: payload.updatedAt }; }) },
     { action: "delete_group", tool: actionTool("delete_group", deleteGroupSchema, false, async ({ groupId, expectedUpdatedAt, expectedGroupUpdatedAt, expectedItemCount }) => { await deleteGroup(groupId, { expectedUpdatedAt, expectedGroupUpdatedAt, expectedItemCount }); const after = await loadFavoritesForUI(); if (after.groups.some((group) => group.id === groupId) || after.items.some((item) => item.favoriteGroupId === groupId)) throw new Error("删除收藏分组后验证失败。"); return { groupId, deleted: true, movedToUngrouped: expectedItemCount, updatedAt: after.updatedAt }; }, true) },
-    { action: "reorder", tool: actionTool("reorder", reorderSchema, false, async ({ docIds, expectedUpdatedAt }) => { if (new Set(docIds).size !== docIds.length) throw new Error("收藏顺序中不能包含重复 ID。"); const before = await loadFavoritesForUI(); if (docIds.some((id) => !before.items.some((item) => item.id === id))) throw new Error("收藏顺序包含不存在的文档。"); await reorderFavoriteItems(docIds, { expectedUpdatedAt }); const after = await loadFavoritesForUI(); const actual = after.items.slice().sort((a, b) => Number(a.favoriteOrder ?? 0) - Number(b.favoriteOrder ?? 0)).filter((item) => docIds.includes(item.id)).map((item) => item.id); if (actual.join("|") !== docIds.join("|")) throw new Error("收藏重排序后验证失败。"); return { docIds: actual, updatedAt: after.updatedAt }; }) },
+    { action: "reorder", tool: actionTool("reorder", reorderSchema, false, async ({ docIds, expectedUpdatedAt }) => {
+      const before = await loadFavoritesForUI();
+      await reorderFavoriteItems(docIds, { expectedUpdatedAt });
+      const after = await loadFavoritesForUI();
+      if (!verifyFavoritesReorder(before, after, docIds)) throw new Error("收藏重排序写后验证失败，结果不确定；请先回读，不要自动重试。");
+      return { docIds, updatedAt: after.updatedAt };
+    }) },
   ];
 }

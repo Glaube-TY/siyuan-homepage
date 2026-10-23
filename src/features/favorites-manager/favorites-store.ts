@@ -309,44 +309,72 @@ export async function reorderFavoriteItems(orderedIds: string[], options: { expe
         if (options.expectedUpdatedAt !== undefined && payload.updatedAt !== options.expectedUpdatedAt) {
             throw new FavoritesWriteError("收藏数据已变化，请重新读取", "lock");
         }
+        if (!Array.isArray(orderedIds) || orderedIds.length === 0
+            || orderedIds.some((id) => typeof id !== "string" || !/^\d{14}-[a-z0-9]{7}$/i.test(id))) {
+            throw new FavoritesWriteError("收藏排序 ID 无效", "validate");
+        }
+        const selected = new Set(orderedIds);
         const byId = new Map(payload.items.map((item) => [item.id, item]));
-        const existingIds = new Set(payload.items.map((item) => item.id));
-        const orderedSet = new Set(orderedIds.filter((id) => existingIds.has(id)));
-        if (orderedSet.size < 1) return payload;
+        if (selected.size !== orderedIds.length || byId.size !== payload.items.length
+            || orderedIds.some((id) => !byId.has(id))) {
+            throw new FavoritesWriteError("收藏排序目标重复或与当前状态不匹配", "validate");
+        }
+        if (selected.size === payload.items.length) {
+            return { ...payload, items: orderedIds.map((id, index) => ({ ...byId.get(id)!, favoriteOrder: index })) };
+        }
 
-        // 按当前 favoriteOrder 排序全部 items
-        const sorted = payload.items.slice().sort((a, b) => {
-            const aOrder = typeof a.favoriteOrder === "number" && Number.isFinite(a.favoriteOrder)
-                ? a.favoriteOrder : 0;
-            const bOrder = typeof b.favoriteOrder === "number" && Number.isFinite(b.favoriteOrder)
-                ? b.favoriteOrder : 0;
-            return aOrder - bOrder;
-        });
-
-        // 找到 orderedIds 原来占据的位置范围（在 sorted 中）
-        const selectedIndices: number[] = [];
-        for (let i = 0; i < sorted.length; i++) {
-            if (orderedSet.has(sorted[i].id)) {
-                selectedIndices.push(i);
+        const seenOrders = new Set<number>();
+        for (const item of payload.items) {
+            if (typeof item.favoriteOrder !== "number" || !Number.isFinite(item.favoriteOrder)
+                || seenOrders.has(item.favoriteOrder)) {
+                throw new FavoritesWriteError("收藏排序状态无效：局部排序要求所有收藏具有唯一且有限的排序值", "validate");
             }
+            seenOrders.add(item.favoriteOrder);
         }
-
-        // 按 orderedIds 新顺序排列选中项
-        const reorderedSelected = orderedIds
-            .filter((id) => orderedSet.has(id))
-            .map((id) => byId.get(id)!);
-
-        // 在原位置用新顺序替换：构建结果数组
-        const result = [...sorted];
-        for (let j = 0; j < selectedIndices.length; j++) {
-            result[selectedIndices[j]] = reorderedSelected[j];
-        }
-
-        // 统一生成连续 favoriteOrder
-        const final = result.map((item, index) => ({ ...item, favoriteOrder: index }));
-        return { ...payload, items: final };
+        const orders = payload.items.slice()
+            .sort((a, b) => a.favoriteOrder! - b.favoriteOrder!)
+            .filter((item) => selected.has(item.id))
+            .map((item) => item.favoriteOrder!);
+        const orderById = new Map(orderedIds.map((id, index) => [id, orders[index]]));
+        // 局部排序只复用选中项原有槽位；保留其他记录及原始数组位置。
+        return { ...payload, items: payload.items.map((item) => selected.has(item.id)
+            ? { ...item, favoriteOrder: orderById.get(item.id)! } : item) };
     });
     dispatchFavoritesUpdated();
+}
+
+/** 回读时核对整个排序范围，不能仅验证选中项的相对顺序。 */
+export function verifyFavoritesReorder(
+    before: FavoritesIndexPayloadV2,
+    after: FavoritesIndexPayloadV2,
+    orderedIds: string[],
+): boolean {
+    const selected = new Set(orderedIds);
+    const afterById = new Map(after.items.map((item) => [item.id, item]));
+    if (orderedIds.length === 0 || selected.size !== orderedIds.length
+        || after.items.length !== before.items.length || afterById.size !== before.items.length
+        || new Set(before.items.map((item) => item.id)).size !== before.items.length
+        || orderedIds.some((id) => !before.items.some((item) => item.id === id))) return false;
+    const same = (left: unknown, right: unknown) =>
+        JSON.stringify(normalizeForCompare(left)) === JSON.stringify(normalizeForCompare(right));
+    if (!same({ ...before, updatedAt: undefined, items: undefined },
+        { ...after, updatedAt: undefined, items: undefined })) return false;
+    const partial = selected.size < before.items.length;
+    if (partial && before.items.some((item, index) => after.items[index].id !== item.id)) return false;
+    const afterOrders = after.items.map((item) => item.favoriteOrder);
+    if (afterOrders.some((order) => typeof order !== "number" || !Number.isFinite(order))
+        || new Set(afterOrders).size !== afterOrders.length) return false;
+    const orders = before.items.filter((item) => selected.has(item.id))
+        .map((item) => item.favoriteOrder!).sort((a, b) => a - b);
+    return before.items.every((item) => {
+        const actual = afterById.get(item.id);
+        if (!actual) return false;
+        if (!selected.has(item.id)) return same(item, actual);
+        const index = orderedIds.indexOf(item.id);
+        return actual.favoriteOrder === (partial ? orders[index] : index)
+            && (partial || after.items[index].id === item.id)
+            && same({ ...item, favoriteOrder: undefined }, { ...actual, favoriteOrder: undefined });
+    });
 }
 
 export async function setItemGroup(docId: string, groupId: string | null, options: { expectedUpdatedAt?: string } = {}): Promise<void> {
