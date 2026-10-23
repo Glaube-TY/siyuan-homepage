@@ -148,8 +148,6 @@ export async function executeUpdateAttributeViewCell(
       includeRows: true,
       rowLimit: 500,
       includeRaw: true,
-      // 单元格写入只需原始行数据，避免读取时保存或订正视图。
-      renderView: false,
     });
 
     const rows = output.rows ?? [];

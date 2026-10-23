@@ -1,8 +1,20 @@
 import type { NativeTool } from "../../features/kb/services/agent-core/tools/native-tool";
 import type { NativeToolRegistry } from "../../features/kb/services/agent-core/tools/native-tool-registry";
 import type { HomepageMcpCapabilityEffects, HomepageMcpJsonSchema } from "./homepage-mcp-types";
-import { z } from "zod";
-import { getHomepageMcpWriteOperation, HOMEPAGE_MCP_WRITES_BY_TOOL, homepageMcpDatabaseUpdateSchema } from "../../features/agent-platform/mcp-server/homepage-mcp-write-preview";
+import { getHomepageMcpWriteOperation, HOMEPAGE_MCP_WRITES_BY_TOOL } from "../../features/agent-platform/mcp-server/homepage-mcp-write-preview";
+
+const databaseIdSchema = { type: "string", pattern: "^\\d{14}-[a-z0-9]{7}$" };
+// 自定义 Zod refine 不会转成 JSON Schema；外部约束必须明确声明，handler 仍执行 Zod 校验。
+const databaseUpdateArgsSchema: HomepageMcpJsonSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["databaseId", "rowId", "keyId", "valueText", "expectedFieldName"],
+  properties: {
+    databaseId: databaseIdSchema, rowId: databaseIdSchema, keyId: databaseIdSchema,
+    valueText: { type: "string", minLength: 1, maxLength: 1000, pattern: "\\S" },
+    expectedFieldName: { type: "string", minLength: 1, maxLength: 50, not: { pattern: "^\\s|\\s$" } },
+  },
+};
 
 /** 对外 MCP 的固定顶层能力与 action 白名单。 */
 export const HOMEPAGE_MCP_CAPABILITY_POLICY = {
@@ -166,7 +178,7 @@ export function buildHomepageMcpCapabilityPolicies(
         continue;
       }
       const argsSchema = name === "siyuan_database" && action === "update_cell"
-        ? z.toJSONSchema(homepageMcpDatabaseUpdateSchema) as HomepageMcpJsonSchema : metadata.argsSchema;
+        ? databaseUpdateArgsSchema : metadata.argsSchema;
       validActions.push({ name: action, argsSchema, readOnly });
     }
 
