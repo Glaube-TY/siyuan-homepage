@@ -155,6 +155,7 @@
 
     function approvalLabel(request: HomepageMcpWriteRequest): string {
         if (request.toolName === "siyuan_database" && request.action === "clear_cell") return "确认清空";
+        if (request.toolName === "siyuan_database" && request.action === "remove_rows") return "确认移除条目";
         if (request.action === "homepage_anniversary.delete_permanently") return "确认永久删除";
         if (request.action === "homepage_anniversary.delete_category") return "确认删除分类";
         return "同意";

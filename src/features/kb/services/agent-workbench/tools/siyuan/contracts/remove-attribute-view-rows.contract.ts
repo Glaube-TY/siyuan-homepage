@@ -9,7 +9,7 @@ export const removeAttributeViewRowsInputSchema = z.object({
   databaseId: attributeViewIdSchema,
   rowIds: z.array(attributeViewIdSchema).min(1).max(20),
   databaseBlockId: attributeViewIdSchema.optional(),
-  expectedTitles: z.array(z.string().trim().max(200)).optional(),
+  expectedTitles: z.array(z.string().max(200)).optional(),
   summary: z.string().trim().max(300).optional(),
 }).strict();
 

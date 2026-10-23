@@ -53,6 +53,14 @@ const databaseAddArgsSchema: HomepageMcpJsonSchema = {
 };
 const databaseWriteArgsSchemas: Record<string, HomepageMcpJsonSchema> = {
   update_cell: databaseUpdateArgsSchema, clear_cell: databaseClearArgsSchema, add_rows: databaseAddArgsSchema,
+  remove_rows: {
+    type: "object", additionalProperties: false, required: ["databaseId", "rowIds", "expectedTitles"],
+    properties: {
+      databaseId: databaseIdSchema,
+      rowIds: { type: "array", minItems: 1, maxItems: 1, items: databaseIdSchema },
+      expectedTitles: { type: "array", minItems: 1, maxItems: 1, items: { type: "string", minLength: 1, maxLength: 200, pattern: "\\S" } },
+    },
+  },
 };
 
 /** 对外 MCP 的固定顶层能力与 action 白名单。 */

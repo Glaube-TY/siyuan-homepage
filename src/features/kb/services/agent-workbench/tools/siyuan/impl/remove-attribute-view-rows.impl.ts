@@ -59,14 +59,18 @@ export async function executeRemoveAttributeViewRows(
     return fail(args, `expectedTitles 数量（${expectedTitles.length}）与 rowIds 数量（${rowIds.length}）不一致。`, "titles_count_mismatch");
   }
 
+  let writeAttempted = false;
   try {
     // 读取数据库 rows 来验证 rowId 存在
     const read = await readAttributeViewSafeOutput({
       databaseId,
       includeRows: true,
-      rowLimit: 100,
+      rowLimit: 500,
       includeRaw: false,
     });
+    if (read.truncated || read.rowCount !== read.rows?.length) {
+      return fail(args, "数据库条目未能完整读取，未执行移除；请缩小数据库范围后重新确认。", "read_scope_incomplete");
+    }
 
     const existingRows = read.rows ?? [];
     const existingRowMap = new Map(existingRows.map((r) => [r.rowId, r]));
@@ -103,15 +107,15 @@ export async function executeRemoveAttributeViewRows(
         const expectedTitle = expectedTitles[i];
         if (expectedTitle) {
           const rowTitle = getRowTitle(row);
-          if (!rowTitle.includes(expectedTitle) && rowTitle !== expectedTitle) {
+          if (rowTitle !== expectedTitle) {
             return fail(args, `条目「${rowId}」的标题「${rowTitle}」不匹配期望标题「${expectedTitle}」。`, "title_mismatch");
           }
         }
       }
 
       validRowIds.push(rowId);
-      // 如果行有 boundBlockId，srcID 优先用 boundBlockId；否则使用 itemID/rowId
-      srcIds.push(row.boundBlockId ?? rowId);
+      // removeAttrViewBlock 的 srcIDs 是 itemID，不是关联的原始块 ID。
+      srcIds.push(rowId);
     }
 
     if (invalidRowIds.length > 0) {
@@ -123,6 +127,7 @@ export async function executeRemoveAttributeViewRows(
     }
 
     // 使用 transaction 执行删除
+    writeAttempted = true;
     await performTransactionsChecked([{
       doOperations: [{
         action: "removeAttrViewBlock",
@@ -145,6 +150,11 @@ export async function executeRemoveAttributeViewRows(
       },
     };
   } catch (error) {
+    if (writeAttempted) {
+      const result = fail(args, "移除结果未知，必须先回读数据库及原始块；禁止自动重试。", "write_result_unknown");
+      result.safeOutput.status = "partial";
+      return result;
+    }
     return fail(args, `删除数据库条目失败：${error instanceof Error ? error.message : String(error)}`, "attribute_view_rows_remove_failed");
   }
 }

@@ -29,6 +29,7 @@ export const HOMEPAGE_MCP_DATABASE_WRITES = {
   update_cell: { name: "修改数据库单元格", consequence: "仅修改指定数据库条目的一个普通文本字段。" },
   clear_cell: { name: "清空数据库单元格", consequence: "清空指定数据库条目的一个普通文本字段，原字段值将被移除；不会删除数据库、字段、条目或关联的思源文档。" },
   add_rows: { name: "新增数据库条目", consequence: "向指定数据库新增一条脱离块记录，只填写标题；不会创建独立思源文档，也不会修改已有数据库条目。" },
+  remove_rows: { name: "移除数据库条目", consequence: "本操作只移除数据库中的指定记录。脱离块记录会被移除；绑定块记录只解除数据库关联，不会删除原始思源块或文档。" },
 } as const;
 export const HOMEPAGE_MCP_WRITES_BY_TOOL: Record<string, Record<string, { name: string; consequence: string }>> = {
   homepage_components: HOMEPAGE_MCP_WRITES,
@@ -61,6 +62,10 @@ export const homepageMcpDatabaseDetachedAddSchema = z.object({
 }).strict();
 export const homepageMcpDatabaseBoundAddSchema = z.object({ databaseId: id, blockIds: z.array(id).length(1) }).strict();
 export const homepageMcpDatabaseAddSchema = z.union([homepageMcpDatabaseDetachedAddSchema, homepageMcpDatabaseBoundAddSchema]);
+export const homepageMcpDatabaseRemoveSchema = z.object({
+  databaseId: id, rowIds: z.array(id).length(1),
+  expectedTitles: z.array(z.string().min(1).max(200).refine((value) => value.trim().length > 0)).length(1),
+}).strict();
 export type HomepageMcpDatabaseWriteAction = keyof typeof HOMEPAGE_MCP_DATABASE_WRITES;
 export type HomepageMcpAnniversaryWriteAction = keyof typeof HOMEPAGE_MCP_ANNIVERSARY_WRITES;
 export type HomepageMcpWriteAction = keyof typeof HOMEPAGE_MCP_WRITES | keyof typeof HOMEPAGE_MCP_DATABASE_WRITES;
@@ -84,6 +89,19 @@ export const homepageMcpWritePreviewSchema = z.object({
   affectedCount: z.number().int().min(0).max(1_000_000),
   details: z.array(z.object({ label: text.max(60), value: text }).strict()).max(16),
 }).strict().refine((value) => {
+  if (value.action === "remove_rows") {
+    const operation = HOMEPAGE_MCP_DATABASE_WRITES.remove_rows;
+    const labels = ["数据库名称", "数据库 ID", "条目标题", "真实 rowId/itemID", "记录类型", "当前数据库记录数量", "移除后果"];
+    const bound = value.details[4]?.value === "绑定块";
+    if (bound) labels.push("原始 blockId", "所属文档", "所属文档 ID");
+    return value.operationName === operation.name && value.consequence === operation.consequence && value.affectedCount === 1 &&
+      id.safeParse(value.targetId).success && value.details.length === labels.length && labels.every((label, i) => value.details[i].label === label) &&
+      id.safeParse(value.details[1].value).success && value.details[2].value === value.targetName && value.details[3].value === value.targetId &&
+      /^(?:[1-9]\d{0,2})$/.test(value.details[5].value) && Number(value.details[5].value) <= 500 &&
+      (bound ? id.safeParse(value.details[7].value).success && value.details[7].value !== value.targetId && id.safeParse(value.details[9].value).success &&
+        value.details[6].value === "只解除数据库关联，原始思源块和文档会保留。"
+        : value.details[4].value === "脱离块" && value.details[6].value === "数据库内的独立记录及该记录的字段值将被移除。");
+  }
   if (value.action === "add_rows") {
     if (value.targetId !== null) {
       const operation = HOMEPAGE_MCP_DATABASE_BOUND_ADD;

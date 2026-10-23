@@ -57,19 +57,19 @@ export function createRemoveAttributeViewRowsTool(
             error: {
               code: result.errorCode || "attribute_view_rows_remove_failed",
               message: result.safeOutput.message,
-              recoverable: true,
+              recoverable: result.errorCode !== "write_result_unknown",
             },
           };
         }
         return { ok: true, data: result.safeOutput };
-      } catch (error) {
+      } catch {
         return {
           ok: false,
           data: null,
           error: {
-            code: "tool_internal_error",
-            message: error instanceof Error ? error.message : "删除数据库条目执行异常。",
-            recoverable: true,
+            code: "write_result_unknown",
+            message: "移除工具执行异常，结果未知；必须先回读，禁止自动重试。",
+            recoverable: false,
           },
         };
       }
