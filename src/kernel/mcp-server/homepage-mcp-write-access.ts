@@ -1,10 +1,16 @@
 import SHA256 from "crypto-js/sha256";
 
-export interface HomepageMcpWriteRequest {
+export interface HomepageMcpWritePreview {
+  docId: string;
+  docTitle: string;
+  groupMode: "preserve" | "ungrouped" | "specified";
+  groupName: string | null;
+}
+
+export interface HomepageMcpWriteRequest extends HomepageMcpWritePreview {
   confirmationId: string;
   toolName: string;
   action: string;
-  targetSummary: string;
   requestedAt: number;
   expiresAt: number;
   status: "pending" | "approved";
@@ -54,7 +60,7 @@ export class HomepageMcpWriteAccess {
     return Array.from(this.requests.values(), ({ fingerprint: _fingerprint, ...request }) => ({ ...request }));
   }
 
-  create(toolName: string, action: string, args: Record<string, unknown>): string | null {
+  create(toolName: string, action: string, args: Record<string, unknown>, preview: HomepageMcpWritePreview): string | null {
     this.prune();
     if (!this.allowed || this.requests.size >= MAX_REQUESTS) return null;
     const confirmationId = createConfirmationId();
@@ -62,7 +68,8 @@ export class HomepageMcpWriteAccess {
     const requestedAt = Date.now();
     this.requests.set(confirmationId, {
       confirmationId, toolName, action,
-      targetSummary: "收藏文档 " + String(args.docId),
+      docId: preview.docId, docTitle: preview.docTitle,
+      groupMode: preview.groupMode, groupName: preview.groupName,
       requestedAt, expiresAt: requestedAt + CONFIRMATION_TTL_MS, status: "pending",
       fingerprint: fingerprint(toolName, action, args),
     });

@@ -1,5 +1,6 @@
+import { getBlockInfo } from "../../api";
 import { loadFavoritesForUI } from "../../features/favorites-manager/favorites-store";
-import type { HomepageMcpWriteAccess } from "./homepage-mcp-write-access";
+import type { HomepageMcpWriteAccess, HomepageMcpWritePreview } from "./homepage-mcp-write-access";
 import type { NativeTool } from "../../features/kb/services/agent-core/tools/native-tool";
 import type { NativeToolRegistry } from "../../features/kb/services/agent-core/tools/native-tool-registry";
 import {
@@ -250,11 +251,14 @@ function createCapabilityHandler(
       const args = toolInput.args as Record<string, unknown>;
       if (input.confirmationId === undefined) {
         try {
-          const confirmationId = options.writeAccess!.create(policy.name, action, args);
+          const preview = await readFavoriteWritePreview(args);
+          if (!(await options.isEntitlementAvailable())) return failure("mcp_entitlement_required", "当前会员状态不允许使用主页 MCP 服务。");
+          if (!options.isActive() || !options.isWriteActive?.()) return failure("mcp_write_not_allowed", "MCP 写入授权已失效。");
+          const confirmationId = options.writeAccess!.create(policy.name, action, args, preview);
           if (!confirmationId) return failure("mcp_confirmation_queue_full", "待处理写入请求已满或授权已关闭。");
           return { ...failure("mcp_confirmation_required", "请在主页插件设置中确认，然后携带相同参数和确认 ID 重试。"), confirmationId };
         } catch {
-          return failure("mcp_confirmation_unavailable", "无法安全创建写入确认。");
+          return failure("mcp_confirmation_unavailable", "无法可靠读取文档或分组，未生成写入确认。");
         }
       }
       const code = options.writeAccess!.consume(input.confirmationId as string, policy.name, action, args);
@@ -289,6 +293,30 @@ function createCapabilityHandler(
       ? options.runWrite(() => invoke(call))
       : invoke(call);
   };
+}
+
+async function readFavoriteWritePreview(args: Record<string, unknown>): Promise<HomepageMcpWritePreview> {
+  const docId = args.docId as string;
+  const info = await getBlockInfo(docId);
+  if (!isPlainRecord(info) || info.rootID !== docId || info.rootTitleEmpty === true ||
+    !isPreviewText(info.rootTitle)) throw new Error("无法确认目标文档。");
+  const favorites = await loadFavoritesForUI();
+  const groupMode = args.groupId === undefined ? "preserve" : args.groupId === null ? "ungrouped" : "specified";
+  // 未指定分组时沿用收藏存储的保留语义；查询使用业务层同样的 trim，不改请求参数。
+  const groupId = args.groupId === undefined
+    ? favorites.items.find((item) => item.id === docId)?.favoriteGroupId
+    : typeof args.groupId === "string" ? args.groupId.trim() : null;
+  const group = groupId == null ? null : favorites.groups.find((item) => item.id === groupId);
+  if (groupId != null && (!group || !isPreviewText(group.name))) throw new Error("无法确认目标分组。");
+  return { docId, docTitle: info.rootTitle, groupMode, groupName: group?.name ?? null };
+}
+
+function isPreviewText(value: unknown): value is string {
+  return typeof value === "string" && value.trim().length > 0 && value.length <= 1024 &&
+    Array.from(value).every((character) => {
+      const code = character.charCodeAt(0);
+      return code >= 32 && code !== 127;
+    });
 }
 
 function uncertainWrite(): HomepageMcpCallResult {

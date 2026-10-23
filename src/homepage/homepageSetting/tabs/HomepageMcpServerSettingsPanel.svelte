@@ -149,8 +149,14 @@
     function requestDescription(request: HomepageMcpWriteRequest): string {
         const state = request.expiresAt <= now ? "已过期"
             : request.status === "approved" ? "已同意，等待客户端重试" : "等待确认";
-        return request.targetSummary + " · " + new Date(request.requestedAt).toLocaleString()
+        return new Date(request.requestedAt).toLocaleString()
             + " · " + state + "（" + Math.max(0, Math.ceil((request.expiresAt - now) / 1000)) + " 秒后过期）";
+    }
+
+    function requestGroupLabel(request: HomepageMcpWriteRequest): string {
+        if (request.groupMode === "ungrouped") return "未分组（明确指定）";
+        if (request.groupMode === "specified") return request.groupName!;
+        return "保留已有收藏分组（当前：" + (request.groupName ?? "未分组") + "；新收藏不分组）";
     }
 
     function resolveStatusLabel(
@@ -187,7 +193,7 @@
     <SettingSection title="服务设置">
         <SettingRow
             title="启用 MCP 服务"
-            description="默认开放经过审核的只读能力；仅收藏新增可单独授权写入。外部 Agent 连接时需携带有效的思源 API Token 进行鉴权，请先在「思源设置 → 鉴权」中获取，并在对应 MCP 客户端中配置。"
+            description="外部 MCP 客户端优先使用思源官方 OAuth 授权。管理员 API Token 权限较高，不应交给不可信的第三方客户端。"
         >
             <input
                 class="b3-switch"
@@ -201,7 +207,7 @@
 
         <SettingRow
             title="允许本次运行 MCP 写入"
-            description="仅允许已审核的写入操作，每次执行前还需在插件中确认。关闭服务或重启插件后会自动关闭写入权限。"
+            description="本次运行默认关闭，仅支持逐次确认的收藏新增。普通 OAuth MCP 客户端不能调用插件审批 RPC；管理员 Token 不受此审批隔离。关闭服务或重启后授权失效。"
         >
             <div class="status-control">
                 <span aria-live="polite">{snapshot ? snapshot.writeActive ? "已开启写入授权" : "只读" : "状态未知"}</span>
@@ -237,7 +243,14 @@
 
     <SettingSection title="待确认写入">
         {#each requests as request (request.confirmationId)}
-            <SettingRow title="新增收藏" description={requestDescription(request)}>
+            <article class="write-request" aria-label="新增收藏审批">
+                <div class="write-request-info">
+                    <h4>新增收藏</h4>
+                    <p class="write-request-title">{request.docTitle}</p>
+                    <p>文档 ID：{request.docId}</p>
+                    <p>目标分组：{requestGroupLabel(request)}</p>
+                    <p>{requestDescription(request)}</p>
+                </div>
                 <div class="status-control">
                     <button
                         type="button"
@@ -252,7 +265,7 @@
                         onclick={() => void handleDecision(request.confirmationId, false)}
                     >拒绝</button>
                 </div>
-            </SettingRow>
+            </article>
         {:else}
             <p class="state" role="status">暂无待处理的写入请求。</p>
         {/each}
@@ -289,6 +302,38 @@
         color: var(--b3-theme-on-surface-light);
         font-size: 12px;
         line-height: 1.55;
+    }
+
+    .write-request {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: flex-start;
+        gap: 1rem;
+        padding: 0.75rem 0;
+    }
+
+    .write-request + .write-request {
+        border-top: 1px solid var(--b3-border-color);
+    }
+
+    .write-request-info {
+        flex: 1 1 220px;
+        min-width: 0;
+        overflow-wrap: anywhere;
+    }
+
+    .write-request-info h4,
+    .write-request-info p {
+        margin: 0;
+        font-size: 12px;
+        line-height: 1.5;
+        color: var(--b3-theme-on-surface-light);
+    }
+
+    .write-request-info h4,
+    .write-request-info .write-request-title {
+        font-size: 14px;
+        color: var(--b3-theme-on-surface);
     }
 
     .status-control {
