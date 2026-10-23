@@ -111,6 +111,7 @@ async function executeCreate(
     dailyNotebookId: config.dailyNotebookId!,
     expectedDate: formatDiaryAttrDate(new Date()),
     headingStructure: config.headingStructure,
+    mapping: config.templateFieldMapping,
     projectStorage: config.projectStorage,
   });
 

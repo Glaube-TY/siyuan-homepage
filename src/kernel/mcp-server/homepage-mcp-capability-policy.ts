@@ -18,23 +18,23 @@ export const HOMEPAGE_MCP_CAPABILITY_POLICY = {
   diary_task: ["overview", "query_tasks", "query_records", "find_docs"],
   siyuan_database: ["list", "read", "find_rows", "extra_read"],
   homepage_components: [
-    "quick_note.status",
-    "focus.stats",
-    "accounting.overview",
-    "accounting.query_records",
-    "accounting.summary",
-    "accounting.list_accounts",
-    "accounting.category_report",
-    "fixed_assets.list",
-    "fixed_assets.get",
-    "fixed_assets.cost_summary",
-    "anniversary.list",
-    "anniversary.get",
-    "anniversary.list_categories",
-    "favorites.list",
-    "favorites.list_groups",
-    "review.list",
-    "review.summary",
+    "homepage_quick_note.status",
+    "homepage_focus.stats",
+    "homepage_accounting.overview",
+    "homepage_accounting.query_records",
+    "homepage_accounting.summary",
+    "homepage_accounting.list_accounts",
+    "homepage_accounting.category_report",
+    "homepage_fixed_assets.list",
+    "homepage_fixed_assets.get",
+    "homepage_fixed_assets.cost_summary",
+    "homepage_anniversary.list",
+    "homepage_anniversary.get",
+    "homepage_anniversary.list_categories",
+    "homepage_favorites.list",
+    "homepage_favorites.list_groups",
+    "homepage_review.list",
+    "homepage_review.summary",
   ],
 } as const;
 
@@ -140,7 +140,11 @@ export function buildHomepageMcpCapabilityPolicies(
     }> = [];
     for (const action of HOMEPAGE_MCP_CAPABILITY_POLICY[name]) {
       const metadata = help[action];
-      if (!metadata || metadata.readOnly !== true) {
+      if (!metadata) {
+        issues.push(`${name}.${action}: action_missing`);
+        continue;
+      }
+      if (metadata.readOnly !== true) {
         issues.push(`${name}.${action}: read_only_required`);
         continue;
       }

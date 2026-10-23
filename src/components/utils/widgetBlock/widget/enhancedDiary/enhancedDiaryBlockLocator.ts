@@ -23,8 +23,8 @@ import {
 import type { EnhancedDiaryHeadingStructureConfig, EnhancedDiaryTemplateFieldMapping } from "./enhancedDiaryTypes";
 import {
     getDayWorkspaceSectionPathAliases,
-    getFieldAliases,
     getPrimaryFieldTitle,
+    matchesRootHeadingWithMapping,
 } from "./enhancedDiaryTemplateFieldMapping";
 import { parseTaskLine } from "@/features/task-data/task-parser";
 
@@ -434,11 +434,11 @@ async function getDocumentHeadingBlocks(docId: string, blocks?: IResGetChildBloc
 
 function findRootHeadingBlock(
     headings: EnhancedDiaryHeadingBlock[],
-    aliases: string[],
+    mapping?: EnhancedDiaryTemplateFieldMapping | null,
     level: EnhancedDiaryHeadingLevel = 1
 ): EnhancedDiaryHeadingBlock | null {
     return headings.find(
-        (heading) => heading.level === level && headingTitleMatchesAny(heading, aliases)
+        (heading) => heading.level === level && matchesRootHeadingWithMapping(heading.title, "day", mapping)
     ) || null;
 }
 
@@ -487,13 +487,12 @@ export async function findDayWorkspaceHeadingBlock(
     blocks?: IResGetChildBlock[],
 ): Promise<EnhancedDiaryHeadingBlockLookup> {
     const headings = await getDocumentHeadingBlocks(docId, blocks);
-    const rootAliases = getFieldAliases(mapping, "rootHeadings", "day");
     const pathAliases = getDayWorkspaceSectionPathAliases(mapping, sectionKey);
     const primaryPath = pathAliases.map((aliases) => aliases[0]);
     const rootTitle = getPrimaryFieldTitle(mapping, "rootHeadings", "day");
     const fullPath = [rootTitle, ...primaryPath];
 
-    let root = findRootHeadingBlock(headings, rootAliases, 1);
+    const root = findRootHeadingBlock(headings, mapping, 1);
 
     if (!root) {
         return {
@@ -501,7 +500,7 @@ export async function findDayWorkspaceHeadingBlock(
             headings,
             missingTitle: `# ${rootTitle}`,
             path: fullPath,
-            reason: headings.some((heading) => headingTitleMatchesAny(heading, rootAliases)) ? "heading_mapping_mismatch" : "diary_root_missing",
+            reason: headings.some((heading) => matchesRootHeadingWithMapping(heading.title, "day", mapping)) ? "heading_mapping_mismatch" : "diary_root_missing",
         };
     }
 
