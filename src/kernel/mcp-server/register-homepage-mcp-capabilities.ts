@@ -2,7 +2,7 @@ import { fingerprintHomepageMcpValue, type HomepageMcpWriteAccess } from "./home
 import { HomepageMcpFavoritesConflict, prepareHomepageMcpFavoriteWrite, verifyHomepageMcpFavoriteWrite, type PreparedFavoriteWrite } from "./homepage-mcp-favorites-write";
 import { HomepageMcpAnniversaryConflict, prepareHomepageMcpAnniversaryWrite, verifyHomepageMcpAnniversaryWrite, type PreparedAnniversaryWrite } from "./homepage-mcp-anniversary-write";
 import { prepareHomepageMcpDatabaseWrite, verifyHomepageMcpDatabaseWrite, type PreparedDatabaseWrite } from "./homepage-mcp-database-write";
-import { getHomepageMcpWriteOperation, HOMEPAGE_MCP_DATABASE_WRITE_SCHEMAS, isHomepageMcpFavoriteWriteAction, isHomepageMcpAnniversaryWriteAction, type HomepageMcpDatabaseWriteAction, type HomepageMcpFavoriteWriteAction, type HomepageMcpAnniversaryWriteAction } from "../../features/agent-platform/mcp-server/homepage-mcp-write-preview";
+import { getHomepageMcpWriteOperation, homepageMcpDatabaseUpdateSchema, homepageMcpDatabaseClearSchema, homepageMcpDatabaseDetachedAddSchema, homepageMcpDatabaseBoundAddSchema, isHomepageMcpFavoriteWriteAction, isHomepageMcpAnniversaryWriteAction, type HomepageMcpDatabaseWriteAction, type HomepageMcpFavoriteWriteAction, type HomepageMcpAnniversaryWriteAction } from "../../features/agent-platform/mcp-server/homepage-mcp-write-preview";
 import type { NativeTool } from "../../features/kb/services/agent-core/tools/native-tool";
 import type { NativeToolRegistry } from "../../features/kb/services/agent-core/tools/native-tool-registry";
 import {
@@ -240,13 +240,14 @@ function createCapabilityHandler(
     try {
       toolInput = { action, args: input.args === undefined ? {} : input.args };
       if (write && policy.name === "siyuan_database") {
-        const schema = Object.prototype.hasOwnProperty.call(HOMEPAGE_MCP_DATABASE_WRITE_SCHEMAS, action)
-          ? HOMEPAGE_MCP_DATABASE_WRITE_SCHEMAS[action as HomepageMcpDatabaseWriteAction] : undefined;
+        const schema = action === "add_rows"
+          ? isPlainRecord(toolInput.args) && Object.prototype.hasOwnProperty.call(toolInput.args, "blockIds") ? homepageMcpDatabaseBoundAddSchema : homepageMcpDatabaseDetachedAddSchema
+          : action === "update_cell" ? homepageMcpDatabaseUpdateSchema : action === "clear_cell" ? homepageMcpDatabaseClearSchema : undefined;
         if (!schema || !isPlainRecord(toolInput.args) || Object.keys(toolInput.args).some((key) => !Object.prototype.hasOwnProperty.call(schema.shape, key))) {
           throw new Error("数据库写入参数含未知字段。");
         }
         schema.parse(toolInput.args);
-        if (action === "add_rows" && (toolInput.args.detachedRows as unknown[]).some((row) =>
+        if (action === "add_rows" && Array.isArray(toolInput.args.detachedRows) && toolInput.args.detachedRows.some((row) =>
           !isPlainRecord(row) || Object.keys(row).some((key) => key !== "title"))) throw new Error("新增条目含未知字段。");
       }
       if (write) {

@@ -25,7 +25,7 @@ const databaseClearArgsSchema: HomepageMcpJsonSchema = {
     expectedFieldName: databaseFieldNameSchema,
   },
 };
-const databaseAddArgsSchema: HomepageMcpJsonSchema = {
+const databaseDetachedAddArgsSchema: HomepageMcpJsonSchema = {
   type: "object", additionalProperties: false, required: ["databaseId", "detachedRows"],
   properties: {
     databaseId: databaseIdSchema,
@@ -40,6 +40,16 @@ const databaseAddArgsSchema: HomepageMcpJsonSchema = {
       },
     },
   },
+};
+const databaseAddArgsSchema: HomepageMcpJsonSchema = {
+  type: "object",
+  oneOf: [databaseDetachedAddArgsSchema, {
+    type: "object", additionalProperties: false, required: ["databaseId", "blockIds"],
+    properties: {
+      databaseId: databaseIdSchema,
+      blockIds: { type: "array", minItems: 1, maxItems: 1, items: databaseIdSchema },
+    },
+  }],
 };
 const databaseWriteArgsSchemas: Record<string, HomepageMcpJsonSchema> = {
   update_cell: databaseUpdateArgsSchema, clear_cell: databaseClearArgsSchema, add_rows: databaseAddArgsSchema,

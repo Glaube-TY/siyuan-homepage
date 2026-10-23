@@ -1,7 +1,9 @@
 import SHA256 from "crypto-js/sha256";
+import { getAttributeViewItemIDsByBoundIDsChecked, lsNotebooksChecked } from "../../api";
+import { getBlockByIdReadonly, getBlockAttrsReadonly, sqlSelectReadonly } from "../../features/kb/services/siyuan/read-only-kernel";
 import { readAttributeViewSafeOutput } from "../../features/kb/services/agent-workbench/tools/siyuan/impl/read-attribute-view.impl";
 import {
-  HOMEPAGE_MCP_DATABASE_WRITES, homepageMcpDatabaseUpdateSchema, homepageMcpDatabaseClearSchema, homepageMcpDatabaseAddSchema, homepageMcpWritePreviewSchema,
+  HOMEPAGE_MCP_DATABASE_WRITES, HOMEPAGE_MCP_DATABASE_BOUND_ADD, homepageMcpDatabaseUpdateSchema, homepageMcpDatabaseClearSchema, homepageMcpDatabaseAddSchema, homepageMcpWritePreviewSchema,
   type HomepageMcpDatabaseClear, type HomepageMcpDatabaseWriteAction, type HomepageMcpWritePreview,
 } from "../../features/agent-platform/mcp-server/homepage-mcp-write-preview";
 import { fingerprintHomepageMcpValue } from "./homepage-mcp-write-access";
@@ -22,6 +24,7 @@ interface PreparedDatabaseRowWrite {
   metadataFingerprint: string;
   viewsFingerprint: string;
   rowsFingerprint: string;
+  source?: { blockId: string; businessFingerprint: string; databaseIds: string[] };
 }
 export type PreparedDatabaseWrite = PreparedDatabaseCellWrite | PreparedDatabaseRowWrite;
 
@@ -36,14 +39,52 @@ function digest(value: unknown): string {
   if (serialized.length > 1_000_000) throw new Error("数据库状态超出审批边界。");
   return fingerprintHomepageMcpValue(JSON.parse(serialized));
 }
-function display(value: string): string {
+function display(value: string, limit = 800): string {
   // 审批不保存疑似凭据或完整路径；遇到这类文本时拒绝生成预览。
   if (/(?:authorization|bearer|token|api[_-]?key|password|secret|cookie)\s*[=:： ]/i.test(value) ||
     /(?:[a-z]:[\\/]|\\\\|(?:^|[\s"'=])\/[\w.~-]+\/)/i.test(value)) throw new Error("审批目标含敏感信息，无法安全展示。");
   const escaped = Array.from(value, (char) => char.charCodeAt(0) < 32 || char.charCodeAt(0) === 127
     ? JSON.stringify(char).slice(1, -1) : char).join("");
-  const shown = escaped.length > 800 ? `${escaped.slice(0, 800)}（已截断，原文 ${value.length} 字符）` : escaped || "（空文本）";
+  const shown = escaped.length > limit ? `${escaped.slice(0, limit)}（已截断，原文 ${value.length} 字符）` : escaped || "（空文本）";
   return shown + (escaped === value ? "" : "（控制字符以转义形式显示）");
+}
+
+/** shortcut: 首期仅支持文档直属普通段落；其他块需取得内容和结构不变的实机证据后扩展。 */
+async function readBoundSource(blockId: string) {
+  if (!nodeId.test(blockId)) throw new Error("原始块 ID 无效。");
+  const block = record(await getBlockByIdReadonly(blockId));
+  const fields = ["id", "root_id", "parent_id", "box", "path", "type", "subtype", "content", "tag", "created", "updated", "hash"];
+  if (fields.some((key) => typeof block[key] !== "string") || block.id !== blockId ||
+    !nodeId.test(block.root_id) || !nodeId.test(block.box) || block.parent_id !== block.root_id ||
+    block.type !== "p" || block.subtype !== "" || !block.content.trim()) throw new Error("仅支持身份完整的文档直属普通段落。");
+  const root = record(await getBlockByIdReadonly(block.root_id));
+  const notebooks = await lsNotebooksChecked();
+  if (!Array.isArray(notebooks?.notebooks) || notebooks.notebooks.filter((item) => item.id === block.box && item.closed === false).length !== 1 ||
+    root.id !== block.root_id || root.root_id !== root.id || root.type !== "d" || root.box !== block.box || root.path !== block.path ||
+    typeof root.content !== "string" || !root.content.trim()) throw new Error("原始块所属文档或可用笔记本无法核对。");
+  const rows = await sqlSelectReadonly(`select id, markdown from blocks where id = '${blockId}'`, { maxLimit: 1, allowedTables: ["blocks"] });
+  if (rows.length !== 1 || rows[0].id !== blockId || typeof rows[0].markdown !== "string") throw new Error("无法核对原始块正文及格式。");
+  const attrs = record(await getBlockAttrsReadonly(blockId));
+  if (attrs.id !== blockId || Object.values(attrs).some((value) => typeof value !== "string")) throw new Error("原始块属性无效。");
+  const databaseIds = attrs["custom-avs"] ? attrs["custom-avs"].split(",") as string[] : [];
+  if (databaseIds.some((id) => !nodeId.test(id)) || new Set(databaseIds).size !== databaseIds.length) throw new Error("原始块数据库关联状态无效。");
+  // 3.8.8 关联会改变 custom-avs、派生 av-names 和 SQL hash/ial；正文与其他属性仍逐项核对。
+  const { updated: _updated, hash: _hash, ...businessBlock } = block;
+  const { updated: _attrUpdated, "custom-avs": _avs, "av-names": _names, ...businessAttrs } = attrs;
+  return {
+    summary: display(block.content, 120), documentTitle: display(root.content, 200), documentId: root.id as string,
+    databaseIds, businessFingerprint: digest([businessBlock, rows[0].markdown, businessAttrs, root.id, root.content]),
+    approvalFingerprint: digest([block, rows[0].markdown, attrs, root]),
+  };
+}
+
+async function readBoundItemId(databaseId: string, blockId: string): Promise<string> {
+  const mapping = record(await getAttributeViewItemIDsByBoundIDsChecked(databaseId, [blockId]));
+  const itemId = mapping[blockId];
+  if (Object.keys(mapping).length !== 1 || typeof itemId !== "string" || (itemId !== "" && !nodeId.test(itemId))) {
+    throw new Error("官方绑定块与条目映射无法可靠核对。");
+  }
+  return itemId;
 }
 
 async function readTarget(args: HomepageMcpDatabaseClear) {
@@ -105,6 +146,28 @@ export async function prepareHomepageMcpDatabaseWrite(action: HomepageMcpDatabas
   if (action === "add_rows") {
     const input = homepageMcpDatabaseAddSchema.parse(args);
     const state = await readRowCreationState(input.databaseId);
+    if ("blockIds" in input) {
+      const blockId = input.blockIds[0];
+      const source = await readBoundSource(blockId);
+      if (state.primaryValues.some((value) => value.block.id === blockId) || source.databaseIds.includes(input.databaseId) ||
+        await readBoundItemId(input.databaseId, blockId) !== "") throw new Error("原始块已关联到目标数据库，或关联状态不一致。");
+      const preview = homepageMcpWritePreviewSchema.parse({
+        action, operationName: HOMEPAGE_MCP_DATABASE_BOUND_ADD.name, consequence: HOMEPAGE_MCP_DATABASE_BOUND_ADD.consequence,
+        targetName: source.summary, targetId: blockId, affectedCount: 1,
+        details: [
+          { label: "数据库名称", value: display(state.name) }, { label: "数据库 ID", value: input.databaseId },
+          { label: "原始块摘要", value: source.summary }, { label: "原始 blockId", value: blockId },
+          { label: "原始块类型", value: "p（普通段落）" }, { label: "所属文档", value: source.documentTitle },
+          { label: "所属文档 ID", value: source.documentId }, { label: "操作方式", value: "绑定已有块" },
+          { label: "新增数量", value: "1" }, { label: "当前数据库记录数量", value: String(state.rowIds.length) },
+          { label: "新增 itemID", value: "执行后由思源内核生成，原始 blockId 不是新 itemID" },
+        ],
+      });
+      return { action, preview, rowIds: state.rowIds, metadataFingerprint: state.metadataFingerprint,
+        viewsFingerprint: state.viewsFingerprint, rowsFingerprint: state.rowsFingerprint,
+        source: { blockId, businessFingerprint: source.businessFingerprint, databaseIds: source.databaseIds },
+        stateFingerprint: digest([state.metadataFingerprint, state.viewsFingerprint, state.rowsFingerprint, source.approvalFingerprint, preview]) };
+    }
     const operation = HOMEPAGE_MCP_DATABASE_WRITES.add_rows;
     const preview = homepageMcpWritePreviewSchema.parse({
       action, operationName: operation.name, consequence: operation.consequence,
@@ -148,16 +211,28 @@ export async function verifyHomepageMcpDatabaseWrite(action: HomepageMcpDatabase
     const envelope = record(data), result = record(envelope.result);
     if (envelope.action !== action || result.status !== "success" || result.databaseId !== input.databaseId || result.addedCount !== 1 ||
       !Array.isArray(result.rowIds) || result.rowIds.length !== 1 || typeof result.rowIds[0] !== "string" || !nodeId.test(result.rowIds[0]) ||
-      prepared.rowIds.includes(result.rowIds[0]) ||
-      (result.affectedBlockIds !== undefined && (!Array.isArray(result.affectedBlockIds) || result.affectedBlockIds.length !== 0))) return false;
+      prepared.rowIds.includes(result.rowIds[0])) return false;
     const newId = result.rowIds[0];
     const actual = await readRowCreationState(input.databaseId, newId);
     const primary = actual.primaryValues.find((value) => value.blockID === newId);
-    return actual.rowIds.length === prepared.rowIds.length + 1 && actual.rowIds.includes(newId) &&
+    if (!(actual.rowIds.length === prepared.rowIds.length + 1 && actual.rowIds.includes(newId) &&
       actual.rowIds.filter((id) => id !== newId).every((id) => prepared.rowIds.includes(id)) &&
-      primary?.isDetached === true && !primary.block.id && primary.block.content === input.detachedRows[0].title &&
       actual.metadataFingerprint === prepared.metadataFingerprint && actual.viewsFingerprint === prepared.viewsFingerprint &&
-      actual.rowsFingerprint === prepared.rowsFingerprint;
+      actual.rowsFingerprint === prepared.rowsFingerprint)) return false;
+    if ("blockIds" in input) {
+      const blockId = input.blockIds[0];
+      if (prepared.source?.blockId !== blockId || newId === blockId ||
+        !Array.isArray(result.affectedBlockIds) || result.affectedBlockIds.length !== 1 || result.affectedBlockIds[0] !== blockId ||
+        !primary || primary.isDetached === true || primary.block.id !== blockId ||
+        actual.primaryValues.filter((value) => value.block.id === blockId).length !== 1 ||
+        await readBoundItemId(input.databaseId, blockId) !== newId) return false;
+      const source = await readBoundSource(blockId);
+      return source.businessFingerprint === prepared.source.businessFingerprint &&
+        digest(source.databaseIds) === digest([...prepared.source.databaseIds, input.databaseId]);
+    }
+    return !prepared.source &&
+      (result.affectedBlockIds === undefined || (Array.isArray(result.affectedBlockIds) && result.affectedBlockIds.length === 0)) &&
+      primary?.isDetached === true && !primary.block.id && primary.block.content === input.detachedRows[0].title;
   }
   if ((action !== "update_cell" && action !== "clear_cell") || prepared.action === "add_rows") return false;
   const input = (action === "clear_cell" ? homepageMcpDatabaseClearSchema : homepageMcpDatabaseUpdateSchema).parse(args);
@@ -235,7 +310,8 @@ async function readRowCreationState(databaseId: string, newId?: string) {
   });
   const primaryValues = primary[0].values === undefined ? [] : primary[0].values as Record<string, any>[];
   if (primaryValues.length !== rowIds.size || primaryValues.some((value) => typeof value.block?.content !== "string" ||
-    typeof value.isDetached !== "boolean" || (value.isDetached ? !!value.block.id : !nodeId.test(value.block.id)))) {
+    (value.isDetached === true ? !!value.block.id :
+      (value.isDetached !== undefined && value.isDetached !== false) || typeof value.block.id !== "string" || !nodeId.test(value.block.id)))) {
     throw new Error("无法完整核对条目标题或绑定关系。");
   }
   const { keyValues: _keyValues, views: _views, ...metadata } = av;

@@ -34,6 +34,10 @@ export const HOMEPAGE_MCP_WRITES_BY_TOOL: Record<string, Record<string, { name: 
   homepage_components: HOMEPAGE_MCP_WRITES,
   siyuan_database: HOMEPAGE_MCP_DATABASE_WRITES,
 };
+export const HOMEPAGE_MCP_DATABASE_BOUND_ADD = {
+  name: "关联思源块到数据库",
+  consequence: "本次会将已有思源块加入指定数据库，生成新的数据库条目；不会创建新的独立文档，也不会删除原始块。",
+} as const;
 export function getHomepageMcpWriteOperation(toolName: string, action: string) {
   const actions = Object.prototype.hasOwnProperty.call(HOMEPAGE_MCP_WRITES_BY_TOOL, toolName) ? HOMEPAGE_MCP_WRITES_BY_TOOL[toolName] : undefined;
   return actions && Object.prototype.hasOwnProperty.call(actions, action) ? actions[action] : undefined;
@@ -48,18 +52,15 @@ export const homepageMcpDatabaseUpdateSchema = z.object({
 export type HomepageMcpDatabaseUpdate = z.infer<typeof homepageMcpDatabaseUpdateSchema>;
 export const homepageMcpDatabaseClearSchema = homepageMcpDatabaseUpdateSchema.omit({ valueText: true }).strict();
 export type HomepageMcpDatabaseClear = z.infer<typeof homepageMcpDatabaseClearSchema>;
-export const homepageMcpDatabaseAddSchema = z.object({
+export const homepageMcpDatabaseDetachedAddSchema = z.object({
   databaseId: id,
   detachedRows: z.array(z.object({
     title: z.string().min(1).max(200).refine((value) => value === value.trim() && Array.from(value).every((char) =>
       char.charCodeAt(0) >= 32 && (char.charCodeAt(0) < 127 || char.charCodeAt(0) > 159))),
   }).strict()).length(1),
 }).strict();
-export const HOMEPAGE_MCP_DATABASE_WRITE_SCHEMAS = {
-  update_cell: homepageMcpDatabaseUpdateSchema,
-  clear_cell: homepageMcpDatabaseClearSchema,
-  add_rows: homepageMcpDatabaseAddSchema,
-} as const;
+export const homepageMcpDatabaseBoundAddSchema = z.object({ databaseId: id, blockIds: z.array(id).length(1) }).strict();
+export const homepageMcpDatabaseAddSchema = z.union([homepageMcpDatabaseDetachedAddSchema, homepageMcpDatabaseBoundAddSchema]);
 export type HomepageMcpDatabaseWriteAction = keyof typeof HOMEPAGE_MCP_DATABASE_WRITES;
 export type HomepageMcpAnniversaryWriteAction = keyof typeof HOMEPAGE_MCP_ANNIVERSARY_WRITES;
 export type HomepageMcpWriteAction = keyof typeof HOMEPAGE_MCP_WRITES | keyof typeof HOMEPAGE_MCP_DATABASE_WRITES;
@@ -84,6 +85,16 @@ export const homepageMcpWritePreviewSchema = z.object({
   details: z.array(z.object({ label: text.max(60), value: text }).strict()).max(16),
 }).strict().refine((value) => {
   if (value.action === "add_rows") {
+    if (value.targetId !== null) {
+      const operation = HOMEPAGE_MCP_DATABASE_BOUND_ADD;
+      const labels = ["数据库名称", "数据库 ID", "原始块摘要", "原始 blockId", "原始块类型", "所属文档", "所属文档 ID", "操作方式", "新增数量", "当前数据库记录数量", "新增 itemID"];
+      return value.operationName === operation.name && value.consequence === operation.consequence && value.affectedCount === 1 &&
+        id.safeParse(value.targetId).success && value.details.length === labels.length && labels.every((label, index) => value.details[index].label === label) &&
+        value.details[2].value === value.targetName && value.details[3].value === value.targetId && value.details[4].value === "p（普通段落）" &&
+        id.safeParse(value.details[1].value).success && id.safeParse(value.details[6].value).success && value.details[7].value === "绑定已有块" &&
+        value.details[8].value === "1" && /^(0|[1-9]\d{0,2})$/.test(value.details[9].value) && Number(value.details[9].value) <= 500 &&
+        value.details[10].value === "执行后由思源内核生成，原始 blockId 不是新 itemID";
+    }
     const operation = HOMEPAGE_MCP_DATABASE_WRITES.add_rows;
     const labels = ["数据库名称", "数据库 ID", "新条目标题", "类型", "新增数量", "当前数据库记录数量"];
     return value.operationName === operation.name && value.consequence === operation.consequence && value.affectedCount === 1 &&
