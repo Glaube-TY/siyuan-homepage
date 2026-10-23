@@ -53,6 +53,7 @@ export async function executeRemoveAttributeViewKey(
   const keyId = args.keyId.trim();
   const removeRelationDest = args.removeRelationDest ?? false;
 
+  let writeAttempted = false;
   try {
     // 读取 schema 验证字段存在
     const read = await readAttributeViewSafeOutput({
@@ -86,6 +87,7 @@ export async function executeRemoveAttributeViewKey(
     }
 
     // 执行删除
+    writeAttempted = true;
     await removeAttributeViewKeyChecked(databaseId, keyId, removeRelationDest);
 
     return {
@@ -100,6 +102,11 @@ export async function executeRemoveAttributeViewKey(
       },
     };
   } catch (error) {
+    if (writeAttempted) {
+      const result = fail(args, "字段删除结果未知，必须先重新读取数据库，不得自动再次删除。", "write_result_unknown");
+      result.safeOutput.status = "partial";
+      return result;
+    }
     return fail(args, `删除数据库字段失败：${error instanceof Error ? error.message : String(error)}`, "attribute_view_key_remove_failed");
   }
 }

@@ -4,7 +4,7 @@ import { getBlockByIdReadonly, getBlockAttrsReadonly, sqlSelectReadonly } from "
 import { readAttributeViewSafeOutput } from "../../features/kb/services/agent-workbench/tools/siyuan/impl/read-attribute-view.impl";
 import { normalizeFieldName } from "../../features/kb/services/agent-workbench/tools/siyuan/internal/attribute-view/attribute-view-normalizer";
 import {
-  HOMEPAGE_MCP_DATABASE_WRITES, HOMEPAGE_MCP_DATABASE_BOUND_ADD, homepageMcpDatabaseUpdateSchema, homepageMcpDatabaseClearSchema, homepageMcpDatabaseAddSchema, homepageMcpDatabaseRemoveSchema, homepageMcpDatabaseAddKeySchema, homepageMcpWritePreviewSchema,
+  HOMEPAGE_MCP_DATABASE_WRITES, HOMEPAGE_MCP_DATABASE_BOUND_ADD, HOMEPAGE_MCP_DATABASE_REMOVE_KEY_WARNING, homepageMcpDatabaseUpdateSchema, homepageMcpDatabaseClearSchema, homepageMcpDatabaseAddSchema, homepageMcpDatabaseRemoveSchema, homepageMcpDatabaseAddKeySchema, homepageMcpDatabaseRemoveKeySchema, homepageMcpWritePreviewSchema,
   type HomepageMcpDatabaseClear, type HomepageMcpDatabaseWriteAction, type HomepageMcpWritePreview,
 } from "../../features/agent-platform/mcp-server/homepage-mcp-write-preview";
 import { fingerprintHomepageMcpValue } from "./homepage-mcp-write-access";
@@ -28,7 +28,7 @@ interface PreparedDatabaseRowWrite {
   source?: { blockId: string; businessFingerprint: string; databaseIds: string[] };
 }
 interface PreparedDatabaseKeyWrite {
-  action: "add_key";
+  action: "add_key" | "remove_key";
   preview: HomepageMcpWritePreview;
   stateFingerprint: string;
   keyIds: string[];
@@ -151,6 +151,34 @@ async function readTarget(args: HomepageMcpDatabaseClear) {
 }
 
 export async function prepareHomepageMcpDatabaseWrite(action: HomepageMcpDatabaseWriteAction, args: Record<string, unknown>): Promise<PreparedDatabaseWrite> {
+  if (action === "remove_key") {
+    const input = homepageMcpDatabaseRemoveKeySchema.parse(args);
+    const state = await readKeyRemovalState(input.databaseId, input.keyId);
+    const target = state.columns.find((column) => column.key.id === input.keyId);
+    if (!target || target.key.name !== input.expectedKeyName || target.key.type !== "text" ||
+      ["isPrimary", "primary", "main"].some((flag) => target.key[flag] === true || target[flag] === true)) {
+      throw new Error("目标不是名称精确匹配的普通文本字段。");
+    }
+    const values = target.values === undefined ? [] : target.values;
+    if (values.some((value) => typeof value.text?.content !== "string")) throw new Error("目标字段完整文本值无法核对。");
+    const nonempty = values.filter((value) => value.text.content.length > 0).length;
+    const operation = HOMEPAGE_MCP_DATABASE_WRITES.remove_key;
+    const preview = homepageMcpWritePreviewSchema.parse({
+      action, operationName: operation.name, consequence: operation.consequence,
+      targetName: display(input.expectedKeyName), targetId: input.keyId, affectedCount: nonempty + 1,
+      details: [
+        { label: "数据库名称", value: display(state.name) }, { label: "数据库 ID", value: input.databaseId },
+        { label: "字段名称", value: display(input.expectedKeyName) }, { label: "字段 ID", value: input.keyId },
+        { label: "字段类型", value: "普通文本" }, { label: "当前数据库条目数量", value: String(state.rowIds.length) },
+        { label: "非空文本值数量", value: String(nonempty) }, { label: "已有单元格记录数量", value: String(values.length) },
+        { label: "已有空文本单元格数量", value: String(values.length - nonempty) },
+        { label: "无单元格记录的条目数量", value: String(state.rowIds.length - values.length) },
+        { label: "永久删除警告", value: HOMEPAGE_MCP_DATABASE_REMOVE_KEY_WARNING },
+      ],
+    });
+    return { action, preview, keyIds: state.keyIds, preservationFingerprint: state.preservationFingerprint,
+      stateFingerprint: digest([state.fullFingerprint, preview]) };
+  }
   if (action === "add_key") {
     const input = homepageMcpDatabaseAddKeySchema.parse(args);
     const state = await readKeyCreationState(input.databaseId);
@@ -267,6 +295,15 @@ export async function prepareHomepageMcpDatabaseWrite(action: HomepageMcpDatabas
 
 export async function verifyHomepageMcpDatabaseWrite(action: HomepageMcpDatabaseWriteAction, args: Record<string, unknown>, prepared: PreparedDatabaseWrite, data: unknown): Promise<boolean> {
   if (action !== prepared.action) return false;
+  if (action === "remove_key" && prepared.action === "remove_key") {
+    const input = homepageMcpDatabaseRemoveKeySchema.parse(args), result = record(record(data).result);
+    if (record(data).action !== action || result.status !== "success" || result.databaseId !== input.databaseId ||
+      result.keyId !== input.keyId || result.keyName !== input.expectedKeyName || result.keyType !== "text") return false;
+    const actual = await readKeyRemovalState(input.databaseId, input.keyId);
+    const expectedIds = prepared.keyIds.filter((id) => id !== input.keyId);
+    return prepared.keyIds.includes(input.keyId) && !actual.keyIds.includes(input.keyId) && actual.keyIds.length === expectedIds.length &&
+      actual.keyIds.every((id, i) => id === expectedIds[i]) && actual.preservationFingerprint === prepared.preservationFingerprint;
+  }
   if (action === "add_key" && prepared.action === "add_key") {
     const input = homepageMcpDatabaseAddKeySchema.parse(args), result = record(record(data).result);
     if (record(data).action !== action || result.status !== "success" || result.databaseId !== input.databaseId ||
@@ -435,5 +472,37 @@ async function readKeyCreationState(databaseId: string, newKeyId?: string) {
   });
   return { ...state, preservationFingerprint: SHA256(JSON.stringify([
     state.metadata, state.columns.filter((column) => column.key.id !== newKeyId), views,
+  ])).toString() };
+}
+
+async function readKeyRemovalState(databaseId: string, keyId: string) {
+  const state = await readKeyCreationState(databaseId);
+  const viewKeys = new Set(["id", "name", "type", "icon", "desc", "hideAttrViewName", "pageSize", "table", "itemIds", "filters", "sorts",
+    "conditionalColors", "groupCreated", "groupItemIds", "groupFolded", "groupHidden", "groupSort"]);
+  const tableKeys = new Set(["spec", "id", "showIcon", "wrapField", "columns"]);
+  const metadataKeys = new Set(["spec", "id", "name", "customColors", "keyIDs", "viewID"]);
+  const empty = (value: unknown) => value === undefined || value === null || Array.isArray(value) && value.length === 0;
+  if (Object.keys(state.metadata).some((key) => !metadataKeys.has(key)) ||
+    !empty(state.metadata.keyIDs) || !empty(state.metadata.customColors)) throw new Error("数据库存在无法确认的字段配置。");
+  const views = state.views.map((source) => {
+    const view = record(source), table = record(view.table);
+    // shortcut: 首期仅支持无实际筛选、排序、分组、冻结及未知配置的完整 table 视图；取得额外实测证据后扩展。
+    if (Object.keys(view).some((key) => !viewKeys.has(key)) || Object.keys(table).some((key) => !tableKeys.has(key)) ||
+      !empty(view.sorts) || !empty(view.conditionalColors) || !empty(view.groupItemIds) ||
+      (view.groupCreated ?? 0) !== 0 || (view.groupFolded ?? false) !== false || (view.groupHidden ?? 0) !== 0 || (view.groupSort ?? 0) !== 0 ||
+      !(empty(view.filters) || digest(view.filters) === digest([{ column: "", operator: "", value: null, combination: "and" }]))) {
+      throw new Error("视图含复杂或未知规则，无法安全删除字段。");
+    }
+    if (table.spec !== 0 || !nodeId.test(table.id) || typeof table.showIcon !== "boolean" || typeof table.wrapField !== "boolean" ||
+      table.columns.some((source) => {
+        const column = record(source);
+        return Object.keys(column).some((key) => !["id", "wrap", "hidden", "pin", "width"].includes(key)) ||
+          typeof column.wrap !== "boolean" || typeof column.hidden !== "boolean" || column.pin !== false || typeof column.width !== "string";
+      })) throw new Error("视图列显示配置无法完整核对。");
+    // 3.8.8 实测可删除中间字段；只排除该字段列，其他位置与属性完整参与比较。
+    return { ...view, table: { ...table, columns: table.columns.filter((column) => column.id !== keyId) } };
+  });
+  return { ...state, preservationFingerprint: SHA256(JSON.stringify([
+    state.metadata, state.columns.filter((column) => column.key.id !== keyId), views,
   ])).toString() };
 }

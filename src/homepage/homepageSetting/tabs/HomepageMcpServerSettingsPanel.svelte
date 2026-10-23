@@ -156,6 +156,7 @@
     function approvalLabel(request: HomepageMcpWriteRequest): string {
         if (request.toolName === "siyuan_database" && request.action === "clear_cell") return "确认清空";
         if (request.toolName === "siyuan_database" && request.action === "remove_rows") return "确认移除条目";
+        if (request.toolName === "siyuan_database" && request.action === "remove_key") return "确认删除字段";
         if (request.action === "homepage_anniversary.delete_permanently") return "确认永久删除";
         if (request.action === "homepage_anniversary.delete_category") return "确认删除分类";
         return "同意";
@@ -250,7 +251,7 @@
                     <h4>{request.operationName}</h4>
                     <p class="write-request-title">{request.targetName}</p>
                     {#if request.targetId}<p>目标 ID：{request.targetId}</p>{/if}
-                    <p>受影响条目：{request.affectedCount} 项</p>
+                    <p>{request.toolName === "siyuan_database" && request.action === "remove_key" ? "受影响字段及非空值" : "受影响条目"}：{request.affectedCount} 项</p>
                     {#each request.details as detail}
                         <p>{detail.label}：{detail.value}</p>
                     {/each}

@@ -57,19 +57,19 @@ export function createRemoveAttributeViewKeyTool(
             error: {
               code: result.errorCode || "attribute_view_key_remove_failed",
               message: result.safeOutput.message,
-              recoverable: true,
+              recoverable: result.errorCode !== "write_result_unknown",
             },
           };
         }
         return { ok: true, data: result.safeOutput };
-      } catch (error) {
+      } catch {
         return {
           ok: false,
           data: null,
           error: {
-            code: "tool_internal_error",
-            message: error instanceof Error ? error.message : "删除数据库字段执行异常。",
-            recoverable: true,
+            code: "write_result_unknown",
+            message: "字段删除结果未知，必须先重新读取数据库，不得自动再次删除。",
+            recoverable: false,
           },
         };
       }

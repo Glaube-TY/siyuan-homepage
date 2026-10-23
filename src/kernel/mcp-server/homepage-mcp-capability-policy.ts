@@ -52,6 +52,13 @@ const databaseAddArgsSchema: HomepageMcpJsonSchema = {
   }],
 };
 const databaseWriteArgsSchemas: Record<string, HomepageMcpJsonSchema> = {
+  remove_key: {
+    type: "object", additionalProperties: false, required: ["databaseId", "keyId", "expectedKeyName"],
+    properties: {
+      databaseId: databaseIdSchema, keyId: databaseIdSchema,
+      expectedKeyName: { type: "string", minLength: 1, maxLength: 50, not: { pattern: "^\\s|\\s$|[\\x00-\\x1f\\x7f-\\x9f]" } },
+    },
+  },
   add_key: {
     type: "object", additionalProperties: false, required: ["databaseId", "keyName", "keyType"],
     properties: {

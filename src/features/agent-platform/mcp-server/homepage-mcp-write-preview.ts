@@ -26,6 +26,7 @@ export const HOMEPAGE_MCP_ANNIVERSARY_WRITES = {
 
 export const HOMEPAGE_MCP_WRITES = { ...HOMEPAGE_MCP_FAVORITES_WRITES, ...HOMEPAGE_MCP_ANNIVERSARY_WRITES } as const;
 export const HOMEPAGE_MCP_DATABASE_WRITES = {
+  remove_key: { name: "删除数据库文本字段", consequence: "永久删除指定数据库中的一个普通文本字段及该字段的全部单元格值。不会删除数据库本身、其他字段、数据库条目或关联的思源文档。" },
   add_key: { name: "新增数据库文本字段", consequence: "向指定思源数据库新增一个普通文本字段，不删除已有字段或条目。" },
   update_cell: { name: "修改数据库单元格", consequence: "仅修改指定数据库条目的一个普通文本字段。" },
   clear_cell: { name: "清空数据库单元格", consequence: "清空指定数据库条目的一个普通文本字段，原字段值将被移除；不会删除数据库、字段、条目或关联的思源文档。" },
@@ -73,6 +74,10 @@ export const homepageMcpDatabaseAddKeySchema = z.object({
     char.charCodeAt(0) >= 32 && (char.charCodeAt(0) < 127 || char.charCodeAt(0) > 159))),
   keyType: z.literal("text"),
 }).strict();
+export const homepageMcpDatabaseRemoveKeySchema = z.object({
+  databaseId: id, keyId: id, expectedKeyName: homepageMcpDatabaseAddKeySchema.shape.keyName,
+}).strict();
+export const HOMEPAGE_MCP_DATABASE_REMOVE_KEY_WARNING = "删除后，该字段及其所有值均会从数据库中移除，无法通过本插件撤销。数据库、其他字段和原始思源文档不会被删除。";
 export type HomepageMcpDatabaseWriteAction = keyof typeof HOMEPAGE_MCP_DATABASE_WRITES;
 export type HomepageMcpAnniversaryWriteAction = keyof typeof HOMEPAGE_MCP_ANNIVERSARY_WRITES;
 export type HomepageMcpWriteAction = keyof typeof HOMEPAGE_MCP_WRITES | keyof typeof HOMEPAGE_MCP_DATABASE_WRITES;
@@ -96,6 +101,19 @@ export const homepageMcpWritePreviewSchema = z.object({
   affectedCount: z.number().int().min(0).max(1_000_000),
   details: z.array(z.object({ label: text.max(60), value: text }).strict()).max(16),
 }).strict().refine((value) => {
+  if (value.action === "remove_key") {
+    const operation = HOMEPAGE_MCP_DATABASE_WRITES.remove_key;
+    const labels = ["数据库名称", "数据库 ID", "字段名称", "字段 ID", "字段类型", "当前数据库条目数量", "非空文本值数量", "已有单元格记录数量", "已有空文本单元格数量", "无单元格记录的条目数量", "永久删除警告"];
+    if (value.details.length !== labels.length || !labels.every((label, i) => value.details[i].label === label)) return false;
+    const counts = value.details.slice(5, 10).map((item) => item.value);
+    const [total, nonempty, records, empty, missing] = counts.map(Number);
+    return value.operationName === operation.name && value.consequence === operation.consequence &&
+      id.safeParse(value.targetId).success && id.safeParse(value.details[1].value).success &&
+      value.details[2].value === value.targetName && value.details[3].value === value.targetId && value.details[4].value === "普通文本" &&
+      counts.every((count) => /^(?:0|[1-9]\d{0,2})$/.test(count) && Number(count) <= 500) &&
+      records === nonempty + empty && total === records + missing && value.affectedCount === nonempty + 1 &&
+      value.details[10].value === HOMEPAGE_MCP_DATABASE_REMOVE_KEY_WARNING;
+  }
   if (value.action === "add_key") {
     const operation = HOMEPAGE_MCP_DATABASE_WRITES.add_key;
     const labels = ["数据库名称", "数据库 ID", "准备新增的字段名称", "字段类型", "当前字段数量", "新增后预计字段数量", "插入位置"];
