@@ -2,8 +2,9 @@ import SHA256 from "crypto-js/sha256";
 import { getAttributeViewItemIDsByBoundIDsChecked, lsNotebooksChecked } from "../../api";
 import { getBlockByIdReadonly, getBlockAttrsReadonly, sqlSelectReadonly } from "../../features/kb/services/siyuan/read-only-kernel";
 import { readAttributeViewSafeOutput } from "../../features/kb/services/agent-workbench/tools/siyuan/impl/read-attribute-view.impl";
+import { normalizeFieldName } from "../../features/kb/services/agent-workbench/tools/siyuan/internal/attribute-view/attribute-view-normalizer";
 import {
-  HOMEPAGE_MCP_DATABASE_WRITES, HOMEPAGE_MCP_DATABASE_BOUND_ADD, homepageMcpDatabaseUpdateSchema, homepageMcpDatabaseClearSchema, homepageMcpDatabaseAddSchema, homepageMcpDatabaseRemoveSchema, homepageMcpWritePreviewSchema,
+  HOMEPAGE_MCP_DATABASE_WRITES, HOMEPAGE_MCP_DATABASE_BOUND_ADD, homepageMcpDatabaseUpdateSchema, homepageMcpDatabaseClearSchema, homepageMcpDatabaseAddSchema, homepageMcpDatabaseRemoveSchema, homepageMcpDatabaseAddKeySchema, homepageMcpWritePreviewSchema,
   type HomepageMcpDatabaseClear, type HomepageMcpDatabaseWriteAction, type HomepageMcpWritePreview,
 } from "../../features/agent-platform/mcp-server/homepage-mcp-write-preview";
 import { fingerprintHomepageMcpValue } from "./homepage-mcp-write-access";
@@ -26,7 +27,14 @@ interface PreparedDatabaseRowWrite {
   rowsFingerprint: string;
   source?: { blockId: string; businessFingerprint: string; databaseIds: string[] };
 }
-export type PreparedDatabaseWrite = PreparedDatabaseCellWrite | PreparedDatabaseRowWrite;
+interface PreparedDatabaseKeyWrite {
+  action: "add_key";
+  preview: HomepageMcpWritePreview;
+  stateFingerprint: string;
+  keyIds: string[];
+  preservationFingerprint: string;
+}
+export type PreparedDatabaseWrite = PreparedDatabaseCellWrite | PreparedDatabaseRowWrite | PreparedDatabaseKeyWrite;
 
 const ORDINARY_TYPES = new Set(["block", "text", "number", "checkbox", "date", "select", "mSelect", "url", "email", "phone"]);
 const nodeId = /^\d{14}-[a-z0-9]{7}$/;
@@ -143,6 +151,26 @@ async function readTarget(args: HomepageMcpDatabaseClear) {
 }
 
 export async function prepareHomepageMcpDatabaseWrite(action: HomepageMcpDatabaseWriteAction, args: Record<string, unknown>): Promise<PreparedDatabaseWrite> {
+  if (action === "add_key") {
+    const input = homepageMcpDatabaseAddKeySchema.parse(args);
+    const state = await readKeyCreationState(input.databaseId);
+    if (state.keyIds.length >= 30 || state.columns.some((column) => normalizeFieldName(column.key.name) === normalizeFieldName(input.keyName))) {
+      throw new Error("字段数量已达上限或字段名称重复，不能新增。");
+    }
+    const operation = HOMEPAGE_MCP_DATABASE_WRITES.add_key;
+    const preview = homepageMcpWritePreviewSchema.parse({
+      action, operationName: operation.name, consequence: operation.consequence,
+      targetName: display(input.keyName), targetId: null, affectedCount: 1,
+      details: [
+        { label: "数据库名称", value: display(state.name) }, { label: "数据库 ID", value: input.databaseId },
+        { label: "准备新增的字段名称", value: display(input.keyName) }, { label: "字段类型", value: "普通文本" },
+        { label: "当前字段数量", value: String(state.keyIds.length) }, { label: "新增后预计字段数量", value: String(state.keyIds.length + 1) },
+        { label: "插入位置", value: "默认追加到现有字段末尾" },
+      ],
+    });
+    return { action, preview, keyIds: state.keyIds, preservationFingerprint: state.preservationFingerprint,
+      stateFingerprint: digest([state.fullFingerprint, preview]) };
+  }
   if (action === "remove_rows") {
     const input = homepageMcpDatabaseRemoveSchema.parse(args), rowId = input.rowIds[0];
     const state = await readRowCreationState(input.databaseId, rowId);
@@ -239,6 +267,18 @@ export async function prepareHomepageMcpDatabaseWrite(action: HomepageMcpDatabas
 
 export async function verifyHomepageMcpDatabaseWrite(action: HomepageMcpDatabaseWriteAction, args: Record<string, unknown>, prepared: PreparedDatabaseWrite, data: unknown): Promise<boolean> {
   if (action !== prepared.action) return false;
+  if (action === "add_key" && prepared.action === "add_key") {
+    const input = homepageMcpDatabaseAddKeySchema.parse(args), result = record(record(data).result);
+    if (record(data).action !== action || result.status !== "success" || result.databaseId !== input.databaseId ||
+      typeof result.keyId !== "string" || !nodeId.test(result.keyId) || prepared.keyIds.includes(result.keyId) ||
+      result.keyName !== input.keyName || result.keyType !== "text") return false;
+    const actual = await readKeyCreationState(input.databaseId, result.keyId);
+    const added = actual.columns[actual.columns.length - 1];
+    return actual.keyIds.length === prepared.keyIds.length + 1 && actual.keyIds[actual.keyIds.length - 1] === result.keyId &&
+      actual.keyIds.slice(0, -1).every((id, i) => id === prepared.keyIds[i]) && added.key.name === input.keyName &&
+      added.key.type === "text" && (added.values === undefined || added.values.length === 0) &&
+      actual.preservationFingerprint === prepared.preservationFingerprint;
+  }
   if (action === "remove_rows" && prepared.action === "remove_rows") {
     const input = homepageMcpDatabaseRemoveSchema.parse(args), rowId = input.rowIds[0];
     const result = record(record(data).result);
@@ -284,7 +324,7 @@ export async function verifyHomepageMcpDatabaseWrite(action: HomepageMcpDatabase
       (result.affectedBlockIds === undefined || (Array.isArray(result.affectedBlockIds) && result.affectedBlockIds.length === 0)) &&
       primary?.isDetached === true && !primary.block.id && primary.block.content === input.detachedRows[0].title;
   }
-  if ((action !== "update_cell" && action !== "clear_cell") || "rowIds" in prepared) return false;
+  if ((action !== "update_cell" && action !== "clear_cell") || !("oldTextFingerprint" in prepared)) return false;
   const input = (action === "clear_cell" ? homepageMcpDatabaseClearSchema : homepageMcpDatabaseUpdateSchema).parse(args);
   const envelope = record(data), result = record(envelope.result);
   if (envelope.action !== action || result.status !== "success" || result.databaseId !== input.databaseId) return false;
@@ -366,11 +406,34 @@ async function readRowCreationState(databaseId: string, excludedRowId?: string, 
   }
   const { keyValues: _keyValues, views: _views, ...metadata } = av;
   return {
-    name: av.name as string, rowIds: [...rowIds], primaryValues,
+    name: av.name as string, rowIds: [...rowIds], primaryValues, keyIds: keyIds as string[], columns, views, metadata,
     fullFingerprint: SHA256(JSON.stringify(av)).toString(),
     metadataFingerprint: digest([metadata, columns.map(({ values: _values, ...column }) => digest(column))]),
     viewsFingerprint: SHA256(JSON.stringify(views.map((view) => digest(view)))).toString(),
     rowsFingerprint: SHA256(JSON.stringify(primaryValues.filter((value) => value.blockID !== excludedRowId).map((value) =>
       digest([value.blockID, cellsByKey.map((cells) => cells.get(value.blockID) ?? null)])))).toString(),
   };
+}
+
+async function readKeyCreationState(databaseId: string, newKeyId?: string) {
+  const state = await readRowCreationState(databaseId);
+  const views = state.views.map((source) => {
+    const view = record(source);
+    // shortcut: 仅支持已实测的 table 视图；其他视图取得原生新增字段的配置变化证据后再扩展。
+    if (view.type !== "table") throw new Error("当前视图类型无法可靠核对字段新增结果。");
+    const table = record(view.table), columns = table.columns;
+    if (!Array.isArray(columns) || columns.length !== state.keyIds.length ||
+      new Set(columns.map((column) => record(column).id)).size !== columns.length ||
+      columns.some((column, index) => record(column).id !== state.keyIds[index])) throw new Error("视图字段配置不完整或顺序无法核对。");
+    if (!newKeyId) return view;
+    const added = record(columns[columns.length - 1]);
+    // 3.8.8 实测只在末尾追加此默认列配置；其他视图属性及旧列逐项保持。
+    if (digest(added) !== digest({ id: newKeyId, wrap: false, hidden: false, pin: false, width: "" })) {
+      throw new Error("新增字段的视图配置无法确认。");
+    }
+    return { ...view, table: { ...table, columns: columns.slice(0, -1) } };
+  });
+  return { ...state, preservationFingerprint: SHA256(JSON.stringify([
+    state.metadata, state.columns.filter((column) => column.key.id !== newKeyId), views,
+  ])).toString() };
 }

@@ -52,6 +52,14 @@ const databaseAddArgsSchema: HomepageMcpJsonSchema = {
   }],
 };
 const databaseWriteArgsSchemas: Record<string, HomepageMcpJsonSchema> = {
+  add_key: {
+    type: "object", additionalProperties: false, required: ["databaseId", "keyName", "keyType"],
+    properties: {
+      databaseId: databaseIdSchema,
+      keyName: { type: "string", minLength: 1, maxLength: 50, not: { pattern: "^\\s|\\s$|[\\x00-\\x1f\\x7f-\\x9f]" } },
+      keyType: { type: "string", const: "text" },
+    },
+  },
   update_cell: databaseUpdateArgsSchema, clear_cell: databaseClearArgsSchema, add_rows: databaseAddArgsSchema,
   remove_rows: {
     type: "object", additionalProperties: false, required: ["databaseId", "rowIds", "expectedTitles"],

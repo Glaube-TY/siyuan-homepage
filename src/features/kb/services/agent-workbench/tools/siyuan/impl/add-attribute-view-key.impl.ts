@@ -38,6 +38,7 @@ export async function executeAddAttributeViewKey(
     return fail(args, `不支持的字段类型：${keyType}`, "unsupported_key_type");
   }
 
+  let writeAttempted = false;
   try {
     const read = await readAttributeViewSafeOutput({
       databaseId,
@@ -57,6 +58,7 @@ export async function executeAddAttributeViewKey(
     if (args.previousKeyId?.trim() && !read.schema.some((key) => key.keyId === args.previousKeyId?.trim())) {
       return fail(args, `previousKeyId「${args.previousKeyId}」不存在于当前数据库字段中，请使用 read_attribute_view 返回的真实 keyId。`, "invalid_previous_key_id");
     }
+    writeAttempted = true;
     await addAttributeViewKeyChecked(
       databaseId,
       keyId,
@@ -78,6 +80,11 @@ export async function executeAddAttributeViewKey(
       },
     };
   } catch (error) {
+    if (writeAttempted) {
+      const result = fail(args, "新增字段写入已开始，结果不确定。禁止重放写入，请仅重新读取确认。", "write_result_unknown");
+      result.safeOutput.status = "partial";
+      return result;
+    }
     return fail(args, `新增数据库字段失败：${error instanceof Error ? error.message : String(error)}`, "attribute_view_key_add_failed");
   }
 }

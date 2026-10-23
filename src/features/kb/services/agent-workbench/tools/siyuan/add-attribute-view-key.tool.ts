@@ -59,19 +59,19 @@ export function createAddAttributeViewKeyTool(
             error: {
               code: result.errorCode || "attribute_view_key_add_failed",
               message: result.safeOutput.message,
-              recoverable: true,
+              recoverable: result.errorCode !== "write_result_unknown",
             },
           };
         }
         return { ok: true, data: result.safeOutput };
-      } catch (error) {
+      } catch {
         return {
           ok: false,
           data: null,
           error: {
-            code: "tool_internal_error",
-            message: error instanceof Error ? error.message : "新增数据库字段执行异常。",
-            recoverable: true,
+            code: "write_result_unknown",
+            message: "新增字段结果不确定。禁止重放写入，请仅重新读取确认。",
+            recoverable: false,
           },
         };
       }

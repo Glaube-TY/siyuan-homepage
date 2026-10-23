@@ -2,7 +2,7 @@ import { fingerprintHomepageMcpValue, type HomepageMcpWriteAccess } from "./home
 import { HomepageMcpFavoritesConflict, prepareHomepageMcpFavoriteWrite, verifyHomepageMcpFavoriteWrite, type PreparedFavoriteWrite } from "./homepage-mcp-favorites-write";
 import { HomepageMcpAnniversaryConflict, prepareHomepageMcpAnniversaryWrite, verifyHomepageMcpAnniversaryWrite, type PreparedAnniversaryWrite } from "./homepage-mcp-anniversary-write";
 import { prepareHomepageMcpDatabaseWrite, verifyHomepageMcpDatabaseWrite, type PreparedDatabaseWrite } from "./homepage-mcp-database-write";
-import { getHomepageMcpWriteOperation, homepageMcpDatabaseUpdateSchema, homepageMcpDatabaseClearSchema, homepageMcpDatabaseDetachedAddSchema, homepageMcpDatabaseBoundAddSchema, homepageMcpDatabaseRemoveSchema, isHomepageMcpFavoriteWriteAction, isHomepageMcpAnniversaryWriteAction, type HomepageMcpDatabaseWriteAction, type HomepageMcpFavoriteWriteAction, type HomepageMcpAnniversaryWriteAction } from "../../features/agent-platform/mcp-server/homepage-mcp-write-preview";
+import { getHomepageMcpWriteOperation, homepageMcpDatabaseUpdateSchema, homepageMcpDatabaseClearSchema, homepageMcpDatabaseDetachedAddSchema, homepageMcpDatabaseBoundAddSchema, homepageMcpDatabaseRemoveSchema, homepageMcpDatabaseAddKeySchema, isHomepageMcpFavoriteWriteAction, isHomepageMcpAnniversaryWriteAction, type HomepageMcpDatabaseWriteAction, type HomepageMcpFavoriteWriteAction, type HomepageMcpAnniversaryWriteAction } from "../../features/agent-platform/mcp-server/homepage-mcp-write-preview";
 import type { NativeTool } from "../../features/kb/services/agent-core/tools/native-tool";
 import type { NativeToolRegistry } from "../../features/kb/services/agent-core/tools/native-tool-registry";
 import {
@@ -243,7 +243,7 @@ function createCapabilityHandler(
         const schema = action === "add_rows"
           ? isPlainRecord(toolInput.args) && Object.prototype.hasOwnProperty.call(toolInput.args, "blockIds") ? homepageMcpDatabaseBoundAddSchema : homepageMcpDatabaseDetachedAddSchema
           : action === "update_cell" ? homepageMcpDatabaseUpdateSchema : action === "clear_cell" ? homepageMcpDatabaseClearSchema
-            : action === "remove_rows" ? homepageMcpDatabaseRemoveSchema : undefined;
+            : action === "remove_rows" ? homepageMcpDatabaseRemoveSchema : action === "add_key" ? homepageMcpDatabaseAddKeySchema : undefined;
         if (!schema || !isPlainRecord(toolInput.args) || Object.keys(toolInput.args).some((key) => !Object.prototype.hasOwnProperty.call(schema.shape, key))) {
           throw new Error("数据库写入参数含未知字段。");
         }
@@ -280,7 +280,7 @@ function createCapabilityHandler(
           prepared = { domain: "favorites", value: await prepareHomepageMcpFavoriteWrite(action, args) };
         } else if (policy.name === "homepage_components" && isHomepageMcpAnniversaryWriteAction(action)) {
           prepared = { domain: "anniversary", value: await prepareHomepageMcpAnniversaryWrite(action, args) };
-        } else if (policy.name === "siyuan_database" && (action === "update_cell" || action === "clear_cell" || action === "add_rows" || action === "remove_rows")) {
+        } else if (policy.name === "siyuan_database" && (action === "update_cell" || action === "clear_cell" || action === "add_rows" || action === "remove_rows" || action === "add_key")) {
           prepared = { domain: "database", value: await prepareHomepageMcpDatabaseWrite(action, args) };
         } else return failure("mcp_write_not_allowed", "未知 MCP 写入业务域。");
         if (!(await options.isEntitlementAvailable())) return failure("mcp_entitlement_required", "当前会员状态不允许使用主页 MCP 服务。");
