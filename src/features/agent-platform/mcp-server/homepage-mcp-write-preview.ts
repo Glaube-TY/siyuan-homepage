@@ -27,6 +27,7 @@ export const HOMEPAGE_MCP_ANNIVERSARY_WRITES = {
 export const HOMEPAGE_MCP_WRITES = { ...HOMEPAGE_MCP_FAVORITES_WRITES, ...HOMEPAGE_MCP_ANNIVERSARY_WRITES } as const;
 export const HOMEPAGE_MCP_DATABASE_WRITES = {
   update_cell: { name: "修改数据库单元格", consequence: "仅修改指定数据库条目的一个普通文本字段。" },
+  clear_cell: { name: "清空数据库单元格", consequence: "清空指定数据库条目的一个普通文本字段，原字段值将被移除；不会删除数据库、字段、条目或关联的思源文档。" },
 } as const;
 export const HOMEPAGE_MCP_WRITES_BY_TOOL: Record<string, Record<string, { name: string; consequence: string }>> = {
   homepage_components: HOMEPAGE_MCP_WRITES,
@@ -44,6 +45,9 @@ export const homepageMcpDatabaseUpdateSchema = z.object({
   expectedFieldName: z.string().min(1).max(50).refine((value) => value.trim().length > 0 && value === value.trim()),
 }).strict();
 export type HomepageMcpDatabaseUpdate = z.infer<typeof homepageMcpDatabaseUpdateSchema>;
+export const homepageMcpDatabaseClearSchema = homepageMcpDatabaseUpdateSchema.omit({ valueText: true }).strict();
+export type HomepageMcpDatabaseClear = z.infer<typeof homepageMcpDatabaseClearSchema>;
+export type HomepageMcpDatabaseWriteAction = keyof typeof HOMEPAGE_MCP_DATABASE_WRITES;
 export type HomepageMcpAnniversaryWriteAction = keyof typeof HOMEPAGE_MCP_ANNIVERSARY_WRITES;
 export type HomepageMcpWriteAction = keyof typeof HOMEPAGE_MCP_WRITES | keyof typeof HOMEPAGE_MCP_DATABASE_WRITES;
 
@@ -66,14 +70,15 @@ export const homepageMcpWritePreviewSchema = z.object({
   affectedCount: z.number().int().min(0).max(1_000_000),
   details: z.array(z.object({ label: text.max(60), value: text }).strict()).max(16),
 }).strict().refine((value) => {
-  if (value.action === "update_cell") {
-    const operation = HOMEPAGE_MCP_DATABASE_WRITES.update_cell;
-    const labels = ["数据库名称", "数据库 ID", "条目标题", "条目 ID", "字段名称", "字段 ID", "原始文本值", "准备写入的新文本值"];
+  if (value.action === "update_cell" || value.action === "clear_cell") {
+    const operation = HOMEPAGE_MCP_DATABASE_WRITES[value.action];
+    const labels = ["数据库名称", "数据库 ID", "条目标题", "条目 ID", "字段名称", "字段 ID", "原始文本值", value.action === "clear_cell" ? "清空后的目标状态" : "准备写入的新文本值"];
     return value.operationName === operation.name && value.consequence === operation.consequence && value.affectedCount === 1 &&
       value.targetId !== null && id.safeParse(value.targetId).success && value.details.length === labels.length &&
       labels.every((label, index) => value.details[index].label === label) &&
       value.details[2].value === value.targetName && value.details[3].value === value.targetId &&
-      id.safeParse(value.details[1].value).success && id.safeParse(value.details[5].value).success;
+      id.safeParse(value.details[1].value).success && id.safeParse(value.details[5].value).success &&
+      (value.action !== "clear_cell" || value.details[7].value === "（空文本）");
   }
   const operation = HOMEPAGE_MCP_WRITES[value.action];
   if (Object.prototype.hasOwnProperty.call(HOMEPAGE_MCP_ANNIVERSARY_WRITES, value.action)) {

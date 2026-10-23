@@ -4,6 +4,7 @@ import type { HomepageMcpCapabilityEffects, HomepageMcpJsonSchema } from "./home
 import { getHomepageMcpWriteOperation, HOMEPAGE_MCP_WRITES_BY_TOOL } from "../../features/agent-platform/mcp-server/homepage-mcp-write-preview";
 
 const databaseIdSchema = { type: "string", pattern: "^\\d{14}-[a-z0-9]{7}$" };
+const databaseFieldNameSchema = { type: "string", minLength: 1, maxLength: 50, not: { pattern: "^\\s|\\s$" } };
 // 自定义 Zod refine 不会转成 JSON Schema；外部约束必须明确声明，handler 仍执行 Zod 校验。
 const databaseUpdateArgsSchema: HomepageMcpJsonSchema = {
   type: "object",
@@ -12,7 +13,16 @@ const databaseUpdateArgsSchema: HomepageMcpJsonSchema = {
   properties: {
     databaseId: databaseIdSchema, rowId: databaseIdSchema, keyId: databaseIdSchema,
     valueText: { type: "string", minLength: 1, maxLength: 1000, pattern: "\\S" },
-    expectedFieldName: { type: "string", minLength: 1, maxLength: 50, not: { pattern: "^\\s|\\s$" } },
+    expectedFieldName: databaseFieldNameSchema,
+  },
+};
+const databaseClearArgsSchema: HomepageMcpJsonSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["databaseId", "rowId", "keyId", "expectedFieldName"],
+  properties: {
+    databaseId: databaseIdSchema, rowId: databaseIdSchema, keyId: databaseIdSchema,
+    expectedFieldName: databaseFieldNameSchema,
   },
 };
 
@@ -131,7 +141,7 @@ function buildInputSchema(
         args: argsSchema,
         ...(!readOnly ? { confirmationId: { type: "string", pattern: "^[a-f0-9]{64}$" } } : {}),
       },
-      required: toolName === "siyuan_database" && name === "update_cell" ? ["action", "args"] : ["action"],
+      required: toolName === "siyuan_database" && !readOnly ? ["action", "args"] : ["action"],
     })),
   };
 }
@@ -177,8 +187,8 @@ export function buildHomepageMcpCapabilityPolicies(
         issues.push(`${name}.${action}: bounded_args_schema_required`);
         continue;
       }
-      const argsSchema = name === "siyuan_database" && action === "update_cell"
-        ? databaseUpdateArgsSchema : metadata.argsSchema;
+      const argsSchema = name === "siyuan_database" && isHomepageMcpWriteAction(name, action)
+        ? action === "clear_cell" ? databaseClearArgsSchema : databaseUpdateArgsSchema : metadata.argsSchema;
       validActions.push({ name: action, argsSchema, readOnly });
     }
 

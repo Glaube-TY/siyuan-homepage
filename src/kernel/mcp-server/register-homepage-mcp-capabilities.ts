@@ -2,7 +2,7 @@ import { fingerprintHomepageMcpValue, type HomepageMcpWriteAccess } from "./home
 import { HomepageMcpFavoritesConflict, prepareHomepageMcpFavoriteWrite, verifyHomepageMcpFavoriteWrite, type PreparedFavoriteWrite } from "./homepage-mcp-favorites-write";
 import { HomepageMcpAnniversaryConflict, prepareHomepageMcpAnniversaryWrite, verifyHomepageMcpAnniversaryWrite, type PreparedAnniversaryWrite } from "./homepage-mcp-anniversary-write";
 import { prepareHomepageMcpDatabaseWrite, verifyHomepageMcpDatabaseWrite, type PreparedDatabaseWrite } from "./homepage-mcp-database-write";
-import { getHomepageMcpWriteOperation, homepageMcpDatabaseUpdateSchema, isHomepageMcpFavoriteWriteAction, isHomepageMcpAnniversaryWriteAction, type HomepageMcpFavoriteWriteAction, type HomepageMcpAnniversaryWriteAction } from "../../features/agent-platform/mcp-server/homepage-mcp-write-preview";
+import { getHomepageMcpWriteOperation, homepageMcpDatabaseUpdateSchema, homepageMcpDatabaseClearSchema, isHomepageMcpFavoriteWriteAction, isHomepageMcpAnniversaryWriteAction, type HomepageMcpDatabaseWriteAction, type HomepageMcpFavoriteWriteAction, type HomepageMcpAnniversaryWriteAction } from "../../features/agent-platform/mcp-server/homepage-mcp-write-preview";
 import type { NativeTool } from "../../features/kb/services/agent-core/tools/native-tool";
 import type { NativeToolRegistry } from "../../features/kb/services/agent-core/tools/native-tool-registry";
 import {
@@ -239,7 +239,13 @@ function createCapabilityHandler(
     let toolInput: Record<string, unknown>;
     try {
       toolInput = { action, args: input.args === undefined ? {} : input.args };
-      if (write && policy.name === "siyuan_database") homepageMcpDatabaseUpdateSchema.parse(toolInput.args);
+      if (write && policy.name === "siyuan_database") {
+        const schema = action === "clear_cell" ? homepageMcpDatabaseClearSchema : homepageMcpDatabaseUpdateSchema;
+        if (!isPlainRecord(toolInput.args) || Object.keys(toolInput.args).some((key) => !Object.prototype.hasOwnProperty.call(schema.shape, key))) {
+          throw new Error("数据库写入参数含未知字段。");
+        }
+        schema.parse(toolInput.args);
+      }
       if (write) {
         fingerprintHomepageMcpValue(toolInput);
         if (input.confirmationId !== undefined) {
@@ -269,8 +275,8 @@ function createCapabilityHandler(
           prepared = { domain: "favorites", value: await prepareHomepageMcpFavoriteWrite(action, args) };
         } else if (policy.name === "homepage_components" && isHomepageMcpAnniversaryWriteAction(action)) {
           prepared = { domain: "anniversary", value: await prepareHomepageMcpAnniversaryWrite(action, args) };
-        } else if (policy.name === "siyuan_database" && action === "update_cell") {
-          prepared = { domain: "database", value: await prepareHomepageMcpDatabaseWrite(args) };
+        } else if (policy.name === "siyuan_database" && (action === "update_cell" || action === "clear_cell")) {
+          prepared = { domain: "database", value: await prepareHomepageMcpDatabaseWrite(action, args) };
         } else return failure("mcp_write_not_allowed", "未知 MCP 写入业务域。");
         if (!(await options.isEntitlementAvailable())) return failure("mcp_entitlement_required", "当前会员状态不允许使用主页 MCP 服务。");
         if (!options.isActive() || !options.isWriteActive?.()) return failure("mcp_write_not_allowed", "MCP 写入授权已失效。");
@@ -308,7 +314,7 @@ function createCapabilityHandler(
           ? await verifyHomepageMcpFavoriteWrite(action as HomepageMcpFavoriteWriteAction, toolInput.args as Record<string, unknown>, prepared!.value as PreparedFavoriteWrite, result.data)
           : prepared!.domain === "anniversary"
             ? await verifyHomepageMcpAnniversaryWrite(action as HomepageMcpAnniversaryWriteAction, toolInput.args as Record<string, unknown>, prepared!.value as PreparedAnniversaryWrite, result.data)
-            : await verifyHomepageMcpDatabaseWrite(toolInput.args as Record<string, unknown>, prepared!.value as PreparedDatabaseWrite, result.data);
+            : await verifyHomepageMcpDatabaseWrite(action as HomepageMcpDatabaseWriteAction, toolInput.args as Record<string, unknown>, prepared!.value as PreparedDatabaseWrite, result.data);
         if (!verified) return uncertainWrite();
       } else if (!result.ok) {
         return failure(normalizeErrorCode(result.errorCode ?? result.code, "mcp_execution_failed"), "只读能力执行失败。");

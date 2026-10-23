@@ -110,7 +110,10 @@ export async function executeClearAttributeViewCell(
     }
 
     const oldCell = row.cells[keyId];
-    const oldValueText = oldCell?.text ?? "";
+    const rawCell = oldCell?.raw as Record<string, any> | undefined;
+    // 文本摘要会折叠空白并截断；清空结果需要保留实际移除的完整文本。
+    const oldValueText = key.type === "text" && typeof rawCell?.text?.content === "string"
+      ? rawCell.text.content : oldCell?.text ?? "";
 
     // 创建空值
     const encoded = createEmptyAttributeViewValue(key);
@@ -119,7 +122,6 @@ export async function executeClearAttributeViewCell(
     }
 
     // 只从 cellID/cellId 读取，不使用 raw.id
-    const rawCell = oldCell?.raw as Record<string, unknown> | undefined;
     const cellID = safeString(rawCell?.cellID ?? rawCell?.cellId) || undefined;
 
     await setAttributeViewBlockAttrWithCellChecked({
