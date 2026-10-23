@@ -38,7 +38,12 @@ const eventFields = {
   pastBehavior: z.enum(["keep", "auto-archive"]).optional(),
 };
 const addSchema = z.object(eventFields).strict();
-const updateSchema = z.object({ eventId: z.string().trim().min(1), expectedUpdatedAt: z.string().min(1), expectedRevision: z.number().int().nonnegative(), patch: z.object(eventFields).partial().strict() }).strict();
+const patchSchema = z.object({
+  ...eventFields,
+  kind: eventFields.kind.removeDefault(), calendar: eventFields.calendar.removeDefault(),
+  tags: eventFields.tags.removeDefault(), priority: eventFields.priority.removeDefault(), note: eventFields.note.removeDefault(),
+}).partial().strict().refine((patch) => Object.keys(patch).length > 0, "修改字段不能为空。");
+const updateSchema = z.object({ eventId: z.string().trim().min(1), expectedUpdatedAt: z.string().min(1), expectedRevision: z.number().int().nonnegative(), patch: patchSchema }).strict();
 const eventMutationSchema = z.object({ eventId: z.string().trim().min(1), expectedUpdatedAt: z.string().min(1), expectedRevision: z.number().int().nonnegative() }).strict();
 const eventIdSchema = z.object({ eventId: z.string().trim().min(1) }).strict();
 const listSchema = z.object({ scope: z.enum(["upcoming", "archived", "all"]).default("upcoming"), categoryId: z.string().trim().optional(), tags: z.array(z.string().trim().min(1)).max(20).optional(), priority: prioritySchema.optional(), kind: kindSchema.optional(), search: z.string().trim().optional(), startDate: dateSchema.optional(), endDate: dateSchema.optional(), limit: z.number().int().min(1).max(200).default(50) }).strict();
@@ -117,7 +122,7 @@ export function createHomepageCountdownActionTools(): Array<{ action: string; to
       const current = loaded.events.find((item) => item.id === eventId);
       if (!current) throw new Error("纪念日事件不存在。");
       if (loaded.revision !== expectedRevision || current.updatedAt !== expectedUpdatedAt) throw new CountdownEventConflictError(current);
-      await saveCountdownEvent({ ...current, ...patch, id: eventId, name: patch.name ?? current.name, categoryId: patch.categoryId ?? undefined }, { baseRevision: expectedRevision, original: current });
+      await saveCountdownEvent({ ...current, ...patch, id: eventId, name: patch.name ?? current.name, categoryId: patch.categoryId === undefined ? current.categoryId : patch.categoryId ?? undefined }, { baseRevision: expectedRevision, original: current });
       const verified = await loadCountdownCenterData({ includeArchived: true });
       const verifiedEvent = verified.events.find((item) => item.id === eventId);
       if (!verifiedEvent || verifiedEvent.updatedAt === expectedUpdatedAt || Object.entries(patch).some(([key, value]) => JSON.stringify(verifiedEvent[key as keyof CountdownEventRecord] ?? null) !== JSON.stringify(value ?? null))) throw new Error("纪念日事件更新后验证失败。");

@@ -180,7 +180,7 @@
     <header class="center-header">
         <div>
             <h3 id="homepage-mcp-heading">对外 MCP 服务 <PremiumMark size={13} /></h3>
-            <p>外部 MCP 默认只读；本次运行授权后，支持经过审核并逐次确认的收藏管理操作。</p>
+            <p>外部 MCP 默认只读；本次运行授权后，支持经过审核并逐次确认的收藏与纪念日操作。</p>
         </div>
     </header>
 
@@ -201,7 +201,7 @@
 
         <SettingRow
             title="允许本次运行 MCP 写入"
-            description="本次运行默认关闭，支持经过审核并逐次确认的收藏管理操作。普通 OAuth MCP 客户端不能调用插件审批 RPC；管理员 Token 不受此审批隔离。关闭服务或重启后授权失效。"
+            description="本次运行默认关闭，支持经过审核并逐次确认的收藏与纪念日操作。普通 OAuth MCP 客户端不能调用插件审批 RPC；管理员 Token 不受此审批隔离。关闭服务或重启后授权失效。"
         >
             <div class="status-control">
                 <span aria-live="polite">{snapshot ? snapshot.writeActive ? "已开启写入授权" : "只读" : "状态未知"}</span>
@@ -242,7 +242,7 @@
                     <h4>{request.operationName}</h4>
                     <p class="write-request-title">{request.targetName}</p>
                     {#if request.targetId}<p>目标 ID：{request.targetId}</p>{/if}
-                    <p>受影响收藏：{request.affectedCount} 项</p>
+                    <p>受影响条目：{request.affectedCount} 项</p>
                     {#each request.details as detail}
                         <p>{detail.label}：{detail.value}</p>
                     {/each}

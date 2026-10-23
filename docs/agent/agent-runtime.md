@@ -67,10 +67,10 @@
 
 - 外部 MCP 能力只通过官方 `siyuan.agent.registerCapability` / `unregisterCapability` 注册和清理；不在插件内另起 HTTP、SSE 或 stdio Server。
 - Robot 与外部 MCP 共享同一份 Kernel `NativeToolRegistry`；外部服务只按固定的顶层工具和 action 白名单生成过滤后的 Schema，不复制业务实现。
-- 默认只读，仅限明确授权且已审核的写操作；`homepage_components` 仅允许收藏的 `homepage_favorites.add/remove/move_to_group/create_group/rename_group/delete_group/reorder` 七项显式白名单。每次调用仍在 Kernel 重新检查完整服务 active、当前会员状态、精确 action 白名单、aggregate 元数据、`isReadOnlyCall` 和严格 `preflightValidate`，不能仅信任客户端 Schema。
+- 默认只读，仅限明确授权且已审核的写操作；`homepage_components` 仅允许收藏的 `homepage_favorites.add/remove/move_to_group/create_group/rename_group/delete_group/reorder` 七项及纪念日事件的 `homepage_anniversary.add/update/archive/restore` 四项显式白名单；永久删除及分类管理写入继续拒绝。每次调用仍在 Kernel 重新检查完整服务 active、当前会员状态、精确 action 白名单、aggregate 元数据、`isReadOnlyCall` 和严格 `preflightValidate`，不能仅信任客户端 Schema。
 - 写入采用独立的 Kernel 内存开关，默认关闭，不改变既有服务设置持久化 Schema。服务关闭、会员失效和 shutdown 立即撤销运行期授权与所有未执行确认；重启不恢复写入许可。切换写入 Schema 沿用注册回滚，失败尽力恢复只读。
 - 普通外部 MCP 客户端优先使用思源官方 OAuth；管理员 API Token 属于内核高权限凭据，不能视为普通受限 MCP 凭据。Kernel 控制 RPC 的人工确认不能约束持有管理员 Token 的程序；OAuth MCP 客户端仍须经过 action 白名单、运行期授权和逐次确认。
-- 写操作先读取受控文档元数据和现有收藏业务状态，生成含明确操作、目标、数量及后果的有界内存预览；目标未知时拒绝创建确认，界面以纯文本展示。待确认 ID 由插件控制 RPC 同意或拒绝，同意不立即执行。客户端用相同工具、action、完整参数及 ID 重试，Kernel 检查有界结构化 JSON 指纹（对象键排序、数组保序）、两分钟有效期及授权状态，重新读取并比对审批时的状态摘要；状态变化或读取失败使确认失效，通过后才原子消费批准并调用既有业务工具，保留业务 CAS。确认 ID 必须使用安全随机源，最多保留 20 条，不复用 Robot 确认。
+- 写操作按业务域读取受控目标信息及收藏或纪念日业务状态，生成含明确操作、目标、数量及后果的有界内存预览；目标未知时拒绝创建确认，界面以纯文本展示。待确认 ID 由插件控制 RPC 同意或拒绝，同意不立即执行。客户端用相同工具、action、完整参数及 ID 重试，Kernel 检查有界结构化 JSON 指纹（对象键排序、数组保序）、两分钟有效期及授权状态，重新读取并比对审批时的状态摘要；状态变化或读取失败使确认失效，通过后才原子消费批准并调用既有业务工具，保留业务 CAS。确认 ID 必须使用安全随机源，最多保留 20 条，不复用 Robot 确认。
 - 写后通过现有业务读取能力核对目标；任何执行或回读结果不确定都明确返回未知状态，禁止自动重放。ID、原始参数、凭据和敏感内容不得进入长期存储或日志。
 - 设置使用独立的 `homepage-mcp-server-settings` 严格 schema；缺失按关闭处理，损坏只进入错误状态且不覆盖原值。会员失效时注销能力但保留开启偏好，恢复后再注册。
 - 注册失败必须回滚已成功注册的能力；注销按逆序执行并保留失败项。输出只返回有界结构化数据或固定错误，不返回原始 envelope、堆栈、密钥、令牌、身份标识或绝对路径。
