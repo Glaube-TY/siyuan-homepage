@@ -66,6 +66,12 @@ function indexBusiness(item: object): unknown {
   return rest;
 }
 
+function migratedTaskIndexContentRepresentation(sqlContent: unknown, indexedContent: unknown): "exact" | "single_ascii_prefix" | "mismatch" {
+  if (typeof sqlContent !== "string" || typeof indexedContent !== "string" || !indexedContent || indexedContent.trim() !== indexedContent) return "mismatch";
+  if (sqlContent === indexedContent) return "exact";
+  return sqlContent === " " + indexedContent ? "single_ascii_prefix" : "mismatch";
+}
+
 export async function prepareHomepageMcpDiaryMigrationWrite(args: Record<string, unknown>) {
   const input = homepageMcpDiaryTaskMigrationSchema.parse(args), blockId = input.target.blockId;
   const today = formatDiaryAttrDate(new Date());
@@ -292,10 +298,16 @@ export async function prepareHomepageMcpDiaryMigrationWrite(args: Record<string,
         ensure(current.length === 1, "task_index_identity_changed", true);
         if (item.id === blockId) {
           const value = current[0];
+          const contentChecks = {
+            contentRepresentation: migratedTaskIndexContentRepresentation(moved.content, value.content),
+            sqlContentLength: typeof moved.content === "string" ? moved.content.length : -1,
+            indexedContentLength: typeof value.content === "string" ? value.content.length : -1,
+          };
+          receiptChecks = { ...receiptChecks, ...contentChecks };
           ensure((value.root_id || value.rootID) === target.doc.id && (!value.root_id || value.root_id === target.doc.id) &&
             (!value.rootID || value.rootID === target.doc.id) && (value.parent_id || value.parentID) === tail.id &&
-            value.markdown === moved.markdown && value.content === moved.content && value.checked === false &&
-            value.box === target.target.notebookId && !value.projectTargetId && !value.hiddenProjectTargetId && !value.visibleProjectTargetId, "moved_task_index_mismatch");
+            value.markdown === moved.markdown && contentChecks.contentRepresentation !== "mismatch" && value.checked === false &&
+            value.box === target.target.notebookId && !value.projectTargetId && !value.hiddenProjectTargetId && !value.visibleProjectTargetId, "moved_task_index_mismatch", false, contentChecks);
         } else ensure(same(indexBusiness(item), indexBusiness(current[0])), "unrelated_task_index_changed", true);
       }
     }
