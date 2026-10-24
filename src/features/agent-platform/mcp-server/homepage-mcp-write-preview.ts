@@ -46,12 +46,15 @@ export const homepageMcpDiaryTaskCreateSchema = z.object({
 export const HOMEPAGE_MCP_DIARY_TASK_MUTATIONS = {
   set_status: { name: "更改日记任务状态", consequence: "仅改变指定普通任务的完成状态，保留任务名称、其他字段和日记内容。" },
   update: { name: "重命名日记任务", consequence: "仅修改指定普通任务的名称，保留完成状态、其他字段和日记内容。" },
+  delete: { name: "删除日记任务", consequence: "仅删除指定的强化日记任务块及其直属内容，不删除整篇日记或其他任务；本次不会生成删除日志。" },
 } as const;
+export const HOMEPAGE_MCP_DIARY_TASK_DELETE_WARNING = "删除任务块及其直属内容，无法通过本插件撤销；请核对真实任务 ID。";
 export const homepageMcpDiaryTaskWriteSchema = z.discriminatedUnion("operation", [
   homepageMcpDiaryTaskCreateSchema,
   z.object({ operation: z.literal("set_status"), target: z.object({ blockId: z.string().regex(/^\d{14}-[a-z0-9]{7}$/) }).strict(), completed: z.boolean() }).strict(),
   z.object({ operation: z.literal("update"), target: z.object({ blockId: z.string().regex(/^\d{14}-[a-z0-9]{7}$/) }).strict(),
     task: z.object({ taskname: homepageMcpDiaryTaskCreateSchema.shape.task.shape.taskname.refine((value) => !/[\\`*_\[\]<>~{}]/.test(value)) }).strict() }).strict(),
+  z.object({ operation: z.literal("delete"), target: z.object({ blockId: z.string().regex(/^\d{14}-[a-z0-9]{7}$/) }).strict(), deleteMode: z.literal("delete") }).strict(),
 ]);
 export const HOMEPAGE_MCP_WRITES_BY_TOOL: Record<string, Record<string, { name: string; consequence: string }>> = {
   homepage_components: HOMEPAGE_MCP_WRITES,
@@ -123,6 +126,15 @@ export const homepageMcpWritePreviewSchema = z.object({
   details: z.array(z.object({ label: text.max(60), value: text }).strict()).max(16),
 }).strict().refine((value) => {
   if (value.action === "manage_task") {
+    if (value.operationName === HOMEPAGE_MCP_DIARY_TASK_MUTATIONS.delete.name) {
+      const labels = ["日记文档标题", "日记文档 ID", "本地日期", "任务 blockId", "任务名称", "当前状态", "所属区域", "预计删除的任务数量", "删除模式", "删除风险"];
+      return value.consequence === HOMEPAGE_MCP_DIARY_TASK_MUTATIONS.delete.consequence && value.affectedCount === 1 &&
+        id.safeParse(value.targetId).success && value.details.length === labels.length && labels.every((label, i) => value.details[i].label === label) &&
+        id.safeParse(value.details[1].value).success && /^\d{8}$/.test(value.details[2].value) && value.details[3].value === value.targetId &&
+        value.details[4].value === value.targetName && homepageMcpDiaryTaskCreateSchema.shape.task.shape.taskname.safeParse(value.targetName).success &&
+        ["完成", "未完成"].includes(value.details[5].value) && value.details[6].value === "新任务" && value.details[7].value === "1" &&
+        value.details[8].value === "直接删除，不写日志" && value.details[9].value === HOMEPAGE_MCP_DIARY_TASK_DELETE_WARNING;
+    }
     const mutation = Object.values(HOMEPAGE_MCP_DIARY_TASK_MUTATIONS).find((entry) => entry.name === value.operationName);
     if (mutation) {
       const status = value.operationName === HOMEPAGE_MCP_DIARY_TASK_MUTATIONS.set_status.name;

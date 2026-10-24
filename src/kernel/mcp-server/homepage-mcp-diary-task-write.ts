@@ -1,5 +1,5 @@
 import SHA256 from "crypto-js/sha256";
-import { getBlockAttrsChecked, getBlockKramdownChecked, getBlockTreeInfos, getChildBlocksChecked, sqlChecked } from "@/api";
+import { checkBlocksExist, getBlockAttrsChecked, getBlockKramdownChecked, getBlockTreeInfos, getChildBlocksChecked, sqlChecked } from "@/api";
 import { readTaskIndexSnapshot } from "@/components/tools/siyuanComponentDataApi";
 import { normalizeEnhancedDiaryConfig } from "@/components/utils/widgetBlock/widget/enhancedDiary/enhancedDiaryConfig";
 import { formatDiaryAttrDate, lookupDiaryDocumentForDate } from "@/components/utils/widgetBlock/widget/enhancedDiary/enhancedDiaryDoc";
@@ -10,7 +10,7 @@ import { ENHANCED_DIARY_CONFIG_FILE } from "@/components/utils/widgetBlock/widge
 import { loadDataStrict } from "@/features/kb/services/agent-workbench/storage/notebrain-plugin-storage";
 import type { ToolRuntimeContext } from "@/features/kb/services/agent-workbench/contracts/tool-contract";
 import { generateTaskLine, parseTaskLine } from "@/features/task-data/task-parser";
-import { HOMEPAGE_MCP_DIARY_TASK_WRITES, HOMEPAGE_MCP_DIARY_TASK_MUTATIONS, homepageMcpDiaryTaskWriteSchema, type HomepageMcpWritePreview } from "@/features/agent-platform/mcp-server/homepage-mcp-write-preview";
+import { HOMEPAGE_MCP_DIARY_TASK_WRITES, HOMEPAGE_MCP_DIARY_TASK_MUTATIONS, HOMEPAGE_MCP_DIARY_TASK_DELETE_WARNING, homepageMcpDiaryTaskWriteSchema, type HomepageMcpWritePreview } from "@/features/agent-platform/mcp-server/homepage-mcp-write-preview";
 import type { EnhancedDiaryWorkspaceTask } from "@/components/utils/widgetBlock/widget/enhancedDiary/workspace/enhancedDiaryWorkspaceTaskService";
 
 const ID = /^\d{14}-[a-z0-9]{7}$/;
@@ -29,6 +29,7 @@ export interface PreparedDiaryTaskWrite {
   listChildren: Record<string, string[]>;
   parents: Record<string, string>;
   mutation?: { task: EnhancedDiaryWorkspaceTask; paragraphId: string; expectedLine: string; indexFingerprint: string };
+  deletion?: { listId: string; expectedListFingerprint: string };
 }
 
 function record(value: unknown): value is Record<string, unknown> {
@@ -203,7 +204,7 @@ async function readMutationTask(state: Awaited<ReturnType<typeof readState>>, bl
 
 export async function prepareHomepageMcpDiaryTaskWrite(args: Record<string, unknown>): Promise<PreparedDiaryTaskWrite> {
   const input = homepageMcpDiaryTaskWriteSchema.parse(args);
-  if (input.operation !== "set_status" && (!ordinaryName(input.task.taskname) || input.operation === "update" && /[\\`*_\[\]<>~{}]/.test(input.task.taskname))) {
+  if ((input.operation === "create" || input.operation === "update") && (!ordinaryName(input.task.taskname) || input.operation === "update" && /[\\`*_\[\]<>~{}]/.test(input.task.taskname))) {
     throw new HomepageMcpDiaryTargetUnavailable("任务名称会被解释为任务元数据或属性，请使用普通任务名称。");
   }
   const state = await readState();
@@ -211,9 +212,24 @@ export async function prepareHomepageMcpDiaryTaskWrite(args: Record<string, unkn
   if (mutation && (input.operation === "set_status" ? mutation.task.completed === input.completed : input.operation === "update" && mutation.task.taskname === input.task.taskname)) {
     throw new HomepageMcpDiaryTargetUnavailable("任务已是请求的状态或名称，无需修改，未生成写入确认。");
   }
+  let deletion: PreparedDiaryTaskWrite["deletion"];
+  if (input.operation === "delete") {
+    const listId = state.parents[input.target.blockId];
+    const children = state.listChildren[listId];
+    const list = state.rows.find((row) => row.id === listId && row.type === "l");
+    if (!list || !children || children.length < 2 || new Set(children).size !== children.length ||
+      children.some((id) => !state.tasks.some((task) => task.id === id))) {
+      throw new HomepageMcpDiaryTargetUnavailable("首期只允许删除仍有其他任务保留的完整任务列表中的一条任务，不能删除最后一条任务或父列表。");
+    }
+    const items = children.map((id) => state.rows.find((row) => row.id === id)!);
+    if (list.markdown !== items.map((row) => row.markdown).join("\n") || list.content !== items.map((row) => row.content).join("")) throw new Error("diary_list_aggregate_unverified");
+    const remaining = items.filter((row) => row.id !== input.target.blockId);
+    deletion = { listId, expectedListFingerprint: rowFingerprint({ ...list,
+      content: remaining.map((row) => row.content).join(""), markdown: remaining.map((row) => row.markdown).join("\n") }) };
+  }
   const operation = input.operation === "create" ? HOMEPAGE_MCP_DIARY_TASK_WRITES.manage_task : HOMEPAGE_MCP_DIARY_TASK_MUTATIONS[input.operation];
   return {
-    target: state.target, stateFingerprint: hash([state.stateFingerprint, mutation]),
+    target: state.target, stateFingerprint: hash([state.stateFingerprint, mutation]), deletion,
     mutation: mutation && { ...mutation, expectedLine: generateTaskLine({ taskname: input.operation === "update" ? input.task.taskname : mutation.task.taskname,
       completed: input.operation === "set_status" ? input.completed : mutation.task.completed }) },
     rows: state.rows.map((row) => ({ id: row.id, fingerprint: rowFingerprint(row), listFingerprint: rowFingerprint(row, true) })),
@@ -224,7 +240,11 @@ export async function prepareHomepageMcpDiaryTaskWrite(args: Record<string, unkn
       details: mutation ? [
         { label: "日记文档标题", value: state.doc.title! }, { label: "日记文档 ID", value: state.doc.id },
         { label: "本地日期", value: state.target.date }, { label: "任务 blockId", value: mutation.task.blockId },
-        ...(input.operation === "set_status" ? [
+        ...(input.operation === "delete" ? [
+          { label: "任务名称", value: mutation.task.taskname }, { label: "当前状态", value: mutation.task.completed ? "完成" : "未完成" },
+          { label: "所属区域", value: "新任务" }, { label: "预计删除的任务数量", value: "1" },
+          { label: "删除模式", value: "直接删除，不写日志" }, { label: "删除风险", value: HOMEPAGE_MCP_DIARY_TASK_DELETE_WARNING },
+        ] : input.operation === "set_status" ? [
           { label: "任务名称", value: mutation.task.taskname }, { label: "当前状态", value: mutation.task.completed ? "完成" : "未完成" },
           { label: "目标状态", value: input.completed ? "完成" : "未完成" },
         ] : [{ label: "原任务名称", value: mutation.task.taskname }, { label: "新任务名称", value: input.operation === "update" ? input.task.taskname : "" }]),
@@ -241,6 +261,34 @@ export async function verifyHomepageMcpDiaryTaskWrite(args: Record<string, unkno
   const input = homepageMcpDiaryTaskWriteSchema.parse(args);
   if (!record(data) || data.action !== "manage_task") return false;
   const result = data.result;
+  if (input.operation === "delete") {
+    if (!before.mutation || !before.deletion || !record(result) || result.operation !== "delete" || result.changed !== true ||
+      result.blockId !== input.target.blockId || result.taskname !== before.mutation.task.taskname) return false;
+    const removed = new Set([input.target.blockId, before.mutation.paragraphId]);
+    for (const wait of [0, 100, 250, 500, 1000, 1500, 2000]) {
+      if (wait) await new Promise((resolve) => setTimeout(resolve, wait));
+      let after;
+      try { after = await readState(); }
+      catch { continue; }
+      if (after.rows.some((row) => removed.has(row.id))) continue;
+      if (hash(after.target) !== hash(before.target) || after.rows.length !== before.rows.length - removed.size ||
+        hash(after.top.map((block) => block.id)) !== hash(before.topIds) ||
+        hash(after.parents) !== hash(Object.fromEntries(Object.entries(before.parents).filter(([id]) => !removed.has(id)))) ||
+        hash(after.listChildren) !== hash(Object.fromEntries(Object.entries(before.listChildren).map(([id, children]) =>
+          [id, id === before.deletion!.listId ? children.filter((child) => child !== input.target.blockId) : children])))) return false;
+      if (!before.rows.filter((row) => !removed.has(row.id)).every((row) => {
+        const current = after.rows.find((item) => item.id === row.id);
+        return !!current && rowFingerprint(current) === (row.id === before.deletion!.listId ? before.deletion!.expectedListFingerprint : row.fingerprint);
+      })) return false;
+      try {
+        const exists = await checkBlocksExist([before.target.docId, before.deletion.listId, ...removed]);
+        if (exists[before.target.docId] !== true || exists[before.deletion.listId] !== true || [...removed].some((id) => exists[id] !== false)) continue;
+        const snapshot = await readTaskIndexSnapshot();
+        if (snapshot.fileExists && !snapshot.items.some((item) => item.id === input.target.blockId) && hash(snapshot.items) === before.mutation.indexFingerprint) return true;
+      } catch { /* 仅有限补偿读取，任何失败都不能触发第二次删除。 */ }
+    }
+    return false;
+  }
   if (input.operation !== "create") {
     if (!before.mutation || !record(result) || result.operation !== input.operation || result.changed !== true || result.blockId !== input.target.blockId) return false;
     // 更新可见性也会落后于原生块树；仅补偿读取，不再次执行任务修改。

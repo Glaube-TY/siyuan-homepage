@@ -3,6 +3,7 @@
     import PremiumMark from "@/components/utils/shared/PremiumMark.svelte";
     import SettingSection from "@/libs/components/SettingSection.svelte";
     import SettingRow from "@/libs/components/SettingRow.svelte";
+    import { HOMEPAGE_MCP_DIARY_TASK_MUTATIONS } from "@/features/agent-platform/mcp-server/homepage-mcp-write-preview";
     import {
         getHomepageEntitlementSnapshot,
         subscribeHomepageEntitlement,
@@ -154,6 +155,7 @@
     }
 
     function approvalLabel(request: HomepageMcpWriteRequest): string {
+        if (request.toolName === "diary_task" && request.action === "manage_task" && request.operationName === HOMEPAGE_MCP_DIARY_TASK_MUTATIONS.delete.name) return "确认删除任务";
         if (request.toolName === "siyuan_database" && request.action === "clear_cell") return "确认清空";
         if (request.toolName === "siyuan_database" && request.action === "remove_rows") return "确认移除条目";
         if (request.toolName === "siyuan_database" && request.action === "remove_key") return "确认删除字段";
@@ -189,7 +191,7 @@
     <header class="center-header">
         <div>
             <h3 id="homepage-mcp-heading">对外 MCP 服务 <PremiumMark size={13} /></h3>
-            <p>外部 MCP 默认只读；本次运行授权后，支持经过审核并逐次确认的收藏、纪念日、数据库写入及日记普通任务的新建、状态修改和重命名。</p>
+            <p>外部 MCP 默认只读；本次运行授权后，支持经过审核并逐次确认的收藏、纪念日、数据库写入及日记普通任务的新建、状态修改、重命名和单条删除。</p>
         </div>
     </header>
 
@@ -210,7 +212,7 @@
 
         <SettingRow
             title="允许本次运行 MCP 写入"
-            description="本次运行默认关闭，支持经过审核并逐次确认的收藏、纪念日、数据库写入及日记普通任务的新建、状态修改和重命名。普通 OAuth MCP 客户端不能调用插件审批 RPC；管理员 Token 不受此审批隔离。关闭服务或重启后授权失效。"
+            description="本次运行默认关闭，支持经过审核并逐次确认的收藏、纪念日、数据库写入及日记普通任务的新建、状态修改、重命名和单条删除。普通 OAuth MCP 客户端不能调用插件审批 RPC；管理员 Token 不受此审批隔离。关闭服务或重启后授权失效。"
         >
             <div class="status-control">
                 <span aria-live="polite">{snapshot ? snapshot.writeActive ? "已开启写入授权" : "只读" : "状态未知"}</span>

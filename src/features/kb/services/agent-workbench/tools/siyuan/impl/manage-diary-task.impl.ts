@@ -333,17 +333,20 @@ async function executePostpone(
 async function executeDelete(
   deps: KbRetrievalToolDeps,
   args: ManageDiaryTaskInput,
+  mutation?: ToolRuntimeContext["diaryTaskMutationTarget"],
 ): Promise<ExecResult> {
   const config = await loadAgendaEnhancedDiaryConfig(deps);
   const pluginAdapter = createDiaryToolPluginAdapter(deps);
-  const found = await findTask(deps, config, args.target!);
+  const found = mutation ? await findApprovedTask(args, mutation) : await findTask(deps, config, args.target!);
   if (!found.task) {
     return { ok: false, errorCode: found.errorCode, safeOutput: { operation: "delete", changed: false, taskId: args.target?.taskId, blockId: args.target?.blockId, message: found.message! } };
   }
 
   const task = found.task;
-  const mode = args.deleteMode || "log";
+  const mode = mutation ? "delete" : args.deleteMode || "log";
   const result = await deleteWorkspaceTask(pluginAdapter, config, task, mode);
+
+  if (mutation && (result.partial || !result.ok && result.reason === "delete_failed")) return mutationUncertain(args.operation);
 
   if (!result.ok) {
     return {
@@ -377,7 +380,7 @@ export async function executeManageDiaryTask(
     case "postpone":
       return executePostpone(deps, args);
     case "delete":
-      return executeDelete(deps, args);
+      return executeDelete(deps, args, mutation);
     default:
       return {
         ok: false,

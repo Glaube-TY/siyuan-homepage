@@ -201,7 +201,7 @@ function createCapabilityConfig(
   return {
     title: writes.length ? (policy.name === "siyuan_database" ? "思源数据库查询与确认写入" : policy.name === "diary_task" ? "日记任务查询与确认写入" : "主页组件查询与确认写入") : CAPABILITY_TITLES[policy.name],
     description: writes.length
-      ? `${policy.name === "diary_task" ? "查询日记、任务和记录；普通任务新建、状态修改和重命名" : CAPABILITY_DESCRIPTIONS[policy.name] + writes.join("、")}仅限本次运行授权且经逐次用户确认。`
+      ? `${policy.name === "diary_task" ? "查询日记、任务和记录；普通任务新建、状态修改、重命名和单条删除" : CAPABILITY_DESCRIPTIONS[policy.name] + writes.join("、")}仅限本次运行授权且经逐次用户确认。`
       : CAPABILITY_DESCRIPTIONS[policy.name],
     inputSchema: policy.inputSchema,
     effects: { localRead: true, ...(writes.length ? { localWrite: true } : {}) },
@@ -316,7 +316,7 @@ function createCapabilityHandler(
         question: "External MCP capability invocation", callCounts: {},
         ...(prepared?.domain === "diary" ? prepared.value.mutation ? {
           diaryTaskMutationTarget: {
-            ...prepared.value.target, operation: (toolInput.args as { operation: "set_status" | "update" }).operation,
+            ...prepared.value.target, operation: (toolInput.args as { operation: "set_status" | "update" | "delete" }).operation,
             blockId: prepared.value.mutation.task.blockId, stateFingerprint: prepared.value.stateFingerprint,
             readTask: async () => {
               const current = await prepareHomepageMcpDiaryTaskWrite(toolInput.args as Record<string, unknown>);
