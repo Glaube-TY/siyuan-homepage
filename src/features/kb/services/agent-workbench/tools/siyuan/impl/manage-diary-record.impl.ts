@@ -11,7 +11,7 @@ import type { SiyuanToolDeps as KbRetrievalToolDeps } from "../siyuan-tool-deps"
 import type { ManageDiaryRecordInput, ManageDiaryRecordOutput } from "../contracts/manage-diary-record.contract";
 import type { ToolRuntimeContext } from "../../../contracts/tool-contract";
 import SHA256 from "crypto-js/sha256";
-import { homepageMcpDiaryRecordAddSchema, homepageMcpDiaryRecordUpdateSchema } from "@/features/agent-platform/mcp-server/homepage-mcp-write-preview";
+import { homepageMcpDiaryRecordAddSchema, homepageMcpDiaryRecordUpdateSchema, homepageMcpDiaryRecordDeleteSchema } from "@/features/agent-platform/mcp-server/homepage-mcp-write-preview";
 import { createDiaryToolPluginAdapter, loadAgendaEnhancedDiaryConfig, prepareAgendaEnhancedDiaryIndex } from "./agenda-utils.impl";
 import {
   validateEnhancedDiaryProjectWriteTarget,
@@ -169,9 +169,20 @@ async function executeUpdate(
 async function executeDelete(
   deps: KbRetrievalToolDeps,
   args: ManageDiaryRecordInput,
+  target?: ToolRuntimeContext["diaryRecordDeleteTarget"],
 ): Promise<ExecResult> {
-  const config = await prepareAgendaEnhancedDiaryIndex(deps, await loadAgendaEnhancedDiaryConfig(deps));
-  const found = await findRecordForTarget(config, args.target!);
+  if (target) homepageMcpDiaryRecordDeleteSchema.parse(args);
+  const loaded = await loadAgendaEnhancedDiaryConfig(deps);
+  const config = target ? loaded : await prepareAgendaEnhancedDiaryIndex(deps, loaded);
+  let found: Awaited<ReturnType<typeof findRecordForTarget>>;
+  if (target) {
+    try {
+      if (target.headingBlockId !== args.target?.headingBlockId || target.configFingerprint !== SHA256(JSON.stringify(config)).toString()) throw new Error("diary_target_conflict");
+      found = { record: await target.readRecord(), date: formatDiaryDate(new Date()), dateObj: new Date(), docId: target.docId };
+    } catch {
+      return { ok: false, errorCode: "diary_target_conflict", safeOutput: { operation: "delete", changed: false, message: "已批准的目标或配置已变化，未执行删除。" } };
+    }
+  } else found = await findRecordForTarget(config, args.target!);
 
   if (!found.record) {
     return {
@@ -193,9 +204,12 @@ async function executeDelete(
   const result = await deleteQuickRecord(found.record, {
     dailyNotebookId: config.dailyNotebookId!,
     expectedDate,
-  });
+  }, target);
+  if (target && (result.partial || result.reason === "write_result_unknown")) {
+    return { ok: false, errorCode: "write_result_unknown", safeOutput: { operation: "delete", changed: true, headingBlockId: found.record.headingBlockId, message: "删除结果未知，请先回读，禁止自动重试。" } };
+  }
   if (!result.ok) {
-    const errorCode = result.reason === "record_block_out_of_scope" || result.reason === "record_block_missing"
+    const errorCode = result.reason === "diary_target_conflict" ? result.reason : result.reason === "record_block_out_of_scope" || result.reason === "record_block_missing"
       ? "diary_doc_out_of_scope" : "quick_record_delete_failed";
     return {
       ok: false,
@@ -215,7 +229,9 @@ export async function executeManageDiaryRecord(
   args: ManageDiaryRecordInput,
   target?: ToolRuntimeContext["diaryRecordAddTarget"],
   mutation?: ToolRuntimeContext["diaryRecordMutationTarget"],
+  deletion?: ToolRuntimeContext["diaryRecordDeleteTarget"],
 ): Promise<ExecResult> {
+  if (deletion && args.operation !== "delete") return { ok: false, errorCode: "diary_target_conflict", safeOutput: { operation: args.operation, changed: false, message: "本次批准只允许删除指定普通快速记录。" } };
   if (mutation && args.operation !== "update") return { ok: false, errorCode: "diary_target_conflict", safeOutput: { operation: args.operation, changed: false, message: "本次批准只允许修改普通快速记录正文。" } };
   if (target && args.operation !== "add") return { ok: false, errorCode: "diary_target_conflict", safeOutput: { operation: args.operation, changed: false, message: "本次批准只允许新增普通快速记录。" } };
   switch (args.operation) {
@@ -224,7 +240,7 @@ export async function executeManageDiaryRecord(
     case "update":
       return executeUpdate(deps, args, mutation);
     case "delete":
-      return executeDelete(deps, args);
+      return executeDelete(deps, args, deletion);
     default:
       return {
         ok: false,

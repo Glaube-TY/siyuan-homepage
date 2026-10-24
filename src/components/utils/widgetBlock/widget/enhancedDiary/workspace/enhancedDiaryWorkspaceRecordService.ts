@@ -722,6 +722,8 @@ export interface WorkspaceQuickRecordMutationTarget extends Omit<WorkspaceQuickR
     verifyInserted(paragraphId: string): Promise<void>;
 }
 
+export type WorkspaceQuickRecordDeleteTarget = Omit<WorkspaceQuickRecordMutationTarget, "verifyInserted">;
+
 export async function addWorkspaceQuickRecord(
     plugin: any,
     config: EnhancedDiaryConfig,
@@ -781,7 +783,8 @@ export async function addWorkspaceQuickRecord(
 
 export async function deleteQuickRecord(
     record: EnhancedDiaryWorkspaceRecord,
-    ctx: EnhancedDiaryRecordWriteContext
+    ctx: EnhancedDiaryRecordWriteContext,
+    target?: WorkspaceQuickRecordDeleteTarget,
 ): Promise<WorkspaceRecordActionResult> {
     if (!record.headingBlockId || !record.contentBlockIds) {
         return {
@@ -806,21 +809,37 @@ export async function deleteQuickRecord(
     const blockCheck = await validateRecordBlocks(record, allBlockIds, true);
     if (!blockCheck.ok) return { ok: false, reason: blockCheck.reason, message: "记录块已变更，请在日记中手动删除。" };
 
+    if (target) {
+        try {
+            const current = await target.readRecord();
+            if (target.date !== formatDiaryAttrDate(new Date()) || target.date !== ctx.expectedDate || target.notebookId !== ctx.dailyNotebookId ||
+                target.docId !== record.docId || target.headingBlockId !== record.headingBlockId || target.categoryTitle !== record.categoryTitle ||
+                record.contentBlockIds.length !== 1 || record.contentBlockIds[0] !== target.paragraphId ||
+                new Set([target.docId, target.headingId, target.categoryHeadingId, target.headingBlockId, target.paragraphId]).size !== 5 ||
+                record.tags.length || record.projectTargetId || record.hiddenProjectTargetId || record.visibleProjectTargetId || record.rootProjectId ||
+                record.projectPath?.length || record.projectAncestorTargetIds?.length || record.isKeyRecord || record.projectRelationStatus !== "none" ||
+                SHA256(JSON.stringify(current)).toString() !== SHA256(JSON.stringify(record)).toString()) throw new Error("diary_target_conflict");
+        } catch {
+            return { ok: false, reason: "diary_target_conflict", message: "已批准的快速记录状态已变化，未执行删除。" };
+        }
+    }
     try {
-        // Use transaction to atomically delete all blocks — prevents partial deletion
+        // 受控模式只发送已批准的两个块；事务异常仍可能已有副作用。
         const doOperations = [...record.contentBlockIds, record.headingBlockId].map((blockId) => ({
             action: "delete",
             id: blockId,
         }));
         await performTransactionsChecked([{ doOperations }]);
-        try { await removeProjectRecordIndexItem(ctx.dailyNotebookId, record.headingBlockId); } catch { /* 可重建 */ }
+        if (!target) {
+            try { await removeProjectRecordIndexItem(ctx.dailyNotebookId, record.headingBlockId); } catch { /* 可重建 */ }
+        }
         return { ok: true };
     } catch (err) {
         console.warn("[enhancedDiaryWorkspaceRecordService] delete quick record failed", err);
         return {
             ok: false,
-            reason: "delete_failed",
-            message: "删除记录失败，请稍后重试。",
+            reason: target ? "write_result_unknown" : "delete_failed",
+            message: target ? "删除结果未知，请先回读，禁止自动重试。" : "删除记录失败，请稍后重试。",
         };
     }
 }

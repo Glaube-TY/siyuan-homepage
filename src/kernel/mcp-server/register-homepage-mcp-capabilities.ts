@@ -202,7 +202,7 @@ function createCapabilityConfig(
   return {
     title: writes.length ? (policy.name === "siyuan_database" ? "思源数据库查询与确认写入" : policy.name === "diary_task" ? "日记任务查询与确认写入" : "主页组件查询与确认写入") : CAPABILITY_TITLES[policy.name],
     description: writes.length
-      ? `${policy.name === "diary_task" ? "查询日记、任务和记录；普通任务新建、状态修改、重命名、单条删除及普通快速记录新增和正文修改" : CAPABILITY_DESCRIPTIONS[policy.name] + writes.join("、")}仅限本次运行授权且经逐次用户确认。`
+      ? `${policy.name === "diary_task" ? "查询日记、任务和记录；普通任务新建、状态修改、重命名、单条删除及普通快速记录新增、正文修改和单条删除" : CAPABILITY_DESCRIPTIONS[policy.name] + writes.join("、")}仅限本次运行授权且经逐次用户确认。`
       : CAPABILITY_DESCRIPTIONS[policy.name],
     inputSchema: policy.inputSchema,
     effects: { localRead: true, ...(writes.length ? { localWrite: true } : {}) },
@@ -318,7 +318,14 @@ function createCapabilityHandler(
     try {
       const result = await policy.tool.execute(toolInput, {
         question: "External MCP capability invocation", callCounts: {},
-        ...(prepared?.domain === "record" ? prepared.value.mutation ? { diaryRecordMutationTarget: {
+        ...(prepared?.domain === "record" ? prepared.value.deletion ? { diaryRecordDeleteTarget: {
+          ...prepared.value.target, headingBlockId: prepared.value.deletion.record.headingBlockId!, paragraphId: prepared.value.deletion.paragraphId,
+          readRecord: async () => {
+            const current = await prepareHomepageMcpDiaryRecordWrite(toolInput.args as Record<string, unknown>);
+            if (current.stateFingerprint !== prepared!.value.stateFingerprint || !current.deletion) throw new Error("diary_target_conflict");
+            return current.deletion.record;
+          },
+        } } : prepared.value.mutation ? { diaryRecordMutationTarget: {
           ...prepared.value.target, headingBlockId: prepared.value.mutation.record.headingBlockId!, paragraphId: prepared.value.mutation.paragraphId,
           readRecord: async () => {
             const current = await prepareHomepageMcpDiaryRecordWrite(toolInput.args as Record<string, unknown>);

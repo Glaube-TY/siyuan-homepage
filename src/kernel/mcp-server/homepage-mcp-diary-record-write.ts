@@ -1,12 +1,12 @@
 import SHA256 from "crypto-js/sha256";
-import { checkBlocksExist, getBlockAttrsChecked, getBlockKramdownChecked, getChildBlocksChecked } from "@/api";
+import { checkBlocksExist, getBlockAttrsChecked, getBlockKramdownChecked, getChildBlocksChecked, getBlockTreeInfos, SiyuanApiError } from "@/api";
 import { readTaskIndexSnapshot } from "@/components/tools/siyuanComponentDataApi";
 import { validateEnhancedDiaryWriteTarget } from "@/components/utils/widgetBlock/widget/enhancedDiary/enhancedDiaryDoc";
 import { findDayWorkspaceHeadingBlock } from "@/components/utils/widgetBlock/widget/enhancedDiary/enhancedDiaryBlockLocator";
 import { normalizeRecordCategoryTitle } from "@/components/utils/widgetBlock/widget/enhancedDiary/enhancedDiaryWorkspaceSections";
 import { queryTodayQuickRecordsDetailed, type WorkspaceQuickRecordAddTarget, type EnhancedDiaryWorkspaceRecord } from "@/components/utils/widgetBlock/widget/enhancedDiary/workspace/enhancedDiaryWorkspaceRecordService";
 import { readEnhancedDiaryProjectRecordIndexStrict } from "@/components/utils/widgetBlock/widget/enhancedDiary/enhancedDiaryProjectRecordIndex";
-import { HOMEPAGE_MCP_DIARY_TASK_WRITES, HOMEPAGE_MCP_DIARY_RECORD_UPDATE, homepageMcpDiaryRecordAddSchema, homepageMcpDiaryRecordWriteSchema, type HomepageMcpWritePreview } from "@/features/agent-platform/mcp-server/homepage-mcp-write-preview";
+import { HOMEPAGE_MCP_DIARY_TASK_WRITES, HOMEPAGE_MCP_DIARY_RECORD_UPDATE, HOMEPAGE_MCP_DIARY_RECORD_DELETE, homepageMcpDiaryRecordAddSchema, homepageMcpDiaryRecordWriteSchema, type HomepageMcpWritePreview } from "@/features/agent-platform/mcp-server/homepage-mcp-write-preview";
 import { readHomepageMcpDiaryState, nativeOrders, rowFingerprint, diaryAttributes, HomepageMcpDiaryTargetUnavailable } from "./homepage-mcp-diary-task-write";
 
 const hash = (value: unknown): string => SHA256(JSON.stringify(value)).toString();
@@ -60,6 +60,7 @@ export interface PreparedDiaryRecordWrite {
   boundaryId: string | null;
   startedAt: number;
   mutation?: { record: EnhancedDiaryWorkspaceRecord; paragraphId: string; paragraphMetadataFingerprint: string; indexExactFingerprint: string; insertedParagraphId?: string };
+  deletion?: { record: EnhancedDiaryWorkspaceRecord; paragraphId: string; indexExactFingerprint: string };
 }
 
 const paragraphMetadata = (row: Parameters<typeof rowFingerprint>[0]): string => rowFingerprint({ ...row, id: "", content: "", markdown: "", created: "", ial: '{: id=""}' });
@@ -101,9 +102,9 @@ async function ordinaryRecord(state: Awaited<ReturnType<typeof readRecordState>>
 export async function prepareHomepageMcpDiaryRecordWrite(args: Record<string, unknown>): Promise<PreparedDiaryRecordWrite> {
   const input = homepageMcpDiaryRecordWriteSchema.parse(args);
   const startedAt = Date.now();
-  const state = await readRecordState(input.operation === "add" ? input.categoryTitle : undefined, input.operation === "update" ? input.target.headingBlockId : undefined);
-  const record = input.operation === "update" ? await ordinaryRecord(state, input.target.headingBlockId) : undefined;
-  if (record?.content === input.content) throw new HomepageMcpDiaryTargetUnavailable("记录内容已经一致，无需修改。");
+  const state = await readRecordState(input.operation === "add" ? input.categoryTitle : undefined, input.operation !== "add" ? input.target.headingBlockId : undefined);
+  const record = input.operation !== "add" ? await ordinaryRecord(state, input.target.headingBlockId) : undefined;
+  if (input.operation === "update" && record?.content === input.content) throw new HomepageMcpDiaryTargetUnavailable("记录内容已经一致，无需修改。");
   const stateFingerprint = hash([state.stateFingerprint, state.records, record ? state.indexExactFingerprint : state.indexFingerprint, state.taskIndexFingerprint]);
   const target = { ...state.target, categoryHeadingId: state.category.id, categoryTitle: state.categoryTitle, stateFingerprint };
   const operation = HOMEPAGE_MCP_DIARY_TASK_WRITES.manage_record;
@@ -112,8 +113,16 @@ export async function prepareHomepageMcpDiaryRecordWrite(args: Record<string, un
     rows: state.rows.map((row) => ({ id: row.id, fingerprint: rowFingerprint(row) })), parents: state.parents, orders: state.orders,
     topIds: state.top.map((block) => block.id), insertionIndex: state.insertionIndex, boundaryId: state.boundaryId,
     recordFingerprints: state.records.map((record) => ({ id: record.headingBlockId!, fingerprint: hash(record) })),
-    ...(record ? { mutation: { record, paragraphId: record.contentBlockIds![0], paragraphMetadataFingerprint: paragraphMetadata(state.rows.find((row) => row.id === record.contentBlockIds![0])!), indexExactFingerprint: state.indexExactFingerprint } } : {}),
-    preview: record ? { action: "manage_record", operationName: HOMEPAGE_MCP_DIARY_RECORD_UPDATE.name, consequence: HOMEPAGE_MCP_DIARY_RECORD_UPDATE.consequence,
+    ...(record && input.operation === "delete" ? { deletion: { record, paragraphId: record.contentBlockIds![0], indexExactFingerprint: state.indexExactFingerprint } } : {}),
+    ...(record && input.operation === "update" ? { mutation: { record, paragraphId: record.contentBlockIds![0], paragraphMetadataFingerprint: paragraphMetadata(state.rows.find((row) => row.id === record.contentBlockIds![0])!), indexExactFingerprint: state.indexExactFingerprint } } : {}),
+    preview: input.operation === "delete" && record ? { action: "manage_record", operationName: HOMEPAGE_MCP_DIARY_RECORD_DELETE.name, consequence: HOMEPAGE_MCP_DIARY_RECORD_DELETE.consequence,
+      targetName: state.doc.title!, targetId: record.headingBlockId!, affectedCount: 1, details: [
+        { label: "日记标题", value: state.doc.title! }, { label: "日记 docId", value: state.doc.id }, { label: "本地日期", value: state.target.date },
+        { label: "分类名称", value: state.categoryTitle }, { label: "分类 headingId", value: state.category.id },
+        { label: "记录标题 headingBlockId", value: record.headingBlockId! }, { label: "原正文段落 ID", value: record.contentBlockIds![0] },
+        { label: "原记录标题", value: record.headingTitle }, { label: "记录时间", value: record.timeText }, { label: "原正文", value: record.content },
+        { label: "记录数量", value: "1" }, { label: "块数量", value: "2" }, { label: "永久删除警告", value: HOMEPAGE_MCP_DIARY_RECORD_DELETE.consequence },
+      ] } : input.operation === "update" && record ? { action: "manage_record", operationName: HOMEPAGE_MCP_DIARY_RECORD_UPDATE.name, consequence: HOMEPAGE_MCP_DIARY_RECORD_UPDATE.consequence,
       targetName: state.doc.title!, targetId: record.headingBlockId!, affectedCount: 1, details: [
         { label: "日记标题", value: state.doc.title! }, { label: "日记 docId", value: state.doc.id }, { label: "本地日期", value: state.target.date },
         { label: "分类名称", value: state.categoryTitle }, { label: "分类 headingId", value: state.category.id },
@@ -124,7 +133,7 @@ export async function prepareHomepageMcpDiaryRecordWrite(args: Record<string, un
       details: [
         { label: "日记标题", value: state.doc.title! }, { label: "日记 docId", value: state.doc.id }, { label: "本地日期", value: state.target.date },
         { label: "分类名称", value: state.categoryTitle }, { label: "分类 headingId", value: state.category.id },
-        { label: "目标身份", value: "已有分类标题，并非新记录 ID" }, { label: "快速记录内容", value: input.content },
+        { label: "目标身份", value: "已有分类标题，并非新记录 ID" }, { label: "快速记录内容", value: input.operation === "add" ? input.content : "" },
         { label: "记录数量", value: "1" }, { label: "内容类型", value: "普通文本" },
       ] },
   };
@@ -172,7 +181,42 @@ export async function verifyHomepageMcpDiaryRecordWrite(args: Record<string, unk
   const output = data as { action?: unknown; result?: { operation?: unknown; changed?: unknown; headingBlockId?: unknown; categoryTitle?: unknown; date?: unknown; projectTargetId?: unknown; isKeyRecord?: unknown; tags?: unknown } } | null;
   const result = output?.result;
   if (output?.action !== "manage_record" || result?.operation !== input.operation || result.changed !== true || typeof result.headingBlockId !== "string" || !ID.test(result.headingBlockId) ||
-    result.categoryTitle !== before.target.categoryTitle || result.projectTargetId || result.isKeyRecord || (input.operation === "add" ? result.tags !== undefined : !Array.isArray(result.tags) || result.tags.length)) return false;
+    result.categoryTitle !== before.target.categoryTitle || result.projectTargetId || result.isKeyRecord || (input.operation === "update" ? !Array.isArray(result.tags) || result.tags.length : result.tags !== undefined)) return false;
+  if (input.operation === "delete") {
+    const deletion = before.deletion;
+    if (!deletion || result.headingBlockId !== input.target.headingBlockId || deletion.record.headingBlockId !== input.target.headingBlockId) return false;
+    const removed = new Set([input.target.headingBlockId, deletion.paragraphId]);
+    const retained = before.rows.filter((row) => !removed.has(row.id));
+    const expectedOrders = Object.fromEntries(Object.entries(before.orders).filter(([id]) => !removed.has(id)).map(([id, children]) => [id, children.filter((child) => !removed.has(child))]));
+    for (const wait of [0, 100, 250, 500, 1000, 1500, 2000]) {
+      if (wait) await new Promise((resolve) => setTimeout(resolve, wait));
+      try {
+        const after = await readRecordState(before.target.categoryTitle, before.target.categoryHeadingId);
+        const exists = await checkBlocksExist([...removed]);
+        if ([...removed].some((id) => exists[id] !== false) || after.rows.length !== before.rows.length - 2) continue;
+        for (const id of removed) {
+          try {
+            const trees = await getBlockTreeInfos([id]);
+            if (!trees || typeof trees !== "object" || Array.isArray(trees) || Object.keys(trees).length) return false;
+          } catch (error) {
+            // 3.8.8 对不存在的单个块返回该明确错误；其他 API/网络失败仍是结果未知。
+            if (!(error instanceof SiyuanApiError && error.url === "/api/block/getBlockTreeInfos" && error.siyuanCode === -1 && error.siyuanMsg === "block not found")) throw error;
+          }
+        }
+        return after.target.docId === before.target.docId && after.target.notebookId === before.target.notebookId && after.target.date === before.target.date &&
+          after.target.configFingerprint === before.target.configFingerprint && after.target.headingId === before.target.headingId &&
+          after.category.id === before.target.categoryHeadingId && after.boundaryId === before.boundaryId && after.insertionIndex === before.insertionIndex - 2 &&
+          after.indexExactFingerprint === deletion.indexExactFingerprint && after.taskIndexFingerprint === before.taskIndexFingerprint &&
+          hash(after.top.map((item) => item.id)) === hash(before.topIds.filter((id) => !removed.has(id))) && hash(after.orders) === hash(expectedOrders) &&
+          retained.every((row) => {
+            const current = after.rows.find((item) => item.id === row.id);
+            return !!current && rowFingerprint(current) === row.fingerprint && after.parents[row.id] === before.parents[row.id];
+          }) && after.records.length === before.recordFingerprints.length - 1 && !after.records.some((record) => removed.has(record.headingBlockId!)) &&
+          before.recordFingerprints.filter((record) => !removed.has(record.id)).every((record) => hash(after.records.find((item) => item.headingBlockId === record.id)) === record.fingerprint);
+      } catch { /* 只回读，不重放已发出的删除事务。 */ }
+    }
+    return false;
+  }
   if (input.operation === "update") {
     if (result.headingBlockId !== input.target.headingBlockId) return false;
     const id = before.mutation?.insertedParagraphId;

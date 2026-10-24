@@ -18,10 +18,14 @@ const diaryRecordUpdateArgsSchema = {
     target: { type: "object", additionalProperties: false, required: ["headingBlockId"], properties: { headingBlockId: databaseIdSchema } },
     content: diaryRecordAddArgsSchema.properties.content },
 };
+const diaryRecordDeleteArgsSchema = {
+  type: "object", additionalProperties: false, required: ["operation", "target"],
+  properties: { operation: { type: "string", const: "delete" }, target: diaryRecordUpdateArgsSchema.properties.target },
+};
 const diaryRecordWriteArgsSchema: HomepageMcpJsonSchema = {
   type: "object", additionalProperties: false,
-  properties: { ...diaryRecordAddArgsSchema.properties, ...diaryRecordUpdateArgsSchema.properties, operation: { type: "string", enum: ["add", "update"] } },
-  oneOf: [diaryRecordAddArgsSchema, diaryRecordUpdateArgsSchema],
+  properties: { ...diaryRecordAddArgsSchema.properties, ...diaryRecordUpdateArgsSchema.properties, operation: { type: "string", enum: ["add", "update", "delete"] } },
+  oneOf: [diaryRecordAddArgsSchema, diaryRecordUpdateArgsSchema, diaryRecordDeleteArgsSchema],
 };
 const diaryTaskNameSchema = { type: "string", minLength: 1, maxLength: 200,
   not: { pattern: "^\\s|\\s$|[\\x00-\\x1f\\x7f-\\x9f\u2028\u2029📅⌛❗🔁⏰📍📁#]|\\{:.*?\\}\\s*$" } };

@@ -49,7 +49,14 @@ export const homepageMcpDiaryRecordUpdateSchema = z.object({
   operation: z.literal("update"), target: z.object({ headingBlockId: z.string().regex(/^\d{14}-[a-z0-9]{7}$/) }).strict(),
   content: homepageMcpDiaryRecordAddSchema.shape.content,
 }).strict();
-export const homepageMcpDiaryRecordWriteSchema = z.discriminatedUnion("operation", [homepageMcpDiaryRecordAddSchema, homepageMcpDiaryRecordUpdateSchema]);
+export const homepageMcpDiaryRecordDeleteSchema = z.object({
+  operation: z.literal("delete"), target: homepageMcpDiaryRecordUpdateSchema.shape.target,
+}).strict();
+export const homepageMcpDiaryRecordWriteSchema = z.discriminatedUnion("operation", [homepageMcpDiaryRecordAddSchema, homepageMcpDiaryRecordUpdateSchema, homepageMcpDiaryRecordDeleteSchema]);
+export const HOMEPAGE_MCP_DIARY_RECORD_DELETE = {
+  name: "删除日记快速记录",
+  consequence: "永久删除指定快速记录的标题及唯一正文段落，不删除分类、其他记录或日记文档；本操作无法通过主页插件撤销。",
+} as const;
 export const HOMEPAGE_MCP_DIARY_RECORD_UPDATE = {
   name: "修改日记快速记录正文",
   consequence: "只替换该记录正文，标题、时间、分类、标签、项目关系和其他日记内容保留。",
@@ -148,6 +155,19 @@ export const homepageMcpWritePreviewSchema = z.object({
   details: z.array(z.object({ label: text.max(60), value: text }).strict()).max(16),
 }).strict().refine((value) => {
   if (value.action === "manage_record") {
+    if (value.operationName === HOMEPAGE_MCP_DIARY_RECORD_DELETE.name) {
+      const labels = ["日记标题", "日记 docId", "本地日期", "分类名称", "分类 headingId", "记录标题 headingBlockId", "原正文段落 ID", "原记录标题", "记录时间", "原正文", "记录数量", "块数量", "永久删除警告"];
+      const time = /^(\d{2}):(\d{2}) 记录$/.exec(value.details[7]?.value ?? "");
+      return value.consequence === HOMEPAGE_MCP_DIARY_RECORD_DELETE.consequence && value.affectedCount === 1 &&
+        value.details.length === labels.length && labels.every((label, i) => value.details[i].label === label) &&
+        value.details[0].value === value.targetName && id.safeParse(value.details[1].value).success && /^\d{8}$/.test(value.details[2].value) &&
+        homepageMcpDiaryRecordAddSchema.shape.categoryTitle.safeParse(value.details[3].value).success && id.safeParse(value.details[4].value).success &&
+        id.safeParse(value.targetId).success && value.details[5].value === value.targetId && id.safeParse(value.details[6].value).success &&
+        new Set([value.details[1].value, value.details[4].value, value.targetId, value.details[6].value]).size === 4 &&
+        !!time && +time[1] < 24 && +time[2] < 60 && value.details[8].value === time[0].slice(0, 5) &&
+        homepageMcpDiaryRecordAddSchema.shape.content.safeParse(value.details[9].value).success &&
+        value.details[10].value === "1" && value.details[11].value === "2" && value.details[12].value === HOMEPAGE_MCP_DIARY_RECORD_DELETE.consequence;
+    }
     if (value.operationName === HOMEPAGE_MCP_DIARY_RECORD_UPDATE.name) {
       const labels = ["日记标题", "日记 docId", "本地日期", "分类名称", "分类 headingId", "记录标题 headingBlockId", "原正文段落 ID", "原记录标题", "记录时间", "原正文", "新正文", "记录数量"];
       const time = /^(\d{2}):(\d{2}) 记录$/.exec(value.details[7]?.value ?? "");
