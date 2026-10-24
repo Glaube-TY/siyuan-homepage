@@ -1,3 +1,4 @@
+import { prepareHomepageMcpDiaryMigrationWrite } from "./homepage-mcp-diary-migration-write";
 import { fingerprintHomepageMcpValue, type HomepageMcpWriteAccess } from "./homepage-mcp-write-access";
 import { HomepageMcpFavoritesConflict, prepareHomepageMcpFavoriteWrite, verifyHomepageMcpFavoriteWrite, type PreparedFavoriteWrite } from "./homepage-mcp-favorites-write";
 import { HomepageMcpAnniversaryConflict, prepareHomepageMcpAnniversaryWrite, verifyHomepageMcpAnniversaryWrite, type PreparedAnniversaryWrite } from "./homepage-mcp-anniversary-write";
@@ -66,6 +67,7 @@ export interface HomepageMcpCallResult {
   summary?: string;
   confirmationId?: string;
   sideEffectState?: "unknown";
+  migrationDiagnostics?: import("@/components/utils/widgetBlock/widget/enhancedDiary/workspace/enhancedDiaryWorkspaceTaskService").WorkspaceTaskMigrationObservation[];
   error?: { code: string; message: string };
 }
 
@@ -202,7 +204,7 @@ function createCapabilityConfig(
   return {
     title: writes.length ? (policy.name === "siyuan_database" ? "思源数据库查询与确认写入" : policy.name === "diary_task" ? "日记任务查询与确认写入" : "主页组件查询与确认写入") : CAPABILITY_TITLES[policy.name],
     description: writes.length
-      ? `${policy.name === "diary_task" ? "查询日记、任务和记录；普通任务新建、状态修改、重命名、推迟、单条删除及普通快速记录新增、正文修改和单条删除" : CAPABILITY_DESCRIPTIONS[policy.name] + writes.join("、")}仅限本次运行授权且经逐次用户确认。`
+      ? `${policy.name === "diary_task" ? "查询日记、任务和记录；普通任务新建、状态修改、重命名、推迟、历史任务迁移、单条删除及普通快速记录新增、正文修改和单条删除" : CAPABILITY_DESCRIPTIONS[policy.name] + writes.join("、")}仅限本次运行授权且经逐次用户确认。`
       : CAPABILITY_DESCRIPTIONS[policy.name],
     inputSchema: policy.inputSchema,
     effects: { localRead: true, ...(writes.length ? { localWrite: true } : {}) },
@@ -274,7 +276,8 @@ function createCapabilityHandler(
 
     let prepared: { domain: "favorites"; value: PreparedFavoriteWrite } | { domain: "anniversary"; value: PreparedAnniversaryWrite }
       | { domain: "database"; value: PreparedDatabaseWrite } | { domain: "diary"; value: PreparedDiaryTaskWrite }
-      | { domain: "record"; value: PreparedDiaryRecordWrite } | undefined;
+      | { domain: "record"; value: PreparedDiaryRecordWrite }
+      | { domain: "migration"; value: Awaited<ReturnType<typeof prepareHomepageMcpDiaryMigrationWrite>> } | undefined;
     if (write) {
       // 前面的异步校验期间权限可能已撤销；消费批准前再次检查。
       if (!(await options.isEntitlementAvailable())) return failure("mcp_entitlement_required", "当前会员状态不允许使用主页 MCP 服务。");
@@ -286,7 +289,9 @@ function createCapabilityHandler(
         } else if (policy.name === "homepage_components" && isHomepageMcpAnniversaryWriteAction(action)) {
           prepared = { domain: "anniversary", value: await prepareHomepageMcpAnniversaryWrite(action, args) };
         } else if (policy.name === "diary_task" && action === "manage_task") {
-          prepared = { domain: "diary", value: await prepareHomepageMcpDiaryTaskWrite(args) };
+          prepared = args.operation === "migrate"
+            ? { domain: "migration", value: await prepareHomepageMcpDiaryMigrationWrite(args) }
+            : { domain: "diary", value: await prepareHomepageMcpDiaryTaskWrite(args) };
         } else if (policy.name === "diary_task" && action === "manage_record") {
           prepared = { domain: "record", value: await prepareHomepageMcpDiaryRecordWrite(args) };
         } else if (policy.name === "siyuan_database" && (action === "update_cell" || action === "clear_cell" || action === "add_rows" || action === "remove_rows" || action === "add_key" || action === "remove_key")) {
@@ -315,9 +320,12 @@ function createCapabilityHandler(
       }
     }
 
+    const withDiagnostics = (result: HomepageMcpCallResult): HomepageMcpCallResult => prepared?.domain === "migration"
+      ? { ...result, migrationDiagnostics: prepared.value.context.diagnostics } : result;
     try {
       const result = await policy.tool.execute(toolInput, {
         question: "External MCP capability invocation", callCounts: {},
+        ...(prepared?.domain === "migration" ? { diaryTaskMigrationTarget: prepared.value.context } : {}),
         ...(prepared?.domain === "record" ? prepared.value.deletion ? { diaryRecordDeleteTarget: {
           ...prepared.value.target, headingBlockId: prepared.value.deletion.record.headingBlockId!, paragraphId: prepared.value.deletion.paragraphId,
           readRecord: async () => {
@@ -368,9 +376,10 @@ function createCapabilityHandler(
         if (!result.ok) {
           const code = normalizeErrorCode(result.errorCode ?? result.code, "mcp_execution_failed");
           return code === "conflict" || code.endsWith("_conflict") || code === "revision_mismatch" || code === "stale_revision"
-            ? failure(code, "业务层报告版本冲突，请重新读取后申请确认。") : uncertainWrite();
+            ? withDiagnostics(failure(code, "业务层报告版本冲突，请重新读取后申请确认。")) : withDiagnostics(uncertainWrite());
         }
-        const verified = prepared!.domain === "favorites"
+        const verified = prepared!.domain === "migration" ? prepared.value.isComplete()
+          : prepared!.domain === "favorites"
           ? await verifyHomepageMcpFavoriteWrite(action as HomepageMcpFavoriteWriteAction, toolInput.args as Record<string, unknown>, prepared!.value as PreparedFavoriteWrite, result.data)
           : prepared!.domain === "anniversary"
             ? await verifyHomepageMcpAnniversaryWrite(action as HomepageMcpAnniversaryWriteAction, toolInput.args as Record<string, unknown>, prepared!.value as PreparedAnniversaryWrite, result.data)
@@ -379,13 +388,13 @@ function createCapabilityHandler(
             : prepared!.domain === "diary"
               ? await verifyHomepageMcpDiaryTaskWrite(toolInput.args as Record<string, unknown>, prepared!.value, result.data)
               : await verifyHomepageMcpDatabaseWrite(action as HomepageMcpDatabaseWriteAction, toolInput.args as Record<string, unknown>, prepared!.value as PreparedDatabaseWrite, result.data);
-        if (!verified) return uncertainWrite();
+        if (!verified) return withDiagnostics(uncertainWrite());
       } else if (!result.ok) {
         return failure(normalizeErrorCode(result.errorCode ?? result.code, "mcp_execution_failed"), "只读能力执行失败。");
       }
-      return { ok: true, data: sanitizeExternalValue(result.data), summary: write ? "操作并回读确认完成。" : "读取完成。" };
+      return withDiagnostics({ ok: true, data: sanitizeExternalValue(result.data), summary: write ? "操作并回读确认完成。" : "读取完成。" });
     } catch {
-      return write ? uncertainWrite() : failure("mcp_execution_failed", "只读能力执行失败。");
+      return write ? withDiagnostics(uncertainWrite()) : failure("mcp_execution_failed", "只读能力执行失败。");
     }
   };
   return (input) => {

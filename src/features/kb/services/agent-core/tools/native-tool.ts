@@ -9,6 +9,7 @@ export interface ToolExecutionContext {
   diaryRecordAddTarget?: ToolRuntimeContext["diaryRecordAddTarget"];
   diaryRecordMutationTarget?: ToolRuntimeContext["diaryRecordMutationTarget"];
   diaryRecordDeleteTarget?: ToolRuntimeContext["diaryRecordDeleteTarget"];
+  diaryTaskMigrationTarget?: ToolRuntimeContext["diaryTaskMigrationTarget"];
   diaryTaskMutationTarget?: ToolRuntimeContext["diaryTaskMutationTarget"];
 }
 

@@ -106,6 +106,7 @@ export function createNativeToolRegistryFromWorkbench(params: {
             diaryRecordMutationTarget: ctx.diaryRecordMutationTarget,
             diaryRecordDeleteTarget: ctx.diaryRecordDeleteTarget,
             diaryTaskMutationTarget: ctx.diaryTaskMutationTarget,
+            diaryTaskMigrationTarget: ctx.diaryTaskMigrationTarget,
           },
         );
         return executionOutcomeToNativeResult(outcome, args);
