@@ -1,5 +1,5 @@
 import SHA256 from "crypto-js/sha256";
-import { getBlockInfo, getBlockAttrsChecked, SiyuanApiError } from "@/api";
+import { getBlockInfo, getBlockAttrsChecked, getBlockKramdownChecked, getBlockTreeInfos, getChildBlocksChecked, checkBlocksExist, SiyuanApiError } from "@/api";
 import { readTaskIndexSnapshot } from "@/components/tools/siyuanComponentDataApi";
 import { getEnhancedDiaryIndexEntriesStrict } from "@/components/utils/widgetBlock/widget/enhancedDiary/enhancedDiaryIndex";
 import { formatDiaryAttrDate } from "@/components/utils/widgetBlock/widget/enhancedDiary/enhancedDiaryDoc";
@@ -119,51 +119,94 @@ export async function prepareHomepageMcpDiaryMigrationWrite(args: Record<string,
       { label: "将新增的任务日志", value: logMarkdown }, { label: "执行风险", value: HOMEPAGE_MCP_DIARY_TASK_MIGRATION.consequence },
     ],
   });
-  let sourceReceipt: { rootId: string; ids: string[]; markdown: string; startedAt: number } | undefined;
-  let logReceipt: { rootId: string; ids: string[] } | undefined;
+  type SourceReceipt = { rootId: string; ids: string[]; markdown: string; startedAt: number };
+  type LogReceipt = { rootId: string; ids: string[] };
+  let sourceReceipt: SourceReceipt | undefined, logReceipt: LogReceipt | undefined;
   let complete = false, stage = 0;
   const movedIds = [blockId, mutation.paragraphId];
-  async function addedBlocks(state: State, old: State, rootId: string, markdown: string, provenance: boolean) {
-    const added = state.rows.filter((row) => !old.rows.some((before) => before.id === row.id) && !movedIds.includes(row.id) && !(provenance && logReceipt?.ids.includes(row.id)));
-    const list = added.find((row) => row.id === rootId && row.type === "l");
-    const receiptCheck = (valid: unknown, reason: string, checks?: Record<string, boolean | number | string>) => {
-      if (!valid) {
-        context.observe({ phase: provenance ? "F" : "H", reason, state: "incomplete", checks });
-        throw new MigrationVerificationFailure(reason);
-      }
+  async function addedBlocks(state: State, old: State, rootId: string, markdown: string, provenance: boolean, excludedIds: string[] = []) {
+    const added = state.rows.filter((row) => !old.rows.some((before) => before.id === row.id) && !movedIds.includes(row.id) && !excludedIds.includes(row.id));
+    const expectedCount = provenance ? 5 : 3, expectedParent = provenance ? blockId : target.doc.id;
+    const checks = { rootVisible: false, sqlCount: added.length, nativeCount: 0, expectedCount, parentMatches: false, structureComplete: false };
+    const receiptCheck = (valid: unknown, reason: string, conflict = false): void => {
+      if (!valid) throw new MigrationVerificationFailure(reason, conflict, { ...checks });
     };
-    receiptCheck(list && added.length === (provenance ? 5 : 3), "receipt_block_count_mismatch", { rootFound: !!list, actualCount: added.length, expectedCount: provenance ? 5 : 3 });
-    const lines = markdown.split("\n");
-    const items = added.filter((row) => state.parents[row.id] === rootId);
-    const ordered = nativeOrders(state)[rootId];
-    receiptCheck(ordered?.length === lines.length && items.length === lines.length &&
-      list!.markdown === markdown && state.parents[rootId] === (provenance ? blockId : target.doc.id), "receipt_structure_mismatch");
-    for (let i = 0; i < lines.length; i++) {
-      const item = items.find((row) => row.id === ordered[i]);
-      const paragraphs = added.filter((row) => state.parents[row.id] === item?.id);
-      const body = lines[i].slice(2);
-      const content = provenance && i === 0 ? "迁移来源：" + task.sourceDocTitle : body;
-      receiptCheck(item?.type === "i" && item.subtype !== "t" && item.markdown === lines[i] && item.content === " " + content &&
-        paragraphs.length === 1 && paragraphs[0].type === "p" && paragraphs[0].markdown === body && paragraphs[0].content === content &&
-        !state.rows.some((row) => state.parents[row.id] === paragraphs[0].id), "receipt_line_mismatch", { lineNumber: i + 1, itemPresent: !!item, paragraphCount: paragraphs.length });
+    receiptCheck(added.length <= expectedCount, "receipt_unexpected_extra_blocks", true);
+    try {
+      receiptCheck((await checkBlocksExist([rootId]))[rootId], "receipt_root_not_visible");
+      checks.rootVisible = true;
+      const info = await getBlockInfo(rootId);
+      receiptCheck(typeof info?.rootID === "string", "receipt_root_not_visible");
+      receiptCheck(info.rootID === target.doc.id, "receipt_root_document_mismatch", true);
+      const nativeItems = await getChildBlocksChecked(rootId), nativeIds = [rootId, ...nativeItems.map((item) => item.id)];
+      const lines = markdown.split("\n");
+      receiptCheck(nativeItems.length <= lines.length && new Set(nativeIds).size === nativeIds.length, "receipt_unexpected_extra_blocks", true);
+      for (const item of nativeItems) {
+        const paragraphs = await getChildBlocksChecked(item.id);
+        receiptCheck(paragraphs.length <= 1, "receipt_unexpected_extra_blocks", true);
+        nativeIds.push(...paragraphs.map((row) => row.id));
+      }
+      checks.nativeCount = nativeIds.length;
+      const tree = await getBlockTreeInfos(nativeIds), root = tree[rootId];
+      receiptCheck(root?.id === rootId && typeof root.parentID === "string", "receipt_native_tree_pending");
+      checks.parentMatches = root!.parentID === expectedParent;
+      receiptCheck(checks.parentMatches, "receipt_root_parent_mismatch", true);
+      receiptCheck(root!.type === "NodeList" && root!.parentType === (provenance ? "NodeListItem" : "NodeDocument"), "receipt_structure_mismatch", true);
+      receiptCheck(nativeIds.length === expectedCount && nativeIds.every((id) => tree[id]?.id === id), "receipt_native_tree_pending");
+      receiptCheck(added.length === expectedCount && added.some((row) => row.id === rootId), "receipt_sql_rows_pending");
+      receiptCheck(same(nativeIds.slice().sort(), added.map((row) => row.id).sort()), "receipt_structure_mismatch", true);
+      const raw = await getBlockKramdownChecked(rootId), attrIds: string[] = [];
+      receiptCheck(raw.id === rootId && typeof raw.kramdown === "string" && raw.kramdown.length <= 65_536, "receipt_structure_mismatch", true);
+      const nativeMarkdown = raw.kramdown.replace(/\{:[^\n]*?\}/g, (ial) => {
+        const attrs = diaryAttributes(ial);
+        receiptCheck(Object.keys(attrs).length === 1 && nativeIds.includes(attrs.id), "receipt_attributes_mismatch", true);
+        attrIds.push(attrs.id);
+        return "";
+      }).split(/\r?\n/).filter((line) => line.trim()).join("\n");
+      receiptCheck(same(attrIds.slice().sort(), nativeIds.slice().sort()), "receipt_structure_mismatch", true);
+      receiptCheck(nativeMarkdown === markdown, "receipt_content_mismatch", true);
+      const list = added.find((row) => row.id === rootId && row.type === "l");
+      const items = added.filter((row) => state.parents[row.id] === rootId), ordered = nativeOrders(state)[rootId];
+      receiptCheck(list && ordered?.length === lines.length && items.length === lines.length &&
+        list.markdown === markdown && state.parents[rootId] === expectedParent && same(ordered, nativeItems.map((row) => row.id)), "receipt_sql_rows_pending");
+      for (let i = 0; i < lines.length; i++) {
+        const item = items.find((row) => row.id === ordered[i]), paragraphs = added.filter((row) => state.parents[row.id] === item?.id);
+        const body = lines[i].slice(2), content = provenance && i === 0 ? "迁移来源：" + task.sourceDocTitle : body;
+        receiptCheck(item?.type === "i" && item.subtype !== "t" && item.markdown === lines[i] && item.content === " " + content &&
+          paragraphs.length === 1 && paragraphs[0].type === "p" && paragraphs[0].markdown === body && paragraphs[0].content === content &&
+          !state.rows.some((row) => state.parents[row.id] === paragraphs[0].id), "receipt_sql_rows_pending");
+      }
+      receiptCheck(list!.content === ordered.map((id) => items.find((row) => row.id === id)!.content).join(""), "receipt_sql_rows_pending");
+      for (const row of added) {
+        const native = tree[row.id];
+        receiptCheck(native?.id === row.id && native.parentID === state.parents[row.id] &&
+          native.type === (row.type === "l" ? "NodeList" : row.type === "i" ? "NodeListItem" : "NodeParagraph"), "receipt_native_tree_pending");
+        const attrs = diaryAttributes(row.ial), actual = Object.fromEntries(Object.entries(await getBlockAttrsChecked(row.id))
+          .filter(([key]) => key !== "updated").sort(([a], [b]) => a.localeCompare(b)));
+        receiptCheck(Object.keys(attrs).length === 1 && attrs.id === row.id && same(attrs, actual), "receipt_attributes_mismatch", true);
+      }
+      checks.structureComplete = true;
+      return { ids: added.map((row) => row.id), checks };
+    } catch (error) {
+      if (error instanceof MigrationVerificationFailure) throw error;
+      if (error instanceof SiyuanApiError) throw new MigrationVerificationFailure("receipt_read_api_failed", false, { ...checks, api: error.url || "unknown", apiCode: error.siyuanCode });
+      if (error instanceof Error && error.message === "diary_attributes_invalid") throw new MigrationVerificationFailure("receipt_attributes_mismatch", true, { ...checks });
+      throw new MigrationVerificationFailure("receipt_native_tree_pending", false, { ...checks });
     }
-    receiptCheck(list!.content === ordered.map((id) => items.find((row) => row.id === id)!.content).join(""), "receipt_aggregate_mismatch");
-    for (const row of added) {
-      const attrs = diaryAttributes(row.ial);
-      const actual = Object.fromEntries(Object.entries(await getBlockAttrsChecked(row.id)).filter(([key]) => key !== "updated").sort(([a], [b]) => a.localeCompare(b)));
-      receiptCheck(Object.keys(attrs).length === 1 && attrs.id === row.id && same(attrs, actual), "receipt_attributes_mismatch");
-    }
-    return added.map((row) => row.id);
   }
-  async function validate(stageNumber: number): Promise<Record<string, boolean | number | string>> {
+  async function validate(stageNumber: number, sourceReceipt?: SourceReceipt, logReceipt?: LogReceipt) {
     const ensure = (valid: unknown, reason: string, conflict = false, checks?: Record<string, boolean | number | string>): void => {
       if (!valid) throw new MigrationVerificationFailure(reason, conflict, checks);
     };
     ensure(formatDiaryAttrDate(new Date()) === today, "date_changed", true);
-    const [s, t, actualInfo] = await Promise.all([
+    // 等待同轮并行读取收束后才重查；超时后的旧读取不保存回执或推进阶段。
+    const reads = await Promise.allSettled([
       readHomepageMcpDiaryDocumentState(localDate(sourceDate), "newTasks"),
-      readHomepageMcpDiaryDocumentState(localDate(today), "migratedTasks"), getBlockInfo(blockId),
-    ]);
+      readHomepageMcpDiaryDocumentState(localDate(today), "migratedTasks", stageNumber === 1 ? sourceReceipt?.rootId : stageNumber === 2 ? logReceipt?.rootId : undefined),
+      getBlockInfo(blockId),
+    ] as const);
+    for (const read of reads) if (read.status === "rejected") throw read.reason;
+    const [s, t, actualInfo] = reads.map((read) => { if (read.status === "rejected") throw read.reason; return read.value; }) as [State, State, Awaited<ReturnType<typeof getBlockInfo>>];
     ensure(actualInfo && typeof actualInfo.rootID === "string", "snapshot_incomplete");
     ensure(actualInfo.rootID === target.doc.id, "root_mismatch", actualInfo.rootID !== source.doc.id);
     const nativeTask = t.treeInfos[blockId], nativeList = t.treeInfos[tail.id];
@@ -182,16 +225,19 @@ export async function prepareHomepageMcpDiaryMigrationWrite(args: Record<string,
     ensure(same(targetMembers, [...targetChildren, blockId]), "target_order_mismatch");
     ensure(same(sourceMembers, sourceChildren.filter((id) => id !== blockId)), "source_order_mismatch");
     ensure(same(s.target, source.target) && same(t.target, target.target), "document_identity_changed", true);
-    ensure(same(await logSection(t), { ...log, end: log.end + (logReceipt ? 1 : 0) }), "log_scope_changed", true);
     ensure(await auxiliaryState() === auxiliary, "auxiliary_data_changed", true);
-    const extraSource = sourceReceipt ? await addedBlocks(t, target, sourceReceipt.rootId, sourceReceipt.markdown, true) : [];
-    let extraLog: string[] = [];
+    let extraLog: string[] = [], receiptChecks: Record<string, boolean | number | string> = {};
     if (logReceipt) {
-      const prior = { ...target, rows: [...target.rows, ...t.rows.filter((row) => extraSource.includes(row.id))] };
-      extraLog = await addedBlocks(t, prior, logReceipt.rootId, logMarkdown, false);
+      const prior = { ...target, rows: [...target.rows, ...t.rows.filter((row) => sourceReceipt!.ids.includes(row.id))] };
+      const verified = await addedBlocks(t, prior, logReceipt.rootId, logMarkdown, false);
+      extraLog = verified.ids; receiptChecks = verified.checks;
     }
-    if (sourceReceipt) ensure(same(extraSource.slice().sort(), sourceReceipt.ids.slice().sort()), "source_receipt_changed", true);
-    if (logReceipt) ensure(same(extraLog.slice().sort(), logReceipt.ids.slice().sort()), "log_receipt_changed", true);
+    const verifiedSource = sourceReceipt ? await addedBlocks(t, target, sourceReceipt.rootId, sourceReceipt.markdown, true, extraLog) : undefined;
+    const extraSource = verifiedSource?.ids ?? [];
+    if (stageNumber === 1 && verifiedSource) receiptChecks = verifiedSource.checks;
+    if (sourceReceipt?.ids.length) ensure(same(extraSource.slice().sort(), sourceReceipt.ids.slice().sort()), "source_receipt_changed", true);
+    if (logReceipt?.ids.length) ensure(same(extraLog.slice().sort(), logReceipt.ids.slice().sort()), "log_receipt_changed", true);
+    ensure(same(await logSection(t), { ...log, end: log.end + (logReceipt ? 1 : 0) }), "log_scope_changed", true);
     const expectedTargetIds = [...target.rows.map((row) => row.id), ...movedIds, ...extraSource, ...extraLog].sort();
     ensure(same(s.rows.map((row) => row.id).sort(), source.rows.filter((row) => !movedIds.includes(row.id)).map((row) => row.id).sort()), "source_block_set_mismatch");
     ensure(same(t.rows.map((row) => row.id).sort(), expectedTargetIds), "target_block_set_mismatch");
@@ -254,21 +300,23 @@ export async function prepareHomepageMcpDiaryMigrationWrite(args: Record<string,
       }
     }
     const indexed = after.items.filter((item) => item.id === blockId);
-    return { rootMatches: true, parentMatches: true, sourceAbsent: true, targetOnce: true, memberOrderMatches: true,
-      taskBodyAndAttributesMatch: true, otherBlocksMatch: true, indexAlreadyMoved: indexed.length === 1 && (indexed[0].root_id || indexed[0].rootID) === target.doc.id };
+    return { sourceReceipt: sourceReceipt ? { ...sourceReceipt, ids: extraSource } : undefined, logReceipt: logReceipt ? { ...logReceipt, ids: extraLog } : undefined,
+      checks: { ...receiptChecks, rootMatches: true, parentMatches: true, sourceAbsent: true, targetOnce: true, memberOrderMatches: true,
+      taskBodyAndAttributesMatch: true, otherBlocksMatch: true, indexAlreadyMoved: indexed.length === 1 && (indexed[0].root_id || indexed[0].rootID) === target.doc.id } };
   }
-  async function check(stageNumber: number): Promise<boolean> {
-    const phase = ["D", "F", "H", "J"][stageNumber], deadline = Date.now() + 12_000;
-    for (const [attempt, wait] of [0, 100, 250, 500, 1000].entries()) {
+  async function check(stageNumber: number, candidateSource = sourceReceipt, candidateLog = logReceipt) {
+    const phase = ["D", "F", "H", "J"][stageNumber], deadline = Date.now() + (stageNumber === 0 ? 12_000 : 20_000);
+    const waits = stageNumber === 1 || stageNumber === 2 ? [0, 100, 250, 500, 1000, 1500, 2000] : [0, 100, 250, 500, 1000];
+    for (const [attempt, wait] of waits.entries()) {
       if (Date.now() + wait >= deadline) break;
       if (wait) await new Promise((resolve) => setTimeout(resolve, wait));
       let timer: ReturnType<typeof setTimeout> | undefined;
       try {
-        const checks = await Promise.race([validate(stageNumber), new Promise<never>((_, reject) => {
+        const verified = await Promise.race([validate(stageNumber, candidateSource, candidateLog), new Promise<never>((_, reject) => {
           timer = setTimeout(() => reject(new MigrationVerificationFailure("read_deadline_exceeded")), Math.max(1, deadline - Date.now()));
         })]);
-        context.observe({ phase, reason: "verified", state: "verified", attempt: attempt + 1, checks });
-        return true;
+        context.observe({ phase, reason: "verified", state: "verified", attempt: attempt + 1, checks: verified.checks });
+        return verified;
       } catch (error) {
         const reason = error instanceof MigrationVerificationFailure ? error.message : error instanceof SiyuanApiError ? "read_api_failed" :
           error instanceof Error && /^(diary_[a-z_]+|new_tasks_[a-z_]+)$/.test(error.message) ? error.message : "snapshot_incomplete";
@@ -304,19 +352,22 @@ export async function prepareHomepageMcpDiaryMigrationWrite(args: Record<string,
         Date.now() < startedAt || Date.now() - startedAt > 30_000 || markdown !== buildWorkspaceTaskMigrationSourceMarkdown(task, new Date(startedAt))) return false;
       const ids = extractOperationBlockIds(operations);
       if (ids.length !== 1) return false;
-      const t = await readHomepageMcpDiaryDocumentState(localDate(today), "migratedTasks");
-      sourceReceipt = { rootId: ids[0], ids: await addedBlocks(t, target, ids[0], markdown, true), markdown, startedAt };
-      if (!await check(1)) return false; stage = 2; return true;
+      if (!ID.test(ids[0])) return false;
+      const verified = await check(1, { rootId: ids[0], ids: [], markdown, startedAt });
+      if (!verified) return false;
+      sourceReceipt = verified.sourceReceipt;
+      stage = 2; return true;
     },
     verifyLog: async (result: EnhancedDiaryInsertResult) => {
       context.observe({ phase: "H", reason: "log_receipt_read_started" });
       if (stage !== 2 || !result.ok || result.blockIds?.length !== 1) return false;
-      const t = await readHomepageMcpDiaryDocumentState(localDate(today), "migratedTasks");
-      const prior = { ...target, rows: [...target.rows, ...t.rows.filter((row) => sourceReceipt!.ids.includes(row.id))] };
-      logReceipt = { rootId: result.blockIds[0], ids: await addedBlocks(t, prior, result.blockIds[0], logMarkdown, false) };
-      if (!await check(2)) return false; stage = 3; return true;
+      if (!ID.test(result.blockIds[0])) return false;
+      const verified = await check(2, sourceReceipt, { rootId: result.blockIds[0], ids: [] });
+      if (!verified) return false;
+      logReceipt = verified.logReceipt;
+      stage = 3; return true;
     },
-    verifyFinal: async () => { complete = stage === 3 && await check(3); return complete; },
+    verifyFinal: async () => { complete = stage === 3 && !!await check(3); return complete; },
   };
   return { preview, stateFingerprint, context, isComplete: () => complete };
 }
