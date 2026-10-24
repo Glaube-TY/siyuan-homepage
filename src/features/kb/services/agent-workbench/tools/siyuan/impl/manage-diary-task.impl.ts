@@ -10,6 +10,7 @@ import {
 import { addNewTaskToDiary, getOrCreateTodayDiaryDocument } from "@/components/utils/widgetBlock/widget/enhancedDiary/enhancedDiaryActions";
 import SHA256 from "crypto-js/sha256";
 import type { ToolRuntimeContext } from "../../../contracts/tool-contract";
+import { homepageMcpDiaryTaskWriteSchema } from "@/features/agent-platform/mcp-server/homepage-mcp-write-preview";
 import { findDayWorkspaceHeadingBlock } from "@/components/utils/widgetBlock/widget/enhancedDiary/enhancedDiaryBlockLocator";
 import { formatDiaryAttrDate, lookupDiaryDocumentForDate } from "@/components/utils/widgetBlock/widget/enhancedDiary/enhancedDiaryDoc";
 import type { EnhancedDiaryWorkspaceTask } from "@/components/utils/widgetBlock/widget/enhancedDiary/workspace/enhancedDiaryWorkspaceTaskService";
@@ -178,12 +179,30 @@ async function executeMigrate(
   };
 }
 
+function mutationUncertain(operation: string): ExecResult {
+  return { ok: false, errorCode: "write_result_unknown", safeOutput: { operation, changed: true,
+    message: "任务修改或索引同步结果未知，请先回读，禁止自动重试。" } };
+}
+
+async function findApprovedTask(args: ManageDiaryTaskInput, target: NonNullable<ToolRuntimeContext["diaryTaskMutationTarget"]>) {
+  try {
+    const input = homepageMcpDiaryTaskWriteSchema.parse(args);
+    if (input.operation === "create" || input.operation !== target.operation || input.target.blockId !== target.blockId) throw new Error("diary_target_conflict");
+    const task = await target.readTask();
+    if (task.blockId !== target.blockId || task.rootId !== target.docId || task.box !== target.notebookId) throw new Error("diary_target_conflict");
+    return { task };
+  } catch {
+    return { task: undefined, errorCode: "diary_target_conflict", message: "已确认的任务身份、内容或日记区域已变化，未执行修改。" };
+  }
+}
+
 async function executeSetStatus(
   deps: KbRetrievalToolDeps,
   args: ManageDiaryTaskInput,
+  mutation?: ToolRuntimeContext["diaryTaskMutationTarget"],
 ): Promise<ExecResult> {
   const config = await loadAgendaEnhancedDiaryConfig(deps);
-  const found = await findTask(deps, config, args.target!);
+  const found = mutation ? await findApprovedTask(args, mutation) : await findTask(deps, config, args.target!);
   if (!found.task) {
     return { ok: false, errorCode: found.errorCode, safeOutput: { operation: "set_status", changed: false, taskId: args.target?.taskId, blockId: args.target?.blockId, message: found.message! } };
   }
@@ -200,6 +219,7 @@ async function executeSetStatus(
   }
 
   const result = await toggleWorkspaceTaskComplete(task, completed);
+  if (mutation && (result.partial || !result.ok && result.reason === "update_failed")) return mutationUncertain(args.operation);
   if (!result.ok) {
     return {
       ok: false,
@@ -220,9 +240,10 @@ async function executeSetStatus(
 async function executeUpdate(
   deps: KbRetrievalToolDeps,
   args: ManageDiaryTaskInput,
+  mutation?: ToolRuntimeContext["diaryTaskMutationTarget"],
 ): Promise<ExecResult> {
   const config = await loadAgendaEnhancedDiaryConfig(deps);
-  const found = await findTask(deps, config, args.target!);
+  const found = mutation ? await findApprovedTask(args, mutation) : await findTask(deps, config, args.target!);
   if (!found.task) {
     return { ok: false, errorCode: found.errorCode, safeOutput: { operation: "update", changed: false, taskId: args.target?.taskId, blockId: args.target?.blockId, message: found.message! } };
   }
@@ -258,6 +279,8 @@ async function executeUpdate(
     projectTargetId: requestedProjectId,
     projectTitle: project?.title,
   }, config.projectStorage, { relationMode });
+
+  if (mutation && (result.partial || !result.ok && result.reason === "update_failed")) return mutationUncertain(args.operation);
 
   if (!result.ok) {
     return {
@@ -340,6 +363,7 @@ export async function executeManageDiaryTask(
   deps: KbRetrievalToolDeps,
   args: ManageDiaryTaskInput,
   target?: ToolRuntimeContext["diaryTaskCreateTarget"],
+  mutation?: ToolRuntimeContext["diaryTaskMutationTarget"],
 ): Promise<ExecResult> {
   switch (args.operation) {
     case "create":
@@ -347,9 +371,9 @@ export async function executeManageDiaryTask(
     case "migrate":
       return executeMigrate(deps, args);
     case "set_status":
-      return executeSetStatus(deps, args);
+      return executeSetStatus(deps, args, mutation);
     case "update":
-      return executeUpdate(deps, args);
+      return executeUpdate(deps, args, mutation);
     case "postpone":
       return executePostpone(deps, args);
     case "delete":

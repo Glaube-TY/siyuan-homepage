@@ -75,6 +75,11 @@ export interface ToolRuntimeContext {
   abortSignal?: AbortSignal;
   /** 内部调用约束，不进入工具参数 Schema，防止 MCP 隐式创建日记。 */
   diaryTaskCreateTarget?: { docId: string; notebookId: string; date: string; headingId: string; configFingerprint: string };
+  /** Kernel 内部闭包重新读取真实目标；不接受外部参数或过期索引作为依据。 */
+  diaryTaskMutationTarget?: NonNullable<ToolRuntimeContext["diaryTaskCreateTarget"]> & {
+    operation: "set_status" | "update"; blockId: string; stateFingerprint: string;
+    readTask(): Promise<import("@/components/utils/widgetBlock/widget/enhancedDiary/workspace/enhancedDiaryWorkspaceTaskService").EnhancedDiaryWorkspaceTask>;
+  };
 }
 
 /** Tool contract — thin interface */

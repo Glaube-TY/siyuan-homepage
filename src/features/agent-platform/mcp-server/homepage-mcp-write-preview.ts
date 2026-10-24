@@ -41,8 +41,18 @@ export const homepageMcpDiaryTaskCreateSchema = z.object({
   task: z.object({ taskname: z.string().min(1).max(200).refine((value) => value === value.trim() && Array.from(value).every((char) => {
     const code = char.codePointAt(0)!;
     return code >= 32 && (code < 127 || code > 159) && code !== 0x2028 && code !== 0x2029;
-  })) }).strict(),
+  })).refine((value) => !/[📅⌛❗🔁⏰📍📁#]/u.test(value) && !/\{:.*?\}\s*$/.test(value)) }).strict(),
 }).strict();
+export const HOMEPAGE_MCP_DIARY_TASK_MUTATIONS = {
+  set_status: { name: "更改日记任务状态", consequence: "仅改变指定普通任务的完成状态，保留任务名称、其他字段和日记内容。" },
+  update: { name: "重命名日记任务", consequence: "仅修改指定普通任务的名称，保留完成状态、其他字段和日记内容。" },
+} as const;
+export const homepageMcpDiaryTaskWriteSchema = z.discriminatedUnion("operation", [
+  homepageMcpDiaryTaskCreateSchema,
+  z.object({ operation: z.literal("set_status"), target: z.object({ blockId: z.string().regex(/^\d{14}-[a-z0-9]{7}$/) }).strict(), completed: z.boolean() }).strict(),
+  z.object({ operation: z.literal("update"), target: z.object({ blockId: z.string().regex(/^\d{14}-[a-z0-9]{7}$/) }).strict(),
+    task: z.object({ taskname: homepageMcpDiaryTaskCreateSchema.shape.task.shape.taskname.refine((value) => !/[\\`*_\[\]<>~{}]/.test(value)) }).strict() }).strict(),
+]);
 export const HOMEPAGE_MCP_WRITES_BY_TOOL: Record<string, Record<string, { name: string; consequence: string }>> = {
   homepage_components: HOMEPAGE_MCP_WRITES,
   siyuan_database: HOMEPAGE_MCP_DATABASE_WRITES,
@@ -113,6 +123,18 @@ export const homepageMcpWritePreviewSchema = z.object({
   details: z.array(z.object({ label: text.max(60), value: text }).strict()).max(16),
 }).strict().refine((value) => {
   if (value.action === "manage_task") {
+    const mutation = Object.values(HOMEPAGE_MCP_DIARY_TASK_MUTATIONS).find((entry) => entry.name === value.operationName);
+    if (mutation) {
+      const status = value.operationName === HOMEPAGE_MCP_DIARY_TASK_MUTATIONS.set_status.name;
+      const labels = ["日记文档标题", "日记文档 ID", "本地日期", "任务 blockId", ...(status ? ["任务名称", "当前状态", "目标状态"] : ["原任务名称", "新任务名称"])];
+      const name = homepageMcpDiaryTaskCreateSchema.shape.task.shape.taskname;
+      return value.consequence === mutation.consequence && value.affectedCount === 1 && id.safeParse(value.targetId).success &&
+        value.details.length === labels.length && labels.every((label, i) => value.details[i].label === label) &&
+        id.safeParse(value.details[1].value).success && /^\d{8}$/.test(value.details[2].value) && value.details[3].value === value.targetId &&
+        name.safeParse(value.details[4].value).success && value.targetName === value.details[4].value &&
+        (status ? ["完成", "未完成"].includes(value.details[5].value) && ["完成", "未完成"].includes(value.details[6].value) && value.details[5].value !== value.details[6].value
+          : name.safeParse(value.details[5].value).success && value.details[4].value !== value.details[5].value);
+    }
     const operation = HOMEPAGE_MCP_DIARY_TASK_WRITES.manage_task;
     const labels = ["日记文档标题", "日记文档 ID", "本地日期", "任务名称", "插入区域", "当前区域任务数量"];
     return value.operationName === operation.name && value.consequence === operation.consequence && value.affectedCount === 1 &&

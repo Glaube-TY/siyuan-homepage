@@ -4,16 +4,32 @@ import type { HomepageMcpCapabilityEffects, HomepageMcpJsonSchema } from "./home
 import { getHomepageMcpWriteOperation, HOMEPAGE_MCP_WRITES_BY_TOOL } from "../../features/agent-platform/mcp-server/homepage-mcp-write-preview";
 
 const databaseIdSchema = { type: "string", pattern: "^\\d{14}-[a-z0-9]{7}$" };
+const diaryTaskNameSchema = { type: "string", minLength: 1, maxLength: 200,
+  not: { pattern: "^\\s|\\s$|[\\x00-\\x1f\\x7f-\\x9f\u2028\u2029📅⌛❗🔁⏰📍📁#]|\\{:.*?\\}\\s*$" } };
 const diaryTaskCreateArgsSchema: HomepageMcpJsonSchema = {
   type: "object", additionalProperties: false, required: ["operation", "task"],
   properties: {
     operation: { type: "string", const: "create" },
     task: {
       type: "object", additionalProperties: false, required: ["taskname"],
-      properties: { taskname: { type: "string", minLength: 1, maxLength: 200,
-        not: { pattern: "^\\s|\\s$|[\\x00-\\x1f\\x7f-\\x9f\u2028\u2029]" } } },
+      properties: { taskname: diaryTaskNameSchema },
     },
   },
+};
+const diaryTaskWriteArgsSchema: HomepageMcpJsonSchema = {
+  type: "object", oneOf: [diaryTaskCreateArgsSchema, {
+    type: "object", additionalProperties: false, required: ["operation", "target", "completed"],
+    properties: { operation: { type: "string", const: "set_status" },
+      target: { type: "object", additionalProperties: false, required: ["blockId"], properties: { blockId: databaseIdSchema } },
+      completed: { type: "boolean" } },
+  }, {
+    type: "object", additionalProperties: false, required: ["operation", "target", "task"],
+    properties: { operation: { type: "string", const: "update" },
+      target: { type: "object", additionalProperties: false, required: ["blockId"], properties: { blockId: databaseIdSchema } },
+      task: { type: "object", additionalProperties: false, required: ["taskname"], properties: {
+        taskname: { ...diaryTaskNameSchema, allOf: [{ not: { pattern: "[\\\\`*_\\[\\]<>~{}]" } }] },
+      } } },
+  }],
 };
 const databaseFieldNameSchema = { type: "string", minLength: 1, maxLength: 50, not: { pattern: "^\\s|\\s$" } };
 // 自定义 Zod refine 不会转成 JSON Schema；外部约束必须明确声明，handler 仍执行 Zod 校验。
@@ -251,7 +267,7 @@ export function buildHomepageMcpCapabilityPolicies(
         continue;
       }
       const argsSchema = name === "siyuan_database" && isHomepageMcpWriteAction(name, action)
-        ? databaseWriteArgsSchemas[action] : name === "diary_task" && action === "manage_task" ? diaryTaskCreateArgsSchema : metadata.argsSchema;
+        ? databaseWriteArgsSchemas[action] : name === "diary_task" && action === "manage_task" ? diaryTaskWriteArgsSchema : metadata.argsSchema;
       if (!argsSchema) {
         issues.push(`${name}.${action}: external_args_schema_required`);
         continue;

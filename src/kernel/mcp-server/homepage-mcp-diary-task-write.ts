@@ -1,5 +1,5 @@
 import SHA256 from "crypto-js/sha256";
-import { getBlockTreeInfos, getChildBlocksChecked, sqlChecked } from "@/api";
+import { getBlockAttrsChecked, getBlockKramdownChecked, getBlockTreeInfos, getChildBlocksChecked, sqlChecked } from "@/api";
 import { readTaskIndexSnapshot } from "@/components/tools/siyuanComponentDataApi";
 import { normalizeEnhancedDiaryConfig } from "@/components/utils/widgetBlock/widget/enhancedDiary/enhancedDiaryConfig";
 import { formatDiaryAttrDate, lookupDiaryDocumentForDate } from "@/components/utils/widgetBlock/widget/enhancedDiary/enhancedDiaryDoc";
@@ -10,7 +10,8 @@ import { ENHANCED_DIARY_CONFIG_FILE } from "@/components/utils/widgetBlock/widge
 import { loadDataStrict } from "@/features/kb/services/agent-workbench/storage/notebrain-plugin-storage";
 import type { ToolRuntimeContext } from "@/features/kb/services/agent-workbench/contracts/tool-contract";
 import { generateTaskLine, parseTaskLine } from "@/features/task-data/task-parser";
-import { HOMEPAGE_MCP_DIARY_TASK_WRITES, homepageMcpDiaryTaskCreateSchema, type HomepageMcpWritePreview } from "@/features/agent-platform/mcp-server/homepage-mcp-write-preview";
+import { HOMEPAGE_MCP_DIARY_TASK_WRITES, HOMEPAGE_MCP_DIARY_TASK_MUTATIONS, homepageMcpDiaryTaskWriteSchema, type HomepageMcpWritePreview } from "@/features/agent-platform/mcp-server/homepage-mcp-write-preview";
+import type { EnhancedDiaryWorkspaceTask } from "@/components/utils/widgetBlock/widget/enhancedDiary/workspace/enhancedDiaryWorkspaceTaskService";
 
 const ID = /^\d{14}-[a-z0-9]{7}$/;
 const MAX_BLOCKS = 1000;
@@ -27,6 +28,7 @@ export interface PreparedDiaryTaskWrite {
   topIds: string[];
   listChildren: Record<string, string[]>;
   parents: Record<string, string>;
+  mutation?: { task: EnhancedDiaryWorkspaceTask; paragraphId: string; expectedLine: string; indexFingerprint: string };
 }
 
 function record(value: unknown): value is Record<string, unknown> {
@@ -146,24 +148,89 @@ async function readState(expectedBlockId?: string) {
     stateFingerprint: hash([stored.data, date, doc, rows, top, listChildren, treeInfos]) };
 }
 
+function ordinaryName(name: string): boolean {
+  const parsed = parseTaskLine(generateTaskLine({ taskname: name }));
+  return parsed.taskname === name && !Object.values(parsed.parsed).some((value) => Array.isArray(value) ? value.length > 0 : !!value);
+}
+
+function taskLine(markdown: string): string {
+  // 思源 3.8.8 将完成标记规范化为大写 X；只比较该标记的等价形式。
+  return markdown.replace(/^- \[X\]/, "- [x]");
+}
+
+async function readMutationTask(state: Awaited<ReturnType<typeof readState>>, blockId: string) {
+  const row = state.tasks.find((item) => item.id === blockId);
+  if (!row) throw new HomepageMcpDiaryTargetUnavailable("目标不是现有今日日记新任务区域中的任务，未生成确认。");
+  const parsed = parseTaskLine(row.markdown);
+  const completed = /\[[xX]\]/.test(parsed.taskCheck);
+  const line = generateTaskLine({ taskname: parsed.taskname, completed });
+  const list = state.rows.find((item) => item.id === state.parents[row.id] && item.type === "l");
+  const children = state.rows.filter((item) => state.parents[item.id] === row.id);
+  if (!ordinaryName(parsed.taskname) || /[\\`*_\[\]<>~{}]/.test(parsed.taskname) || taskLine(row.markdown) !== line ||
+    !list || !state.top.some((item) => item.id === list.id) || !state.listChildren[list.id]?.includes(row.id) ||
+    children.length !== 1 || children[0].type !== "p" || children[0].markdown !== parsed.taskname ||
+    children[0].content !== parsed.taskname || ![parsed.taskname, " " + parsed.taskname].includes(String(row.content)) || state.rows.some((item) => state.parents[item.id] === children[0].id) ||
+    [row, children[0]].some((item) => diaryAttributes(item.ial).id !== item.id || Object.entries(diaryAttributes(item.ial)).some(([key, value]) => key !== "id" || value !== item.id))) {
+    throw new HomepageMcpDiaryTargetUnavailable("首期仅支持结构完整、无隐藏属性、项目关系或复杂 Markdown 的普通任务。");
+  }
+  const raw = await getBlockKramdownChecked(row.id);
+  const native = /^- (\{:[^\n]*?\})(\[[ xX]\] [^\n]+)\n\s*(\{:[^\n]*?\})\s*$/.exec(raw.kramdown);
+  if (raw.id !== row.id || (native ? taskLine("- " + native[2]) !== line ||
+    hash(diaryAttributes(native[1])) !== hash(diaryAttributes(row.ial)) || hash(diaryAttributes(native[3])) !== hash(diaryAttributes(children[0].ial))
+    : taskLine(raw.kramdown) !== line)) throw new Error("diary_task_not_current");
+  for (const block of [row, children[0]]) {
+    const attrs = await getBlockAttrsChecked(block.id);
+    const expected = diaryAttributes(block.ial);
+    const actual = Object.fromEntries(Object.entries(attrs).filter(([key]) => key !== "updated").sort(([a], [b]) => a.localeCompare(b)));
+    if (hash(actual) !== hash(expected)) throw new Error("diary_task_attributes_changed");
+  }
+  const snapshot = await readTaskIndexSnapshot();
+  const indexed = snapshot.items.filter((item) => item.id === row.id);
+  const item = indexed[0];
+  if (!snapshot.fileExists || indexed.length !== 1 || (item.root_id || item.rootID) !== state.target.docId ||
+    item.root_id && item.root_id !== state.target.docId || item.rootID && item.rootID !== state.target.docId ||
+    item.box !== state.target.notebookId || taskLine(item.markdown) !== line || item.content !== parsed.taskname || item.checked !== completed ||
+    item.projectTargetId || item.hiddenProjectTargetId || item.visibleProjectTargetId || item.rootProjectId ||
+    item.projectPath?.length || item.projectRelationStatus && item.projectRelationStatus !== "none") throw new Error("diary_task_index_conflict");
+  const task: EnhancedDiaryWorkspaceTask = {
+    id: row.id, blockId: row.id, rootId: state.target.docId, box: state.target.notebookId,
+    hpath: typeof row.hpath === "string" ? row.hpath : undefined,
+    markdown: line, taskname: parsed.taskname, completed, ...parsed.parsed,
+    sourceKind: "new", isTodayTask: true, isOverdue: false, shouldMigrate: false, projectRelationStatus: "none",
+  };
+  return { task, paragraphId: children[0].id, indexFingerprint: hash(snapshot.items.filter((item) => item.id !== row.id)) };
+}
+
 export async function prepareHomepageMcpDiaryTaskWrite(args: Record<string, unknown>): Promise<PreparedDiaryTaskWrite> {
-  const input = homepageMcpDiaryTaskCreateSchema.parse(args);
-  const parsed = parseTaskLine(generateTaskLine(input.task));
-  if (parsed.taskname !== input.task.taskname || Object.values(parsed.parsed).some((value) => Array.isArray(value) ? value.length > 0 : !!value)) {
+  const input = homepageMcpDiaryTaskWriteSchema.parse(args);
+  if (input.operation !== "set_status" && (!ordinaryName(input.task.taskname) || input.operation === "update" && /[\\`*_\[\]<>~{}]/.test(input.task.taskname))) {
     throw new HomepageMcpDiaryTargetUnavailable("任务名称会被解释为任务元数据或属性，请使用普通任务名称。");
   }
   const state = await readState();
+  const mutation = input.operation === "create" ? undefined : await readMutationTask(state, input.target.blockId);
+  if (mutation && (input.operation === "set_status" ? mutation.task.completed === input.completed : input.operation === "update" && mutation.task.taskname === input.task.taskname)) {
+    throw new HomepageMcpDiaryTargetUnavailable("任务已是请求的状态或名称，无需修改，未生成写入确认。");
+  }
+  const operation = input.operation === "create" ? HOMEPAGE_MCP_DIARY_TASK_WRITES.manage_task : HOMEPAGE_MCP_DIARY_TASK_MUTATIONS[input.operation];
   return {
-    target: state.target, stateFingerprint: state.stateFingerprint,
+    target: state.target, stateFingerprint: hash([state.stateFingerprint, mutation]),
+    mutation: mutation && { ...mutation, expectedLine: generateTaskLine({ taskname: input.operation === "update" ? input.task.taskname : mutation.task.taskname,
+      completed: input.operation === "set_status" ? input.completed : mutation.task.completed }) },
     rows: state.rows.map((row) => ({ id: row.id, fingerprint: rowFingerprint(row), listFingerprint: rowFingerprint(row, true) })),
     topIds: state.top.map((block) => block.id), listChildren: state.listChildren, parents: state.parents,
     preview: {
-      action: "manage_task", operationName: HOMEPAGE_MCP_DIARY_TASK_WRITES.manage_task.name,
-      consequence: HOMEPAGE_MCP_DIARY_TASK_WRITES.manage_task.consequence,
-      targetName: state.doc.title!, targetId: state.doc.id, affectedCount: 1,
-      details: [
+      action: "manage_task", operationName: operation.name, consequence: operation.consequence,
+      targetName: mutation ? mutation.task.taskname : state.doc.title!, targetId: mutation ? mutation.task.blockId : state.doc.id, affectedCount: 1,
+      details: mutation ? [
         { label: "日记文档标题", value: state.doc.title! }, { label: "日记文档 ID", value: state.doc.id },
-        { label: "本地日期", value: state.target.date }, { label: "任务名称", value: input.task.taskname },
+        { label: "本地日期", value: state.target.date }, { label: "任务 blockId", value: mutation.task.blockId },
+        ...(input.operation === "set_status" ? [
+          { label: "任务名称", value: mutation.task.taskname }, { label: "当前状态", value: mutation.task.completed ? "完成" : "未完成" },
+          { label: "目标状态", value: input.completed ? "完成" : "未完成" },
+        ] : [{ label: "原任务名称", value: mutation.task.taskname }, { label: "新任务名称", value: input.operation === "update" ? input.task.taskname : "" }]),
+      ] : [
+        { label: "日记文档标题", value: state.doc.title! }, { label: "日记文档 ID", value: state.doc.id },
+        { label: "本地日期", value: state.target.date }, { label: "任务名称", value: input.operation === "create" ? input.task.taskname : "" },
         { label: "插入区域", value: "新任务" }, { label: "当前区域任务数量", value: String(state.tasks.length) },
       ],
     },
@@ -171,9 +238,35 @@ export async function prepareHomepageMcpDiaryTaskWrite(args: Record<string, unkn
 }
 
 export async function verifyHomepageMcpDiaryTaskWrite(args: Record<string, unknown>, before: PreparedDiaryTaskWrite, data: unknown): Promise<boolean> {
-  const input = homepageMcpDiaryTaskCreateSchema.parse(args);
+  const input = homepageMcpDiaryTaskWriteSchema.parse(args);
   if (!record(data) || data.action !== "manage_task") return false;
   const result = data.result;
+  if (input.operation !== "create") {
+    if (!before.mutation || !record(result) || result.operation !== input.operation || result.changed !== true || result.blockId !== input.target.blockId) return false;
+    // 更新可见性也会落后于原生块树；仅补偿读取，不再次执行任务修改。
+    for (const wait of [0, 100, 250, 500, 1000, 1500, 2000]) {
+      if (wait) await new Promise((resolve) => setTimeout(resolve, wait));
+      const after = await readState();
+      if (hash(after.target) !== hash(before.target) || after.rows.length !== before.rows.length ||
+        hash(after.top.map((item) => item.id)) !== hash(before.topIds) || hash(after.listChildren) !== hash(before.listChildren) || hash(after.parents) !== hash(before.parents)) return false;
+      let current;
+      try { current = await readMutationTask(after, input.target.blockId); }
+      catch { continue; }
+      if (current.paragraphId !== before.mutation.paragraphId || current.indexFingerprint !== before.mutation.indexFingerprint) return false;
+      if (current.task.markdown !== before.mutation.expectedLine) continue;
+      const listId = before.parents[input.target.blockId];
+      return before.rows.every((old) => {
+        const row = after.rows.find((item) => item.id === old.id);
+        if (!row) return false;
+        if (row.id === listId) return rowFingerprint(row, true) === old.listFingerprint;
+        if (row.id === input.target.blockId || row.id === current.paragraphId) {
+          return rowFingerprint(row, true) === old.listFingerprint;
+        }
+        return rowFingerprint(row) === old.fingerprint;
+      });
+    }
+    return false;
+  }
   if (!record(result) || result.operation !== "create" || result.changed !== true || result.docId !== before.target.docId ||
     typeof result.blockId !== "string" || !ID.test(result.blockId) || result.taskname !== input.task.taskname || result.projectTargetId) return false;
   const after = await readState(result.blockId);

@@ -290,7 +290,7 @@ function createSiyuanToolDeps(deps: SiyuanToolDeps) {
     executeManageDiaryStructure: (args) => executeManageDiaryStructure(deps, args),
   };
   const manageDiaryTaskDeps: ManageDiaryTaskDeps = {
-    executeManageDiaryTask: (args, target) => executeManageDiaryTask(deps, args, target),
+    executeManageDiaryTask: (args, target, mutation) => executeManageDiaryTask(deps, args, target, mutation),
   };
   const manageDiaryRecordDeps: ManageDiaryRecordDeps = {
     executeManageDiaryRecord: (args) => executeManageDiaryRecord(deps, args),

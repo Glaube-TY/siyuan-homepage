@@ -6,6 +6,7 @@ export interface ToolExecutionContext {
   callCounts: Record<string, number>;
   abortSignal?: AbortSignal;
   diaryTaskCreateTarget?: ToolRuntimeContext["diaryTaskCreateTarget"];
+  diaryTaskMutationTarget?: ToolRuntimeContext["diaryTaskMutationTarget"];
 }
 
 export interface ToolExecutionResult {

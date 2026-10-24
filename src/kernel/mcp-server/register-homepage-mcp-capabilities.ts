@@ -4,7 +4,7 @@ import { HomepageMcpAnniversaryConflict, prepareHomepageMcpAnniversaryWrite, ver
 import { prepareHomepageMcpDatabaseWrite, verifyHomepageMcpDatabaseWrite, type PreparedDatabaseWrite } from "./homepage-mcp-database-write";
 import { getHomepageMcpWriteOperation, homepageMcpDatabaseUpdateSchema, homepageMcpDatabaseClearSchema, homepageMcpDatabaseDetachedAddSchema, homepageMcpDatabaseBoundAddSchema, homepageMcpDatabaseRemoveSchema, homepageMcpDatabaseAddKeySchema, homepageMcpDatabaseRemoveKeySchema, isHomepageMcpFavoriteWriteAction, isHomepageMcpAnniversaryWriteAction, type HomepageMcpDatabaseWriteAction, type HomepageMcpFavoriteWriteAction, type HomepageMcpAnniversaryWriteAction } from "../../features/agent-platform/mcp-server/homepage-mcp-write-preview";
 import { HomepageMcpDiaryTargetUnavailable, prepareHomepageMcpDiaryTaskWrite, verifyHomepageMcpDiaryTaskWrite, type PreparedDiaryTaskWrite } from "./homepage-mcp-diary-task-write";
-import { homepageMcpDiaryTaskCreateSchema } from "../../features/agent-platform/mcp-server/homepage-mcp-write-preview";
+import { homepageMcpDiaryTaskWriteSchema } from "../../features/agent-platform/mcp-server/homepage-mcp-write-preview";
 import type { NativeTool } from "../../features/kb/services/agent-core/tools/native-tool";
 import type { NativeToolRegistry } from "../../features/kb/services/agent-core/tools/native-tool-registry";
 import {
@@ -201,7 +201,7 @@ function createCapabilityConfig(
   return {
     title: writes.length ? (policy.name === "siyuan_database" ? "思源数据库查询与确认写入" : policy.name === "diary_task" ? "日记任务查询与确认写入" : "主页组件查询与确认写入") : CAPABILITY_TITLES[policy.name],
     description: writes.length
-      ? `${policy.name === "diary_task" ? "查询日记、任务和记录；" : CAPABILITY_DESCRIPTIONS[policy.name]}${writes.join("、")}仅限本次运行授权且经逐次用户确认。`
+      ? `${policy.name === "diary_task" ? "查询日记、任务和记录；普通任务新建、状态修改和重命名" : CAPABILITY_DESCRIPTIONS[policy.name] + writes.join("、")}仅限本次运行授权且经逐次用户确认。`
       : CAPABILITY_DESCRIPTIONS[policy.name],
     inputSchema: policy.inputSchema,
     effects: { localRead: true, ...(writes.length ? { localWrite: true } : {}) },
@@ -241,7 +241,7 @@ function createCapabilityHandler(
     let toolInput: Record<string, unknown>;
     try {
       toolInput = { action, args: input.args === undefined ? {} : input.args };
-      if (write && policy.name === "diary_task") homepageMcpDiaryTaskCreateSchema.parse(toolInput.args);
+      if (write && policy.name === "diary_task") homepageMcpDiaryTaskWriteSchema.parse(toolInput.args);
       if (write && policy.name === "siyuan_database") {
         const schema = action === "add_rows"
           ? isPlainRecord(toolInput.args) && Object.prototype.hasOwnProperty.call(toolInput.args, "blockIds") ? homepageMcpDatabaseBoundAddSchema : homepageMcpDatabaseDetachedAddSchema
@@ -314,7 +314,17 @@ function createCapabilityHandler(
     try {
       const result = await policy.tool.execute(toolInput, {
         question: "External MCP capability invocation", callCounts: {},
-        ...(prepared?.domain === "diary" ? { diaryTaskCreateTarget: prepared.value.target } : {}),
+        ...(prepared?.domain === "diary" ? prepared.value.mutation ? {
+          diaryTaskMutationTarget: {
+            ...prepared.value.target, operation: (toolInput.args as { operation: "set_status" | "update" }).operation,
+            blockId: prepared.value.mutation.task.blockId, stateFingerprint: prepared.value.stateFingerprint,
+            readTask: async () => {
+              const current = await prepareHomepageMcpDiaryTaskWrite(toolInput.args as Record<string, unknown>);
+              if (current.stateFingerprint !== prepared!.value.stateFingerprint || !current.mutation) throw new Error("diary_target_conflict");
+              return current.mutation.task;
+            },
+          },
+        } : { diaryTaskCreateTarget: prepared.value.target } : {}),
       });
       if (write) {
         if (!result.ok) {
