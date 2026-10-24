@@ -634,9 +634,11 @@ export async function updateWorkspaceTask(
 
 export async function postponeWorkspaceTask(
     task: EnhancedDiaryWorkspaceTask,
-    target: "tomorrow" | "nextWeek"
+    target: "tomorrow" | "nextWeek",
+    expectedDeadline?: string,
 ): Promise<WorkspaceTaskActionResult> {
     const targetDate = formatLocalDate(addDays(new Date(), target === "tomorrow" ? 1 : 7));
+    if (expectedDeadline !== undefined && targetDate !== expectedDeadline) return { ok: false, reason: "diary_target_conflict", message: "本地日期已变化，未执行任务推迟。" };
     const nextInput: GenerateTasksPlusTaskInput = {
         taskname: task.taskname,
         completed: task.completed,

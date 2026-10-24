@@ -12,6 +12,7 @@ import type { ToolRuntimeContext } from "@/features/kb/services/agent-workbench/
 import { generateTaskLine, parseTaskLine } from "@/features/task-data/task-parser";
 import { HOMEPAGE_MCP_DIARY_TASK_WRITES, HOMEPAGE_MCP_DIARY_TASK_MUTATIONS, HOMEPAGE_MCP_DIARY_TASK_DELETE_WARNING, HOMEPAGE_MCP_DIARY_TASK_LOG_DELETE, homepageMcpDiaryTaskWriteSchema, type HomepageMcpWritePreview } from "@/features/agent-platform/mcp-server/homepage-mcp-write-preview";
 import { buildWorkspaceTaskDeletionLogMarkdown, type EnhancedDiaryWorkspaceTask } from "@/components/utils/widgetBlock/widget/enhancedDiary/workspace/enhancedDiaryWorkspaceTaskService";
+import { addDays, formatLocalDate } from "@/components/utils/widgetBlock/widget/enhancedDiary/workspace/enhancedDiaryWorkspaceDate";
 
 const ID = /^\d{14}-[a-z0-9]{7}$/;
 const MAX_BLOCKS = 1000;
@@ -32,6 +33,7 @@ export interface PreparedDiaryTaskWrite {
   orders?: Record<string, string[]>;
   mutation?: { task: EnhancedDiaryWorkspaceTask; paragraphId: string; expectedLine: string; indexFingerprint: string };
   deletion?: { listId: string; expectedListFingerprint: string };
+  postponement?: { postponeTo: "tomorrow" | "next_week"; deadline: string; listId: string; expectedListFingerprint: string; indexStateFingerprint: string };
   loggedDeletion?: { headingId: string; boundaryId: string | null; insertionIndex: number; markdown: string; markdownFingerprint: string; after?: PreparedDiaryTaskWrite };
 }
 
@@ -215,18 +217,19 @@ function taskLine(markdown: string): string {
   return markdown.replace(/^- \[X\]/, "- [x]");
 }
 
-async function readMutationTask(state: Awaited<ReturnType<typeof readState>>, blockId: string) {
+async function readTaskWithDeadline(state: Awaited<ReturnType<typeof readState>>, blockId: string, deadline?: string) {
   const row = state.tasks.find((item) => item.id === blockId);
   if (!row) throw new HomepageMcpDiaryTargetUnavailable("目标不是现有今日日记新任务区域中的任务，未生成确认。");
   const parsed = parseTaskLine(row.markdown);
   const completed = /\[[xX]\]/.test(parsed.taskCheck);
-  const line = generateTaskLine({ taskname: parsed.taskname, completed });
+  const line = generateTaskLine({ taskname: parsed.taskname, completed, deadline });
+  const body = line.replace(/^- \[[ x]\] /, "");
   const list = state.rows.find((item) => item.id === state.parents[row.id] && item.type === "l");
   const children = state.rows.filter((item) => state.parents[item.id] === row.id);
   if (!ordinaryName(parsed.taskname) || /[\\`*_\[\]<>~{}]/.test(parsed.taskname) || taskLine(row.markdown) !== line ||
     !list || !state.top.some((item) => item.id === list.id) || !state.listChildren[list.id]?.includes(row.id) ||
-    children.length !== 1 || children[0].type !== "p" || children[0].markdown !== parsed.taskname ||
-    children[0].content !== parsed.taskname || ![parsed.taskname, " " + parsed.taskname].includes(String(row.content)) || state.rows.some((item) => state.parents[item.id] === children[0].id) ||
+    children.length !== 1 || children[0].type !== "p" || children[0].markdown !== body ||
+    children[0].content !== body || ![body, " " + body].includes(String(row.content)) || state.rows.some((item) => state.parents[item.id] === children[0].id) ||
     [row, children[0]].some((item) => diaryAttributes(item.ial).id !== item.id || Object.entries(diaryAttributes(item.ial)).some(([key, value]) => key !== "id" || value !== item.id))) {
     throw new HomepageMcpDiaryTargetUnavailable("首期仅支持结构完整、无隐藏属性、项目关系或复杂 Markdown 的普通任务。");
   }
@@ -246,7 +249,9 @@ async function readMutationTask(state: Awaited<ReturnType<typeof readState>>, bl
   const item = indexed[0];
   if (!snapshot.fileExists || indexed.length !== 1 || (item.root_id || item.rootID) !== state.target.docId ||
     item.root_id && item.root_id !== state.target.docId || item.rootID && item.rootID !== state.target.docId ||
-    item.box !== state.target.notebookId || taskLine(item.markdown) !== line || item.content !== parsed.taskname || item.checked !== completed ||
+    item.box !== state.target.notebookId || taskLine(item.markdown) !== line ||
+    // 原业务先索引纯任务名；3.8.8 增量刷新会索引含截止日期的精确原生正文。
+    !(deadline ? [parsed.taskname, body] : [parsed.taskname]).includes(item.content ?? "") || item.checked !== completed ||
     item.projectTargetId || item.hiddenProjectTargetId || item.visibleProjectTargetId || item.rootProjectId ||
     item.projectPath?.length || item.projectRelationStatus && item.projectRelationStatus !== "none") throw new Error("diary_task_index_conflict");
   const task: EnhancedDiaryWorkspaceTask = {
@@ -258,6 +263,16 @@ async function readMutationTask(state: Awaited<ReturnType<typeof readState>>, bl
   return { task, paragraphId: children[0].id, indexFingerprint: hash(snapshot.items.filter((item) => item.id !== row.id)) };
 }
 
+async function readMutationTask(state: Awaited<ReturnType<typeof readState>>, blockId: string) {
+  return readTaskWithDeadline(state, blockId);
+}
+
+async function readPostponedTask(state: Awaited<ReturnType<typeof readState>>, blockId: string, deadline: string) {
+  const current = await readTaskWithDeadline(state, blockId, deadline);
+  if (current.task.completed || current.task.deadline !== deadline) throw new Error("diary_postponement_invalid");
+  return current;
+}
+
 export async function prepareHomepageMcpDiaryTaskWrite(args: Record<string, unknown>): Promise<PreparedDiaryTaskWrite> {
   const input = homepageMcpDiaryTaskWriteSchema.parse(args);
   if ((input.operation === "create" || input.operation === "update") && (!ordinaryName(input.task.taskname) || input.operation === "update" && /[\\`*_\[\]<>~{}]/.test(input.task.taskname))) {
@@ -265,6 +280,22 @@ export async function prepareHomepageMcpDiaryTaskWrite(args: Record<string, unkn
   }
   const state = await readState();
   const mutation = input.operation === "create" ? undefined : await readMutationTask(state, input.target.blockId);
+  let postponement: PreparedDiaryTaskWrite["postponement"];
+  if (input.operation === "postpone") {
+    if (mutation!.task.completed) throw new HomepageMcpDiaryTargetUnavailable("已完成任务不能申请推迟，未生成确认。");
+    const now = new Date();
+    if (formatDiaryAttrDate(now) !== state.target.date) throw new Error("diary_date_changed");
+    const deadline = formatLocalDate(addDays(now, input.postponeTo === "tomorrow" ? 1 : 7));
+    const listId = state.parents[input.target.blockId], list = state.rows.find((row) => row.id === listId)!;
+    const items = state.listChildren[listId].map((id) => state.rows.find((row) => row.id === id)!);
+    if (list.markdown !== items.map((row) => row.markdown).join("\n") || list.content !== items.map((row) => row.content).join("")) throw new Error("diary_list_aggregate_unverified");
+    const line = generateTaskLine({ taskname: mutation!.task.taskname, deadline });
+    const old = state.rows.find((row) => row.id === input.target.blockId)!;
+    const body = line.slice(6), content = String(old.content).startsWith(" ") ? " " + body : body;
+    postponement = { postponeTo: input.postponeTo, deadline, listId, indexStateFingerprint: hash((await readTaskIndexSnapshot()).items), expectedListFingerprint: rowFingerprint({ ...list,
+      markdown: items.map((row) => row.id === old.id ? line : row.markdown).join("\n"),
+      content: items.map((row) => row.id === old.id ? content : row.content).join("") }) };
+  }
   if (mutation && (input.operation === "set_status" ? mutation.task.completed === input.completed : input.operation === "update" && mutation.task.taskname === input.task.taskname)) {
     throw new HomepageMcpDiaryTargetUnavailable("任务已是请求的状态或名称，无需修改，未生成写入确认。");
   }
@@ -291,9 +322,9 @@ export async function prepareHomepageMcpDiaryTaskWrite(args: Record<string, unkn
   }
   const operation = loggedDeletion ? HOMEPAGE_MCP_DIARY_TASK_LOG_DELETE : input.operation === "create" ? HOMEPAGE_MCP_DIARY_TASK_WRITES.manage_task : HOMEPAGE_MCP_DIARY_TASK_MUTATIONS[input.operation];
   return {
-    target: state.target, stateFingerprint: hash([state.stateFingerprint, mutation]), deletion, loggedDeletion, orders: loggedDeletion ? nativeOrders(state) : undefined,
+    target: state.target, stateFingerprint: hash([state.stateFingerprint, mutation, postponement]), deletion, loggedDeletion, postponement, orders: loggedDeletion || postponement ? nativeOrders(state) : undefined,
     mutation: mutation && { ...mutation, expectedLine: generateTaskLine({ taskname: input.operation === "update" ? input.task.taskname : mutation.task.taskname,
-      completed: input.operation === "set_status" ? input.completed : mutation.task.completed }) },
+      completed: input.operation === "set_status" ? input.completed : mutation.task.completed, deadline: postponement?.deadline }) },
     rows: state.rows.map((row) => ({ id: row.id, fingerprint: rowFingerprint(row), listFingerprint: rowFingerprint(row, true) })),
     topIds: state.top.map((block) => block.id), listChildren: state.listChildren, parents: state.parents,
     preview: {
@@ -302,7 +333,10 @@ export async function prepareHomepageMcpDiaryTaskWrite(args: Record<string, unkn
       details: mutation ? [
         { label: "日记文档标题", value: state.doc.title! }, { label: "日记文档 ID", value: state.doc.id },
         { label: "本地日期", value: state.target.date }, { label: "任务 blockId", value: mutation.task.blockId },
-        ...(input.operation === "delete" ? [
+        ...(input.operation === "postpone" ? [
+          { label: "任务名称", value: mutation.task.taskname }, { label: "当前状态", value: "未完成" }, { label: "当前日期安排", value: "无" },
+          { label: "推迟方式", value: input.postponeTo === "tomorrow" ? "明天" : "7 天后" }, { label: "新截止日期", value: postponement!.deadline }, { label: "影响任务数量", value: "1" },
+        ] : input.operation === "delete" ? [
           { label: "任务名称", value: mutation.task.taskname }, { label: "当前状态", value: mutation.task.completed ? "完成" : "未完成" },
           { label: "所属区域", value: "新任务" },
           ...(loggedDeletion ? [
@@ -372,6 +406,31 @@ export async function verifyHomepageMcpDiaryTaskWrite(args: Record<string, unkno
   const input = homepageMcpDiaryTaskWriteSchema.parse(args);
   if (!record(data) || data.action !== "manage_task") return false;
   const result = data.result;
+  if (input.operation === "postpone") {
+    const postponed = before.postponement, mutation = before.mutation;
+    if (!postponed || !mutation || !record(result) || result.operation !== "postpone" || result.changed !== true ||
+      result.blockId !== input.target.blockId || result.taskname !== mutation.task.taskname || result.docId !== before.target.docId ||
+      postponed.postponeTo !== input.postponeTo || postponed.deadline !== formatLocalDate(addDays(new Date(), input.postponeTo === "tomorrow" ? 1 : 7))) return false;
+    for (const wait of [0, 100, 250, 500, 1000, 1500, 2000]) {
+      if (wait) await new Promise((resolve) => setTimeout(resolve, wait));
+      try {
+        const after = await readState(), current = await readPostponedTask(after, input.target.blockId, postponed.deadline);
+        if (current.task.markdown !== mutation.expectedLine) continue;
+        return hash(after.target) === hash(before.target) && after.rows.length === before.rows.length &&
+          hash(after.top.map((item) => item.id)) === hash(before.topIds) && hash(after.parents) === hash(before.parents) &&
+          hash(after.listChildren) === hash(before.listChildren) && hash(nativeOrders(after)) === hash(before.orders) &&
+          current.paragraphId === mutation.paragraphId && current.indexFingerprint === mutation.indexFingerprint &&
+          before.rows.every((old) => {
+            const row = after.rows.find((item) => item.id === old.id);
+            if (!row) return false;
+            if (row.id === postponed.listId) return rowFingerprint(row) === postponed.expectedListFingerprint;
+            if (row.id === input.target.blockId || row.id === mutation.paragraphId) return rowFingerprint(row, true) === old.listFingerprint;
+            return rowFingerprint(row) === old.fingerprint;
+          });
+      } catch { /* 仅有限回读，不重放推迟或索引写入。 */ }
+    }
+    return false;
+  }
   if (input.operation === "delete") {
     if (input.deleteMode === "log") {
       if (!before.loggedDeletion?.after) return false;

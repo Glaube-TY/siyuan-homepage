@@ -40,7 +40,12 @@ const diaryTaskCreateArgsSchema: HomepageMcpJsonSchema = {
   },
 };
 const diaryTaskWriteArgsSchema: HomepageMcpJsonSchema = {
-  type: "object", oneOf: [diaryTaskCreateArgsSchema, {
+  type: "object", additionalProperties: false,
+  properties: { operation: { type: "string", enum: ["create", "set_status", "update", "delete", "postpone"] },
+    task: { type: "object", additionalProperties: false, properties: { taskname: diaryTaskNameSchema } },
+    target: { type: "object", additionalProperties: false, required: ["blockId"], properties: { blockId: databaseIdSchema } },
+    completed: { type: "boolean" }, deleteMode: { type: "string", enum: ["delete", "log"] }, postponeTo: { type: "string", enum: ["tomorrow", "next_week"] } },
+  oneOf: [diaryTaskCreateArgsSchema, {
     type: "object", additionalProperties: false, required: ["operation", "target", "completed"],
     properties: { operation: { type: "string", const: "set_status" },
       target: { type: "object", additionalProperties: false, required: ["blockId"], properties: { blockId: databaseIdSchema } },
@@ -62,6 +67,11 @@ const diaryTaskWriteArgsSchema: HomepageMcpJsonSchema = {
     properties: { operation: { type: "string", const: "delete" },
       target: { type: "object", additionalProperties: false, required: ["blockId"], properties: { blockId: databaseIdSchema } },
       deleteMode: { type: "string", const: "log" } },
+  }, {
+    type: "object", additionalProperties: false, required: ["operation", "target", "postponeTo"],
+    properties: { operation: { type: "string", const: "postpone" },
+      target: { type: "object", additionalProperties: false, required: ["blockId"], properties: { blockId: databaseIdSchema } },
+      postponeTo: { type: "string", enum: ["tomorrow", "next_week"] } },
   }],
 };
 const databaseFieldNameSchema = { type: "string", minLength: 1, maxLength: 50, not: { pattern: "^\\s|\\s$" } };

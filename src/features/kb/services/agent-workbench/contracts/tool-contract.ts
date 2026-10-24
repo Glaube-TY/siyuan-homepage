@@ -80,7 +80,9 @@ export interface ToolRuntimeContext {
   diaryRecordDeleteTarget?: import("@/components/utils/widgetBlock/widget/enhancedDiary/workspace/enhancedDiaryWorkspaceRecordService").WorkspaceQuickRecordDeleteTarget;
   /** Kernel 内部闭包重新读取真实目标；不接受外部参数或过期索引作为依据。 */
   diaryTaskMutationTarget?: NonNullable<ToolRuntimeContext["diaryTaskCreateTarget"]> & {
-    operation: "set_status" | "update" | "delete"; blockId: string; stateFingerprint: string;
+    operation: "set_status" | "update" | "delete" | "postpone"; blockId: string; stateFingerprint: string;
+    postponeTo?: "tomorrow" | "next_week";
+    expectedDeadline?: string;
     deleteMode?: "delete" | "log";
     loggedDeletion?: Omit<import("@/components/utils/widgetBlock/widget/enhancedDiary/workspace/enhancedDiaryWorkspaceTaskService").WorkspaceTaskLoggedDeletionContext, "readTask">;
     readTask(): Promise<import("@/components/utils/widgetBlock/widget/enhancedDiary/workspace/enhancedDiaryWorkspaceTaskService").EnhancedDiaryWorkspaceTask>;

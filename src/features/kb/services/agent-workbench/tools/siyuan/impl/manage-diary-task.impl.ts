@@ -13,6 +13,7 @@ import type { ToolRuntimeContext } from "../../../contracts/tool-contract";
 import { homepageMcpDiaryTaskWriteSchema } from "@/features/agent-platform/mcp-server/homepage-mcp-write-preview";
 import { findDayWorkspaceHeadingBlock } from "@/components/utils/widgetBlock/widget/enhancedDiary/enhancedDiaryBlockLocator";
 import { formatDiaryAttrDate, lookupDiaryDocumentForDate } from "@/components/utils/widgetBlock/widget/enhancedDiary/enhancedDiaryDoc";
+import { addDays, formatLocalDate } from "@/components/utils/widgetBlock/widget/enhancedDiary/workspace/enhancedDiaryWorkspaceDate";
 import type { EnhancedDiaryWorkspaceTask } from "@/components/utils/widgetBlock/widget/enhancedDiary/workspace/enhancedDiaryWorkspaceTaskService";
 import type { SiyuanToolDeps as KbRetrievalToolDeps } from "../siyuan-tool-deps";
 import type { ManageDiaryTaskInput, ManageDiaryTaskOutput } from "../contracts/manage-diary-task.contract";
@@ -189,6 +190,7 @@ async function findApprovedTask(args: ManageDiaryTaskInput, target: NonNullable<
     const input = homepageMcpDiaryTaskWriteSchema.parse(args);
     if (input.operation === "create" || input.operation !== target.operation || input.target.blockId !== target.blockId) throw new Error("diary_target_conflict");
     if (input.operation === "delete" && (input.deleteMode !== target.deleteMode || (input.deleteMode === "log" && !target.loggedDeletion))) throw new Error("diary_target_conflict");
+    if (input.operation === "postpone" && (input.postponeTo !== target.postponeTo || target.expectedDeadline !== formatLocalDate(addDays(new Date(), input.postponeTo === "tomorrow" ? 1 : 7)))) throw new Error("diary_target_conflict");
     const task = await target.readTask();
     if (task.blockId !== target.blockId || task.rootId !== target.docId || task.box !== target.notebookId) throw new Error("diary_target_conflict");
     return { task };
@@ -303,21 +305,28 @@ async function executeUpdate(
 async function executePostpone(
   deps: KbRetrievalToolDeps,
   args: ManageDiaryTaskInput,
+  mutation?: ToolRuntimeContext["diaryTaskMutationTarget"],
 ): Promise<ExecResult> {
   const config = await loadAgendaEnhancedDiaryConfig(deps);
-  const found = await findTask(deps, config, args.target!);
+  const found = mutation ? await findApprovedTask(args, mutation) : await findTask(deps, config, args.target!);
   if (!found.task) {
     return { ok: false, errorCode: found.errorCode, safeOutput: { operation: "postpone", changed: false, taskId: args.target?.taskId, blockId: args.target?.blockId, message: found.message! } };
   }
 
   const task = found.task;
+  if (mutation && (task.completed || task.startDate || task.deadline || task.priority || task.recurrence || task.reminder || task.location || task.tags?.length ||
+    task.projectTargetId || task.hiddenProjectTargetId || task.visibleProjectTargetId || task.rootProjectId || task.projectPath?.length || task.projectRelationStatus !== "none" ||
+    formatDiaryAttrDate(new Date()) !== mutation.date || config.dailyNotebookId !== mutation.notebookId || SHA256(JSON.stringify(config)).toString() !== mutation.configFingerprint)) {
+    return { ok: false, errorCode: "diary_target_conflict", safeOutput: { operation: "postpone", changed: false, message: "已批准的普通任务或日记配置已变化，未执行推迟。" } };
+  }
   const target = args.postponeTo === "next_week" ? "nextWeek" : "tomorrow";
-  const result = await postponeWorkspaceTask(task, target);
+  const result = await postponeWorkspaceTask(task, target, mutation?.expectedDeadline);
+  if (mutation && (result.partial || !result.ok && result.reason === "update_failed")) return mutationUncertain(args.operation);
 
   if (!result.ok) {
     return {
       ok: false,
-      errorCode: "task_postpone_failed",
+      errorCode: result.reason === "diary_target_conflict" ? result.reason : "task_postpone_failed",
       safeOutput: { operation: "postpone", changed: false, taskId: task.id, blockId: task.blockId, taskname: task.taskname, message: result.message || "推迟任务失败。" },
     };
   }
@@ -327,7 +336,8 @@ async function executePostpone(
     : `任务已推迟到${args.postponeTo === "next_week" ? "下周" : "明天"}。`;
   return {
     ok: true,
-    safeOutput: { operation: "postpone", changed: true, taskId: task.id, blockId: task.blockId, taskname: task.taskname, message },
+    safeOutput: { operation: "postpone", changed: true, taskId: task.id, blockId: task.blockId, taskname: task.taskname,
+      ...(mutation ? { docId: mutation.docId, message: `任务截止日期已设为 ${mutation.expectedDeadline}，任务保留在原日记。` } : { message }) },
   };
 }
 
@@ -380,7 +390,7 @@ export async function executeManageDiaryTask(
     case "update":
       return executeUpdate(deps, args, mutation);
     case "postpone":
-      return executePostpone(deps, args);
+      return executePostpone(deps, args, mutation);
     case "delete":
       return executeDelete(deps, args, mutation);
     default:
