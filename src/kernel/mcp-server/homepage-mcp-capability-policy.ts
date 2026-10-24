@@ -1,9 +1,17 @@
 import type { NativeTool } from "../../features/kb/services/agent-core/tools/native-tool";
 import type { NativeToolRegistry } from "../../features/kb/services/agent-core/tools/native-tool-registry";
 import type { HomepageMcpCapabilityEffects, HomepageMcpJsonSchema } from "./homepage-mcp-types";
-import { getHomepageMcpWriteOperation, HOMEPAGE_MCP_WRITES_BY_TOOL } from "../../features/agent-platform/mcp-server/homepage-mcp-write-preview";
+import { getHomepageMcpWriteOperation, HOMEPAGE_MCP_WRITES_BY_TOOL, HOMEPAGE_MCP_RECORD_TEXT_UNSAFE } from "../../features/agent-platform/mcp-server/homepage-mcp-write-preview";
 
 const databaseIdSchema = { type: "string", pattern: "^\\d{14}-[a-z0-9]{7}$" };
+const diaryRecordAddArgsSchema: HomepageMcpJsonSchema = {
+  type: "object", additionalProperties: false, required: ["operation", "categoryTitle", "content"],
+  properties: {
+    operation: { type: "string", const: "add" }, categoryTitle: { type: "string", enum: ["未分类", "想法", "问题", "决策", "日志"] },
+    content: { type: "string", minLength: 1, maxLength: 1000,
+      not: { pattern: HOMEPAGE_MCP_RECORD_TEXT_UNSAFE.source + "|[\\x00-\\x1f\\x7f-\\x9f\u2028\u2029]" } },
+  },
+};
 const diaryTaskNameSchema = { type: "string", minLength: 1, maxLength: 200,
   not: { pattern: "^\\s|\\s$|[\\x00-\\x1f\\x7f-\\x9f\u2028\u2029📅⌛❗🔁⏰📍📁#]|\\{:.*?\\}\\s*$" } };
 const diaryTaskCreateArgsSchema: HomepageMcpJsonSchema = {
@@ -277,7 +285,8 @@ export function buildHomepageMcpCapabilityPolicies(
         continue;
       }
       const argsSchema = name === "siyuan_database" && isHomepageMcpWriteAction(name, action)
-        ? databaseWriteArgsSchemas[action] : name === "diary_task" && action === "manage_task" ? diaryTaskWriteArgsSchema : metadata.argsSchema;
+        ? databaseWriteArgsSchemas[action] : name === "diary_task" && action === "manage_task" ? diaryTaskWriteArgsSchema
+          : name === "diary_task" && action === "manage_record" ? diaryRecordAddArgsSchema : metadata.argsSchema;
       if (!argsSchema) {
         issues.push(`${name}.${action}: external_args_schema_required`);
         continue;

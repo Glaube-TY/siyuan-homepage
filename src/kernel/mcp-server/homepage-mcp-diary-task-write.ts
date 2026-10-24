@@ -19,6 +19,7 @@ const hash = (value: unknown): string => SHA256(JSON.stringify(value)).toString(
 type Row = Record<string, unknown> & { id: string; type: string; parent_id: string; markdown: string; ial: string };
 
 export class HomepageMcpDiaryTargetUnavailable extends Error {}
+export { readState as readHomepageMcpDiaryState };
 
 export interface PreparedDiaryTaskWrite {
   preview: HomepageMcpWritePreview;
@@ -38,7 +39,7 @@ function record(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
 }
 
-function diaryAttributes(ial: string): Record<string, string> {
+export function diaryAttributes(ial: string): Record<string, string> {
   let remaining = /^\{:\s*([\s\S]*?)\s*\}$/.exec(ial)?.[1];
   if (remaining === undefined) throw new Error("diary_attributes_invalid");
   const attributes = new Map<string, string>();
@@ -52,7 +53,7 @@ function diaryAttributes(ial: string): Record<string, string> {
   return Object.fromEntries([...attributes].sort(([a], [b]) => a.localeCompare(b)));
 }
 
-function rowFingerprint(row: Row, list = false): string {
+export function rowFingerprint(row: Row, list = false): string {
   // updated/hash/长度和 SQL sort 是内核派生值；实际子块顺序另行核对。
   const { updated: _updated, hash: _hash, length: _length, fcontent: _fcontent, sort: _sort, ...business } = row;
   business.ial = JSON.stringify(diaryAttributes(row.ial));
@@ -60,7 +61,7 @@ function rowFingerprint(row: Row, list = false): string {
   return hash(business);
 }
 
-async function readState(expectedBlockId?: string) {
+async function readState(expectedBlockId?: string, sectionKey: "newTasks" | "quickRecords" = "newTasks") {
   const stored = await loadDataStrict<Record<string, unknown>>(ENHANCED_DIARY_CONFIG_FILE);
   if (stored.status !== "ok" || !record(stored.data) || typeof stored.data.dailyNotebookId !== "string" || !ID.test(stored.data.dailyNotebookId)) {
     throw new HomepageMcpDiaryTargetUnavailable("请先正确配置强化日记笔记本，未生成写入确认。");
@@ -78,12 +79,12 @@ async function readState(expectedBlockId?: string) {
   if (!ID.test(doc.id) || !doc.title || doc.content.length > 1_000_000) throw new Error("diary_unbounded");
   const top = await getChildBlocksChecked(doc.id);
   if (top.length > MAX_BLOCKS || new Set(top.map((block) => block.id)).size !== top.length) throw new Error("diary_structure_invalid");
-  const located = await findDayWorkspaceHeadingBlock(doc.id, "newTasks", config.headingStructure, config.templateFieldMapping, top);
+  const located = await findDayWorkspaceHeadingBlock(doc.id, sectionKey, config.headingStructure, config.templateFieldMapping, top);
   if (!located.found || !located.heading) throw new Error("new_tasks_missing");
   const roots = located.headings.filter((heading) => heading.level === 1 && matchesRootHeadingWithMapping(heading.title, "day", config.templateFieldMapping));
   if (roots.length !== 1) throw new Error("diary_root_ambiguous");
   let parent = roots[0];
-  for (const aliases of getDayWorkspaceSectionPathAliases(config.templateFieldMapping, "newTasks")) {
+  for (const aliases of getDayWorkspaceSectionPathAliases(config.templateFieldMapping, sectionKey)) {
     const boundary = located.headings.find((heading) => heading.index > parent.index && heading.level <= parent.level)?.index ?? top.length;
     const matches = located.headings.filter((heading) => heading.index > parent.index && heading.index < boundary && aliases.some((alias) => {
       const title = normalizeHeadingTitle(heading.title), expected = normalizeHeadingTitle(alias);
@@ -151,7 +152,7 @@ async function readState(expectedBlockId?: string) {
     stateFingerprint: hash([stored.data, date, doc, rows, top, listChildren, treeInfos]) };
 }
 
-function nativeOrders(state: Awaited<ReturnType<typeof readState>>): Record<string, string[]> {
+export function nativeOrders(state: Awaited<ReturnType<typeof readState>>): Record<string, string[]> {
   const orders: Record<string, string[]> = {};
   for (const parent of new Set(Object.values(state.parents).filter(Boolean))) {
     const children = state.rows.filter((row) => state.parents[row.id] === parent).map((row) => state.treeInfos[row.id]);

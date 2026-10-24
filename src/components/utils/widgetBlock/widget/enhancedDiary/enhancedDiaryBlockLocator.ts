@@ -874,6 +874,8 @@ export async function appendMarkdownToRecordCategoryByTitle(params: {
     recordTime: string;
     headingStructure?: EnhancedDiaryHeadingStructureConfig;
     mapping?: EnhancedDiaryTemplateFieldMapping | null;
+    expectedQuickRecordsHeadingId?: string;
+    expectedCategoryHeadingId?: string;
 }): Promise<EnhancedDiaryInsertResult> {
     const normalizedTitle = normalizeRecordCategoryTitle(params.categoryTitle);
     const quickRecords = await findDayWorkspaceHeadingBlock(params.docId, "quickRecords", params.headingStructure, params.mapping);
@@ -891,6 +893,15 @@ export async function appendMarkdownToRecordCategoryByTitle(params: {
         quickRecords.heading,
         [normalizedTitle]
     );
+
+    if (params.expectedQuickRecordsHeadingId !== undefined || params.expectedCategoryHeadingId !== undefined) {
+        const end = findNextBoundaryHeading(quickRecords.headings, quickRecords.heading)?.index ?? Infinity;
+        const matches = quickRecords.headings.filter((heading) => heading.index > quickRecords.heading!.index && heading.index < end && normalizeRecordCategoryTitle(heading.title) === normalizedTitle);
+        if (quickRecords.heading.id !== params.expectedQuickRecordsHeadingId || !category || category.id !== params.expectedCategoryHeadingId ||
+            category.level !== quickRecords.heading.level + 1 || category.level >= 6 || matches.length !== 1 || matches[0].id !== category.id) {
+            return { ok: false, reason: "diary_target_conflict", path: [...quickRecords.path, normalizedTitle] };
+        }
+    }
 
     if (!category) {
         const nextBoundary = findNextBoundaryHeading(quickRecords.headings, quickRecords.heading);

@@ -9,6 +9,8 @@ import { getDiaryDocumentForDate } from "@/components/utils/widgetBlock/widget/e
 import { formatDiaryDate } from "@/components/utils/widgetBlock/widget/enhancedDiary/enhancedDiaryUtils";
 import type { SiyuanToolDeps as KbRetrievalToolDeps } from "../siyuan-tool-deps";
 import type { ManageDiaryRecordInput, ManageDiaryRecordOutput } from "../contracts/manage-diary-record.contract";
+import type { ToolRuntimeContext } from "../../../contracts/tool-contract";
+import { homepageMcpDiaryRecordAddSchema } from "@/features/agent-platform/mcp-server/homepage-mcp-write-preview";
 import { createDiaryToolPluginAdapter, loadAgendaEnhancedDiaryConfig, prepareAgendaEnhancedDiaryIndex } from "./agenda-utils.impl";
 import {
   validateEnhancedDiaryProjectWriteTarget,
@@ -71,8 +73,11 @@ async function findRecordForTarget(
 async function executeAdd(
   deps: KbRetrievalToolDeps,
   args: ManageDiaryRecordInput,
+  target?: ToolRuntimeContext["diaryRecordAddTarget"],
 ): Promise<ExecResult> {
-  const config = await prepareAgendaEnhancedDiaryIndex(deps, await loadAgendaEnhancedDiaryConfig(deps));
+  if (target) homepageMcpDiaryRecordAddSchema.parse(args);
+  const loaded = await loadAgendaEnhancedDiaryConfig(deps);
+  const config = target ? loaded : await prepareAgendaEnhancedDiaryIndex(deps, loaded);
   const pluginAdapter = createDiaryToolPluginAdapter(deps);
   const date = formatDiaryDate(new Date());
   let project = null;
@@ -84,11 +89,14 @@ async function executeAdd(
   }
   if (args.isKeyRecord && !project) return { ok: false, errorCode: "key_record_requires_project", safeOutput: { operation: "add", changed: false, message: "关键记录必须关联有效项目。" } };
 
-  const result = await addWorkspaceQuickRecord(pluginAdapter, config, args.categoryTitle!, args.content!, { tags: args.tags, projectTargetId: project?.id, projectTitle: project?.title, rootProjectId: project?.rootProjectId, projectPath: project?.pathTitles, projectAncestorTargetIds: project?.ancestorTargetIds, isKeyRecord: args.isKeyRecord });
+  const result = await addWorkspaceQuickRecord(pluginAdapter, config, args.categoryTitle!, args.content!, { tags: args.tags, projectTargetId: project?.id, projectTitle: project?.title, rootProjectId: project?.rootProjectId, projectPath: project?.pathTitles, projectAncestorTargetIds: project?.ancestorTargetIds, isKeyRecord: args.isKeyRecord }, target);
+  if (target && (result.partial || result.ok && !result.headingBlockId || !result.ok && result.reason === "insert_failed")) {
+    return { ok: false, errorCode: "write_result_unknown", safeOutput: { operation: "add", changed: true, message: "快速记录插入或索引结果未知，请先回读，禁止自动重试。" } };
+  }
   if (!result.ok) {
     return {
       ok: false,
-      errorCode: result.reason === "archived_project_target" ? "archived_project_target" : "quick_record_write_failed",
+      errorCode: result.reason === "diary_target_conflict" ? result.reason : result.reason === "archived_project_target" ? "archived_project_target" : "quick_record_write_failed",
       safeOutput: { operation: "add", changed: false, categoryTitle: args.categoryTitle, date, message: result.message || "快速记录写入失败。" },
     };
   }
@@ -194,10 +202,12 @@ async function executeDelete(
 export async function executeManageDiaryRecord(
   deps: KbRetrievalToolDeps,
   args: ManageDiaryRecordInput,
+  target?: ToolRuntimeContext["diaryRecordAddTarget"],
 ): Promise<ExecResult> {
+  if (target && args.operation !== "add") return { ok: false, errorCode: "diary_target_conflict", safeOutput: { operation: args.operation, changed: false, message: "本次批准只允许新增普通快速记录。" } };
   switch (args.operation) {
     case "add":
-      return executeAdd(deps, args);
+      return executeAdd(deps, args, target);
     case "update":
       return executeUpdate(deps, args);
     case "delete":

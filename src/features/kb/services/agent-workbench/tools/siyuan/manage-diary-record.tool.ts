@@ -15,7 +15,7 @@ export type {
 } from "./contracts/manage-diary-record.contract";
 
 export interface ManageDiaryRecordDeps {
-  executeManageDiaryRecord(args: ManageDiaryRecordInput): Promise<{ ok: boolean; safeOutput: ManageDiaryRecordOutput; errorCode?: string }>;
+  executeManageDiaryRecord(args: ManageDiaryRecordInput, target?: ToolRuntimeContext["diaryRecordAddTarget"]): Promise<{ ok: boolean; safeOutput: ManageDiaryRecordOutput; errorCode?: string }>;
 }
 
 export function createManageDiaryRecordTool(
@@ -60,9 +60,9 @@ export function createManageDiaryRecordTool(
       return { available: true };
     },
 
-    async execute(_ctx: ToolRuntimeContext, args: ManageDiaryRecordInput): Promise<ToolResult<ManageDiaryRecordOutput>> {
+    async execute(ctx: ToolRuntimeContext, args: ManageDiaryRecordInput): Promise<ToolResult<ManageDiaryRecordOutput>> {
       try {
-        const result = await deps.executeManageDiaryRecord(args);
+        const result = await deps.executeManageDiaryRecord(args, ctx.diaryRecordAddTarget);
         if (!result.ok) {
           return {
             ok: false,
@@ -70,7 +70,7 @@ export function createManageDiaryRecordTool(
             error: {
               code: result.errorCode || "quick_record_write_failed",
               message: result.safeOutput.message,
-              recoverable: true,
+              recoverable: result.errorCode !== "write_result_unknown",
             },
           };
         }
@@ -80,9 +80,9 @@ export function createManageDiaryRecordTool(
           ok: false,
           data: null,
           error: {
-            code: "tool_internal_error",
-            message: "管理快速记录执行异常。",
-            recoverable: true,
+            code: ctx.diaryRecordAddTarget ? "write_result_unknown" : "tool_internal_error",
+            message: ctx.diaryRecordAddTarget ? "快速记录写入结果未知，请先回读，禁止自动重试。" : "管理快速记录执行异常。",
+            recoverable: !ctx.diaryRecordAddTarget,
           },
         };
       }

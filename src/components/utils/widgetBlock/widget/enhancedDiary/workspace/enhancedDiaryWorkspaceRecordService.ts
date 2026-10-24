@@ -1,5 +1,6 @@
 import { batchGetBlockAttrs, getBlockInfo, getBlockKramdownChecked, getBlockTreeInfos, getChildBlocksChecked, insertBlockChecked, updateBlockChecked, performTransactionsChecked, setBlockAttrsChecked } from "@/api";
 import { addQuickRecordToDiary, getOrCreateTodayDiaryDocument } from "../enhancedDiaryActions";
+import SHA256 from "crypto-js/sha256";
 import {
     ENHANCED_DIARY_RECORD_CATEGORY_TITLES,
     type EnhancedDiaryRecordCategoryKey,
@@ -702,14 +703,37 @@ export async function queryTodayQuickRecords(
     return (await queryTodayQuickRecordsDetailed(docId, markdown, date, headingStructure, mapping, config)).records;
 }
 
+export interface WorkspaceQuickRecordAddTarget {
+    docId: string;
+    notebookId: string;
+    date: string;
+    headingId: string;
+    categoryHeadingId: string;
+    categoryTitle: string;
+    configFingerprint: string;
+    stateFingerprint: string;
+    readTarget(): Promise<void>;
+}
+
 export async function addWorkspaceQuickRecord(
     plugin: any,
     config: EnhancedDiaryConfig,
     categoryTitle: string,
     content: string,
     metadata: { tags?: string[]; projectTargetId?: string; projectTitle?: string; isKeyRecord?: boolean; rootProjectId?: string; projectPath?: string[]; projectAncestorTargetIds?: string[] } = {},
+    target?: WorkspaceQuickRecordAddTarget,
 ): Promise<WorkspaceRecordActionResult> {
-    const todayDoc = await getOrCreateTodayDiaryDocument(plugin, config);
+    if (target) {
+        try {
+            await target.readTarget();
+            if (target.date !== formatDiaryAttrDate(new Date()) || target.notebookId !== config.dailyNotebookId ||
+                target.categoryTitle !== categoryTitle || target.configFingerprint !== SHA256(JSON.stringify(config)).toString() ||
+                Object.values(metadata).some((value) => value !== undefined)) throw new Error("diary_target_conflict");
+        } catch {
+            return { ok: false, reason: "diary_target_conflict", message: "已批准的日记或分类状态已变化，未执行记录新增。" };
+        }
+    }
+    const todayDoc = target ? { ok: true, docId: target.docId, reason: undefined } : await getOrCreateTodayDiaryDocument(plugin, config);
     if (!todayDoc.ok || !todayDoc.docId) {
         return {
             ok: false,
@@ -728,6 +752,8 @@ export async function addWorkspaceQuickRecord(
         mapping: config.templateFieldMapping,
         projectStorage: config.projectStorage,
         ...metadata,
+        expectedQuickRecordsHeadingId: target?.headingId,
+        expectedCategoryHeadingId: target?.categoryHeadingId,
         synchronizeIndex: async () => {
             const markdown = await readDiaryMarkdown(todayDoc.docId!);
             const detailed = await queryTodayQuickRecordsDetailed(
@@ -738,7 +764,7 @@ export async function addWorkspaceQuickRecord(
                 config.templateFieldMapping,
                 config,
             );
-            if (!detailed.structureComplete || !detailed.relationComplete) return false;
+            if (!detailed.structureComplete || !detailed.relationComplete || target && detailed.status !== "parsed") return false;
             await replaceProjectRecordIndexForDiary(config.dailyNotebookId!, todayDoc.docId!, detailed.records);
             return true;
         },

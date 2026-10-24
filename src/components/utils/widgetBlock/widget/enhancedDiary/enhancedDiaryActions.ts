@@ -321,6 +321,8 @@ export async function addQuickRecordToDiary(params: {
     isKeyRecord?: boolean;
     synchronizeIndex?: () => Promise<boolean>;
     projectStorage?: EnhancedDiaryProjectStorageConfig;
+    expectedQuickRecordsHeadingId?: string;
+    expectedCategoryHeadingId?: string;
 }): Promise<EnhancedDiaryActionResult> {
     const content = params.content.trim();
     if (!content) {
@@ -369,6 +371,8 @@ export async function addQuickRecordToDiary(params: {
         recordTime: `${recordTime} 记录${headingSuffix ? ` ${headingSuffix}` : ""}`,
         headingStructure: params.headingStructure,
         mapping: params.mapping,
+        expectedQuickRecordsHeadingId: params.expectedQuickRecordsHeadingId,
+        expectedCategoryHeadingId: params.expectedCategoryHeadingId,
     });
 
     if (!result.ok) {
