@@ -15,7 +15,7 @@ export type {
 } from "./contracts/manage-diary-task.contract";
 
 export interface ManageDiaryTaskDeps {
-  executeManageDiaryTask(args: ManageDiaryTaskInput, target?: ToolRuntimeContext["diaryTaskCreateTarget"], mutation?: ToolRuntimeContext["diaryTaskMutationTarget"]): Promise<{ ok: boolean; safeOutput: ManageDiaryTaskOutput; errorCode?: string }>;
+  executeManageDiaryTask(args: ManageDiaryTaskInput, target?: ToolRuntimeContext["diaryTaskCreateTarget"], mutation?: ToolRuntimeContext["diaryTaskMutationTarget"], migration?: ToolRuntimeContext["diaryTaskMigrationTarget"]): Promise<{ ok: boolean; safeOutput: ManageDiaryTaskOutput; errorCode?: string }>;
 }
 
 export function createManageDiaryTaskTool(
@@ -75,7 +75,7 @@ export function createManageDiaryTaskTool(
 
     async execute(_ctx: ToolRuntimeContext, args: ManageDiaryTaskInput): Promise<ToolResult<ManageDiaryTaskOutput>> {
       try {
-        const result = await deps.executeManageDiaryTask(args, _ctx.diaryTaskCreateTarget, _ctx.diaryTaskMutationTarget);
+        const result = await deps.executeManageDiaryTask(args, _ctx.diaryTaskCreateTarget, _ctx.diaryTaskMutationTarget, _ctx.diaryTaskMigrationTarget);
         if (!result.ok) {
           return {
             ok: false,
@@ -93,9 +93,9 @@ export function createManageDiaryTaskTool(
           ok: false,
           data: null,
           error: {
-            code: args.operation === "create" || _ctx.diaryTaskMutationTarget ? "write_result_unknown" : "tool_internal_error",
-            message: args.operation === "create" || _ctx.diaryTaskMutationTarget ? "任务写入结果未知，请先回读，禁止自动重试。" : "管理日记任务执行异常。",
-            recoverable: args.operation !== "create" && !_ctx.diaryTaskMutationTarget,
+            code: args.operation === "create" || _ctx.diaryTaskMutationTarget || _ctx.diaryTaskMigrationTarget ? "write_result_unknown" : "tool_internal_error",
+            message: args.operation === "create" || _ctx.diaryTaskMutationTarget || _ctx.diaryTaskMigrationTarget ? "任务写入结果未知，请先回读，禁止自动重试。" : "管理日记任务执行异常。",
+            recoverable: args.operation !== "create" && !_ctx.diaryTaskMutationTarget && !_ctx.diaryTaskMigrationTarget,
           },
         };
       }

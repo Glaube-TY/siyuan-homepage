@@ -64,6 +64,11 @@ export function rowFingerprint(row: Row, list = false): string {
 }
 
 async function readState(expectedBlockId?: string, sectionKey: "newTasks" | "quickRecords" = "newTasks") {
+  return readHomepageMcpDiaryDocumentState(new Date(), sectionKey, expectedBlockId);
+}
+
+// 日期与文档身份由各写入域独立核对；普通任务入口仍仅传本地今天。
+export async function readHomepageMcpDiaryDocumentState(now: Date, sectionKey: "newTasks" | "quickRecords" | "migratedTasks", expectedBlockId?: string) {
   const stored = await loadDataStrict<Record<string, unknown>>(ENHANCED_DIARY_CONFIG_FILE);
   if (stored.status !== "ok" || !record(stored.data) || typeof stored.data.dailyNotebookId !== "string" || !ID.test(stored.data.dailyNotebookId)) {
     throw new HomepageMcpDiaryTargetUnavailable("请先正确配置强化日记笔记本，未生成写入确认。");
@@ -72,7 +77,7 @@ async function readState(expectedBlockId?: string, sectionKey: "newTasks" | "qui
   for (const key of ["headingStructure", "templateFieldMapping"] as const) {
     if (stored.data[key] !== undefined && hash(stored.data[key]) !== hash(config[key])) throw new Error("diary_config_invalid");
   }
-  const now = new Date();
+  const invocationDate = formatDiaryAttrDate(new Date());
   const date = formatDiaryAttrDate(now);
   const lookup = await lookupDiaryDocumentForDate(now, config.dailyNotebookId, { strictIndexRead: true, pruneStale: false });
   if (lookup.status !== "exists") throw new HomepageMcpDiaryTargetUnavailable(lookup.status === "missing"
@@ -148,7 +153,7 @@ async function readState(expectedBlockId?: string, sectionKey: "newTasks" | "qui
     if (children.length > MAX_BLOCKS || children.some((child) => byId.get(child.id)?.parent_id !== row.id)) throw new Error("diary_list_invalid");
     listChildren[row.id] = children.map((child) => child.id);
   }
-  if (date !== formatDiaryAttrDate(new Date())) throw new Error("diary_date_changed");
+  if (invocationDate !== formatDiaryAttrDate(new Date())) throw new Error("diary_date_changed");
   const target = { docId: doc.id, notebookId: config.dailyNotebookId!, date, headingId: parent.id, configFingerprint: hash(config) };
   return { doc, rows, top, target, tasks, listChildren, parents, inSection, config, treeInfos,
     stateFingerprint: hash([stored.data, date, doc, rows, top, listChildren, treeInfos]) };
@@ -263,7 +268,7 @@ async function readTaskWithDeadline(state: Awaited<ReturnType<typeof readState>>
   return { task, paragraphId: children[0].id, indexFingerprint: hash(snapshot.items.filter((item) => item.id !== row.id)) };
 }
 
-async function readMutationTask(state: Awaited<ReturnType<typeof readState>>, blockId: string) {
+export async function readMutationTask(state: Awaited<ReturnType<typeof readState>>, blockId: string) {
   return readTaskWithDeadline(state, blockId);
 }
 
@@ -275,6 +280,7 @@ async function readPostponedTask(state: Awaited<ReturnType<typeof readState>>, b
 
 export async function prepareHomepageMcpDiaryTaskWrite(args: Record<string, unknown>): Promise<PreparedDiaryTaskWrite> {
   const input = homepageMcpDiaryTaskWriteSchema.parse(args);
+  if (input.operation === "migrate") throw new Error("migration_requires_two_document_adapter");
   if ((input.operation === "create" || input.operation === "update") && (!ordinaryName(input.task.taskname) || input.operation === "update" && /[\\`*_\[\]<>~{}]/.test(input.task.taskname))) {
     throw new HomepageMcpDiaryTargetUnavailable("任务名称会被解释为任务元数据或属性，请使用普通任务名称。");
   }
@@ -404,6 +410,7 @@ export async function verifyHomepageMcpDiaryTaskLog(before: PreparedDiaryTaskWri
 
 export async function verifyHomepageMcpDiaryTaskWrite(args: Record<string, unknown>, before: PreparedDiaryTaskWrite, data: unknown): Promise<boolean> {
   const input = homepageMcpDiaryTaskWriteSchema.parse(args);
+  if (input.operation === "migrate") throw new Error("migration_requires_two_document_adapter");
   if (!record(data) || data.action !== "manage_task") return false;
   const result = data.result;
   if (input.operation === "postpone") {

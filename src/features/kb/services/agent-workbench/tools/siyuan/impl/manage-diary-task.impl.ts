@@ -154,7 +154,21 @@ async function executeCreate(
 async function executeMigrate(
   deps: KbRetrievalToolDeps,
   args: ManageDiaryTaskInput,
+  migration?: ToolRuntimeContext["diaryTaskMigrationTarget"],
 ): Promise<ExecResult> {
+  if (migration) {
+    const input = homepageMcpDiaryTaskWriteSchema.parse(args);
+    if (input.operation !== "migrate" || input.target.blockId !== migration.blockId) return {
+      ok: false, errorCode: "diary_target_conflict", safeOutput: { operation: "migrate", changed: false, message: "迁移参数与批准目标不一致。" },
+    };
+    let task;
+    try { task = await migration.readTask(); }
+    catch { return { ok: false, errorCode: "diary_target_conflict", safeOutput: { operation: "migrate", changed: false, message: "迁移目标已变化，未写入。" } }; }
+    const result = await migrateWorkspaceTaskToToday(createDiaryToolPluginAdapter(deps), await loadAgendaEnhancedDiaryConfig(deps), task, migration);
+    return { ok: result.ok, errorCode: result.ok ? undefined : result.reason,
+      safeOutput: { operation: "migrate", changed: result.changed === true, blockId: task.blockId, taskId: task.id,
+        taskname: task.taskname, message: result.message || "任务已迁移并完成来源、日志和索引回读。" } };
+  }
   const config = await prepareAgendaEnhancedDiaryIndex(deps, await loadAgendaEnhancedDiaryConfig(deps));
   const pluginAdapter = createDiaryToolPluginAdapter(deps);
 
@@ -379,12 +393,13 @@ export async function executeManageDiaryTask(
   args: ManageDiaryTaskInput,
   target?: ToolRuntimeContext["diaryTaskCreateTarget"],
   mutation?: ToolRuntimeContext["diaryTaskMutationTarget"],
+  migration?: ToolRuntimeContext["diaryTaskMigrationTarget"],
 ): Promise<ExecResult> {
   switch (args.operation) {
     case "create":
       return executeCreate(deps, args, target);
     case "migrate":
-      return executeMigrate(deps, args);
+      return executeMigrate(deps, args, migration);
     case "set_status":
       return executeSetStatus(deps, args, mutation);
     case "update":
