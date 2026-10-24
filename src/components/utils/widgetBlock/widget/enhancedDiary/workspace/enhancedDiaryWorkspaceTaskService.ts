@@ -28,9 +28,11 @@ import {
     resolveDayWorkspaceTaskMoveTarget,
     validateTaskListTreeShape,
     type EnhancedDiaryTaskMoveTarget,
+    type EnhancedDiaryInsertResult,
+    findDayWorkspaceHeadingBlock,
 } from "../enhancedDiaryBlockLocator";
 import { getOrCreateTodayDiaryDocument } from "../enhancedDiaryActions";
-import { readDiaryMarkdownResult } from "../enhancedDiaryDoc";
+import { readDiaryMarkdownResult, formatDiaryAttrDate } from "../enhancedDiaryDoc";
 import { formatDiaryDate, isEnhancedDiarySystemTaskMarkdown } from "../enhancedDiaryUtils";
 import { getDayWorkspaceSections } from "../enhancedDiaryWorkspaceSections";
 import { addDays, formatLocalDate } from "./enhancedDiaryWorkspaceDate";
@@ -666,13 +668,30 @@ function buildSourceLink(task: EnhancedDiaryWorkspaceTask): string {
     return task.sourceDate || task.hpath || "未知来源";
 }
 
+export function buildWorkspaceTaskDeletionLogMarkdown(task: EnhancedDiaryWorkspaceTask): string {
+    return `- 删除任务：${task.taskname}（来源：${buildSourceLink(task)}）`;
+}
+
+export interface WorkspaceTaskLoggedDeletionContext {
+    docId: string;
+    date: string;
+    headingId: string;
+    blockId: string;
+    markdown: string;
+    markdownFingerprint: string;
+    stateFingerprint: string;
+    readTask(): Promise<EnhancedDiaryWorkspaceTask>;
+    verifyLog(result: EnhancedDiaryInsertResult): Promise<boolean>;
+}
+
 export async function deleteWorkspaceTask(
     plugin: any,
     config: EnhancedDiaryConfig,
     task: EnhancedDiaryWorkspaceTask,
-    mode: "log" | "delete"
+    mode: "log" | "delete",
+    controlled?: WorkspaceTaskLoggedDeletionContext,
 ): Promise<WorkspaceTaskActionResult> {
-    if (!(await ensureTaskBlockExists(task.blockId))) {
+    if (!controlled && !(await ensureTaskBlockExists(task.blockId))) {
         return {
             ok: false,
             reason: "missing_task",
@@ -680,7 +699,20 @@ export async function deleteWorkspaceTask(
         };
     }
     if (mode === "log") {
-        const todayDoc = await getOrCreateTodayDiaryDocument(plugin, config);
+        let logTask = task;
+        if (controlled) {
+            logTask = await controlled.readTask();
+            const heading = await findDayWorkspaceHeadingBlock(controlled.docId, "taskLog", config.headingStructure, config.templateFieldMapping);
+            if (controlled.date !== formatDiaryAttrDate(new Date()) || logTask.blockId !== controlled.blockId || task.blockId !== controlled.blockId ||
+                logTask.rootId !== controlled.docId || !heading.found || heading.heading?.id !== controlled.headingId) {
+                return { ok: false, reason: "diary_target_conflict", message: "已批准的任务或日志区域已变化，未执行写入。" };
+            }
+            logTask = { ...logTask, sourceDocId: controlled.docId, sourceDate: controlled.date, sourceDocTitle: controlled.date };
+            if (buildWorkspaceTaskDeletionLogMarkdown(logTask) !== controlled.markdown) {
+                return { ok: false, reason: "diary_target_conflict", message: "已批准的日志内容已变化，未执行写入。" };
+            }
+        }
+        const todayDoc = controlled ? { ok: true, docId: controlled.docId, reason: undefined } : await getOrCreateTodayDiaryDocument(plugin, config);
         if (!todayDoc.ok || !todayDoc.docId) {
             return {
                 ok: false,
@@ -692,11 +724,14 @@ export async function deleteWorkspaceTask(
         const logResult = await appendMarkdownToDaySection({
             docId: todayDoc.docId,
             sectionKey: "taskLog",
-            markdown: `- 删除任务：${task.taskname}（来源：${buildSourceLink(task)}）`,
+            markdown: buildWorkspaceTaskDeletionLogMarkdown(logTask),
             headingStructure: config.headingStructure,
             mapping: config.templateFieldMapping,
         });
 
+        if (controlled && (!logResult.ok || !await controlled.verifyLog(logResult))) {
+            return { ok: false, partial: true, reason: "write_result_unknown", message: "日志写入结果无法确认，已停止后续任务删除，禁止自动重试。" };
+        }
         if (!logResult.ok) {
             return {
                 ok: false,

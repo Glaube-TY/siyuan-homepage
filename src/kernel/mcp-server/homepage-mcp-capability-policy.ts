@@ -34,6 +34,11 @@ const diaryTaskWriteArgsSchema: HomepageMcpJsonSchema = {
     properties: { operation: { type: "string", const: "delete" },
       target: { type: "object", additionalProperties: false, required: ["blockId"], properties: { blockId: databaseIdSchema } },
       deleteMode: { type: "string", const: "delete" } },
+  }, {
+    type: "object", additionalProperties: false, required: ["operation", "target", "deleteMode"],
+    properties: { operation: { type: "string", const: "delete" },
+      target: { type: "object", additionalProperties: false, required: ["blockId"], properties: { blockId: databaseIdSchema } },
+      deleteMode: { type: "string", const: "log" } },
   }],
 };
 const databaseFieldNameSchema = { type: "string", minLength: 1, maxLength: 50, not: { pattern: "^\\s|\\s$" } };

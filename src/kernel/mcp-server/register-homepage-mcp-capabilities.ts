@@ -3,7 +3,7 @@ import { HomepageMcpFavoritesConflict, prepareHomepageMcpFavoriteWrite, verifyHo
 import { HomepageMcpAnniversaryConflict, prepareHomepageMcpAnniversaryWrite, verifyHomepageMcpAnniversaryWrite, type PreparedAnniversaryWrite } from "./homepage-mcp-anniversary-write";
 import { prepareHomepageMcpDatabaseWrite, verifyHomepageMcpDatabaseWrite, type PreparedDatabaseWrite } from "./homepage-mcp-database-write";
 import { getHomepageMcpWriteOperation, homepageMcpDatabaseUpdateSchema, homepageMcpDatabaseClearSchema, homepageMcpDatabaseDetachedAddSchema, homepageMcpDatabaseBoundAddSchema, homepageMcpDatabaseRemoveSchema, homepageMcpDatabaseAddKeySchema, homepageMcpDatabaseRemoveKeySchema, isHomepageMcpFavoriteWriteAction, isHomepageMcpAnniversaryWriteAction, type HomepageMcpDatabaseWriteAction, type HomepageMcpFavoriteWriteAction, type HomepageMcpAnniversaryWriteAction } from "../../features/agent-platform/mcp-server/homepage-mcp-write-preview";
-import { HomepageMcpDiaryTargetUnavailable, prepareHomepageMcpDiaryTaskWrite, verifyHomepageMcpDiaryTaskWrite, type PreparedDiaryTaskWrite } from "./homepage-mcp-diary-task-write";
+import { HomepageMcpDiaryTargetUnavailable, prepareHomepageMcpDiaryTaskWrite, verifyHomepageMcpDiaryTaskWrite, verifyHomepageMcpDiaryTaskLog, type PreparedDiaryTaskWrite } from "./homepage-mcp-diary-task-write";
 import { homepageMcpDiaryTaskWriteSchema } from "../../features/agent-platform/mcp-server/homepage-mcp-write-preview";
 import type { NativeTool } from "../../features/kb/services/agent-core/tools/native-tool";
 import type { NativeToolRegistry } from "../../features/kb/services/agent-core/tools/native-tool-registry";
@@ -318,6 +318,13 @@ function createCapabilityHandler(
           diaryTaskMutationTarget: {
             ...prepared.value.target, operation: (toolInput.args as { operation: "set_status" | "update" | "delete" }).operation,
             blockId: prepared.value.mutation.task.blockId, stateFingerprint: prepared.value.stateFingerprint,
+            deleteMode: (toolInput.args as { deleteMode?: "delete" | "log" }).deleteMode,
+            ...(prepared.value.loggedDeletion ? { loggedDeletion: {
+              docId: prepared.value.target.docId, date: prepared.value.target.date, headingId: prepared.value.loggedDeletion.headingId,
+              blockId: prepared.value.mutation.task.blockId, markdown: prepared.value.loggedDeletion.markdown,
+              markdownFingerprint: prepared.value.loggedDeletion.markdownFingerprint, stateFingerprint: prepared.value.stateFingerprint,
+              verifyLog: (result) => verifyHomepageMcpDiaryTaskLog(prepared!.value, result),
+            } } : {}),
             readTask: async () => {
               const current = await prepareHomepageMcpDiaryTaskWrite(toolInput.args as Record<string, unknown>);
               if (current.stateFingerprint !== prepared!.value.stateFingerprint || !current.mutation) throw new Error("diary_target_conflict");

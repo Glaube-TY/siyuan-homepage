@@ -49,12 +49,16 @@ export const HOMEPAGE_MCP_DIARY_TASK_MUTATIONS = {
   delete: { name: "删除日记任务", consequence: "仅删除指定的强化日记任务块及其直属内容，不删除整篇日记或其他任务；本次不会生成删除日志。" },
 } as const;
 export const HOMEPAGE_MCP_DIARY_TASK_DELETE_WARNING = "删除任务块及其直属内容，无法通过本插件撤销；请核对真实任务 ID。";
+export const HOMEPAGE_MCP_DIARY_TASK_LOG_DELETE = {
+  name: "记录日志后删除日记任务",
+  consequence: "先向现有今日日记的任务日志区域写入删除记录，再删除指定任务；如果日志写入成功而任务删除失败，日志可能保留，不能自动重试。",
+} as const;
 export const homepageMcpDiaryTaskWriteSchema = z.discriminatedUnion("operation", [
   homepageMcpDiaryTaskCreateSchema,
   z.object({ operation: z.literal("set_status"), target: z.object({ blockId: z.string().regex(/^\d{14}-[a-z0-9]{7}$/) }).strict(), completed: z.boolean() }).strict(),
   z.object({ operation: z.literal("update"), target: z.object({ blockId: z.string().regex(/^\d{14}-[a-z0-9]{7}$/) }).strict(),
     task: z.object({ taskname: homepageMcpDiaryTaskCreateSchema.shape.task.shape.taskname.refine((value) => !/[\\`*_\[\]<>~{}]/.test(value)) }).strict() }).strict(),
-  z.object({ operation: z.literal("delete"), target: z.object({ blockId: z.string().regex(/^\d{14}-[a-z0-9]{7}$/) }).strict(), deleteMode: z.literal("delete") }).strict(),
+  z.object({ operation: z.literal("delete"), target: z.object({ blockId: z.string().regex(/^\d{14}-[a-z0-9]{7}$/) }).strict(), deleteMode: z.enum(["delete", "log"]) }).strict(),
 ]);
 export const HOMEPAGE_MCP_WRITES_BY_TOOL: Record<string, Record<string, { name: string; consequence: string }>> = {
   homepage_components: HOMEPAGE_MCP_WRITES,
@@ -126,6 +130,18 @@ export const homepageMcpWritePreviewSchema = z.object({
   details: z.array(z.object({ label: text.max(60), value: text }).strict()).max(16),
 }).strict().refine((value) => {
   if (value.action === "manage_task") {
+    if (value.operationName === HOMEPAGE_MCP_DIARY_TASK_LOG_DELETE.name) {
+      const labels = ["日记文档标题", "日记文档 ID", "本地日期", "任务 blockId", "任务名称", "当前状态", "所属区域", "日志目标区域", "日志标题 ID", "预期日志正文", "操作步骤", "影响范围", "删除风险"];
+      const log = /^- 删除任务：(.+)（来源：\(\((\d{14}-[a-z0-9]{7}) "(\d{8})"\)\)）$/.exec(value.details[9]?.value ?? "");
+      return value.consequence === HOMEPAGE_MCP_DIARY_TASK_LOG_DELETE.consequence && value.affectedCount === 2 &&
+        id.safeParse(value.targetId).success && value.details.length === labels.length && labels.every((label, i) => value.details[i].label === label) &&
+        id.safeParse(value.details[1].value).success && /^\d{8}$/.test(value.details[2].value) && value.details[3].value === value.targetId &&
+        value.details[4].value === value.targetName && homepageMcpDiaryTaskCreateSchema.shape.task.shape.taskname.safeParse(value.targetName).success &&
+        ["完成", "未完成"].includes(value.details[5].value) && value.details[6].value === "新任务" && value.details[7].value === "任务日志" &&
+        id.safeParse(value.details[8].value).success && log?.[1] === value.targetName && log[2] === value.details[1].value && log[3] === value.details[2].value &&
+        value.details[10].value === "写入一条日志 → 核对日志及原任务 → 删除原任务 → 回读" &&
+        value.details[11].value === "新增 1 条日志，删除 1 条任务" && value.details[12].value === HOMEPAGE_MCP_DIARY_TASK_DELETE_WARNING;
+    }
     if (value.operationName === HOMEPAGE_MCP_DIARY_TASK_MUTATIONS.delete.name) {
       const labels = ["日记文档标题", "日记文档 ID", "本地日期", "任务 blockId", "任务名称", "当前状态", "所属区域", "预计删除的任务数量", "删除模式", "删除风险"];
       return value.consequence === HOMEPAGE_MCP_DIARY_TASK_MUTATIONS.delete.consequence && value.affectedCount === 1 &&

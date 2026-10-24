@@ -3,7 +3,7 @@
     import PremiumMark from "@/components/utils/shared/PremiumMark.svelte";
     import SettingSection from "@/libs/components/SettingSection.svelte";
     import SettingRow from "@/libs/components/SettingRow.svelte";
-    import { HOMEPAGE_MCP_DIARY_TASK_MUTATIONS } from "@/features/agent-platform/mcp-server/homepage-mcp-write-preview";
+    import { HOMEPAGE_MCP_DIARY_TASK_MUTATIONS, HOMEPAGE_MCP_DIARY_TASK_LOG_DELETE } from "@/features/agent-platform/mcp-server/homepage-mcp-write-preview";
     import {
         getHomepageEntitlementSnapshot,
         subscribeHomepageEntitlement,
@@ -155,6 +155,7 @@
     }
 
     function approvalLabel(request: HomepageMcpWriteRequest): string {
+        if (request.toolName === "diary_task" && request.action === "manage_task" && request.operationName === HOMEPAGE_MCP_DIARY_TASK_LOG_DELETE.name) return "确认记录日志并删除";
         if (request.toolName === "diary_task" && request.action === "manage_task" && request.operationName === HOMEPAGE_MCP_DIARY_TASK_MUTATIONS.delete.name) return "确认删除任务";
         if (request.toolName === "siyuan_database" && request.action === "clear_cell") return "确认清空";
         if (request.toolName === "siyuan_database" && request.action === "remove_rows") return "确认移除条目";

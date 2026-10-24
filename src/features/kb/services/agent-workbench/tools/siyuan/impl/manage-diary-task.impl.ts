@@ -188,6 +188,7 @@ async function findApprovedTask(args: ManageDiaryTaskInput, target: NonNullable<
   try {
     const input = homepageMcpDiaryTaskWriteSchema.parse(args);
     if (input.operation === "create" || input.operation !== target.operation || input.target.blockId !== target.blockId) throw new Error("diary_target_conflict");
+    if (input.operation === "delete" && (input.deleteMode !== target.deleteMode || (input.deleteMode === "log" && !target.loggedDeletion))) throw new Error("diary_target_conflict");
     const task = await target.readTask();
     if (task.blockId !== target.blockId || task.rootId !== target.docId || task.box !== target.notebookId) throw new Error("diary_target_conflict");
     return { task };
@@ -343,15 +344,16 @@ async function executeDelete(
   }
 
   const task = found.task;
-  const mode = mutation ? "delete" : args.deleteMode || "log";
-  const result = await deleteWorkspaceTask(pluginAdapter, config, task, mode);
+  const mode = mutation ? mutation.deleteMode! : args.deleteMode || "log";
+  const result = await deleteWorkspaceTask(pluginAdapter, config, task, mode,
+    mutation?.loggedDeletion ? { ...mutation.loggedDeletion, readTask: mutation.readTask } : undefined);
 
   if (mutation && (result.partial || !result.ok && result.reason === "delete_failed")) return mutationUncertain(args.operation);
 
   if (!result.ok) {
     return {
       ok: false,
-      errorCode: "task_delete_failed",
+      errorCode: result.reason === "diary_target_conflict" ? result.reason : "task_delete_failed",
       safeOutput: { operation: "delete", changed: false, taskId: task.id, blockId: task.blockId, taskname: task.taskname, message: result.message || "删除任务失败。" },
     };
   }
