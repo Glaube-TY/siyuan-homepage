@@ -10,7 +10,8 @@ import { formatDiaryDate } from "@/components/utils/widgetBlock/widget/enhancedD
 import type { SiyuanToolDeps as KbRetrievalToolDeps } from "../siyuan-tool-deps";
 import type { ManageDiaryRecordInput, ManageDiaryRecordOutput } from "../contracts/manage-diary-record.contract";
 import type { ToolRuntimeContext } from "../../../contracts/tool-contract";
-import { homepageMcpDiaryRecordAddSchema } from "@/features/agent-platform/mcp-server/homepage-mcp-write-preview";
+import SHA256 from "crypto-js/sha256";
+import { homepageMcpDiaryRecordAddSchema, homepageMcpDiaryRecordUpdateSchema } from "@/features/agent-platform/mcp-server/homepage-mcp-write-preview";
 import { createDiaryToolPluginAdapter, loadAgendaEnhancedDiaryConfig, prepareAgendaEnhancedDiaryIndex } from "./agenda-utils.impl";
 import {
   validateEnhancedDiaryProjectWriteTarget,
@@ -110,9 +111,16 @@ async function executeAdd(
 async function executeUpdate(
   deps: KbRetrievalToolDeps,
   args: ManageDiaryRecordInput,
+  target?: ToolRuntimeContext["diaryRecordMutationTarget"],
 ): Promise<ExecResult> {
-  const config = await prepareAgendaEnhancedDiaryIndex(deps, await loadAgendaEnhancedDiaryConfig(deps));
-  const found = await findRecordForTarget(config, args.target!);
+  if (target) homepageMcpDiaryRecordUpdateSchema.parse(args);
+  const loaded = await loadAgendaEnhancedDiaryConfig(deps);
+  const config = target ? loaded : await prepareAgendaEnhancedDiaryIndex(deps, loaded);
+  const found = target ? { record: await target.readRecord(), date: formatDiaryDate(new Date()), dateObj: new Date(), docId: target.docId, errorCode: undefined, message: undefined }
+    : await findRecordForTarget(config, args.target!);
+  if (target && (target.headingBlockId !== args.target?.headingBlockId || target.configFingerprint !== SHA256(JSON.stringify(config)).toString())) {
+    return { ok: false, errorCode: "diary_target_conflict", safeOutput: { operation: "update", changed: false, message: "已批准的目标或配置已变化。" } };
+  }
 
   if (!found.record) {
     return {
@@ -136,9 +144,12 @@ async function executeUpdate(
     dailyNotebookId: config.dailyNotebookId!,
     expectedDate,
     projectStorage: config.projectStorage,
-  }, { tags: args.tags ?? found.record.tags, projectTargetId: project?.id, projectTitle: project?.title, rootProjectId: project?.rootProjectId, projectPath: project?.pathTitles, projectAncestorTargetIds: project?.ancestorTargetIds, isKeyRecord: args.isKeyRecord ?? found.record.isKeyRecord });
+  }, target ? {} : { tags: args.tags ?? found.record.tags, projectTargetId: project?.id, projectTitle: project?.title, rootProjectId: project?.rootProjectId, projectPath: project?.pathTitles, projectAncestorTargetIds: project?.ancestorTargetIds, isKeyRecord: args.isKeyRecord ?? found.record.isKeyRecord }, target);
+  if (target && (result.partial || result.reason === "write_result_unknown")) {
+    return { ok: false, errorCode: "write_result_unknown", safeOutput: { operation: "update", changed: true, headingBlockId: found.record.headingBlockId, message: "正文替换结果未知，请先回读，禁止自动重试。" } };
+  }
   if (!result.ok) {
-    const errorCode = result.reason === "archived_project_target"
+    const errorCode = result.reason === "diary_target_conflict" ? result.reason : result.reason === "archived_project_target"
       ? "archived_project_target"
       : result.reason === "record_block_out_of_scope" || result.reason === "record_block_missing"
         ? "diary_doc_out_of_scope" : "quick_record_update_failed";
@@ -203,13 +214,15 @@ export async function executeManageDiaryRecord(
   deps: KbRetrievalToolDeps,
   args: ManageDiaryRecordInput,
   target?: ToolRuntimeContext["diaryRecordAddTarget"],
+  mutation?: ToolRuntimeContext["diaryRecordMutationTarget"],
 ): Promise<ExecResult> {
+  if (mutation && args.operation !== "update") return { ok: false, errorCode: "diary_target_conflict", safeOutput: { operation: args.operation, changed: false, message: "本次批准只允许修改普通快速记录正文。" } };
   if (target && args.operation !== "add") return { ok: false, errorCode: "diary_target_conflict", safeOutput: { operation: args.operation, changed: false, message: "本次批准只允许新增普通快速记录。" } };
   switch (args.operation) {
     case "add":
       return executeAdd(deps, args, target);
     case "update":
-      return executeUpdate(deps, args);
+      return executeUpdate(deps, args, mutation);
     case "delete":
       return executeDelete(deps, args);
     default:

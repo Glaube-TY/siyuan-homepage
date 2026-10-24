@@ -715,6 +715,13 @@ export interface WorkspaceQuickRecordAddTarget {
     readTarget(): Promise<void>;
 }
 
+export interface WorkspaceQuickRecordMutationTarget extends Omit<WorkspaceQuickRecordAddTarget, "readTarget"> {
+    headingBlockId: string;
+    paragraphId: string;
+    readRecord(): Promise<EnhancedDiaryWorkspaceRecord>;
+    verifyInserted(paragraphId: string): Promise<void>;
+}
+
 export async function addWorkspaceQuickRecord(
     plugin: any,
     config: EnhancedDiaryConfig,
@@ -823,6 +830,7 @@ export async function updateQuickRecord(
     content: string,
     ctx: EnhancedDiaryRecordWriteContext,
     metadata: { categoryTitle?: string; tags?: string[]; projectTargetId?: string; projectTitle?: string; isKeyRecord?: boolean; rootProjectId?: string; projectPath?: string[]; projectAncestorTargetIds?: string[] } = {},
+    target?: WorkspaceQuickRecordMutationTarget,
 ): Promise<WorkspaceRecordActionResult> {
     const trimmed = content.trim();
     if (!trimmed) {
@@ -916,6 +924,19 @@ export async function updateQuickRecord(
         ? appendRecordProjectReference(trimmed, projectTargetId, projectTitle)
         : removeVisibleProjectReference(trimmed);
     const firstOldBlockId = bodyAnalysis.oldBlockIds[0];
+    if (target) {
+        try {
+            const current = await target.readRecord();
+            if (target.date !== formatDiaryAttrDate(new Date()) || target.date !== ctx.expectedDate || target.notebookId !== ctx.dailyNotebookId ||
+                target.docId !== record.docId || target.headingBlockId !== record.headingBlockId || target.categoryTitle !== record.categoryTitle ||
+                bodyAnalysis.oldBlockIds.length !== 1 || firstOldBlockId !== target.paragraphId || trimmed !== content || content === record.content ||
+                Object.keys(metadata).length || record.tags.length || record.projectTargetId || record.hiddenProjectTargetId || record.visibleProjectTargetId ||
+                record.rootProjectId || record.isKeyRecord || record.projectRelationStatus !== "none" || bodyAnalysis.projectReferenceBlockId ||
+                SHA256(JSON.stringify(current)).toString() !== SHA256(JSON.stringify(record)).toString()) throw new Error("diary_target_conflict");
+        } catch {
+            return { ok: false, reason: "diary_target_conflict", message: "已批准的快速记录状态已变化，未执行正文修改。" };
+        }
+    }
     let insertedBlockIds: string[] = [];
     try {
         const operations = firstOldBlockId
@@ -926,8 +947,8 @@ export async function updateQuickRecord(
         console.warn("[enhancedDiaryWorkspaceRecordService] insert updated record body failed", reason);
         return {
             ok: false,
-            reason: "update_failed",
-            message: "记录新内容写入失败，原正文已保留。",
+            reason: target ? "write_result_unknown" : "update_failed",
+            message: target ? "正文写入结果未知，请先回读，禁止自动重试。" : "记录新内容写入失败，原正文已保留。",
         };
     }
     const partialResult: WorkspaceRecordActionResult = {
@@ -940,21 +961,30 @@ export async function updateQuickRecord(
     };
     if (insertedBlockIds.length === 0) return partialResult;
 
+    if (target) {
+        // 新段落身份、位置及完整旧状态均得到核对后，才可删除旧正文。
+        try {
+            if (insertedBlockIds.length !== 1) return partialResult;
+            await target.verifyInserted(insertedBlockIds[0]);
+        } catch { return partialResult; }
+    }
     const tags = Array.from(new Set((resolvedMetadata.tags ?? record.tags).map((tag) => tag.replace(/^#+|#+$/g, "").trim()).filter(Boolean)));
     const tagText = tags.map((tag) => `#${tag}#`).join(" ");
     const level = Math.max(1, Math.min(6, record.headingLevel || 3));
     const baseTitle = `${record.timeText || extractTimeText(record.headingTitle)} 记录`.trim();
     const nextHeadingTitle = `${baseTitle}${tagText ? ` ${tagText}` : ""}`;
     const nextHeadingMarkdown = `${"#".repeat(level)} ${nextHeadingTitle}`;
-    try {
-        await updateBlockChecked("markdown", nextHeadingMarkdown, record.headingBlockId);
-        await setBlockAttrsChecked(record.headingBlockId, {
-            [ENHANCED_DIARY_PROJECT_TARGET_ATTR]: projectTargetId,
-            [ENHANCED_DIARY_KEY_RECORD_ATTR]: projectTargetId && resolvedMetadata.isKeyRecord ? "true" : "",
-        });
-    } catch (reason) {
-        console.warn("[enhancedDiaryWorkspaceRecordService] update record metadata failed", reason);
-        return partialResult;
+    if (!target) {
+        try {
+            await updateBlockChecked("markdown", nextHeadingMarkdown, record.headingBlockId);
+            await setBlockAttrsChecked(record.headingBlockId, {
+                [ENHANCED_DIARY_PROJECT_TARGET_ATTR]: projectTargetId,
+                [ENHANCED_DIARY_KEY_RECORD_ATTR]: projectTargetId && resolvedMetadata.isKeyRecord ? "true" : "",
+            });
+        } catch (reason) {
+            console.warn("[enhancedDiaryWorkspaceRecordService] update record metadata failed", reason);
+            return partialResult;
+        }
     }
 
     if (bodyAnalysis.oldBlockIds.length > 0) {
@@ -968,6 +998,7 @@ export async function updateQuickRecord(
         }
     }
 
+    if (target) return { ok: true, changed: true, headingBlockId: record.headingBlockId, contentBlockIds: insertedBlockIds };
     try {
         await upsertProjectRecordIndexItem(ctx.dailyNotebookId, {
             ...record,

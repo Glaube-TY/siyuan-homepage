@@ -7,6 +7,7 @@ export interface ToolExecutionContext {
   abortSignal?: AbortSignal;
   diaryTaskCreateTarget?: ToolRuntimeContext["diaryTaskCreateTarget"];
   diaryRecordAddTarget?: ToolRuntimeContext["diaryRecordAddTarget"];
+  diaryRecordMutationTarget?: ToolRuntimeContext["diaryRecordMutationTarget"];
   diaryTaskMutationTarget?: ToolRuntimeContext["diaryTaskMutationTarget"];
 }
 

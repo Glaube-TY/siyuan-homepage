@@ -15,7 +15,7 @@ export type {
 } from "./contracts/manage-diary-record.contract";
 
 export interface ManageDiaryRecordDeps {
-  executeManageDiaryRecord(args: ManageDiaryRecordInput, target?: ToolRuntimeContext["diaryRecordAddTarget"]): Promise<{ ok: boolean; safeOutput: ManageDiaryRecordOutput; errorCode?: string }>;
+  executeManageDiaryRecord(args: ManageDiaryRecordInput, target?: ToolRuntimeContext["diaryRecordAddTarget"], mutation?: ToolRuntimeContext["diaryRecordMutationTarget"]): Promise<{ ok: boolean; safeOutput: ManageDiaryRecordOutput; errorCode?: string }>;
 }
 
 export function createManageDiaryRecordTool(
@@ -62,7 +62,7 @@ export function createManageDiaryRecordTool(
 
     async execute(ctx: ToolRuntimeContext, args: ManageDiaryRecordInput): Promise<ToolResult<ManageDiaryRecordOutput>> {
       try {
-        const result = await deps.executeManageDiaryRecord(args, ctx.diaryRecordAddTarget);
+        const result = await deps.executeManageDiaryRecord(args, ctx.diaryRecordAddTarget, ctx.diaryRecordMutationTarget);
         if (!result.ok) {
           return {
             ok: false,
@@ -80,9 +80,9 @@ export function createManageDiaryRecordTool(
           ok: false,
           data: null,
           error: {
-            code: ctx.diaryRecordAddTarget ? "write_result_unknown" : "tool_internal_error",
-            message: ctx.diaryRecordAddTarget ? "快速记录写入结果未知，请先回读，禁止自动重试。" : "管理快速记录执行异常。",
-            recoverable: !ctx.diaryRecordAddTarget,
+            code: ctx.diaryRecordAddTarget || ctx.diaryRecordMutationTarget ? "write_result_unknown" : "tool_internal_error",
+            message: ctx.diaryRecordAddTarget || ctx.diaryRecordMutationTarget ? "快速记录写入结果未知，请先回读，禁止自动重试。" : "管理快速记录执行异常。",
+            recoverable: !ctx.diaryRecordAddTarget && !ctx.diaryRecordMutationTarget,
           },
         };
       }
