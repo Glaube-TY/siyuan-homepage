@@ -1,32 +1,43 @@
 <script lang="ts">
-    import { onMount } from "svelte";
-    import { suppressHomepageOperationGuide } from "./homepageOperationGuide";
+    import { onMount, onDestroy } from "svelte";
 
-    let { onClose, readFailed = false }: { onClose: () => void; readFailed?: boolean } = $props();
+    let { onClose, onSuppress, readFailed = false }: {
+        onClose: () => void;
+        onSuppress: () => Promise<void>;
+        readFailed?: boolean;
+    } = $props();
     let errorMessage = $state("");
     let saving = $state(false);
     let closeButton: HTMLButtonElement;
+    let destroyed = false;
 
     onMount(() => closeButton?.focus({ preventScroll: true }));
+    onDestroy(() => { destroyed = true; });
 
-    function suppress() {
-        if (saving) return;
+    async function suppress() {
+        if (saving || destroyed) return;
         saving = true;
+        errorMessage = "";
         try {
-            suppressHomepageOperationGuide();
+            await onSuppress();
         } catch {
+            if (destroyed) return;
             errorMessage = "保存失败，请重试，或点击关闭。";
             saving = false;
             return;
         }
-        onClose();
+        if (!destroyed) onClose();
+    }
+
+    function close() {
+        if (!saving && !destroyed) onClose();
     }
 
     function handleKeydown(event: KeyboardEvent) {
         if (event.key !== "Escape") return;
         event.preventDefault();
         event.stopPropagation();
-        onClose();
+        close();
     }
 </script>
 
@@ -40,7 +51,7 @@
     {#if errorMessage || readFailed}<p class="error" role="alert">{errorMessage || "提示偏好读取失败，仍可关闭或重试保存。"}</p>{/if}
     <div class="actions">
         <button type="button" class="b3-button b3-button--cancel" disabled={saving} onclick={suppress} onkeydown={handleKeydown}>不再显示</button>
-        <button type="button" class="b3-button" bind:this={closeButton} onclick={onClose} onkeydown={handleKeydown}>关闭</button>
+        <button type="button" class="b3-button" bind:this={closeButton} disabled={saving} onclick={close} onkeydown={handleKeydown}>关闭</button>
     </div>
 </div>
 

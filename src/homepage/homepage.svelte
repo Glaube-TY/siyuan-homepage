@@ -1239,7 +1239,7 @@
     let homepageVisibilityObserver: ResizeObserver | null = null;
 
     let homepageComponentDestroyed = false;
-    const homepageOperationGuide = createHomepageOperationGuide(() =>
+    const homepageOperationGuide = createHomepageOperationGuide(plugin, () =>
         !plugin?.isMobile
         && !homepageComponentDestroyed
         && homepageConfigLoaded
