@@ -15,7 +15,7 @@ export type {
 } from "./contracts/manage-diary-review.contract";
 
 export interface ManageDiaryReviewDeps {
-  executeManageDiaryReview(args: ManageDiaryReviewInput, target?: ToolRuntimeContext["diaryReviewStatusTarget"]): Promise<{ ok: boolean; safeOutput: ManageDiaryReviewOutput; errorCode?: string }>;
+  executeManageDiaryReview(args: ManageDiaryReviewInput, target?: ToolRuntimeContext["diaryReviewStatusTarget"], contentTarget?: ToolRuntimeContext["diaryReviewContentTarget"]): Promise<{ ok: boolean; safeOutput: ManageDiaryReviewOutput; errorCode?: string }>;
 }
 
 export function createManageDiaryReviewTool(
@@ -65,7 +65,7 @@ export function createManageDiaryReviewTool(
 
     async execute(_ctx: ToolRuntimeContext, args: ManageDiaryReviewInput): Promise<ToolResult<ManageDiaryReviewOutput>> {
       try {
-        const result = await deps.executeManageDiaryReview(args, _ctx.diaryReviewStatusTarget);
+        const result = await deps.executeManageDiaryReview(args, _ctx.diaryReviewStatusTarget, _ctx.diaryReviewContentTarget);
         if (!result.ok) {
           return {
             ok: false,
@@ -73,7 +73,7 @@ export function createManageDiaryReviewTool(
             error: {
               code: result.errorCode || "review_write_failed",
               message: result.safeOutput.message,
-              recoverable: !_ctx.diaryReviewStatusTarget,
+              recoverable: !(_ctx.diaryReviewStatusTarget || _ctx.diaryReviewContentTarget),
             },
           };
         }
@@ -85,7 +85,7 @@ export function createManageDiaryReviewTool(
           error: {
             code: "tool_internal_error",
             message: "管理复盘内容执行异常。",
-            recoverable: !_ctx.diaryReviewStatusTarget,
+            recoverable: !(_ctx.diaryReviewStatusTarget || _ctx.diaryReviewContentTarget),
           },
         };
       }

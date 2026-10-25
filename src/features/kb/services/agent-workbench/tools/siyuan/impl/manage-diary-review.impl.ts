@@ -17,7 +17,7 @@ import type { ToolRuntimeContext } from "../../../contracts/tool-contract";
 
 type ExecResult = { ok: boolean; safeOutput: ManageDiaryReviewOutput; errorCode?: string };
 
-async function executeSaveContent(args: ManageDiaryReviewInput, config: EnhancedDiaryConfig): Promise<ExecResult> {
+async function executeSaveContent(args: ManageDiaryReviewInput, config: EnhancedDiaryConfig, contentTarget?: ToolRuntimeContext["diaryReviewContentTarget"]): Promise<ExecResult> {
   const period = args.period as EnhancedDiaryPeriod;
   const fields = args.fields!;
 
@@ -58,10 +58,12 @@ async function executeSaveContent(args: ManageDiaryReviewInput, config: Enhanced
     missing: false,
   }));
 
-  const result = await saveReviewContent(args.docId, period, reviewFields, config.headingStructure, config.templateFieldMapping);
+  const result = await saveReviewContent(args.docId, period, reviewFields, config.headingStructure, config.templateFieldMapping, contentTarget);
 
   if (!result.ok) {
     const errorMap: Record<string, { code: string; msg: string; changed?: boolean }> = {
+      review_target_conflict: { code: "diary_review_conflict", msg: "批准的复盘字段已变化，未发送写入。" },
+      write_result_unknown: { code: "write_result_unknown", msg: "正文写入结果未知，可能已部分完成，禁止自动重试。", changed: true },
       missing_period_root: { code: "missing_period_root", msg: `文档中未找到 ${period} 周期根标题，请先补充模板。` },
       missing_review_root: { code: "missing_review_root", msg: `文档中未找到复盘根标题，请先补充模板。` },
       cleanup_failed: { code: "review_cleanup_failed", msg: "新内容已写入，但旧内容清理失败，请打开日记检查重复内容。", changed: true },
@@ -165,9 +167,15 @@ export async function executeManageDiaryReview(
   deps: KbRetrievalToolDeps,
   args: ManageDiaryReviewInput,
   target?: ToolRuntimeContext["diaryReviewStatusTarget"],
+  contentTarget?: ToolRuntimeContext["diaryReviewContentTarget"],
 ): Promise<ExecResult> {
   if (target && (args.operation !== "set_status" || args.period !== "day" || args.docId !== target.docId || args.status !== target.status || Object.keys(args).some((key) => !["operation", "docId", "period", "status"].includes(key)))) {
     return { ok: false, errorCode: "diary_review_conflict", safeOutput: { operation: String(args.operation), changed: false, docId: args.docId, period: args.period, message: "受控复盘参数不匹配。" } };
+  }
+  if (contentTarget && (target || args.operation !== "save_content" || args.period !== "day" || args.docId !== contentTarget.docId ||
+      args.fields?.length !== 1 || args.fields[0].label !== contentTarget.label || args.fields[0].content !== contentTarget.content ||
+      Object.keys(args).some((key) => !["operation", "docId", "period", "fields"].includes(key)))) {
+    return { ok: false, errorCode: "diary_review_conflict", safeOutput: { operation: String(args.operation), changed: false, docId: args.docId, period: args.period, message: "受控复盘正文参数不匹配。" } };
   }
   // Load config and validate docId scope before any operation
   let config: EnhancedDiaryConfig;
@@ -208,7 +216,7 @@ export async function executeManageDiaryReview(
 
   switch (args.operation) {
     case "save_content":
-      return executeSaveContent(args, config);
+      return executeSaveContent(args, config, contentTarget);
     case "set_status":
       return executeSetStatus(args, config, target);
     default:

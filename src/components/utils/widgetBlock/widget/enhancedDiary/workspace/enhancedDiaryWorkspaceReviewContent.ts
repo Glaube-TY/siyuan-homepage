@@ -8,6 +8,7 @@ import {
     getLines,
     type EnhancedDiaryHeadingNode,
 } from "../enhancedDiaryMarkdownSections";
+import { extractOperationBlockIds } from "../enhancedDiaryBlockLocator";
 import { readDiaryMarkdownResult } from "../enhancedDiaryDoc";
 import type { EnhancedDiaryHeadingStructureConfig, EnhancedDiaryPeriod, EnhancedDiaryTemplateFieldMapping } from "../enhancedDiaryTypes";
 import {
@@ -23,6 +24,14 @@ export interface EnhancedDiaryReviewField {
     label: string;
     content: string;
     missing: boolean;
+}
+
+export interface DiaryReviewContentTarget {
+    docId: string; notebookId: string; date: string; period: "day"; label: string; content: string;
+    dayRootId: string; reviewRootId: string; headingBlockId: string; paragraphId: string | null;
+    oldContentFingerprint: string; boundaryId: string | null; completed: boolean; stateFingerprint: string;
+    readTarget(): Promise<void>;
+    verifyInserted(id: string): Promise<void>;
 }
 
 interface ReviewSectionDef {
@@ -184,7 +193,8 @@ export async function saveReviewContent(
     period: EnhancedDiaryPeriod,
     fields: EnhancedDiaryReviewField[],
     _headingStructure?: EnhancedDiaryHeadingStructureConfig,
-    mapping?: EnhancedDiaryTemplateFieldMapping | null
+    mapping?: EnhancedDiaryTemplateFieldMapping | null,
+    target?: DiaryReviewContentTarget
 ): Promise<{ ok: boolean; reason?: string; changed?: boolean; changedFieldCount?: number; failedFieldCount?: number; cleanupFailedCount?: number }> {
     const reviewRootAliases = getFieldAliases(mapping, "reviewSections", period, "reviewRoot");
 
@@ -274,6 +284,32 @@ export async function saveReviewContent(
                 }
             }
             fieldIndexMap.set(matchedLabel, { blockIndex: i, blockId: children[i].id, endIndex: endIdx });
+        }
+    }
+
+    if (target) {
+        const field = fields[0], existing = field && fieldIndexMap.get(field.label);
+        const bodyIds = existing ? children.slice(existing.blockIndex + 1, existing.endIndex).map((block) => block.id) : [];
+        const boundaryId = existing && existing.endIndex < children.length ? children[existing.endIndex].id : reviewBoundaryNextId;
+        if (docId !== target.docId || period !== target.period || fields.length !== 1 || !field || field.label !== target.label ||
+            field.content !== target.content || !field.content.trim() || !activeFields.includes(field.label) || !existing ||
+            children[periodRootIndex].id !== target.dayRootId || reviewRootBlock.id !== target.reviewRootId || existing.blockId !== target.headingBlockId ||
+            boundaryId !== target.boundaryId || JSON.stringify(bodyIds) !== JSON.stringify(target.paragraphId ? [target.paragraphId] : [])) {
+            return { ok: false, reason: "review_target_conflict" };
+        }
+        try { await target.readTarget(); } catch { return { ok: false, reason: "review_target_conflict" }; }
+        // 先验证原生插入回执与完整保留状态，才允许删除唯一批准的旧段落。
+        try {
+            const result = boundaryId
+                ? await insertBlockChecked("markdown", field.content, boundaryId)
+                : await insertBlockChecked("markdown", field.content, undefined, existing.blockId);
+            const ids = extractOperationBlockIds(result);
+            if (ids.length !== 1) throw new Error("review_insert_receipt_invalid");
+            await target.verifyInserted(ids[0]);
+            if (target.paragraphId) await performTransactionsChecked([{ doOperations: [{ action: "delete", id: target.paragraphId }] }]);
+            return { ok: true, changed: true, changedFieldCount: 1 };
+        } catch {
+            return { ok: false, reason: "write_result_unknown", changed: true };
         }
     }
 

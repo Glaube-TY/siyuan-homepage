@@ -27,10 +27,21 @@ const diaryRecordWriteArgsSchema: HomepageMcpJsonSchema = {
   properties: { ...diaryRecordAddArgsSchema.properties, ...diaryRecordUpdateArgsSchema.properties, operation: { type: "string", enum: ["add", "update", "delete"] } },
   oneOf: [diaryRecordAddArgsSchema, diaryRecordUpdateArgsSchema, diaryRecordDeleteArgsSchema],
 };
-const diaryReviewStatusArgsSchema: HomepageMcpJsonSchema = {
+const diaryReviewStatusArgsSchema = {
   type: "object", additionalProperties: false, required: ["operation", "docId", "period", "status"],
   properties: { operation: { type: "string", const: "set_status" }, docId: databaseIdSchema,
     period: { type: "string", const: "day" }, status: { type: "string", enum: ["completed", "pending"] } },
+};
+const diaryReviewContentArgsSchema = {
+    type: "object", additionalProperties: false, required: ["operation", "docId", "period", "fields"],
+    properties: { operation: { type: "string", const: "save_content" }, docId: databaseIdSchema, period: { type: "string", const: "day" },
+      fields: { type: "array", minItems: 1, maxItems: 1, items: { type: "object", additionalProperties: false, required: ["label", "content"],
+        properties: { label: { type: "string", minLength: 1, maxLength: 100 }, content: { type: "string", minLength: 1, maxLength: 1000,
+          not: { pattern: "^\\s|\\s$|[\\x00-\\x1f\\x7f-\\x9f\u2028\u2029\\\\`*_~\\[\\]<>#{}|$!📁📅⌛❗🔁⏰📍]|^([-+]|\\d+[.)])\\s|^[-=+]{2,}$|\\(\\(|\\)\\)" } } } } } },
+};
+const diaryReviewWriteArgsSchema: HomepageMcpJsonSchema = {
+  type: "object", additionalProperties: false, properties: { ...diaryReviewStatusArgsSchema.properties, ...diaryReviewContentArgsSchema.properties, operation: { type: "string", enum: ["set_status", "save_content"] } },
+  oneOf: [diaryReviewStatusArgsSchema, diaryReviewContentArgsSchema],
 };
 const diaryTaskNameSchema = { type: "string", minLength: 1, maxLength: 200,
   not: { pattern: "^\\s|\\s$|[\\x00-\\x1f\\x7f-\\x9f\u2028\u2029📅⌛❗🔁⏰📍📁#]|\\{:.*?\\}\\s*$" } };
@@ -321,7 +332,7 @@ export function buildHomepageMcpCapabilityPolicies(
       const argsSchema = name === "siyuan_database" && isHomepageMcpWriteAction(name, action)
         ? databaseWriteArgsSchemas[action] : name === "diary_task" && action === "manage_task" ? diaryTaskWriteArgsSchema
           : name === "diary_task" && action === "manage_record" ? diaryRecordWriteArgsSchema
-            : name === "diary_task" && action === "manage_review" ? diaryReviewStatusArgsSchema : metadata.argsSchema;
+            : name === "diary_task" && action === "manage_review" ? diaryReviewWriteArgsSchema : metadata.argsSchema;
       if (!argsSchema) {
         issues.push(`${name}.${action}: external_args_schema_required`);
         continue;

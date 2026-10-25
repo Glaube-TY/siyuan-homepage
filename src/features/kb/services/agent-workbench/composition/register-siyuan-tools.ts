@@ -296,7 +296,7 @@ function createSiyuanToolDeps(deps: SiyuanToolDeps) {
     executeManageDiaryRecord: (args, target, mutation, deletion) => executeManageDiaryRecord(deps, args, target, mutation, deletion),
   };
   const manageDiaryReviewDeps: ManageDiaryReviewDeps = {
-    executeManageDiaryReview: (args, target) => executeManageDiaryReview(deps, args, target),
+    executeManageDiaryReview: (args, target, contentTarget) => executeManageDiaryReview(deps, args, target, contentTarget),
   };
   const siyuanOutlineDeps: SiyuanOutlineDeps = { executeSiyuanOutline };
   const siyuanRefDeps: SiyuanRefDeps = { executeSiyuanRef };

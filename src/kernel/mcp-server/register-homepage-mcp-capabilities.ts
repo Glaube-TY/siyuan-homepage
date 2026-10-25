@@ -6,7 +6,7 @@ import { HomepageMcpAnniversaryConflict, prepareHomepageMcpAnniversaryWrite, ver
 import { prepareHomepageMcpDatabaseWrite, verifyHomepageMcpDatabaseWrite, type PreparedDatabaseWrite } from "./homepage-mcp-database-write";
 import { getHomepageMcpWriteOperation, homepageMcpDatabaseUpdateSchema, homepageMcpDatabaseClearSchema, homepageMcpDatabaseDetachedAddSchema, homepageMcpDatabaseBoundAddSchema, homepageMcpDatabaseRemoveSchema, homepageMcpDatabaseAddKeySchema, homepageMcpDatabaseRemoveKeySchema, isHomepageMcpFavoriteWriteAction, isHomepageMcpAnniversaryWriteAction, type HomepageMcpDatabaseWriteAction, type HomepageMcpFavoriteWriteAction, type HomepageMcpAnniversaryWriteAction } from "../../features/agent-platform/mcp-server/homepage-mcp-write-preview";
 import { HomepageMcpDiaryTargetUnavailable, prepareHomepageMcpDiaryTaskWrite, verifyHomepageMcpDiaryTaskWrite, verifyHomepageMcpDiaryTaskLog, type PreparedDiaryTaskWrite } from "./homepage-mcp-diary-task-write";
-import { homepageMcpDiaryTaskWriteSchema, homepageMcpDiaryRecordWriteSchema, homepageMcpDiaryReviewStatusSchema } from "../../features/agent-platform/mcp-server/homepage-mcp-write-preview";
+import { homepageMcpDiaryTaskWriteSchema, homepageMcpDiaryRecordWriteSchema, homepageMcpDiaryReviewWriteSchema } from "../../features/agent-platform/mcp-server/homepage-mcp-write-preview";
 import { prepareHomepageMcpDiaryRecordWrite, verifyHomepageMcpDiaryRecordWrite, verifyHomepageMcpDiaryRecordInsertion, type PreparedDiaryRecordWrite } from "./homepage-mcp-diary-record-write";
 import type { NativeTool } from "../../features/kb/services/agent-core/tools/native-tool";
 import type { NativeToolRegistry } from "../../features/kb/services/agent-core/tools/native-tool-registry";
@@ -205,7 +205,7 @@ function createCapabilityConfig(
   return {
     title: writes.length ? (policy.name === "siyuan_database" ? "思源数据库查询与确认写入" : policy.name === "diary_task" ? "日记任务查询与确认写入" : "主页组件查询与确认写入") : CAPABILITY_TITLES[policy.name],
     description: writes.length
-      ? `${policy.name === "diary_task" ? "查询日记、任务和记录；普通任务新建、状态修改、重命名、推迟、历史任务迁移、单条删除、普通快速记录新增/正文修改/删除及今日日复盘完成状态修改" : CAPABILITY_DESCRIPTIONS[policy.name] + writes.join("、")}仅限本次运行授权且经逐次用户确认。`
+      ? `${policy.name === "diary_task" ? "查询日记、任务和记录；普通任务新建、状态修改、重命名、推迟、历史任务迁移、单条删除、普通快速记录新增/正文修改/删除及今日日复盘完成状态修改、单字段普通正文保存" : CAPABILITY_DESCRIPTIONS[policy.name] + writes.join("、")}仅限本次运行授权且经逐次用户确认。`
       : CAPABILITY_DESCRIPTIONS[policy.name],
     inputSchema: policy.inputSchema,
     effects: { localRead: true, ...(writes.length ? { localWrite: true } : {}) },
@@ -245,7 +245,7 @@ function createCapabilityHandler(
     let toolInput: Record<string, unknown>;
     try {
       toolInput = { action, args: input.args === undefined ? {} : input.args };
-      if (write && policy.name === "diary_task") (action === "manage_review" ? homepageMcpDiaryReviewStatusSchema : action === "manage_record" ? homepageMcpDiaryRecordWriteSchema : homepageMcpDiaryTaskWriteSchema).parse(toolInput.args);
+      if (write && policy.name === "diary_task") (action === "manage_review" ? homepageMcpDiaryReviewWriteSchema : action === "manage_record" ? homepageMcpDiaryRecordWriteSchema : homepageMcpDiaryTaskWriteSchema).parse(toolInput.args);
       if (write && policy.name === "siyuan_database") {
         const schema = action === "add_rows"
           ? isPlainRecord(toolInput.args) && Object.prototype.hasOwnProperty.call(toolInput.args, "blockIds") ? homepageMcpDatabaseBoundAddSchema : homepageMcpDatabaseDetachedAddSchema
@@ -329,7 +329,7 @@ function createCapabilityHandler(
     try {
       const result = await policy.tool.execute(toolInput, {
         question: "External MCP capability invocation", callCounts: {},
-        ...(prepared?.domain === "review" ? { diaryReviewStatusTarget: prepared.value.target } : {}),
+        ...(prepared?.domain === "review" ? "contentTarget" in prepared.value ? { diaryReviewContentTarget: prepared.value.contentTarget } : { diaryReviewStatusTarget: prepared.value.target } : {}),
         ...(prepared?.domain === "migration" ? { diaryTaskMigrationTarget: prepared.value.context } : {}),
         ...(prepared?.domain === "record" ? prepared.value.deletion ? { diaryRecordDeleteTarget: {
           ...prepared.value.target, headingBlockId: prepared.value.deletion.record.headingBlockId!, paragraphId: prepared.value.deletion.paragraphId,

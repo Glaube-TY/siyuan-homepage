@@ -43,6 +43,18 @@ export const homepageMcpDiaryReviewStatusSchema = z.object({
   operation: z.literal("set_status"), docId: z.string().regex(/^\d{14}-[a-z0-9]{7}$/),
   period: z.literal("day"), status: z.enum(["completed", "pending"]),
 }).strict();
+export const homepageMcpDiaryReviewContentSchema = z.object({
+  operation: z.literal("save_content"), docId: homepageMcpDiaryReviewStatusSchema.shape.docId, period: z.literal("day"),
+  fields: z.array(z.object({ label: z.string().min(1).max(100), content: z.string().min(1).max(1000).refine((value) =>
+    value === value.trim() && !/[\\`*_~\[\]<>#{}|$!📁📅⌛❗🔁⏰📍]/u.test(value) && !/^([-+]|\d+[.)])\s|^[-=+]{2,}$|\(\(|\)\)/u.test(value) &&
+    Array.from(value).every((char) => { const c = char.codePointAt(0)!; return c >= 32 && (c < 127 || c > 159) && c !== 0x2028 && c !== 0x2029; })) }).strict()).length(1),
+}).strict();
+export const homepageMcpDiaryReviewWriteSchema = z.discriminatedUnion("operation", [homepageMcpDiaryReviewStatusSchema, homepageMcpDiaryReviewContentSchema]);
+export const HOMEPAGE_MCP_DIARY_REVIEW_CONTENT = {
+  name: "保存日复盘字段正文",
+  consequence: "仅填写或替换指定复盘字段的一个普通文本段落；如原有正文存在，在新正文已验证后删除旧段落。保留复盘完成状态、其他字段、任务和快速记录。",
+  labels: ["日记标题", "日记 docId", "本地日期", "当前复盘状态", "复盘根标题", "复盘根 blockId", "字段名称", "字段 headingBlockId", "旧正文 paragraphId", "原正文", "新正文", "影响字段数"],
+} as const;
 export const HOMEPAGE_MCP_DIARY_REVIEW_STATUS_NAMES = {
   completed: "标记今日日记复盘完成", pending: "恢复今日日记复盘为未完成",
 } as const;
@@ -175,6 +187,16 @@ export const homepageMcpWritePreviewSchema = z.object({
   details: z.array(z.object({ label: text.max(60), value: text }).strict()).max(16),
 }).strict().refine((value) => {
   if (value.action === "manage_review") {
+    if (value.operationName === HOMEPAGE_MCP_DIARY_REVIEW_CONTENT.name) {
+      return value.consequence === HOMEPAGE_MCP_DIARY_REVIEW_CONTENT.consequence && value.affectedCount === 1 &&
+        value.details.length === HOMEPAGE_MCP_DIARY_REVIEW_CONTENT.labels.length && HOMEPAGE_MCP_DIARY_REVIEW_CONTENT.labels.every((label, i) => value.details[i].label === label) &&
+        value.targetName === value.details[0].value && id.safeParse(value.details[1].value).success && /^\d{8}$/.test(value.details[2].value) &&
+        ["已完成", "未完成"].includes(value.details[3].value) && id.safeParse(value.details[5].value).success &&
+        id.safeParse(value.targetId).success && value.targetId === value.details[7].value && new Set([value.targetId, value.details[1].value, value.details[5].value]).size === 3 &&
+        (value.details[8].value === "无" ? value.details[9].value === "（原字段为空）" : id.safeParse(value.details[8].value).success &&
+          ![value.targetId, value.details[1].value, value.details[5].value].includes(value.details[8].value)) &&
+        homepageMcpDiaryReviewContentSchema.shape.fields.element.shape.content.safeParse(value.details[10].value).success && value.details[11].value === "1";
+    }
     const completed = value.operationName === HOMEPAGE_MCP_DIARY_REVIEW_STATUS_NAMES.completed;
     return (completed || value.operationName === HOMEPAGE_MCP_DIARY_REVIEW_STATUS_NAMES.pending) &&
       value.consequence === HOMEPAGE_MCP_DIARY_TASK_WRITES.manage_review.consequence && value.affectedCount === 1 &&

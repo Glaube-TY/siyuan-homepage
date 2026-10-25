@@ -3,7 +3,7 @@
     import PremiumMark from "@/components/utils/shared/PremiumMark.svelte";
     import SettingSection from "@/libs/components/SettingSection.svelte";
     import SettingRow from "@/libs/components/SettingRow.svelte";
-    import { HOMEPAGE_MCP_DIARY_TASK_MUTATIONS, HOMEPAGE_MCP_DIARY_TASK_LOG_DELETE, HOMEPAGE_MCP_DIARY_TASK_MIGRATION, HOMEPAGE_MCP_DIARY_RECORD_DELETE } from "@/features/agent-platform/mcp-server/homepage-mcp-write-preview";
+    import { HOMEPAGE_MCP_DIARY_TASK_MUTATIONS, HOMEPAGE_MCP_DIARY_TASK_LOG_DELETE, HOMEPAGE_MCP_DIARY_TASK_MIGRATION, HOMEPAGE_MCP_DIARY_RECORD_DELETE, HOMEPAGE_MCP_DIARY_REVIEW_CONTENT } from "@/features/agent-platform/mcp-server/homepage-mcp-write-preview";
     import {
         getHomepageEntitlementSnapshot,
         subscribeHomepageEntitlement,
@@ -155,6 +155,7 @@
     }
 
     function approvalLabel(request: HomepageMcpWriteRequest): string {
+        if (request.toolName === "diary_task" && request.action === "manage_review" && request.operationName === HOMEPAGE_MCP_DIARY_REVIEW_CONTENT.name) return "确认保存复盘正文";
         if (request.toolName === "diary_task" && request.action === "manage_review") return request.details[6]?.value === "已完成" ? "确认完成复盘" : "确认恢复未完成";
         if (request.toolName === "diary_task" && request.action === "manage_task" && request.operationName === HOMEPAGE_MCP_DIARY_TASK_MIGRATION.name) return "确认迁移任务";
         if (request.toolName === "diary_task" && request.action === "manage_record" && request.operationName === HOMEPAGE_MCP_DIARY_RECORD_DELETE.name) return "确认删除快速记录";
@@ -195,7 +196,7 @@
     <header class="center-header">
         <div>
             <h3 id="homepage-mcp-heading">对外 MCP 服务 <PremiumMark size={13} /></h3>
-            <p>外部 MCP 默认只读；本次运行授权后，支持经过审核并逐次确认的收藏、纪念日、数据库写入及日记普通任务的新建、状态修改、重命名、推迟、历史任务迁移、单条删除及已有分类内的普通快速记录新增、正文修改和单条删除。</p>
+            <p>外部 MCP 默认只读；本次运行授权后，支持经过审核并逐次确认的收藏、纪念日、数据库写入及日记普通任务的新建、状态修改、重命名、推迟、历史任务迁移、单条删除及已有分类内的普通快速记录新增、正文修改和单条删除，以及日复盘状态和单字段普通正文保存。</p>
         </div>
     </header>
 
@@ -216,7 +217,7 @@
 
         <SettingRow
             title="允许本次运行 MCP 写入"
-            description="本次运行默认关闭，支持经过审核并逐次确认的收藏、纪念日、数据库写入及日记普通任务的新建、状态修改、重命名、推迟、历史任务迁移、单条删除及已有分类内的普通快速记录新增、正文修改和单条删除。普通 OAuth MCP 客户端不能调用插件审批 RPC；管理员 Token 不受此审批隔离。关闭服务或重启后授权失效。"
+            description="本次运行默认关闭，支持经过审核并逐次确认的收藏、纪念日、数据库写入及日记普通任务的新建、状态修改、重命名、推迟、历史任务迁移、单条删除及已有分类内的普通快速记录新增、正文修改和单条删除，以及日复盘状态和单字段普通正文保存。普通 OAuth MCP 客户端不能调用插件审批 RPC；管理员 Token 不受此审批隔离。关闭服务或重启后授权失效。"
         >
             <div class="status-control">
                 <span aria-live="polite">{snapshot ? snapshot.writeActive ? "已开启写入授权" : "只读" : "状态未知"}</span>

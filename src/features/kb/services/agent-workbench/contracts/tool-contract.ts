@@ -79,6 +79,7 @@ export interface ToolRuntimeContext {
   diaryRecordMutationTarget?: import("@/components/utils/widgetBlock/widget/enhancedDiary/workspace/enhancedDiaryWorkspaceRecordService").WorkspaceQuickRecordMutationTarget;
   diaryRecordDeleteTarget?: import("@/components/utils/widgetBlock/widget/enhancedDiary/workspace/enhancedDiaryWorkspaceRecordService").WorkspaceQuickRecordDeleteTarget;
   /** Kernel 内部闭包重新读取真实目标；不接受外部参数或过期索引作为依据。 */
+  diaryReviewContentTarget?: import("@/components/utils/widgetBlock/widget/enhancedDiary/workspace/enhancedDiaryWorkspaceReviewContent").DiaryReviewContentTarget;
   diaryReviewStatusTarget?: {
     docId: string; notebookId: string; date: string; period: "day"; status: "completed" | "pending";
     rootHeadingId: string; rootMarkdown: string; expectedMarkdown: string; stateFingerprint: string;
