@@ -79,8 +79,16 @@ export const HOMEPAGE_MCP_DIARY_TASK_LOG_DELETE = {
   name: "记录日志后删除日记任务",
   consequence: "先向现有今日日记的任务日志区域写入删除记录，再删除指定任务；如果日志写入成功而任务删除失败，日志可能保留，不能自动重试。",
 } as const;
+export const HOMEPAGE_MCP_DIARY_TASK_MIGRATION = {
+  name: "迁移历史日记任务",
+  consequence: "迁移会将同一个任务块移动到今日日记，并写入来源说明、任务日志、刷新任务索引；如果中途发生错误，可能已经完成部分步骤，不能自动重试。",
+} as const;
+export const homepageMcpDiaryTaskMigrationSchema = z.object({
+  operation: z.literal("migrate"), target: z.object({ blockId: z.string().regex(/^\d{14}-[a-z0-9]{7}$/) }).strict(),
+}).strict();
 export const homepageMcpDiaryTaskWriteSchema = z.discriminatedUnion("operation", [
   homepageMcpDiaryTaskCreateSchema,
+  homepageMcpDiaryTaskMigrationSchema,
   z.object({ operation: z.literal("set_status"), target: z.object({ blockId: z.string().regex(/^\d{14}-[a-z0-9]{7}$/) }).strict(), completed: z.boolean() }).strict(),
   z.object({ operation: z.literal("update"), target: z.object({ blockId: z.string().regex(/^\d{14}-[a-z0-9]{7}$/) }).strict(),
     task: z.object({ taskname: homepageMcpDiaryTaskCreateSchema.shape.task.shape.taskname.refine((value) => !/[\\`*_\[\]<>~{}]/.test(value)) }).strict() }).strict(),
@@ -192,6 +200,22 @@ export const homepageMcpWritePreviewSchema = z.object({
       homepageMcpDiaryRecordAddSchema.shape.content.safeParse(value.details[6].value).success && value.details[7].value === "1" && value.details[8].value === "普通文本";
   }
   if (value.action === "manage_task") {
+    if (value.operationName === HOMEPAGE_MCP_DIARY_TASK_MIGRATION.name) {
+      const labels = ["来源日记标题", "来源 docId", "来源日期", "任务 blockId", "任务完整名称", "当前状态", "来源列表 ID",
+        "目标日记标题", "目标 docId", "目标日期", "迁移区域 headingId", "目标列表 ID", "插入位置", "将追加的来源信息", "将新增的任务日志", "执行风险"];
+      return value.consequence === HOMEPAGE_MCP_DIARY_TASK_MIGRATION.consequence && value.affectedCount === 1 &&
+        value.details.length === labels.length && labels.every((label, i) => value.details[i].label === label) &&
+        [1, 3, 6, 8, 10, 11].every((i) => id.safeParse(value.details[i].value).success) &&
+        value.targetId === value.details[3].value && value.targetName === value.details[4].value &&
+        homepageMcpDiaryTaskCreateSchema.shape.task.shape.taskname.safeParse(value.targetName).success &&
+        [2, 9].every((i) => /^\d{8}$/.test(value.details[i].value)) && value.details[2].value < value.details[9].value &&
+        value.details[1].value !== value.details[8].value && value.details[5].value === "未完成" &&
+        /^现有末尾任务 \d{14}-[a-z0-9]{7} 之后$/.test(value.details[12].value) &&
+        value.details[13].value.startsWith("- 迁移来源：((" + value.details[1].value + ' "') &&
+        value.details[13].value.endsWith("迁移时间：实际执行时生成") &&
+        value.details[14].value === "- 迁移任务：" + value.targetName + "，从 " + value.details[2].value.replace(/^(\d{4})(\d{2})(\d{2})$/, "$1-$2-$3") + " 迁移到今天" &&
+        value.details[15].value === value.consequence;
+    }
     if (value.operationName === HOMEPAGE_MCP_DIARY_TASK_MUTATIONS.postpone.name) {
       const labels = ["日记文档标题", "日记文档 ID", "本地日期", "任务 blockId", "任务名称", "当前状态", "当前日期安排", "推迟方式", "新截止日期", "影响任务数量"];
       return value.consequence === HOMEPAGE_MCP_DIARY_TASK_MUTATIONS.postpone.consequence && value.affectedCount === 1 &&

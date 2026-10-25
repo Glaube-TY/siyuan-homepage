@@ -662,12 +662,52 @@ export async function postponeWorkspaceTask(
     return updateWorkspaceTask(task, nextInput);
 }
 
-function buildSourceLink(task: EnhancedDiaryWorkspaceTask): string {
+export function buildSourceLink(task: EnhancedDiaryWorkspaceTask): string {
     if (task.sourceDocId) {
         const title = task.sourceDocTitle || task.sourceDate || "来源日记";
         return `((` + `${task.sourceDocId} "${title}"` + `))`;
     }
     return task.sourceDate || task.hpath || "未知来源";
+}
+
+export function buildWorkspaceTaskMigrationSourceMarkdown(task: EnhancedDiaryWorkspaceTask, now = new Date()): string {
+    return `- 迁移来源：${buildSourceLink(task)}\n- 迁移时间：${formatNowTime(now)}`;
+}
+
+export function buildWorkspaceTaskMigrationLogMarkdown(task: EnhancedDiaryWorkspaceTask): string {
+    return `- 迁移任务：${task.taskname}，从 ${task.sourceDate || task.sourceDocTitle || "旧日记"} 迁移到今天`;
+}
+
+export interface WorkspaceTaskMigrationObservation {
+    phase: string;
+    reason: string;
+    elapsedMs: number;
+    attempt?: number;
+    state?: "verified" | "incomplete" | "conflict";
+    checks?: Record<string, boolean | number | string>;
+}
+
+export interface WorkspaceTaskMigrationContext {
+    readonly diagnostics: WorkspaceTaskMigrationObservation[];
+    observe(observation: Omit<WorkspaceTaskMigrationObservation, "elapsedMs">): void;
+    sourceDocId: string;
+    sourceNotebookId: string;
+    sourceDate: string;
+    blockId: string;
+    sourceListId: string;
+    targetDocId: string;
+    targetDate: string;
+    headingId: string;
+    targetListId: string;
+    previousTaskItemId: string;
+    taskLogHeadingId: string;
+    sourceFingerprint: string;
+    targetFingerprint: string;
+    readTask(): Promise<EnhancedDiaryWorkspaceTask>;
+    verifyMove(): Promise<boolean>;
+    verifySource(operations: unknown, markdown: string, startedAt: number): Promise<boolean>;
+    verifyLog(result: EnhancedDiaryInsertResult): Promise<boolean>;
+    verifyFinal(): Promise<boolean>;
 }
 
 export function buildWorkspaceTaskDeletionLogMarkdown(task: EnhancedDiaryWorkspaceTask): string {
@@ -990,8 +1030,52 @@ export function normalizeMigrationRootIds(sourceRootId: string, targetRootId: st
 export async function migrateWorkspaceTaskToToday(
     plugin: any,
     config: EnhancedDiaryConfig,
-    task: EnhancedDiaryWorkspaceTask
+    task: EnhancedDiaryWorkspaceTask,
+    controlled?: WorkspaceTaskMigrationContext,
 ): Promise<WorkspaceTaskActionResult> {
+    if (controlled) {
+        let writeStarted = false, phase = "B";
+        try {
+            task = await controlled.readTask();
+            const target = { ok: true, headingId: controlled.headingId, targetListId: controlled.targetListId,
+                previousTaskItemId: controlled.previousTaskItemId };
+            const shape = await validateTaskMoveTarget({ taskBlockId: task.blockId, sourceRootId: controlled.sourceDocId,
+                todayDocId: controlled.targetDocId, target });
+            if (!shape.ok) throw new Error("migration_target_conflict");
+            // 结构校验也有异步读取，发送移动前再核对已批准的两篇日记及真实末尾。
+            task = await controlled.readTask();
+            writeStarted = true;
+            phase = "C";
+            controlled.observe({ phase, reason: "move_sent" });
+            const receipt = await moveBlockChecked(task.blockId, target.previousTaskItemId, target.targetListId);
+            controlled.observe({ phase, reason: "move_acknowledged", checks: { receiptIsArray: Array.isArray(receipt), receiptCount: Array.isArray(receipt) ? receipt.length : 0 } });
+            phase = "D";
+            // 受控迁移统一核对原生位置及双文档完整状态，不能拼接两次读取的局部成功。
+            if (!await controlled.verifyMove()) throw new Error("migration_move_unverified");
+            const startedAt = Date.now();
+            if (formatDiaryAttrDate(new Date(startedAt)) !== controlled.targetDate) throw new Error("migration_date_changed");
+            const markdown = buildWorkspaceTaskMigrationSourceMarkdown(task, new Date(startedAt));
+            phase = "E";
+            const source = await appendBlockChecked("markdown", markdown, task.blockId);
+            phase = "F";
+            if (!await controlled.verifySource(source, markdown, startedAt)) throw new Error("migration_source_unverified");
+            phase = "G";
+            const log = await appendMarkdownToDaySection({ docId: controlled.targetDocId, sectionKey: "taskLog",
+                markdown: buildWorkspaceTaskMigrationLogMarkdown(task), headingStructure: config.headingStructure, mapping: config.templateFieldMapping });
+            phase = "H";
+            if (!log.ok || !await controlled.verifyLog(log)) throw new Error("migration_log_unverified");
+            phase = "I";
+            const index = await refreshTaskIndexByRootIds(normalizeMigrationRootIds(controlled.sourceDocId, controlled.targetDocId), plugin);
+            controlled.observe({ phase, reason: "index_refresh_returned", checks: { success: index.lastStatus === "success" } });
+            phase = "J";
+            if (index.lastStatus !== "success" || !await controlled.verifyFinal()) throw new Error("migration_index_unverified");
+            return { ok: true, changed: true };
+        } catch (error) {
+            controlled.observe({ phase, reason: error instanceof Error && /^(migration|receipt|diary|new_tasks)_[a-z_]+$/.test(error.message) ? error.message : "stage_failed", state: "incomplete" });
+            return { ok: false, changed: writeStarted, reason: writeStarted ? "write_result_unknown" : "diary_target_conflict",
+                message: writeStarted ? "迁移结果未知，可能已完成部分步骤；请先回读，不得自动重试。" : "迁移来源或目标已变化，未开始写入。" };
+        }
+    }
     if (!(await ensureTaskBlockExists(task.blockId))) {
         logTaskMigrationFailure({
             taskBlockId: task.blockId,
@@ -1203,7 +1287,7 @@ export async function migrateWorkspaceTaskToToday(
     try {
         await appendBlockChecked(
             "markdown",
-            `- 迁移来源：${buildSourceLink(task)}\n- 迁移时间：${formatNowTime()}`,
+            buildWorkspaceTaskMigrationSourceMarkdown(task),
             task.blockId
         );
     } catch (error) {
@@ -1215,7 +1299,7 @@ export async function migrateWorkspaceTaskToToday(
         const logResult = await appendMarkdownToDaySection({
             docId: todayDoc.docId,
             sectionKey: "taskLog",
-            markdown: `- 迁移任务：${task.taskname}，从 ${task.sourceDate || task.sourceDocTitle || "旧日记"} 迁移到今天`,
+            markdown: buildWorkspaceTaskMigrationLogMarkdown(task),
             headingStructure: config.headingStructure,
             mapping: config.templateFieldMapping,
         });

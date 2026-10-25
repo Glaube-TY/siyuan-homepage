@@ -41,11 +41,15 @@ const diaryTaskCreateArgsSchema: HomepageMcpJsonSchema = {
 };
 const diaryTaskWriteArgsSchema: HomepageMcpJsonSchema = {
   type: "object", additionalProperties: false,
-  properties: { operation: { type: "string", enum: ["create", "set_status", "update", "delete", "postpone"] },
+  properties: { operation: { type: "string", enum: ["create", "set_status", "update", "delete", "postpone", "migrate"] },
     task: { type: "object", additionalProperties: false, properties: { taskname: diaryTaskNameSchema } },
     target: { type: "object", additionalProperties: false, required: ["blockId"], properties: { blockId: databaseIdSchema } },
     completed: { type: "boolean" }, deleteMode: { type: "string", enum: ["delete", "log"] }, postponeTo: { type: "string", enum: ["tomorrow", "next_week"] } },
   oneOf: [diaryTaskCreateArgsSchema, {
+    type: "object", additionalProperties: false, required: ["operation", "target"],
+    properties: { operation: { type: "string", const: "migrate" },
+      target: { type: "object", additionalProperties: false, required: ["blockId"], properties: { blockId: databaseIdSchema } } },
+  }, {
     type: "object", additionalProperties: false, required: ["operation", "target", "completed"],
     properties: { operation: { type: "string", const: "set_status" },
       target: { type: "object", additionalProperties: false, required: ["blockId"], properties: { blockId: databaseIdSchema } },
