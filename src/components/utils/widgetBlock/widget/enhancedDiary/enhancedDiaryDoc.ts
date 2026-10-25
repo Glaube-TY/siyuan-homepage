@@ -152,7 +152,7 @@ export async function waitForCreatedDiaryDocument(docId: string, notebookId: str
 }
 
 export async function getDiaryDocumentForDate(date: Date, notebookId?: string): Promise<EnhancedDiaryDocumentInfo | null> {
-    const lookup = await lookupDiaryDocumentForDate(date, notebookId);
+    const lookup = await lookupDiaryDocumentForDate(date, notebookId, { pruneStale: false });
     if (lookup.status === "exists") return lookup.doc;
     return null;
 }

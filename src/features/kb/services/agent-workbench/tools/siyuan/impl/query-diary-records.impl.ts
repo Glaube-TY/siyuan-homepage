@@ -71,7 +71,7 @@ export async function executeQueryDiaryRecords(
   const limit = args.limit ?? 30;
   let dateText: string | undefined;
   let records: EnhancedDiaryWorkspaceRecord[] = [];
-  const config = await prepareAgendaEnhancedDiaryIndex(deps, await loadAgendaEnhancedDiaryConfig(deps));
+  const config = await prepareAgendaEnhancedDiaryIndex(deps, await loadAgendaEnhancedDiaryConfig(deps), { readOnly: true });
 
   if (args.startDate && args.endDate) {
     const startDate = parseAgendaDate(args.startDate);

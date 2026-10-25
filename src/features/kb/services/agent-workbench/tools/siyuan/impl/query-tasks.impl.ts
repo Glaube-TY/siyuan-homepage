@@ -129,7 +129,7 @@ export async function executeQueryTasks(
   const date = parseAgendaDate(input.date);
   const dateText = formatAgendaDate(date);
   const config = await loadAgendaEnhancedDiaryConfig(deps);
-  const tasks = await queryWorkspaceTasks(config, date, createDiaryToolPluginAdapter(deps));
+  const tasks = await queryWorkspaceTasks(config, date, createDiaryToolPluginAdapter(deps), { readOnly: true });
 
   const matched = tasks
     .filter((task) => taskMatchesScope(task, input.scope, dateText))

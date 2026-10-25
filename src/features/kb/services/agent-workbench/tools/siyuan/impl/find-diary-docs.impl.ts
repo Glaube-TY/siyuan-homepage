@@ -74,7 +74,7 @@ export async function executeFindDiaryDocs(
   const isRangeQuery = !!args.startDate && !!args.endDate;
   let includeMarkdown = args.includeMarkdown ?? false;
   const maxChars = args.maxChars ?? 1000;
-  const config = await prepareAgendaEnhancedDiaryIndex(deps, await loadAgendaEnhancedDiaryConfig(deps));
+  const config = await prepareAgendaEnhancedDiaryIndex(deps, await loadAgendaEnhancedDiaryConfig(deps), { readOnly: true });
   const warnings: string[] = [];
   const docs: AgendaDiaryDoc[] = [];
 

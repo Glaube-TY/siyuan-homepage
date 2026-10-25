@@ -235,8 +235,8 @@ export async function queryWorkspaceTasks(
 ): Promise<EnhancedDiaryWorkspaceTask[]> {
     const todayStr = formatDiaryDate(today);
     const forceIndexRefresh = options.forceIndexRefresh === true || options.requireFreshIndex === true;
-    const taskResult = await loadTaskData(plugin, { forceRefresh: forceIndexRefresh });
-    if (options.requireFreshIndex && (taskResult.status === "error" || taskResult.status === "limited")) {
+    const taskResult = await loadTaskData(plugin, { forceRefresh: forceIndexRefresh, refresh: options.readOnly ? false : undefined });
+    if ((options.requireFreshIndex || options.readOnly) && (taskResult.status === "error" || taskResult.status === "limited")) {
         throw new Error(taskResult.message || "任务索引刷新失败。");
     }
     const rows = taskResult.items;
@@ -314,6 +314,7 @@ export async function queryWorkspaceTasks(
 }
 
 export interface QueryWorkspaceTasksOptions {
+    readOnly?: boolean;
     forceIndexRefresh?: boolean;
     requireFreshIndex?: boolean;
     projectIndex?: EnhancedDiaryProjectIndexPayload;

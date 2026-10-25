@@ -1,5 +1,5 @@
 import { loadEnhancedDiaryConfig } from "../enhancedDiaryConfig";
-import { initializeEnhancedDiaryIndex } from "../enhancedDiaryIndex";
+import { getEnhancedDiaryIndexEntriesStrict, initializeEnhancedDiaryIndex } from "../enhancedDiaryIndex";
 import { getDiaryDocumentForDate, setEnhancedDiaryIndexNotebook, type EnhancedDiaryDocumentInfo } from "../enhancedDiaryDoc";
 import { formatDiaryDate } from "../enhancedDiaryUtils";
 import { buildEnhancedDiaryWorkspaceSummary, type EnhancedDiaryWorkspaceSummary } from "../enhancedDiaryWorkspaceSummary";
@@ -163,13 +163,16 @@ export function buildEnhancedDiaryWorkspaceProjectSummary(
 
 export async function loadEnhancedDiaryWorkspaceState(
     plugin: any,
-    options: { date?: Date; forceTaskIndexRefresh?: boolean } = {}
+    options: { date?: Date; forceTaskIndexRefresh?: boolean; readOnly?: boolean } = {}
 ): Promise<EnhancedDiaryWorkspaceState> {
     const date = options.date || new Date();
     const today = formatDiaryDate(date);
     const config = await loadEnhancedDiaryConfig(plugin);
     setEnhancedDiaryIndexNotebook(config.dailyNotebookId);
-    if (config.dailyNotebookId) await initializeEnhancedDiaryIndex(config.dailyNotebookId);
+    if (config.dailyNotebookId) {
+        if (options.readOnly) await getEnhancedDiaryIndexEntriesStrict(config.dailyNotebookId);
+        else await initializeEnhancedDiaryIndex(config.dailyNotebookId);
+    }
     const taskManagementEnabled = isEnhancedDiaryTaskManagementEnabled(config);
     const todayDiary = await getDiaryDocumentForDate(date);
     const summary = todayDiary
@@ -183,6 +186,7 @@ export async function loadEnhancedDiaryWorkspaceState(
     const tasks = taskManagementEnabled
         ? await queryWorkspaceTasks(config, date, plugin, {
             forceIndexRefresh: options.forceTaskIndexRefresh === true,
+            readOnly: options.readOnly,
         })
         : [];
     const records = todayDiary
@@ -202,8 +206,10 @@ export async function loadEnhancedDiaryWorkspaceState(
     const projectStorageReady = config.projectStorage.mode === "notebook"
         ? Boolean(config.projectStorage.notebookId)
         : Boolean(config.projectStorage.parentDocId);
-    if (projectStorageReady) await refreshEnhancedDiaryProjectIndex(config.projectStorage);
-    if (config.dailyNotebookId) await refreshEnhancedDiaryProjectRecordIndex(config);
+    if (!options.readOnly) {
+        if (projectStorageReady) await refreshEnhancedDiaryProjectIndex(config.projectStorage);
+        if (config.dailyNotebookId) await refreshEnhancedDiaryProjectRecordIndex(config);
+    }
     const projectIndex = await readEnhancedDiaryProjectIndex(config.projectStorage);
     const projectRecordIndex = config.dailyNotebookId
         ? await readEnhancedDiaryProjectRecordIndex(config.dailyNotebookId)

@@ -40,7 +40,7 @@ export async function executeGetDailyWorkspaceOverview(
   const include = new Set(args.include ?? DEFAULT_INCLUDE);
   const state = await loadEnhancedDiaryWorkspaceState(
     createDiaryToolPluginAdapter(deps),
-    { date },
+    { date, readOnly: true },
   );
 
   const output: GetDailyWorkspaceOverviewOutput = {

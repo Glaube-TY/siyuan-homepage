@@ -67,6 +67,7 @@
 
 - 外部 MCP 能力只通过官方 `siyuan.agent.registerCapability` / `unregisterCapability` 注册和清理；不在插件内另起 HTTP、SSE 或 stdio Server。
 - Robot 与外部 MCP 共享同一份 Kernel `NativeToolRegistry`；外部服务只按固定的顶层工具和 action 白名单生成过滤后的 Schema，不复制业务实现。
+- 日记只读工具只消费已有索引，不触发工作台索引维护、自动重建或清理失效映射；读取异常保留原文件，不通过查询修复索引，工作台维护路径保留。
 - 默认只读，仅限明确授权且已审核的写操作；`homepage_components` 仅允许收藏的 `homepage_favorites.add/remove/move_to_group/create_group/rename_group/delete_group/reorder` 七项及纪念日的 `homepage_anniversary.add/update/archive/restore/delete_permanently/create_category/update_category/archive_category/delete_category` 九项显式白名单。永久删除事件及删除分类须显示不可恢复后果，并使用明确的危险操作确认按钮；仅删除插件记录，不删除思源文档。每次调用仍在 Kernel 重新检查完整服务 active、当前会员状态、精确 action 白名单、aggregate 元数据、`isReadOnlyCall` 和严格 `preflightValidate`，不能仅信任客户端 Schema。
 - `siyuan_database` 仅开放 `update_cell`、`clear_cell` 和受限 `add_rows/remove_rows/add_key/remove_key` 写入。前两项的外部 Schema 和运行时均严格限定 `databaseId/rowId/keyId/expectedFieldName` 四项必填，`update_cell` 另需非空、最多 1000 字符的 `valueText`；只操作一个普通 text 单元格，禁止额外参数及其他类型，内部工具契约不变。清空前必须读到非空原值，预览须显示旧值、空文本目标及移除后果，并使用“确认清空”按钮。授权身份必须同时匹配工具名和 action，未知业务域拒绝。预览及回读复用 `readAttributeViewSafeOutput` 的原始数据路径（500 行、含 raw、跳过可能保存视图的渲染），不自动映射绑定块；目标、字段名/类型或完整旧值无法核对时拒绝确认。内存审批仅存有界目标摘要及指纹，文本截断须明确标记。
 - 外部 `add_rows` 严格互斥地接受 `databaseId` 与单项 `detachedRows:[{title}]` 或单项 `blockIds:[blockId]`，禁止附加字段、默认值和批量；脱离块标题须为已去首尾空白的 1–200 字符且无控制字符。关联模式首期仅支持可用笔记本中文档直属普通段落，经 `getBlockByIdReadonly` 精确定位，核对正文格式、文档、父块、属性及官方绑定映射，已关联或身份不明时拒绝。预览只保留有界纯文本摘要，明确区分原始 blockId 与执行后生成的 itemID。
