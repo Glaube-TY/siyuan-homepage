@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { ENHANCED_DIARY_COMPLETED_SUFFIX } from "@/components/utils/widgetBlock/widget/enhancedDiary/enhancedDiaryTemplateFieldMapping";
 
 export const HOMEPAGE_MCP_FAVORITES_WRITES = {
   "homepage_favorites.add": { name: "新增收藏", consequence: "新增或更新收藏，不修改思源文档。" },
@@ -35,8 +36,17 @@ export const HOMEPAGE_MCP_DATABASE_WRITES = {
 } as const;
 export const HOMEPAGE_MCP_DIARY_TASK_WRITES = {
   manage_task: { name: "新建日记任务", consequence: "仅在现有今日日记中新增一条普通任务。" },
+  manage_review: { name: "修改日记复盘状态", consequence: "仅在已存在的今日日记中修改 day 根标题的复盘完成后缀，不修改复盘字段、任务或其他日记正文。" },
   manage_record: { name: "新增日记快速记录", consequence: "在已有今日日记的指定已有分类中新增一条普通文本快速记录，不创建日记、分类或项目关联。" },
 } as const;
+export const homepageMcpDiaryReviewStatusSchema = z.object({
+  operation: z.literal("set_status"), docId: z.string().regex(/^\d{14}-[a-z0-9]{7}$/),
+  period: z.literal("day"), status: z.enum(["completed", "pending"]),
+}).strict();
+export const HOMEPAGE_MCP_DIARY_REVIEW_STATUS_NAMES = {
+  completed: "标记今日日记复盘完成", pending: "恢复今日日记复盘为未完成",
+} as const;
+export const HOMEPAGE_MCP_DIARY_REVIEW_LABELS = ["日记标题", "日记 docId", "本地日期", "day 根标题 blockId", "当前根标题", "当前复盘状态", "目标复盘状态", "预计根标题", "影响块数量"];
 export const HOMEPAGE_MCP_RECORD_TEXT_UNSAFE = /^\s|\s$|[\\`*_~\[\]<>#{}|$📁]|^([-+]|\d+[.)])\s|^[-=+]{2,}$|\(\(|\)\)/u;
 export const homepageMcpDiaryRecordAddSchema = z.object({
   operation: z.literal("add"), categoryTitle: z.enum(["未分类", "想法", "问题", "决策", "日志"]),
@@ -164,6 +174,16 @@ export const homepageMcpWritePreviewSchema = z.object({
   affectedCount: z.number().int().min(0).max(1_000_000),
   details: z.array(z.object({ label: text.max(60), value: text }).strict()).max(16),
 }).strict().refine((value) => {
+  if (value.action === "manage_review") {
+    const completed = value.operationName === HOMEPAGE_MCP_DIARY_REVIEW_STATUS_NAMES.completed;
+    return (completed || value.operationName === HOMEPAGE_MCP_DIARY_REVIEW_STATUS_NAMES.pending) &&
+      value.consequence === HOMEPAGE_MCP_DIARY_TASK_WRITES.manage_review.consequence && value.affectedCount === 1 &&
+      value.details.length === HOMEPAGE_MCP_DIARY_REVIEW_LABELS.length && HOMEPAGE_MCP_DIARY_REVIEW_LABELS.every((label, i) => value.details[i].label === label) &&
+      value.details[0].value === value.targetName && id.safeParse(value.details[1].value).success && /^\d{8}$/.test(value.details[2].value) &&
+      id.safeParse(value.targetId).success && value.targetId !== value.details[1].value && value.details[3].value === value.targetId &&
+      value.details[5].value === (completed ? "未完成" : "已完成") && value.details[6].value === (completed ? "已完成" : "未完成") && value.details[8].value === "1" &&
+      (completed ? value.details[7].value === value.details[4].value + ENHANCED_DIARY_COMPLETED_SUFFIX : value.details[4].value === value.details[7].value + ENHANCED_DIARY_COMPLETED_SUFFIX);
+  }
   if (value.action === "manage_record") {
     if (value.operationName === HOMEPAGE_MCP_DIARY_RECORD_DELETE.name) {
       const labels = ["日记标题", "日记 docId", "本地日期", "分类名称", "分类 headingId", "记录标题 headingBlockId", "原正文段落 ID", "原记录标题", "记录时间", "原正文", "记录数量", "块数量", "永久删除警告"];

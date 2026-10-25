@@ -1,3 +1,4 @@
+import { prepareHomepageMcpDiaryReviewWrite, verifyHomepageMcpDiaryReviewWrite } from "./homepage-mcp-diary-review-write";
 import { prepareHomepageMcpDiaryMigrationWrite } from "./homepage-mcp-diary-migration-write";
 import { fingerprintHomepageMcpValue, type HomepageMcpWriteAccess } from "./homepage-mcp-write-access";
 import { HomepageMcpFavoritesConflict, prepareHomepageMcpFavoriteWrite, verifyHomepageMcpFavoriteWrite, type PreparedFavoriteWrite } from "./homepage-mcp-favorites-write";
@@ -5,7 +6,7 @@ import { HomepageMcpAnniversaryConflict, prepareHomepageMcpAnniversaryWrite, ver
 import { prepareHomepageMcpDatabaseWrite, verifyHomepageMcpDatabaseWrite, type PreparedDatabaseWrite } from "./homepage-mcp-database-write";
 import { getHomepageMcpWriteOperation, homepageMcpDatabaseUpdateSchema, homepageMcpDatabaseClearSchema, homepageMcpDatabaseDetachedAddSchema, homepageMcpDatabaseBoundAddSchema, homepageMcpDatabaseRemoveSchema, homepageMcpDatabaseAddKeySchema, homepageMcpDatabaseRemoveKeySchema, isHomepageMcpFavoriteWriteAction, isHomepageMcpAnniversaryWriteAction, type HomepageMcpDatabaseWriteAction, type HomepageMcpFavoriteWriteAction, type HomepageMcpAnniversaryWriteAction } from "../../features/agent-platform/mcp-server/homepage-mcp-write-preview";
 import { HomepageMcpDiaryTargetUnavailable, prepareHomepageMcpDiaryTaskWrite, verifyHomepageMcpDiaryTaskWrite, verifyHomepageMcpDiaryTaskLog, type PreparedDiaryTaskWrite } from "./homepage-mcp-diary-task-write";
-import { homepageMcpDiaryTaskWriteSchema, homepageMcpDiaryRecordWriteSchema } from "../../features/agent-platform/mcp-server/homepage-mcp-write-preview";
+import { homepageMcpDiaryTaskWriteSchema, homepageMcpDiaryRecordWriteSchema, homepageMcpDiaryReviewStatusSchema } from "../../features/agent-platform/mcp-server/homepage-mcp-write-preview";
 import { prepareHomepageMcpDiaryRecordWrite, verifyHomepageMcpDiaryRecordWrite, verifyHomepageMcpDiaryRecordInsertion, type PreparedDiaryRecordWrite } from "./homepage-mcp-diary-record-write";
 import type { NativeTool } from "../../features/kb/services/agent-core/tools/native-tool";
 import type { NativeToolRegistry } from "../../features/kb/services/agent-core/tools/native-tool-registry";
@@ -204,7 +205,7 @@ function createCapabilityConfig(
   return {
     title: writes.length ? (policy.name === "siyuan_database" ? "思源数据库查询与确认写入" : policy.name === "diary_task" ? "日记任务查询与确认写入" : "主页组件查询与确认写入") : CAPABILITY_TITLES[policy.name],
     description: writes.length
-      ? `${policy.name === "diary_task" ? "查询日记、任务和记录；普通任务新建、状态修改、重命名、推迟、历史任务迁移、单条删除及普通快速记录新增、正文修改和单条删除" : CAPABILITY_DESCRIPTIONS[policy.name] + writes.join("、")}仅限本次运行授权且经逐次用户确认。`
+      ? `${policy.name === "diary_task" ? "查询日记、任务和记录；普通任务新建、状态修改、重命名、推迟、历史任务迁移、单条删除、普通快速记录新增/正文修改/删除及今日日复盘完成状态修改" : CAPABILITY_DESCRIPTIONS[policy.name] + writes.join("、")}仅限本次运行授权且经逐次用户确认。`
       : CAPABILITY_DESCRIPTIONS[policy.name],
     inputSchema: policy.inputSchema,
     effects: { localRead: true, ...(writes.length ? { localWrite: true } : {}) },
@@ -244,7 +245,7 @@ function createCapabilityHandler(
     let toolInput: Record<string, unknown>;
     try {
       toolInput = { action, args: input.args === undefined ? {} : input.args };
-      if (write && policy.name === "diary_task") (action === "manage_record" ? homepageMcpDiaryRecordWriteSchema : homepageMcpDiaryTaskWriteSchema).parse(toolInput.args);
+      if (write && policy.name === "diary_task") (action === "manage_review" ? homepageMcpDiaryReviewStatusSchema : action === "manage_record" ? homepageMcpDiaryRecordWriteSchema : homepageMcpDiaryTaskWriteSchema).parse(toolInput.args);
       if (write && policy.name === "siyuan_database") {
         const schema = action === "add_rows"
           ? isPlainRecord(toolInput.args) && Object.prototype.hasOwnProperty.call(toolInput.args, "blockIds") ? homepageMcpDatabaseBoundAddSchema : homepageMcpDatabaseDetachedAddSchema
@@ -276,6 +277,7 @@ function createCapabilityHandler(
 
     let prepared: { domain: "favorites"; value: PreparedFavoriteWrite } | { domain: "anniversary"; value: PreparedAnniversaryWrite }
       | { domain: "database"; value: PreparedDatabaseWrite } | { domain: "diary"; value: PreparedDiaryTaskWrite }
+      | { domain: "review"; value: Awaited<ReturnType<typeof prepareHomepageMcpDiaryReviewWrite>> }
       | { domain: "record"; value: PreparedDiaryRecordWrite }
       | { domain: "migration"; value: Awaited<ReturnType<typeof prepareHomepageMcpDiaryMigrationWrite>> } | undefined;
     if (write) {
@@ -292,6 +294,8 @@ function createCapabilityHandler(
           prepared = args.operation === "migrate"
             ? { domain: "migration", value: await prepareHomepageMcpDiaryMigrationWrite(args) }
             : { domain: "diary", value: await prepareHomepageMcpDiaryTaskWrite(args) };
+        } else if (policy.name === "diary_task" && action === "manage_review") {
+          prepared = { domain: "review", value: await prepareHomepageMcpDiaryReviewWrite(args) };
         } else if (policy.name === "diary_task" && action === "manage_record") {
           prepared = { domain: "record", value: await prepareHomepageMcpDiaryRecordWrite(args) };
         } else if (policy.name === "siyuan_database" && (action === "update_cell" || action === "clear_cell" || action === "add_rows" || action === "remove_rows" || action === "add_key" || action === "remove_key")) {
@@ -325,6 +329,7 @@ function createCapabilityHandler(
     try {
       const result = await policy.tool.execute(toolInput, {
         question: "External MCP capability invocation", callCounts: {},
+        ...(prepared?.domain === "review" ? { diaryReviewStatusTarget: prepared.value.target } : {}),
         ...(prepared?.domain === "migration" ? { diaryTaskMigrationTarget: prepared.value.context } : {}),
         ...(prepared?.domain === "record" ? prepared.value.deletion ? { diaryRecordDeleteTarget: {
           ...prepared.value.target, headingBlockId: prepared.value.deletion.record.headingBlockId!, paragraphId: prepared.value.deletion.paragraphId,
@@ -378,7 +383,8 @@ function createCapabilityHandler(
           return code === "conflict" || code.endsWith("_conflict") || code === "revision_mismatch" || code === "stale_revision"
             ? withDiagnostics(failure(code, "业务层报告版本冲突，请重新读取后申请确认。")) : withDiagnostics(uncertainWrite());
         }
-        const verified = prepared!.domain === "migration" ? prepared.value.isComplete()
+        const verified = prepared!.domain === "review" ? await verifyHomepageMcpDiaryReviewWrite(prepared.value)
+          : prepared!.domain === "migration" ? prepared.value.isComplete()
           : prepared!.domain === "favorites"
           ? await verifyHomepageMcpFavoriteWrite(action as HomepageMcpFavoriteWriteAction, toolInput.args as Record<string, unknown>, prepared!.value as PreparedFavoriteWrite, result.data)
           : prepared!.domain === "anniversary"

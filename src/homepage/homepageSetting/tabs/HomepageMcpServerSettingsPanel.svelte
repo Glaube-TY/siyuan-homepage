@@ -155,6 +155,7 @@
     }
 
     function approvalLabel(request: HomepageMcpWriteRequest): string {
+        if (request.toolName === "diary_task" && request.action === "manage_review") return request.details[6]?.value === "已完成" ? "确认完成复盘" : "确认恢复未完成";
         if (request.toolName === "diary_task" && request.action === "manage_task" && request.operationName === HOMEPAGE_MCP_DIARY_TASK_MIGRATION.name) return "确认迁移任务";
         if (request.toolName === "diary_task" && request.action === "manage_record" && request.operationName === HOMEPAGE_MCP_DIARY_RECORD_DELETE.name) return "确认删除快速记录";
         if (request.toolName === "diary_task" && request.action === "manage_task" && request.operationName === HOMEPAGE_MCP_DIARY_TASK_LOG_DELETE.name) return "确认记录日志并删除";

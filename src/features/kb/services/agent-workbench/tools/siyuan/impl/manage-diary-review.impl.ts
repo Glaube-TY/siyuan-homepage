@@ -13,6 +13,8 @@ import type { SiyuanToolDeps as KbRetrievalToolDeps } from "../siyuan-tool-deps"
 import type { ManageDiaryReviewInput, ManageDiaryReviewOutput } from "../contracts/manage-diary-review.contract";
 import { loadAgendaEnhancedDiaryConfig } from "./agenda-utils.impl";
 
+import type { ToolRuntimeContext } from "../../../contracts/tool-contract";
+
 type ExecResult = { ok: boolean; safeOutput: ManageDiaryReviewOutput; errorCode?: string };
 
 async function executeSaveContent(args: ManageDiaryReviewInput, config: EnhancedDiaryConfig): Promise<ExecResult> {
@@ -81,10 +83,20 @@ async function executeSaveContent(args: ManageDiaryReviewInput, config: Enhanced
   };
 }
 
-async function executeSetStatus(args: ManageDiaryReviewInput, config: EnhancedDiaryConfig): Promise<ExecResult> {
+async function executeSetStatus(args: ManageDiaryReviewInput, config: EnhancedDiaryConfig, target?: ToolRuntimeContext["diaryReviewStatusTarget"]): Promise<ExecResult> {
   const period = args.period as EnhancedDiaryPeriod;
   const { docId, status } = args;
 
+  if (target) {
+    const failure = (code: string): ExecResult => ({ ok: false, errorCode: code,
+      safeOutput: { operation: "set_status", changed: false, docId, period, status, message: code === "write_result_unknown" ? "标题写入结果未知，禁止自动重试。" : "批准的复盘目标已变化，未发送写入。" } });
+    if (args.operation !== "set_status" || period !== "day" || docId !== target.docId || status !== target.status || config.dailyNotebookId !== target.notebookId) return failure("diary_review_conflict");
+    try { await target.readTarget(); } catch { return failure("diary_review_conflict"); }
+    const result = await toggleCompletionMarker({ docId, period, completed: status === "completed", mapping: config.templateFieldMapping,
+      expectedRootHeadingId: target.rootHeadingId, expectedRootMarkdown: target.rootMarkdown });
+    if (!result.ok || result.skipped) return failure(result.reason === "write_result_unknown" ? "write_result_unknown" : "diary_review_conflict");
+    return { ok: true, safeOutput: { operation: "set_status", changed: true, docId, period, status, message: "已更新日复盘完成状态。" } };
+  }
   if (status === "skipped") {
     const result = await skipPeriod({ docId, period, mapping: config.templateFieldMapping });
 
@@ -152,7 +164,11 @@ async function executeSetStatus(args: ManageDiaryReviewInput, config: EnhancedDi
 export async function executeManageDiaryReview(
   deps: KbRetrievalToolDeps,
   args: ManageDiaryReviewInput,
+  target?: ToolRuntimeContext["diaryReviewStatusTarget"],
 ): Promise<ExecResult> {
+  if (target && (args.operation !== "set_status" || args.period !== "day" || args.docId !== target.docId || args.status !== target.status || Object.keys(args).some((key) => !["operation", "docId", "period", "status"].includes(key)))) {
+    return { ok: false, errorCode: "diary_review_conflict", safeOutput: { operation: String(args.operation), changed: false, docId: args.docId, period: args.period, message: "受控复盘参数不匹配。" } };
+  }
   // Load config and validate docId scope before any operation
   let config: EnhancedDiaryConfig;
   try {
@@ -194,7 +210,7 @@ export async function executeManageDiaryReview(
     case "save_content":
       return executeSaveContent(args, config);
     case "set_status":
-      return executeSetStatus(args, config);
+      return executeSetStatus(args, config, target);
     default:
       return {
         ok: false,

@@ -27,6 +27,11 @@ const diaryRecordWriteArgsSchema: HomepageMcpJsonSchema = {
   properties: { ...diaryRecordAddArgsSchema.properties, ...diaryRecordUpdateArgsSchema.properties, operation: { type: "string", enum: ["add", "update", "delete"] } },
   oneOf: [diaryRecordAddArgsSchema, diaryRecordUpdateArgsSchema, diaryRecordDeleteArgsSchema],
 };
+const diaryReviewStatusArgsSchema: HomepageMcpJsonSchema = {
+  type: "object", additionalProperties: false, required: ["operation", "docId", "period", "status"],
+  properties: { operation: { type: "string", const: "set_status" }, docId: databaseIdSchema,
+    period: { type: "string", const: "day" }, status: { type: "string", enum: ["completed", "pending"] } },
+};
 const diaryTaskNameSchema = { type: "string", minLength: 1, maxLength: 200,
   not: { pattern: "^\\s|\\s$|[\\x00-\\x1f\\x7f-\\x9f\u2028\u2029📅⌛❗🔁⏰📍📁#]|\\{:.*?\\}\\s*$" } };
 const diaryTaskCreateArgsSchema: HomepageMcpJsonSchema = {
@@ -315,7 +320,8 @@ export function buildHomepageMcpCapabilityPolicies(
       }
       const argsSchema = name === "siyuan_database" && isHomepageMcpWriteAction(name, action)
         ? databaseWriteArgsSchemas[action] : name === "diary_task" && action === "manage_task" ? diaryTaskWriteArgsSchema
-          : name === "diary_task" && action === "manage_record" ? diaryRecordWriteArgsSchema : metadata.argsSchema;
+          : name === "diary_task" && action === "manage_record" ? diaryRecordWriteArgsSchema
+            : name === "diary_task" && action === "manage_review" ? diaryReviewStatusArgsSchema : metadata.argsSchema;
       if (!argsSchema) {
         issues.push(`${name}.${action}: external_args_schema_required`);
         continue;

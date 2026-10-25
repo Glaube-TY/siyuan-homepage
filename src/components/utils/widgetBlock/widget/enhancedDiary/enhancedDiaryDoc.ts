@@ -717,7 +717,7 @@ function matchesPeriodRootHeading(
     );
 }
 
-async function findPeriodRootHeadingBlock(
+export async function findPeriodRootHeadingBlock(
     docId: string,
     period: EnhancedDiaryPeriod,
     mapping?: EnhancedDiaryTemplateFieldMapping | null
@@ -739,7 +739,7 @@ async function findPeriodRootHeadingBlock(
     return null;
 }
 
-function buildUpdatedRootHeadingMarkdown(raw: string, completed: boolean): string | null {
+export function buildUpdatedRootHeadingMarkdown(raw: string, completed: boolean): string | null {
     const firstLine = raw.split("\n")[0] || "";
     const match = firstLine.match(/^(#{1,6}\s+)(.*)$/);
     if (!match) return null;
@@ -810,6 +810,8 @@ export async function toggleCompletionMarker(params: {
     period: EnhancedDiaryPeriod;
     completed: boolean;
     mapping?: EnhancedDiaryTemplateFieldMapping | null;
+    expectedRootHeadingId?: string;
+    expectedRootMarkdown?: string;
 }): Promise<{ ok: boolean; skipped?: boolean; reason?: string }> {
     const { docId, period, completed, mapping } = params;
 
@@ -818,6 +820,10 @@ export async function toggleCompletionMarker(params: {
         return { ok: false, reason: "root_heading_not_found" };
     }
 
+    if ((params.expectedRootHeadingId !== undefined && root.block.id !== params.expectedRootHeadingId) ||
+        (params.expectedRootMarkdown !== undefined && root.raw !== params.expectedRootMarkdown)) {
+        return { ok: false, reason: "root_heading_conflict" };
+    }
     const newMarkdown = buildUpdatedRootHeadingMarkdown(root.raw, completed);
     if (!newMarkdown) {
         return { ok: true, skipped: true, reason: completed ? "already_completed" : "already_uncompleted" };
@@ -828,7 +834,7 @@ export async function toggleCompletionMarker(params: {
         return { ok: true };
     } catch (err) {
         console.warn("[enhancedDiaryDoc] toggleCompletionMarker update failed", err);
-        return { ok: false, reason: "update_failed" };
+        return { ok: false, reason: params.expectedRootHeadingId !== undefined ? "write_result_unknown" : "update_failed" };
     }
 }
 
