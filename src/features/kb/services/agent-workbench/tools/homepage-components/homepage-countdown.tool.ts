@@ -18,6 +18,7 @@ import {
 } from "@/components/utils/widgetBlock/widget/countdown/countdownData";
 import { resolveCountdownOccurrence } from "@/components/utils/widgetBlock/widget/countdown/countdownDateEngine";
 import { alwaysAvailable, homepageComponentFailure } from "./homepage-component-tool-utils";
+import { findAggregateActionMeta } from "../aggregate/aggregate-tool-metadata";
 
 const dateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 const kindSchema = z.enum(["birthday", "anniversary", "deadline", "expiration", "milestone", "subscription", "custom"]);
@@ -71,7 +72,15 @@ function safeEvent(event: CountdownEventRecord, categories: Map<string, Countdow
 }
 
 function actionTool<T>(name: string, schema: z.ZodType<T>, readOnly: boolean, execute: (input: T) => Promise<unknown>, riskLevel: "medium" | "high" = "medium"): ToolContract {
-  return { name: `homepage_anniversary_${name}`, title: name, description: `homepage_anniversary.${name}`, inputSchema: schema, readOnly, safety: readOnly ? { readOnly: true } : { readOnly: false, canWrite: true, requiresConfirmation: true, riskLevel }, source: "builtin", providerVisible: false, availability: alwaysAvailable,
+  const declaredArgs = findAggregateActionMeta("homepage_components", `anniversary.${name}`)?.argsSchema as
+    { properties?: { patch?: { minProperties?: number } } } | undefined;
+  const minProperties = declaredArgs?.properties?.patch?.minProperties;
+  const inputJsonSchemaOverride = minProperties === undefined ? undefined : z.toJSONSchema(schema, { io: "input" });
+  if (inputJsonSchemaOverride?.properties?.patch) {
+    // Zod refine 不导出非空约束；复用共享元数据并保留生成的全部字段限制。
+    (inputJsonSchemaOverride.properties.patch as { minProperties?: number }).minProperties = minProperties;
+  }
+  return { name: `homepage_anniversary_${name}`, title: name, description: `homepage_anniversary.${name}`, inputSchema: schema, inputJsonSchemaOverride, readOnly, safety: readOnly ? { readOnly: true } : { readOnly: false, canWrite: true, requiresConfirmation: true, riskLevel }, source: "builtin", providerVisible: false, availability: alwaysAvailable,
     async execute(_ctx, raw): Promise<ToolResult> {
       try { return { ok: true, data: await execute(schema.parse(raw)) }; }
       catch (error) {

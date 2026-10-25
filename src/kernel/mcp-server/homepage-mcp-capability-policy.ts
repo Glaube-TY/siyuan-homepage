@@ -271,7 +271,6 @@ function actionHelp(tool: NativeTool): Record<string, AggregateActionHelp> {
 
 function buildInputSchema(
   actions: Array<{ name: string; argsSchema: HomepageMcpJsonSchema; readOnly: boolean }>,
-  toolName: string,
 ): HomepageMcpJsonSchema {
   return {
     type: "object",
@@ -283,7 +282,7 @@ function buildInputSchema(
         args: argsSchema,
         ...(!readOnly ? { confirmationId: { type: "string", pattern: "^[a-f0-9]{64}$" } } : {}),
       },
-      required: (toolName === "siyuan_database" || toolName === "diary_task") && !readOnly ? ["action", "args"] : ["action"],
+      required: !readOnly ? ["action", "args"] : ["action"],
     })),
   };
 }
@@ -348,7 +347,7 @@ export function buildHomepageMcpCapabilityPolicies(
       name,
       tool,
       actions: validActions.map((item) => item.name),
-      inputSchema: buildInputSchema(validActions, name),
+      inputSchema: buildInputSchema(validActions),
       actionEffects: Object.fromEntries(
         validActions.map((item) => [item.name, item.readOnly ? { localRead: true } : { localWrite: true }]),
       ),
