@@ -20,9 +20,9 @@
         errorMessage = "";
         try {
             await onSuppress();
-        } catch {
+        } catch (error) {
             if (destroyed) return;
-            errorMessage = "保存失败，请重试，或点击关闭。";
+            errorMessage = error instanceof Error ? error.message : "保存失败，请重试，或点击关闭。";
             saving = false;
             return;
         }
