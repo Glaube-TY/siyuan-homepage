@@ -70,7 +70,7 @@
     } from "./enhancedDiaryWorkspaceDayDetail";
     import { parseLocalDate } from "./enhancedDiaryWorkspaceDate";
     import { formatDiaryDate } from "../enhancedDiaryUtils";
-    import { saveEnhancedDiaryConfig } from "../enhancedDiaryConfig";
+    import { loadEnhancedDiaryConfigStrict, saveEnhancedDiaryConfig } from "../enhancedDiaryConfig";
     import { ENHANCED_DIARY_INDEXES_UPDATED_EVENT } from "../enhancedDiaryIndex";
     import { TASK_DATA_UPDATED_EVENT } from "@/features/task-data/task-data-runtime";
     import type { GenerateTasksPlusTaskInput } from "@/features/task-data/task-parser";
@@ -114,6 +114,8 @@
     let { plugin, initialTab = "overview", initialAction, mobile = false, onClose }: Props = $props();
 
     let state = $state<EnhancedDiaryWorkspaceState | null>(null);
+    let recoveryConfig = $state<EnhancedDiaryWorkspaceState["config"] | null>(null);
+    let loadError = $state("");
     let activeTab = $state<WorkspaceTab>("overview");
     let loading = $state(true);
     let actionBusy = $state(false);
@@ -517,6 +519,8 @@
                 const nextState = await loadEnhancedDiaryWorkspaceState(plugin, { forceTaskIndexRefresh });
                 if (!current()) return false;
                 state = nextState;
+                recoveryConfig = nextState.config;
+                loadError = "";
                 workspaceStateVersion += 1;
                 calendarMonthCache = new Map();
                 dayDetailCache = new Map();
@@ -546,6 +550,19 @@
             } catch (err) {
                 if (!current()) return false;
                 console.warn("[enhancedDiaryWorkspacePage] load failed", err);
+                loadError = err instanceof Error ? err.message : "工作台数据读取失败。";
+                if (!state) {
+                    try {
+                        const config = await loadEnhancedDiaryConfigStrict(plugin);
+                        if (current()) recoveryConfig = config;
+                    } catch {
+                        if (current()) {
+                            recoveryConfig = null;
+                            loadError += " 强化日记设置也无法读取，请恢复文件访问后再试。";
+                        }
+                    }
+                }
+                if (!current()) return false;
                 showMessage("工作区刷新失败，保留上次数据；已确认的写入不受影响，请手动刷新重试", 5000);
                 return false;
             } finally {
@@ -642,13 +659,27 @@
         return deferRefresh ? Promise.resolve() : drainWorkspaceRefresh(true);
     }
 
-    async function saveWorkspaceSettings(config: EnhancedDiaryWorkspaceState["config"]): Promise<void> {
-        if (settingsSaving) return;
+    async function saveWorkspaceSettings(config: EnhancedDiaryWorkspaceState["config"]): Promise<boolean> {
+        if (settingsSaving || actionBusy) return false;
+        const lifetime = workspaceLifetime;
+        const current = () => componentAlive && advancedEnabled && lifetime === workspaceLifetime;
         settingsSaving = true;
         try {
-            const previousStorage = state?.config.projectStorage;
+            const previousConfig = state?.config || recoveryConfig;
+            const previousStorage = previousConfig?.projectStorage;
             const storageChanged = JSON.stringify(previousStorage || {}) !== JSON.stringify(config.projectStorage);
+            const notebookChanged = previousConfig?.dailyNotebookId !== config.dailyNotebookId;
             await saveEnhancedDiaryConfig(plugin, config);
+            if (!current()) return false;
+            recoveryConfig = config;
+            if (notebookChanged) {
+                workspaceRefreshVersion += 1;
+                state = null;
+                calendarDays = [];
+                selectedDayDetail = null;
+                pendingTask = null;
+                pendingTaskVersion = 0;
+            }
             if (state) {
                 state = { ...state, config };
             }
@@ -670,12 +701,18 @@
                     }
                 }
             }
+            if (!current()) return false;
+            await refreshAfterWorkspaceMutation(notebookChanged);
+            if (!current()) return false;
             showMessage(indexMessage || (storageChanged ? "设置已保存，项目索引已按新位置重建；既有关联不会被删除。" : "工作台设置已保存"), 3500);
+            return true;
         } catch (err) {
+            if (!current()) return false;
             console.warn("[enhancedDiaryWorkspacePage] save settings failed", err);
-            showMessage("工作台设置保存失败，请稍后重试", 4000);
+            showMessage(err instanceof Error ? err.message : "工作台设置保存失败，请稍后重试", 4000);
+            return false;
         } finally {
-            settingsSaving = false;
+            if (current()) settingsSaving = false;
         }
     }
 
@@ -867,7 +904,10 @@
     }
 
     async function ensureTodayDiaryAndAppendTemplate(options: { openDoc: boolean } = { openDoc: false }): Promise<void> {
-        if (!state) return;
+        if (!state) {
+            showMessage("请先保存日记设置并恢复工作台数据，再补充模板。", 4000);
+            return;
+        }
 
         const result = await getOrCreateTodayDiaryDocument(plugin, state.config);
 
@@ -913,7 +953,11 @@
             showMessage(result.created ? "已创建今日日记并补齐模板" : "已补齐今日模板", 3000);
         } else if (appendResult.reason && appendResult.reason.startsWith("template_incomplete:")) {
             const missingList = appendResult.reason.slice("template_incomplete:".length).trim();
-            showMessage(`根标题已存在，但以下子区块缺失且无法自动定位补全：${missingList}。请在文档中手动添加。`, 5000);
+            showMessage(`补充后仍缺少模板区块：${missingList}。请检查文档标题和字段映射。`, 5000);
+        } else if (appendResult.reason === "verify_read_failed" || (appendResult.writeAttempted && appendResult.reason === "append_failed")) {
+            showMessage("模板结果暂时无法确认，请重新读取日记检查，勿重复补充。", 5000);
+        } else if (appendResult.reason?.startsWith("template_invalid:")) {
+            showMessage(`配置的模板缺少可识别的顶级标题 ${appendResult.reason.slice("template_invalid:".length)}，请检查模板和字段映射。`, 5000);
         } else {
             showMessage("补充模板失败", 3000);
         }
@@ -1692,7 +1736,11 @@
             showMessage("模板已处理", 3000);
         } else if (result.reason && result.reason.startsWith("template_incomplete:")) {
             const missingList = result.reason.slice("template_incomplete:".length).trim();
-            showMessage(`根标题已存在，但以下子区块缺失且无法自动定位补全：${missingList}。请在文档中手动添加。`, 5000);
+            showMessage(`补充后仍缺少模板区块：${missingList}。请检查文档标题和字段映射。`, 5000);
+        } else if (result.reason === "verify_read_failed" || (result.writeAttempted && result.reason === "append_failed")) {
+            showMessage("模板结果暂时无法确认，请重新读取日记检查，勿重复补充。", 5000);
+        } else if (result.reason?.startsWith("template_invalid:")) {
+            showMessage(`配置的模板缺少可识别的顶级标题 ${result.reason.slice("template_invalid:".length)}，请检查模板和字段映射。`, 5000);
         } else if (result.reason === "read_failed") {
             showMessage("日记正文暂时无法读取，为避免重复写入，本次未补充模板。", 4000);
         } else {
@@ -1905,6 +1953,9 @@
             pendingTaskVersion = 0;
             pendingStartupAction = null;
             state = null;
+            recoveryConfig = null;
+            loadError = "";
+            settingsSaving = false;
             loading = false;
             editingTask = null;
             editingRecord = null;
@@ -2163,11 +2214,28 @@
                 {:else if activeTab === "settings"}
                     <WorkspaceSettingsPage
                         config={state.config}
-                        saving={settingsSaving}
+                        saving={settingsSaving || actionBusy}
                         onSave={saveWorkspaceSettings}
                         onOpenAndAppendTemplate={openTodayAndAppendTemplate}
                     />
                 {/if}
+            </main>
+        </div>
+    {:else if recoveryConfig && activeTab === "settings"}
+        <div class="workspace-layout">
+            <WorkspaceSidebar
+                {activeTab}
+                notificationCount={0}
+                taskManagementEnabled={isEnhancedDiaryTaskManagementEnabled(recoveryConfig)}
+                onSelect={selectTab}
+            />
+            <main>
+                <WorkspaceSettingsPage
+                    config={recoveryConfig}
+                    saving={settingsSaving || actionBusy}
+                    onSave={saveWorkspaceSettings}
+                    onOpenAndAppendTemplate={openTodayAndAppendTemplate}
+                />
             </main>
         </div>
     {:else if loading}
@@ -2176,7 +2244,12 @@
             强化日记工作台加载中...
         </div>
     {:else}
-        <WorkspaceEmptyState title="工作台加载失败" description="请刷新或查看控制台日志。" />
+        <WorkspaceEmptyState
+            title="工作台加载失败"
+            description={loadError || "请刷新重试。"}
+            actionLabel={recoveryConfig ? "打开工作台设置" : "重新读取"}
+            onAction={() => recoveryConfig ? selectTab("settings") : void refresh()}
+        />
     {/if}
 
     <WorkspaceCommandPalette

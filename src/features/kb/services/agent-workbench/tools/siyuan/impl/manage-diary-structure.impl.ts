@@ -198,8 +198,9 @@ async function executeAppendTemplate(deps: KbRetrievalToolDeps, args: { operatio
   if (!result.ok) {
     return {
       ok: false,
-      errorCode: "diary_template_append_failed",
-      safeOutput: { operation: "append_template", changed: false, docId, period, reason: result.reason, message: result.reason === "empty_template" ? "模板为空。" : result.reason === "read_failed" ? "日记正文暂时无法读取，为避免重复写入，本次未补充模板。" : "补充模板失败。" },
+      errorCode: result.writeAttempted ? "write_result_unknown" : "diary_template_append_failed",
+      safeOutput: { operation: "append_template", changed: result.writeAttempted === true, docId, period, reason: result.reason,
+        message: result.writeAttempted ? "本次已尝试写入，模板结果尚未确认，请先重新读取日记检查，勿重复补充。" : result.reason === "empty_template" ? "模板为空。" : result.reason === "read_failed" ? "日记正文暂时无法读取，为避免重复写入，本次未补充模板。" : result.reason?.startsWith("template_invalid:") ? "配置的模板缺少可识别的顶级标题，请检查模板和字段映射。" : "补充模板失败。" },
     };
   }
 

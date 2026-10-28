@@ -75,7 +75,7 @@ async function decode(raw: any): Promise<any> {
     if (typeof raw === "object" && typeof raw.code === "number") return raw.code === 0 ? decode(raw.data) : undefined;
     if (typeof raw === "string") { try { return JSON.parse(raw); } catch { return undefined; } }
     if (raw instanceof Blob) return decode(await raw.text());
-    if (raw instanceof ArrayBuffer || ArrayBuffer.isView(raw)) return decode(new TextDecoder().decode(raw instanceof ArrayBuffer ? raw : raw.buffer));
+    if (raw instanceof ArrayBuffer || ArrayBuffer.isView(raw)) return decode(new TextDecoder().decode(raw));
     return raw;
 }
 
@@ -89,23 +89,38 @@ function valid(value: any): value is EnhancedDiaryProjectRecordIndexPayload {
             (failure.missingPath === undefined || (Array.isArray(failure.missingPath) && failure.missingPath.every((part: any) => typeof part === "string"))))));
 }
 
+function indexPath(notebookId: string): string {
+    if (!/^[0-9]{14}-[a-z0-9]{7}$/.test(notebookId)) throw new Error("日记笔记本 ID 无效，已停止读取或写入索引。");
+    return ENHANCED_DIARY_PROJECT_RECORD_INDEX_PATH.replace(/\.json$/, `-${notebookId}.json`);
+}
+
+async function readStoredIndex(notebookId: string): Promise<EnhancedDiaryProjectRecordIndexPayload | null> {
+    let raw = await getFileOrNullChecked(indexPath(notebookId));
+    const legacy = raw === null;
+    if (legacy) raw = await getFileOrNullChecked(ENHANCED_DIARY_PROJECT_RECORD_INDEX_PATH);
+    if (raw === null) return null;
+    const parsed = await decode(raw);
+    if (!valid(parsed)) throw new Error("项目记录索引文件损坏或版本无效，已停止写入并保留原文件。");
+    if (parsed.notebookId !== notebookId) {
+        // 旧单文件只属于原笔记本；切换后的索引写入独立文件，不覆盖旧关系。
+        if (legacy) return null;
+        throw new Error("项目记录索引与当前日记笔记本不一致，已停止写入并保留原文件。");
+    }
+    return parsed;
+}
+
 export async function readEnhancedDiaryProjectRecordIndex(notebookId: string, options: { fresh?: boolean } = {}): Promise<EnhancedDiaryProjectRecordIndexPayload> {
     const cached = caches.get(notebookId);
     if (cached && !options.fresh) return cached;
-    const raw = await getFileOrNullChecked(ENHANCED_DIARY_PROJECT_RECORD_INDEX_PATH);
-    const parsed = raw === null ? undefined : await decode(raw);
-    if (raw !== null && !valid(parsed)) throw new Error("项目记录索引文件损坏或版本无效，已停止写入并保留原文件。");
-    if (parsed && parsed.notebookId !== notebookId) throw new Error("项目记录索引与当前日记笔记本不一致，已停止写入并保留原文件。");
+    const parsed = await readStoredIndex(notebookId);
     const index = parsed || empty(notebookId);
     caches.set(notebookId, index);
     return index;
 }
 
 export async function readEnhancedDiaryProjectRecordIndexStrict(notebookId: string): Promise<EnhancedDiaryProjectRecordIndexPayload> {
-    const raw = await getFileChecked(ENHANCED_DIARY_PROJECT_RECORD_INDEX_PATH);
-    const parsed = await decode(raw);
-    if (!valid(parsed)) throw new Error("项目记录索引文件损坏或版本无效，通知扫描已停止。");
-    if (parsed.notebookId !== notebookId) throw new Error("项目记录索引与当前日记笔记本不一致，通知扫描已停止。");
+    const parsed = await readStoredIndex(notebookId);
+    if (!parsed) throw new Error("当前日记笔记本的项目记录索引不存在，请先手动重建；通知扫描已停止。");
     if (!parsed.complete) throw new Error("项目记录索引尚未完整，通知扫描已停止。");
     caches.set(notebookId, parsed);
     return parsed;
@@ -114,13 +129,8 @@ export async function readEnhancedDiaryProjectRecordIndexStrict(notebookId: stri
 export async function getEnhancedDiaryProjectRecordIndexStatus(notebookId: string): Promise<ComponentMigrationStatus> {
     if (!notebookId) return { lastStatus: "idle", lastMessage: "尚未配置日记笔记本。" };
     try {
-        const raw = await getFileOrNullChecked(ENHANCED_DIARY_PROJECT_RECORD_INDEX_PATH);
-        if (raw === null) return { lastStatus: "idle", lastMessage: "项目记录索引尚未建立。" };
-        const parsed = await decode(raw);
-        if (!valid(parsed)) return { source: READ_ERROR_SOURCE, lastStatus: "error", lastMessage: "项目记录索引读取失败：文件损坏或版本无效。" };
-        if (parsed.notebookId !== notebookId) {
-            return { source: READ_ERROR_SOURCE, lastRunAt: parsed.updatedAt, lastStatus: "error", lastMessage: "日记笔记本配置与已有项目记录索引不一致，已保留原索引。" };
-        }
+        const parsed = await readStoredIndex(notebookId);
+        if (!parsed) return { lastStatus: "idle", lastMessage: "当前日记笔记本的项目记录索引尚未建立，请手动重建。" };
         return statusFromIndex(parsed);
     } catch (error) {
         return { source: READ_ERROR_SOURCE, lastStatus: "error", lastMessage: error instanceof Error ? error.message : "项目记录索引状态读取失败。" };
@@ -155,10 +165,11 @@ export function formatEnhancedDiaryProjectRecordDiagnostics(index: EnhancedDiary
 
 async function writeDirect(payload: EnhancedDiaryProjectRecordIndexPayload): Promise<void> {
     const next = { ...payload, version: INDEX_VERSION, updatedAt: new Date().toISOString() };
+    const path = indexPath(payload.notebookId);
     try { await putFileChecked(INDEX_DIR, true, new Blob(["{}"])); } catch { /* 已存在 */ }
-    await putFileChecked(ENHANCED_DIARY_PROJECT_RECORD_INDEX_PATH, false,
+    await putFileChecked(path, false,
         new Blob([JSON.stringify(next, null, 2)], { type: "application/json;charset=utf-8" }));
-    const verified = await decode(await getFileChecked(ENHANCED_DIARY_PROJECT_RECORD_INDEX_PATH));
+    const verified = await decode(await getFileChecked(path));
     if (!valid(verified) || JSON.stringify(verified) !== JSON.stringify(next)) throw new Error("项目记录索引写后回读校验失败，请检查存储状态。");
     caches.set(payload.notebookId, next);
 }

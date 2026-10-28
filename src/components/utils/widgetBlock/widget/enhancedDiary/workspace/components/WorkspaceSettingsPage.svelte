@@ -1,5 +1,5 @@
 <script lang="ts">
-    import { onMount } from "svelte";
+    import { onMount, onDestroy } from "svelte";
     import { showMessage } from "siyuan";
     import { lsNotebooks } from "@/api";
     import { validateProjectParentDoc } from "../../enhancedDiaryProjectContainer";
@@ -38,7 +38,7 @@
     interface Props {
         config: EnhancedDiaryConfig;
         saving?: boolean;
-        onSave: (config: EnhancedDiaryConfig) => void | Promise<void>;
+        onSave: (config: EnhancedDiaryConfig) => boolean | Promise<boolean>;
         onOpenAndAppendTemplate: () => void | Promise<void>;
     }
 
@@ -89,6 +89,8 @@
     const VARIABLE_HINTS = "可用变量：{{date}}、{{week}}、{{month}}、{{year}}、{{周期范围}}、{{开始日期}}、{{结束日期}}。完成状态由顶级标题后缀（已完成复盘）自动维护，无需在模板中写标记。";
 
     let activeSettingsTab: SettingsTab = $state("basic");
+    let componentAlive = true;
+    onDestroy(() => { componentAlive = false; });
     let activeTemplatePeriod: EnhancedDiaryPeriod = $state("day");
     let notebooks = $state<{ id: string; name: string }[]>([]);
     let notebooksLoading = $state(true);
@@ -422,8 +424,7 @@
         }
         applyRecordCategorySuggestionsText();
         normalizeReviewFieldsBeforeSave();
-        await onSave(draft);
-        lastConfigSignature = JSON.stringify(draft);
+        if (await onSave(draft) && componentAlive) lastConfigSignature = JSON.stringify(draft);
     }
 
     function discardSettings(): void {

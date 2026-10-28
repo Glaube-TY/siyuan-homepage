@@ -1,3 +1,5 @@
+import { getFileOrNullChecked } from "@/api";
+import { getPluginStorageRoot } from "@/homepage/deviceView/deviceViewPaths";
 import {
     DEFAULT_ENHANCED_DIARY_CONFIG,
     ENHANCED_DIARY_CONFIG_FILE,
@@ -411,12 +413,36 @@ export async function loadEnhancedDiaryConfig(plugin: {
     return normalizeEnhancedDiaryConfig(null);
 }
 
+export async function loadEnhancedDiaryConfigStrict(plugin: { name?: string }): Promise<EnhancedDiaryConfig> {
+    let raw: unknown = await getFileOrNullChecked(`${getPluginStorageRoot(plugin)}/${ENHANCED_DIARY_CONFIG_FILE}`);
+    if (raw === null) return normalizeEnhancedDiaryConfig(null);
+    if (raw instanceof Blob) raw = await raw.text();
+    if (raw instanceof ArrayBuffer || ArrayBuffer.isView(raw)) raw = new TextDecoder("utf-8", { fatal: true }).decode(raw);
+    if (typeof raw === "string") raw = JSON.parse(raw);
+    if (!isRecord(raw)) throw new Error("强化日记设置文件格式无效，未使用默认设置覆盖原文件。");
+    return normalizeEnhancedDiaryConfig(raw);
+}
+
 export async function saveEnhancedDiaryConfig(
     plugin: {
-        saveData: (file: string, content: unknown) => Promise<void>;
+        name?: string;
+        saveData: (file: string, content: unknown) => Promise<unknown>;
     },
     config: EnhancedDiaryConfig
 ): Promise<void> {
     const normalized = normalizeEnhancedDiaryConfig(config);
-    await plugin.saveData(ENHANCED_DIARY_CONFIG_FILE, normalized);
+    await loadEnhancedDiaryConfigStrict(plugin);
+    let timer: ReturnType<typeof setTimeout>;
+    try {
+        await Promise.race([(async () => {
+            const result = await plugin.saveData(ENHANCED_DIARY_CONFIG_FILE, normalized);
+            if (!result || typeof result !== "object" || !("code" in result) || result.code !== 0) {
+                throw new Error("设置保存未获确认，请检查权限并重新读取设置后重试。");
+            }
+            const verified = await loadEnhancedDiaryConfigStrict(plugin);
+            if (JSON.stringify(verified) !== JSON.stringify(normalized)) throw new Error("设置写后验证未通过，请重新读取设置后重试。");
+        })(), new Promise<never>((_, reject) => {
+            timer = setTimeout(() => reject(new Error("设置保存结果尚未确认，请重新读取后再修改，勿重复保存。")), 10_000);
+        })]);
+    } finally { clearTimeout(timer!); }
 }

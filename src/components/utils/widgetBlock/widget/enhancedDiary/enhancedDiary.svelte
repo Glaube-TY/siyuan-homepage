@@ -857,6 +857,10 @@
                 } else if (result.reason === "read_failed") {
                     showMessage("日记正文暂时无法读取，为避免重复写入，本次未补充模板。", 4000);
                     await loadAndBuildCards();
+                } else if (result.reason === "verify_read_failed" || (result.writeAttempted && result.reason === "append_failed")) {
+                    showMessage("模板结果暂时无法确认，请重新读取日记检查，勿重复补充。", 5000);
+                } else if (result.reason?.startsWith("template_invalid:")) {
+                    showMessage(`配置的模板缺少可识别的顶级标题 ${result.reason.slice("template_invalid:".length)}，请检查模板和字段映射。`, 5000);
                 } else {
                     if (result.reason === "empty_template") {
                         showMessage("模板为空，无法补充", 3000);
@@ -864,7 +868,7 @@
                         showMessage("补充模板失败，请稍后重试", 3000);
                     } else if (result.reason && result.reason.startsWith("template_incomplete:")) {
                         const missingList = result.reason.slice("template_incomplete:".length).trim();
-                        showMessage(`根标题已存在，但以下子区块缺失且无法自动定位补全：${missingList}。请在文档中手动添加。`, 5000);
+                        showMessage(`补充后仍缺少模板区块：${missingList}。请检查文档标题和字段映射。`, 5000);
                     } else {
                         showMessage("补充模板失败", 3000);
                     }

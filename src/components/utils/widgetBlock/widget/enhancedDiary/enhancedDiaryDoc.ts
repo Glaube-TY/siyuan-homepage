@@ -633,7 +633,7 @@ export async function appendTemplateToDiary(params: {
     headingStructure?: EnhancedDiaryHeadingStructureConfig;
     mapping?: EnhancedDiaryTemplateFieldMapping | null;
     taskManagementEnabled?: boolean;
-}): Promise<{ ok: boolean; skipped?: boolean; reason?: string }> {
+}): Promise<{ ok: boolean; skipped?: boolean; reason?: string; writeAttempted?: boolean }> {
     const { docId, period, template, context, headingStructure, mapping, taskManagementEnabled = true } = params;
 
     const readResult = await readDiaryMarkdownResult(docId);
@@ -649,6 +649,29 @@ export async function appendTemplateToDiary(params: {
     const heading = getFirstMarkdownHeading(renderedMarkdown);
     const rootTitle = getPrimaryFieldTitle(mapping, "rootHeadings", "day");
 
+    async function completeDayTemplate(writeAttempted: boolean): Promise<{ ok: boolean; skipped?: boolean; reason?: string; writeAttempted?: boolean }> {
+        const fresh = await readDiaryMarkdownResult(docId);
+        if (!fresh.ok) return { ok: false, reason: "verify_read_failed", writeAttempted };
+        const remaining = validateDayWorkspaceStructure(fresh.content, headingStructure, mapping, taskManagementEnabled);
+        if (remaining.valid) return { ok: true, skipped: !writeAttempted };
+        if (!scanDiaryContentForPeriod(fresh.content, "day", mapping).hasCompletionMarker) {
+            return { ok: false, reason: `template_incomplete:${remaining.missing.join("、")}`, writeAttempted };
+        }
+        let patched: Awaited<ReturnType<typeof patchDayWorkspaceStructure>>;
+        try {
+            patched = await patchDayWorkspaceStructure(docId, headingStructure, remaining, mapping, taskManagementEnabled);
+        } catch {
+            return { ok: false, reason: writeAttempted ? "verify_read_failed" : "read_failed", writeAttempted };
+        }
+        if (!patched.ok) return { ...patched, writeAttempted: true };
+        const verified = await readDiaryMarkdownResult(docId);
+        if (!verified.ok) return { ok: false, reason: "verify_read_failed", writeAttempted: true };
+        const validation = validateDayWorkspaceStructure(verified.content, headingStructure, mapping, taskManagementEnabled);
+        return validation.valid ? { ok: true } : {
+            ok: false, reason: `template_incomplete:${validation.missing.join("、")}`, writeAttempted: true,
+        };
+    }
+
     // Day period: validate structure first, regardless of markers/heading state
     if (period === "day") {
         const validation = validateDayWorkspaceStructure(content, headingStructure, mapping, taskManagementEnabled);
@@ -663,17 +686,20 @@ export async function appendTemplateToDiary(params: {
                 const templateToAppend = taskManagementEnabled
                     ? renderedMarkdown
                     : pruneTaskSectionsFromDayTemplate(renderedMarkdown, mapping);
+                if (!scanDiaryContentForPeriod(templateToAppend, "day", mapping).hasCompletionMarker) {
+                    return { ok: false, reason: `template_invalid:# ${rootTitle}` };
+                }
                 const markdownToAppend = "\n\n" + templateToAppend.trim();
                 try {
                     await appendBlockChecked("markdown", markdownToAppend, docId);
-                    return { ok: true };
+                    return await completeDayTemplate(true);
                 } catch (err) {
                     console.warn("[enhancedDiaryDoc] appendTemplateToDiary root missing append failed", err);
-                    return { ok: false, reason: "append_failed" };
+                    return { ok: false, reason: "append_failed", writeAttempted: true };
                 }
             }
             // Root exists but sub-sections missing — patch incrementally
-            return await patchDayWorkspaceStructure(docId, headingStructure, validation, mapping, taskManagementEnabled);
+            return await completeDayTemplate(false);
         }
         // Structure is complete — check markers/heading for skip
         if (scan.hasCompletionMarker || scan.hasSkipMarker) {
