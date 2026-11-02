@@ -12,7 +12,10 @@
  */
 
 /** 唯一正式会员服务器；客户端不支持切换或本地覆盖。 */
-export const DEFAULT_BASE_URL = "https://license.glaube-ty.top";
+import { HOMEPAGE_SERVICE_ORIGIN, HOMEPAGE_SERVICE_API } from "./homepageService";
+
+export const DEFAULT_BASE_URL = HOMEPAGE_SERVICE_ORIGIN;
+export const MEMBERSHIP_API_BASE_URL = HOMEPAGE_SERVICE_API;
 export const DEFAULT_TIMEOUT_MS = 15000;
 export const MAX_MEMBERSHIP_RESPONSE_BYTES = 64 * 1024;
 
@@ -504,7 +507,7 @@ export interface ServiceStatusResult {
 export async function testServiceConnection(): Promise<ServiceStatusResult> {
     try {
         const response = await fetchWithTimeout(
-            `${DEFAULT_BASE_URL}/api/status`,
+            `${MEMBERSHIP_API_BASE_URL}/status`,
             {
                 method: "GET",
                 headers: { Accept: "application/json" },
@@ -840,7 +843,7 @@ export async function recoverMembershipByIdentity(
     let response: Response;
     try {
         response = await fetchWithTimeout(
-            `${DEFAULT_BASE_URL}/api/licenses/recover`,
+            `${MEMBERSHIP_API_BASE_URL}/licenses/recover`,
             {
                 method: "POST",
                 headers: {
@@ -959,7 +962,7 @@ export async function registerExistingSignedLicense(
     request: RegisterExistingSignedLicenseRequest,
 ): Promise<RegisterExistingSignedLicenseResponse> {
     const response = await fetchWithTimeout(
-        `${DEFAULT_BASE_URL}/api/licenses/register-existing`,
+        `${MEMBERSHIP_API_BASE_URL}/licenses/register-existing`,
         {
             method: "POST",
             headers: {
@@ -1047,7 +1050,7 @@ export async function confirmActivationBestEffort(
 ): Promise<void> {
     try {
         const response = await fetchWithTimeout(
-            `${DEFAULT_BASE_URL}/api/activations/confirm`,
+            `${MEMBERSHIP_API_BASE_URL}/activations/confirm`,
             {
                 method: "POST",
                 headers: {

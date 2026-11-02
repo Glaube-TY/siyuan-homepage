@@ -1,6 +1,7 @@
 // @ts-ignore
 import * as CryptoJS from 'crypto-js';
 import { getSiyuanCloudIdentity } from "@/api";
+import { matchesHomepageServiceOrigin } from "@/services/homepageService";
 import {
     type LicenseVerifyResult,
     invalid,
@@ -301,7 +302,7 @@ export async function getSavedLicenseManagementState(
             matchesExpectedLicense &&
             data?.serverManaged === true &&
             data?.serverManagedLicenseHash === getLicenseHash(normalizedExpected) &&
-            data?.serverManagedServiceOrigin === expectedServiceOrigin;
+            matchesHomepageServiceOrigin(data?.serverManagedServiceOrigin, expectedServiceOrigin);
 
         return { matchesExpectedLicense, serverManaged };
     } catch {

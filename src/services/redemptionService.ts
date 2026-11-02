@@ -9,6 +9,7 @@
 
 import {
     DEFAULT_BASE_URL,
+    MEMBERSHIP_API_BASE_URL,
     DEFAULT_TIMEOUT_MS,
     MembershipServiceError,
     businessCodeToErrorCode,
@@ -192,7 +193,7 @@ export async function redeemMembership(
     request: RedeemRequest,
 ): Promise<RedeemResponse> {
     const response = await fetchWithTimeout(
-        `${DEFAULT_BASE_URL}/api/redeem`,
+        `${MEMBERSHIP_API_BASE_URL}/redeem`,
         {
             method: "POST",
             headers: {

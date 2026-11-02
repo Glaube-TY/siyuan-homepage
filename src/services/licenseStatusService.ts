@@ -14,7 +14,7 @@
  */
 
 import {
-    DEFAULT_BASE_URL,
+    MEMBERSHIP_API_BASE_URL,
     DEFAULT_TIMEOUT_MS,
     MembershipServiceError,
     businessCodeToErrorCode,
@@ -86,7 +86,7 @@ export async function syncLicenseStatus(
     request: LicenseSyncRequest,
 ): Promise<LicenseSyncResponse> {
     const response = await fetchWithTimeout(
-        `${DEFAULT_BASE_URL}/api/licenses/sync`,
+        `${MEMBERSHIP_API_BASE_URL}/licenses/sync`,
         {
             method: "POST",
             headers: {
