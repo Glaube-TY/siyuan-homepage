@@ -893,14 +893,7 @@
     }
 
     async function openToday(): Promise<void> {
-        if (!state) return;
-        const result = await openOrCreateDiaryForDate(plugin, new Date(), state.config.dailyNotebookId);
-        if (result.reason === "existing_doc_unreadable") {
-            showMessage("日记已存在，但正文暂时无法读取，请稍后重试。", 4000);
-        } else if (!result.id) {
-            showMessage("打开今日日记失败，请检查日记笔记本设置", 4000);
-        }
-        await refreshAfterWorkspaceMutation();
+        await ensureTodayDiaryAndAppendTemplate({ openDoc: true });
     }
 
     async function ensureTodayDiaryAndAppendTemplate(options: { openDoc: boolean } = { openDoc: false }): Promise<void> {
@@ -908,60 +901,32 @@
             showMessage("请先保存日记设置并恢复工作台数据，再补充模板。", 4000);
             return;
         }
-
-        const result = await getOrCreateTodayDiaryDocument(plugin, state.config);
-
-        if (!result.ok || !result.docId) {
-            const messages: Record<string, string> = {
-                missing_notebook: "请先在强化日记设置中选择日记笔记本。",
-                index_not_ready: "日记索引尚未就绪，请稍后重试。",
-                existing_doc_unreadable: "今日日记已存在但暂时无法读取内容，请稍后重试。",
-                create_failed: "创建今日日记失败，请检查日记笔记本设置。",
-                read_failed: "今日日记已创建但读取内容失败，请刷新后重试。",
-                metadata_pending: "今日日记已创建，但元数据尚未就绪，请勿重复创建日记。",
-                creation_unknown: "日记创建结果尚未确认，请勿重复创建日记。",
-                out_of_scope: "日记归属异常，操作已停止。", date_mismatch: "日记日期异常，操作已停止。",
-            };
-            showMessage(messages[result.reason || ""] || "操作失败", 4000);
-            return;
-        }
-
-        const docId = result.docId;
-        if (options.openDoc) {
-            openDiaryDocument(plugin, docId);
-        }
-
-        const dayCard = state.reviewCards.find((card) => card.period === "day");
-        if (!dayCard) {
-            showMessage(result.created ? "已创建今日日记" : "已定位到今日日记", 3000);
+        if (actionBusy) return;
+        const lifetime = workspaceLifetime;
+        beginWorkspaceAction();
+        try {
+            const result = await getOrCreateTodayDiaryDocument(plugin, state.config, { ensureTemplate: true });
+            if (!componentAlive || !advancedEnabled || lifetime !== workspaceLifetime) return;
+            if (!result.ok || !result.docId) {
+                const messages: Record<string, string> = {
+                    missing_notebook: "请先在强化日记设置中选择日记笔记本。",
+                    index_not_ready: "日记索引尚未就绪，请稍后重试。",
+                    existing_doc_unreadable: "今日日记已存在但暂时无法读取内容，请稍后重试。",
+                    create_failed: "创建今日日记失败，请检查日记笔记本设置。",
+                    read_failed: "今日日记已创建但读取内容失败，请刷新后重试。",
+                    metadata_pending: "今日日记已创建，但元数据尚未就绪，请勿重复创建日记。",
+                    creation_unknown: "日记创建结果尚未确认，请勿重复创建日记。",
+                    out_of_scope: "日记归属异常，操作已停止。", date_mismatch: "日记日期异常，操作已停止。",
+                };
+                showMessage(result.message || messages[result.reason || ""] || "操作失败", 5000);
+                return;
+            }
+            if (options.openDoc) openDiaryDocument(plugin, result.docId);
+            showMessage(result.created ? "已创建今日日记并补齐模板" : result.templateChanged ? "已补齐今日模板" : "今日模板已完整", 3000);
             await refreshAfterWorkspaceMutation();
-            return;
+        } finally {
+            if (lifetime === workspaceLifetime) finishWorkspaceAction();
         }
-
-        const appendResult = await appendTemplateToDiary({
-            docId,
-            period: "day",
-            template: state.config.templates.day,
-            context: dayCard.templateContext,
-            headingStructure: state.config.headingStructure,
-            mapping: state.config.templateFieldMapping,
-            taskManagementEnabled,
-        });
-        if (appendResult.ok && appendResult.skipped) {
-            showMessage(result.created ? "已创建今日日记，模板已存在" : "已打开今日日记，模板已存在", 3000);
-        } else if (appendResult.ok) {
-            showMessage(result.created ? "已创建今日日记并补齐模板" : "已补齐今日模板", 3000);
-        } else if (appendResult.reason && appendResult.reason.startsWith("template_incomplete:")) {
-            const missingList = appendResult.reason.slice("template_incomplete:".length).trim();
-            showMessage(`补充后仍缺少模板区块：${missingList}。请检查文档标题和字段映射。`, 5000);
-        } else if (appendResult.reason === "verify_read_failed" || (appendResult.writeAttempted && appendResult.reason === "append_failed")) {
-            showMessage("模板结果暂时无法确认，请重新读取日记检查，勿重复补充。", 5000);
-        } else if (appendResult.reason?.startsWith("template_invalid:")) {
-            showMessage(`配置的模板缺少可识别的顶级标题 ${appendResult.reason.slice("template_invalid:".length)}，请检查模板和字段映射。`, 5000);
-        } else {
-            showMessage("补充模板失败", 3000);
-        }
-        await refreshAfterWorkspaceMutation();
     }
 
     async function appendTodayTemplate(): Promise<void> {
@@ -998,14 +963,14 @@
         const lifetime = workspaceLifetime;
         beginWorkspaceAction();
         try {
-            const todayDoc = await getOrCreateTodayDiaryDocument(plugin, state.config);
+            const todayDoc = await getOrCreateTodayDiaryDocument(plugin, state.config, { ensureTemplate: true });
             if (!componentAlive || !advancedEnabled || lifetime !== workspaceLifetime) return false;
             if (!todayDoc.ok || !todayDoc.docId) {
                 const reasonHints: Record<string, string> = {
                     metadata_pending: "文档元数据尚未就绪。", index_not_ready: "日记索引尚未确认。",
                     read_failed: "日记内容暂时无法读取。", out_of_scope: "日记归属异常。", date_mismatch: "日记日期异常。",
                 };
-                showMessage((todayDoc.created
+                showMessage(todayDoc.message || (todayDoc.created
                     ? "今日日记已创建，但尚未确认可以写入任务。任务未写入，请勿重复创建日记。"
                     : todayDoc.reason === "creation_unknown" ? "日记创建结果尚未确认，任务未写入，请勿重复创建日记。"
                     : todayDoc.reason === "existing_doc_unreadable" ? "今日日记已存在但暂时无法读取，任务未写入。"
@@ -1751,6 +1716,10 @@
 
     async function createOrOpenReview(card: EnhancedDiaryWorkspaceReviewCard): Promise<void> {
         if (!state) return;
+        if (card.period === "day" && formatDiaryAttrDate(card.targetDate) === formatDiaryAttrDate(new Date())) {
+            await ensureTodayDiaryAndAppendTemplate({ openDoc: true });
+            return;
+        }
         const result = await openOrCreateDiaryForDate(
             plugin,
             card.targetDate,

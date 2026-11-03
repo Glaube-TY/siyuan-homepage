@@ -73,9 +73,9 @@ async function ensureTodayDoc(
   plugin: any,
   config: Awaited<ReturnType<typeof loadAgendaEnhancedDiaryConfig>>,
 ): Promise<{ docId: string; errorCode?: string; message?: string }> {
-  const todayDoc = await getOrCreateTodayDiaryDocument(plugin, config);
+  const todayDoc = await getOrCreateTodayDiaryDocument(plugin, config, { ensureTemplate: true });
   if (!todayDoc.ok || !todayDoc.docId) {
-    return { docId: "", errorCode: "diary_create_failed", message: "未能打开或创建今日日记。" };
+    return { docId: "", errorCode: todayDoc.reason === "write_result_unknown" ? "write_result_unknown" : "diary_create_failed", message: todayDoc.message || "未能打开或创建今日日记。" };
   }
   return { docId: todayDoc.docId };
 }
@@ -111,7 +111,7 @@ async function executeCreate(
     doc = { docId: target.docId };
   } else doc = await ensureTodayDoc(pluginAdapter, config);
   if (!doc.docId) {
-    return { ok: false, errorCode: doc.errorCode, safeOutput: { operation: "create", changed: false, message: doc.message! } };
+    return { ok: false, errorCode: doc.errorCode, safeOutput: { operation: "create", changed: doc.errorCode === "write_result_unknown", message: doc.message! } };
   }
 
   const result = await addNewTaskToDiary({
@@ -180,6 +180,7 @@ async function executeMigrate(
 
   // migrateWorkspaceTaskToToday 内部会创建/获取今日日记
   const result = await migrateWorkspaceTaskToToday(pluginAdapter, config, found.task);
+  if (result.reason === "write_result_unknown") return mutationUncertain("migrate", result.message);
   if (!result.ok) {
     return {
       ok: false,
@@ -194,9 +195,9 @@ async function executeMigrate(
   };
 }
 
-function mutationUncertain(operation: string): ExecResult {
+function mutationUncertain(operation: string, message = "任务修改或索引同步结果未知，请先回读，禁止自动重试。"): ExecResult {
   return { ok: false, errorCode: "write_result_unknown", safeOutput: { operation, changed: true,
-    message: "任务修改或索引同步结果未知，请先回读，禁止自动重试。" } };
+    message } };
 }
 
 async function findApprovedTask(args: ManageDiaryTaskInput, target: NonNullable<ToolRuntimeContext["diaryTaskMutationTarget"]>) {
@@ -372,7 +373,7 @@ async function executeDelete(
   const result = await deleteWorkspaceTask(pluginAdapter, config, task, mode,
     mutation?.loggedDeletion ? { ...mutation.loggedDeletion, readTask: mutation.readTask } : undefined);
 
-  if (mutation && (result.partial || !result.ok && result.reason === "delete_failed")) return mutationUncertain(args.operation);
+  if (result.reason === "write_result_unknown" || mutation && (result.partial || !result.ok && result.reason === "delete_failed")) return mutationUncertain(args.operation, result.message);
 
   if (!result.ok) {
     return {

@@ -10,6 +10,7 @@ import {
     waitForCreatedDiaryDocument,
     formatDiaryAttrDate,
     hasUnconfirmedDailyNoteCreation,
+    appendTemplateToDiary,
     type EnhancedDiaryDocumentInfo,
 } from "./enhancedDiaryDoc";
 import {
@@ -20,6 +21,7 @@ import {
     appendMarkdownToDaySection,
     appendMarkdownToRecordCategoryByTitle,
     locateInsertedBlock,
+    findDayWorkspaceHeadingBlock,
     type EnhancedDiaryInsertResult,
 } from "./enhancedDiaryBlockLocator";
 import { getBlockAttrsChecked, getChildBlocksChecked, setBlockAttrsChecked } from "@/api";
@@ -30,6 +32,9 @@ import {
     extractProjectWriteTargetErrorCode,
     validateEnhancedDiaryProjectWriteTarget,
 } from "./workspace/enhancedDiaryWorkspaceProjectLifecycle";
+import { validateDayWorkspaceStructure } from "./enhancedDiaryMarkdownSections";
+import { getPeriodContext } from "./enhancedDiaryUtils";
+import { isEnhancedDiaryTaskManagementEnabled } from "./enhancedDiaryTemplateFieldMapping";
 
 export interface EnhancedDiaryTodayDocumentResult {
     ok: boolean;
@@ -37,7 +42,9 @@ export interface EnhancedDiaryTodayDocumentResult {
     created?: boolean;
     content?: string;
     doc?: EnhancedDiaryDocumentInfo;
-    reason?: "missing_notebook" | "create_failed" | "read_failed" | "existing_doc_unreadable" | "index_not_ready" | "metadata_pending" | "out_of_scope" | "date_mismatch" | "creation_unknown";
+    templateChanged?: boolean;
+    message?: string;
+    reason?: "missing_notebook" | "create_failed" | "read_failed" | "existing_doc_unreadable" | "index_not_ready" | "metadata_pending" | "out_of_scope" | "date_mismatch" | "creation_unknown" | "template_not_ready" | "write_result_unknown";
 }
 
 export interface EnhancedDiaryActionResult {
@@ -203,13 +210,70 @@ function formatInsertFailure(result: EnhancedDiaryInsertResult): EnhancedDiaryAc
 }
 
 const todayDocumentFlights = new Map<string, Promise<EnhancedDiaryTodayDocumentResult>>();
-export function getOrCreateTodayDiaryDocument(plugin: any, config: EnhancedDiaryConfig): Promise<EnhancedDiaryTodayDocumentResult> {
-    const key = `${config.dailyNotebookId}:${new Date().toDateString()}`;
+export function getOrCreateTodayDiaryDocument(plugin: any, config: EnhancedDiaryConfig, options: { ensureTemplate?: boolean } = {}): Promise<EnhancedDiaryTodayDocumentResult> {
+    const key = `${config.dailyNotebookId}:${new Date().toDateString()}${options.ensureTemplate ? ":template" : ""}`;
     const running = todayDocumentFlights.get(key);
     if (running) return running;
-    const flight = prepareTodayDiaryDocument(plugin, config).finally(() => { if (todayDocumentFlights.get(key) === flight) todayDocumentFlights.delete(key); });
+    const flight = (options.ensureTemplate ? prepareTodayDiaryWithTemplate(plugin, config) : prepareTodayDiaryDocument(plugin, config))
+        .finally(() => { if (todayDocumentFlights.get(key) === flight) todayDocumentFlights.delete(key); });
     todayDocumentFlights.set(key, flight);
     return flight;
+}
+
+async function prepareTodayDiaryWithTemplate(plugin: any, config: EnhancedDiaryConfig): Promise<EnhancedDiaryTodayDocumentResult> {
+    const date = new Date();
+    let result: EnhancedDiaryTodayDocumentResult = { ok: false };
+    let writeAttempted = false;
+    const uncertain = "日记模板补全结果未确认，已停止后续操作；请先检查日记，勿重复提交。";
+    try {
+        // 共用创建中的请求，但模板准备单独合并；受控目标仍使用原来的创建契约。
+        result = await getOrCreateTodayDiaryDocument(plugin, config);
+        if (!result.ok || !result.docId) return result;
+        if (typeof result.content !== "string") return { ...result, ok: false, reason: "read_failed" };
+        const taskManagementEnabled = isEnhancedDiaryTaskManagementEnabled(config);
+        const readStructure = async () => {
+            const lookup = await findDayWorkspaceHeadingBlock(result.docId!, "quickRecords", config.headingStructure, config.templateFieldMapping);
+            return validateDayWorkspaceStructure(lookup.headings.map((heading) => `${"#".repeat(heading.level)} ${heading.title}`).join("\n"),
+                config.headingStructure, config.templateFieldMapping, taskManagementEnabled);
+        };
+        const structure = await readStructure();
+        if (formatDiaryAttrDate(new Date()) !== formatDiaryAttrDate(date)) {
+            return { ...result, ok: false, reason: "date_mismatch", message: "日期已变化，请重新提交到今日日记。" };
+        }
+        if (structure.valid) return { ...result, templateChanged: false };
+        const exported = validateDayWorkspaceStructure(result.content, config.headingStructure, config.templateFieldMapping, taskManagementEnabled);
+        // 自动补全前，两条读取必须对缺失结构一致，避免导出格式造成重复根标题。
+        if (JSON.stringify(structure.missing) !== JSON.stringify(exported.missing)) {
+            return { ...result, ok: false, reason: "template_not_ready", message: "日记正文与区块结构不一致，请检查标题和字段匹配后重试。" };
+        }
+        const target = await validateEnhancedDiaryWriteTarget(result.docId, config.dailyNotebookId!, formatDiaryAttrDate(date));
+        if (target.status !== "valid" || formatDiaryAttrDate(new Date()) !== formatDiaryAttrDate(date)) {
+            return { ...result, ok: false, reason: "date_mismatch", message: "日记的日期或归属已变化，未补充模板，请重新打开后再试。" };
+        }
+        writeAttempted = true;
+        const appended = await appendTemplateToDiary({
+            docId: result.docId, period: "day", template: config.templates.day,
+            context: getPeriodContext("day", date, config).templateContext!,
+            headingStructure: config.headingStructure, mapping: config.templateFieldMapping, taskManagementEnabled,
+        });
+        writeAttempted = appended.ok ? !appended.skipped : appended.writeAttempted === true;
+        if (!appended.ok) {
+            const detail = appended.reason?.startsWith("template_incomplete:") ? appended.reason.slice("template_incomplete:".length)
+                : appended.reason?.startsWith("template_invalid:") ? appended.reason.slice("template_invalid:".length) : "";
+            return { ...result, ok: false, reason: writeAttempted ? "write_result_unknown" : "template_not_ready",
+                message: writeAttempted ? uncertain : appended.reason === "empty_template" ? "今日模板为空，请先在工作台设置中配置模板。"
+                    : appended.reason === "read_failed" ? "日记正文暂时无法读取，本次未补充模板。"
+                        : `今日模板未能补齐${detail ? `：${detail}` : ""}，请检查模板和字段匹配。` };
+        }
+        const read = await readDiaryMarkdownResult(result.docId);
+        if (!read.ok || !(await readStructure()).valid || formatDiaryAttrDate(new Date()) !== formatDiaryAttrDate(date)) {
+            return { ...result, ok: false, reason: writeAttempted ? "write_result_unknown" : "read_failed", message: writeAttempted ? uncertain : "日记结构暂时无法确认，请重新读取后再试。" };
+        }
+        return { ...result, content: read.content, doc: result.doc ? { ...result.doc, content: read.content } : undefined, templateChanged: writeAttempted };
+    } catch {
+        return { ...result, ok: false, reason: writeAttempted ? "write_result_unknown" : "read_failed",
+            message: writeAttempted ? uncertain : "日记结构暂时无法读取，本次操作已停止。" };
+    }
 }
 
 async function prepareTodayDiaryDocument(plugin: any, config: EnhancedDiaryConfig): Promise<EnhancedDiaryTodayDocumentResult> {

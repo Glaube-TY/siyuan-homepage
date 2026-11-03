@@ -31,7 +31,7 @@ import {
     type EnhancedDiaryInsertResult,
     findDayWorkspaceHeadingBlock,
 } from "../enhancedDiaryBlockLocator";
-import { getOrCreateTodayDiaryDocument } from "../enhancedDiaryActions";
+import { getOrCreateTodayDiaryDocument, type EnhancedDiaryTodayDocumentResult } from "../enhancedDiaryActions";
 import { readDiaryMarkdownResult, formatDiaryAttrDate } from "../enhancedDiaryDoc";
 import { formatDiaryDate, isEnhancedDiarySystemTaskMarkdown } from "../enhancedDiaryUtils";
 import { getDayWorkspaceSections } from "../enhancedDiaryWorkspaceSections";
@@ -755,12 +755,13 @@ export async function deleteWorkspaceTask(
                 return { ok: false, reason: "diary_target_conflict", message: "已批准的日志内容已变化，未执行写入。" };
             }
         }
-        const todayDoc = controlled ? { ok: true, docId: controlled.docId, reason: undefined } : await getOrCreateTodayDiaryDocument(plugin, config);
+        const todayDoc: EnhancedDiaryTodayDocumentResult = controlled ? { ok: true, docId: controlled.docId } : await getOrCreateTodayDiaryDocument(plugin, config, { ensureTemplate: true });
         if (!todayDoc.ok || !todayDoc.docId) {
             return {
                 ok: false,
                 reason: todayDoc.reason || "today_doc_failed",
-                message: "未能打开或创建今日日记，已取消删除。",
+                partial: todayDoc.reason === "write_result_unknown",
+                message: todayDoc.message || "未能打开或创建今日日记，已取消删除。",
             };
         }
 
@@ -1116,7 +1117,7 @@ export async function migrateWorkspaceTaskToToday(
         };
     }
 
-    const todayDoc = await getOrCreateTodayDiaryDocument(plugin, config);
+    const todayDoc = await getOrCreateTodayDiaryDocument(plugin, config, { ensureTemplate: true });
     if (!todayDoc.ok || !todayDoc.docId) {
         logTaskMigrationFailure({
             taskBlockId: task.blockId,
@@ -1128,7 +1129,8 @@ export async function migrateWorkspaceTaskToToday(
             ok: false,
             changed: false,
             reason: todayDoc.reason || "today_doc_failed",
-            message: "未能打开或创建今日日记，迁移已取消。",
+            partial: todayDoc.reason === "write_result_unknown",
+            message: todayDoc.message || "未能打开或创建今日日记，迁移已取消。",
         };
     }
     if (sourceRootId === todayDoc.docId) {

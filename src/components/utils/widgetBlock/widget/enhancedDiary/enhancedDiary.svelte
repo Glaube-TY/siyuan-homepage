@@ -613,12 +613,14 @@
             return null;
         }
 
-        const result = await getOrCreateTodayDiaryDocument(plugin, config);
+        const result = await getOrCreateTodayDiaryDocument(plugin, config, { ensureTemplate: true });
         if (result.ok && result.docId) {
             return result.docId;
         }
 
-        if (result.reason === "missing_notebook") {
+        if (result.message) {
+            showMessage(result.message, 5000);
+        } else if (result.reason === "missing_notebook") {
             showMessage("请先在强化日记设置中选择日记笔记本", 4000);
         } else if (result.reason === "create_failed") {
             showMessage("创建今日日记失败，请检查日记笔记本后重试", 4000);
@@ -673,10 +675,7 @@
         actionBusy = true;
         try {
             const docId = await getTodayDocIdForAction();
-            if (!docId) {
-                showMessage("未能获取今日日记 docId，任务未写入", 4000);
-                return false;
-            }
+            if (!docId) return false;
 
             const result = await addNewTaskToDiary({
                 docId,
@@ -747,21 +746,10 @@
         if (!config || actionBusy) return;
         actionBusy = true;
         try {
-            const result = await openOrCreateDiaryForDate(
-                plugin,
-                new Date(),
-                config.dailyNotebookId,
-            );
-            if (result.id) {
+            const docId = await getTodayDocIdForAction();
+            if (docId) {
+                openDiaryDocument(plugin, docId);
                 await loadAndBuildCards();
-            } else if (result.reason === "missing_notebook") {
-                showMessage("请先在强化日记设置中选择日记笔记本", 4000);
-            } else if (result.reason === "create_failed") {
-                showMessage("创建今日日记失败，请稍后重试", 4000);
-            } else if (result.reason === "existing_doc_unreadable") {
-                showMessage("日记已存在，但正文暂时无法读取，请稍后重试。", 4000);
-            } else {
-                showMessage("打开今日日记失败，请稍后重试", 4000);
             }
         } finally {
             actionBusy = false;
@@ -790,6 +778,11 @@
         } else if (action === "create_and_open") {
             if (!menuCard) {
                 showMessage("未找到当前日记卡片，请刷新后重试", 3000);
+                removeBodyMenu();
+                return;
+            }
+            if (menuCard.period === "day") {
+                await openTodayDiary();
                 removeBodyMenu();
                 return;
             }

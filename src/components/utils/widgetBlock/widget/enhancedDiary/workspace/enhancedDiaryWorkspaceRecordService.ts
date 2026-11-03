@@ -1,5 +1,5 @@
 import { batchGetBlockAttrs, getBlockInfo, getBlockKramdownChecked, getBlockTreeInfos, getChildBlocksChecked, insertBlockChecked, updateBlockChecked, performTransactionsChecked, setBlockAttrsChecked } from "@/api";
-import { addQuickRecordToDiary, getOrCreateTodayDiaryDocument } from "../enhancedDiaryActions";
+import { addQuickRecordToDiary, getOrCreateTodayDiaryDocument, type EnhancedDiaryTodayDocumentResult } from "../enhancedDiaryActions";
 import SHA256 from "crypto-js/sha256";
 import {
     ENHANCED_DIARY_RECORD_CATEGORY_TITLES,
@@ -742,12 +742,13 @@ export async function addWorkspaceQuickRecord(
             return { ok: false, reason: "diary_target_conflict", message: "已批准的日记或分类状态已变化，未执行记录新增。" };
         }
     }
-    const todayDoc = target ? { ok: true, docId: target.docId, reason: undefined } : await getOrCreateTodayDiaryDocument(plugin, config);
+    const todayDoc: EnhancedDiaryTodayDocumentResult = target ? { ok: true, docId: target.docId } : await getOrCreateTodayDiaryDocument(plugin, config, { ensureTemplate: true });
     if (!todayDoc.ok || !todayDoc.docId) {
         return {
             ok: false,
             reason: todayDoc.reason || "today_doc_failed",
-            message: "未能打开或创建今日日记，记录未写入。",
+            partial: todayDoc.reason === "write_result_unknown",
+            message: todayDoc.message || "未能打开或创建今日日记，记录未写入。",
         };
     }
 

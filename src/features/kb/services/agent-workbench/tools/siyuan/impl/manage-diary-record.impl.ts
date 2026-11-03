@@ -91,8 +91,8 @@ async function executeAdd(
   if (args.isKeyRecord && !project) return { ok: false, errorCode: "key_record_requires_project", safeOutput: { operation: "add", changed: false, message: "关键记录必须关联有效项目。" } };
 
   const result = await addWorkspaceQuickRecord(pluginAdapter, config, args.categoryTitle!, args.content!, { tags: args.tags, projectTargetId: project?.id, projectTitle: project?.title, rootProjectId: project?.rootProjectId, projectPath: project?.pathTitles, projectAncestorTargetIds: project?.ancestorTargetIds, isKeyRecord: args.isKeyRecord }, target);
-  if (target && (result.partial || result.ok && !result.headingBlockId || !result.ok && result.reason === "insert_failed")) {
-    return { ok: false, errorCode: "write_result_unknown", safeOutput: { operation: "add", changed: true, message: "快速记录插入或索引结果未知，请先回读，禁止自动重试。" } };
+  if (result.reason === "write_result_unknown" || target && (result.partial || result.ok && !result.headingBlockId || !result.ok && result.reason === "insert_failed")) {
+    return { ok: false, errorCode: "write_result_unknown", safeOutput: { operation: "add", changed: true, message: result.message || "快速记录插入或索引结果未知，请先回读，禁止自动重试。" } };
   }
   if (!result.ok) {
     return {
