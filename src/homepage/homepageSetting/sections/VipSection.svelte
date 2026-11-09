@@ -1144,24 +1144,19 @@
         </a>
     </div>
 
-    <!-- 历史会员优惠活动模板：2026 年中秋国庆活动已结束，当前暂停展示；保留完整结构与样式供下次复用。
-    下次活动需同步恢复 README.md、VipSection.svelte 和 _vip.scss；恢复前更新活动标题、折扣、时间、链接文案，
-    并核实实际优惠已生效，不得仅恢复前端宣传。 -->
-    <!--
-    <div class="membership-promotion-card" role="note" aria-label="中秋国庆会员限时优惠">
+    <div class="membership-promotion-card" role="note" aria-label="双十一会员限时优惠">
         <div class="membership-promotion-copy">
             <div class="membership-promotion-heading">
                 <div class="membership-promotion-title">
                     <PremiumMark size={18} />
-                    <h3>中秋·国庆限时特惠</h3>
+                    <h3>双十一限时特惠</h3>
                 </div>
-                <strong class="membership-promotion-discount">会员全场 7 折</strong>
+                <strong class="membership-promotion-discount">会员全场 8 折</strong>
             </div>
-            <p class="membership-promotion-time">活动时间：2026 年 9 月 25 日 — 10 月 10 日</p>
+            <p class="membership-promotion-time">活动时间：2026 年 11 月 9 日 — 11 月 15 日</p>
         </div>
     </div>
 
-    -->
     <details class="membership-benefits-comparison">
         <summary>
             <span class="benefits-summary-title">
