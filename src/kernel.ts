@@ -15,6 +15,10 @@ import "./kernel/kernel-polyfills";
 import type * as kernel from "siyuan/kernel";
 import { createRobotKernel, disposeRobotKernel } from "./kernel/kernel-entry";
 import { createSiyuanKernelHost } from "./kernel/siyuan-kernel-host";
+import { registerAccountingKernelRpc } from "./kernel/accounting-kernel-rpc";
+import { ACCOUNTING_MUTATION_RPC } from "./components/utils/widgetBlock/widget/accounting/accountingLocalStore";
+import { createKernelPluginLikeStorage } from "./features/robot-assistant/agent/kernel-plugin-data-adapter";
+import { setSiyuanRuntimePort } from "./runtime/siyuan-runtime-port";
 
 const api: kernel.ISiyuan = siyuan;
 
@@ -77,6 +81,9 @@ async function bootstrapRobot(): Promise<void> {
 api.plugin.lifecycle.onload = async (): Promise<void> => {
   try {
     await api.logger.info(`[${api.plugin.name}] kernel plugin loading`);
+    const host = createSiyuanKernelHost(api);
+    setSiyuanRuntimePort({ post: host.siyuanPost, getFile: host.siyuanGetFile, putFile: host.siyuanPutFile });
+    await registerAccountingKernelRpc(api.rpc, createKernelPluginLikeStorage(host));
     await api.rpc.bind("robot.ping", ping, "SiYuan Homepage Robot Kernel ping");
     await api.rpc.bind("robot.getBootstrapStatus", getBootstrapStatus, "SiYuan Homepage Robot bootstrap status");
   } catch (error) {
@@ -109,7 +116,7 @@ api.plugin.lifecycle.onunload = async (): Promise<void> => {
       await api.logger.warn(`[${api.plugin.name}] kernel plugin unload failed`, error);
     }
   }
-  for (const name of ["robot.ping", "robot.getBootstrapStatus"]) {
+  for (const name of [ACCOUNTING_MUTATION_RPC, "robot.ping", "robot.getBootstrapStatus"]) {
     try {
       await api.rpc.unbind(name);
     } catch {

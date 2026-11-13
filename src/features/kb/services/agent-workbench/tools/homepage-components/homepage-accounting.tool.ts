@@ -70,7 +70,7 @@ function rangeForSummary(input: z.infer<typeof summarySchema>): { start: string;
 
 function actionTool(name: string, schema: z.ZodType, readOnly: boolean, execute: (input: never) => Promise<unknown>, riskLevel: "low" | "medium" | "high" = "medium"): ToolContract {
   return { name: `homepage_accounting_${name}`, title: name, description: `homepage_accounting.${name}`, inputSchema: schema, readOnly, safety: readOnly ? { readOnly: true } : { readOnly: false, canWrite: true, requiresConfirmation: true, riskLevel }, source: "builtin", providerVisible: false, availability: alwaysAvailable,
-    async execute(_ctx, raw) { try { return { ok: true, data: await execute(schema.parse(raw) as never) }; } catch (error) { return homepageComponentFailure(error, `accounting_${name}_failed`, `记账操作 ${name} 失败。`); } }, summarizeResult: (result) => result.ok ? `记账 ${name} 完成。` : result.error?.message ?? "记账操作失败。" };
+    async execute(_ctx, raw) { try { return { ok: true, data: await execute(schema.parse(raw) as never) }; } catch (error) { const failure = homepageComponentFailure(error, `accounting_${name}_failed`, `记账操作 ${name} 失败。`); if (!readOnly && failure.error) { failure.error.recoverable = false; failure.error.hint = "请先重新读取记账数据，确认保存状态后再提交，勿自动重复写入。"; } return failure; } }, summarizeResult: (result) => result.ok ? `记账 ${name} 完成。` : result.error?.message ?? "记账操作失败。" };
 }
 
 export function createHomepageAccountingActionTools(): Array<{ action: string; tool: ToolContract }> {

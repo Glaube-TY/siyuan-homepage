@@ -1,3 +1,4 @@
+import { readPluginJsonFileChecked, writePluginJsonFileChecked, readSharedWidgetDirectoryChecked } from "../sharedLocalStorage/sharedLocalStorage";
 import type {
     AccountingAccount,
     AccountingAssetsFile,
@@ -9,6 +10,7 @@ import type {
     AccountingYearSummary,
 } from "./accountingTypes";
 import {
+    ACCOUNTING_DIR,
     ACCOUNTING_ASSETS_VERSION,
     ACCOUNTING_RECORDS_INDEX_VERSION,
     ACCOUNTING_RECORDS_VERSION,
@@ -42,26 +44,38 @@ function nowIso(): string {
 
 let accountingMutationTail: Promise<void> = Promise.resolve();
 
-function runAccountingMutation<T>(task: () => Promise<T>): Promise<T> {
+export const ACCOUNTING_MUTATION_RPC = "homepage.accounting.mutate";
+export type AccountingMutationAction = "saveRecord" | "archiveRecord" | "mergeRecords" | "saveAsset" | "archiveAsset" | "mergeAssets" | "updateSummary" | "rebuildSummary";
+type AccountingMutationDispatcher = (action: AccountingMutationAction, args: unknown[]) => Promise<unknown>;
+let mutationDispatcher: AccountingMutationDispatcher | null = null;
+
+export function setAccountingMutationDispatcher(dispatcher: AccountingMutationDispatcher): void {
+    mutationDispatcher = dispatcher;
+}
+
+function runAccountingMutation<T>(action: AccountingMutationAction, args: unknown[], task: () => Promise<T>): Promise<T> {
+    if (mutationDispatcher) return mutationDispatcher(action, args) as Promise<T>;
     const result = accountingMutationTail.then(task, task);
     accountingMutationTail = result.then(() => undefined, () => undefined);
     return result;
 }
 
 async function loadJsonFile(plugin: any, path: string): Promise<unknown> {
-    try {
-        return await plugin.loadData(path);
-    } catch {
-        return null;
-    }
+    return readPluginJsonFileChecked(plugin, path);
 }
 
 async function saveJsonFile(plugin: any, path: string, data: unknown): Promise<void> {
-    await plugin.saveData(path, data);
+    await writePluginJsonFileChecked(plugin, path, data);
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {
     return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+function assertFile(raw: unknown, schema: string, version: number): asserts raw is Record<string, unknown> {
+    if (!isObject(raw) || raw.schema !== schema || raw.version !== version) {
+        throw new Error("记账文件结构或版本异常，请备份数据后检查，已停止写入");
+    }
 }
 
 function filterRecords(records: unknown[]): AccountingRecord[] {
@@ -94,7 +108,11 @@ function emptyRecordsFile(year: number): AccountingRecordsFile {
 
 function normalizeRecordsFile(raw: unknown, expectedYear: number): AccountingRecordsFile {
     const empty = emptyRecordsFile(expectedYear);
-    if (!isObject(raw)) return empty;
+    if (raw === null) return empty;
+    assertFile(raw, RECORDS_SCHEMA, ACCOUNTING_RECORDS_VERSION);
+    if (raw.year !== expectedYear || !Array.isArray(raw.records) || filterRecords(raw.records).length !== raw.records.length) {
+        throw new Error("记账年度明细异常，已保留原文件并停止写入");
+    }
     return {
         schema: typeof raw.schema === "string" ? raw.schema : empty.schema,
         version: typeof raw.version === "number" ? raw.version : empty.version,
@@ -106,6 +124,9 @@ function normalizeRecordsFile(raw: unknown, expectedYear: number): AccountingRec
 
 export async function loadAccountingRecordsFile(plugin: any, year: number): Promise<AccountingRecordsFile> {
     const raw = await loadJsonFile(plugin, getRecordsFile(year));
+    if (raw === null && (await loadAccountingRecordsIndex(plugin)).years.includes(year)) {
+        throw new Error(`记账年度明细缺失或尚未同步完成：${year}，已停止写入`);
+    }
     return normalizeRecordsFile(raw, year);
 }
 
@@ -129,7 +150,9 @@ function emptyRecordsIndex(): AccountingRecordsIndexFile {
 
 function normalizeRecordsIndex(raw: unknown): AccountingRecordsIndexFile {
     const empty = emptyRecordsIndex();
-    if (!isObject(raw)) return empty;
+    if (raw === null) return empty;
+    assertFile(raw, RECORDS_INDEX_SCHEMA, ACCOUNTING_RECORDS_INDEX_VERSION);
+    if (!Array.isArray(raw.years) || raw.years.some((year) => !Number.isInteger(year) || Number(year) <= 1900)) throw new Error("记账文件内容异常，已保留原文件并停止写入");
     return {
         schema: typeof raw.schema === "string" ? raw.schema : empty.schema,
         version: typeof raw.version === "number" ? raw.version : empty.version,
@@ -142,6 +165,12 @@ function normalizeRecordsIndex(raw: unknown): AccountingRecordsIndexFile {
 
 export async function loadAccountingRecordsIndex(plugin: any): Promise<AccountingRecordsIndexFile> {
     const raw = await loadJsonFile(plugin, RECORDS_INDEX_FILE);
+    if (raw === null) {
+        const entries = await readSharedWidgetDirectoryChecked(ACCOUNTING_DIR, plugin);
+        if (entries.some((entry) => /^accounting-records-\d+\.json$/.test(entry.name))) {
+            throw new Error("记账年份索引缺失，但年度明细仍存在，已停止写入");
+        }
+    }
     return normalizeRecordsIndex(raw);
 }
 
@@ -153,8 +182,7 @@ async function saveAccountingRecordsIndex(plugin: any, index: AccountingRecordsI
     await saveJsonFile(plugin, RECORDS_INDEX_FILE, index);
 }
 
-async function ensureRecordsIndexYear(plugin: any, year: number): Promise<void> {
-    const index = await loadAccountingRecordsIndex(plugin);
+async function ensureRecordsIndexYear(plugin: any, year: number, index: AccountingRecordsIndexFile): Promise<void> {
     if (!index.years.includes(year)) {
         index.years.push(year);
         await saveAccountingRecordsIndex(plugin, index);
@@ -174,7 +202,9 @@ function emptyAssetsFile(): AccountingAssetsFile {
 
 function normalizeAssetsFile(raw: unknown): AccountingAssetsFile {
     const empty = emptyAssetsFile();
-    if (!isObject(raw)) return empty;
+    if (raw === null) return empty;
+    assertFile(raw, ASSETS_SCHEMA, ACCOUNTING_ASSETS_VERSION);
+    if (!Array.isArray(raw.assets) || filterAssets(raw.assets).length !== raw.assets.length) throw new Error("记账文件内容异常，已保留原文件并停止写入");
     return {
         schema: typeof raw.schema === "string" ? raw.schema : empty.schema,
         version: typeof raw.version === "number" ? raw.version : empty.version,
@@ -209,7 +239,9 @@ function emptySummaryFile(): AccountingSummaryFile {
 
 function normalizeSummaryFile(raw: unknown): AccountingSummaryFile {
     const empty = emptySummaryFile();
-    if (!isObject(raw)) return empty;
+    if (raw === null) return empty;
+    assertFile(raw, SUMMARY_SCHEMA, ACCOUNTING_SUMMARY_VERSION);
+    if (!isObject(raw.years) || !isObject(raw.months)) throw new Error("记账文件内容异常，已保留原文件并停止写入");
     const years: Record<string, AccountingYearSummary> = {};
     const months: Record<string, AccountingMonthSummary> = {};
     if (isObject(raw.years)) {
@@ -296,6 +328,10 @@ function buildMonthSummary(records: AccountingRecord[]): AccountingMonthSummary 
 }
 
 export async function rebuildAccountingSummaryIndex(plugin: any): Promise<void> {
+    return runAccountingMutation("rebuildSummary", [], () => rebuildAccountingSummaryIndexUnlocked(plugin));
+}
+
+async function rebuildAccountingSummaryIndexUnlocked(plugin: any): Promise<void> {
     const index = await loadAccountingRecordsIndex(plugin);
     const allRecords: AccountingRecord[] = [];
     for (const year of index.years) {
@@ -328,6 +364,10 @@ export async function rebuildAccountingSummaryIndex(plugin: any): Promise<void> 
 }
 
 export async function updateAccountingSummaryIndexForYears(plugin: any, years: number[]): Promise<void> {
+    return runAccountingMutation("updateSummary", [years], () => updateAccountingSummaryIndexForYearsUnlocked(plugin, years));
+}
+
+async function updateAccountingSummaryIndexForYearsUnlocked(plugin: any, years: number[]): Promise<void> {
     if (years.length === 0) return;
     const summary = await loadAccountingSummaryIndex(plugin);
     for (const year of years) {
@@ -448,7 +488,7 @@ export async function saveAccountingRecord(
     record: AccountingRecord,
     options: { expectedUpdatedAt?: string } = {},
 ): Promise<AccountingRecord> {
-    return runAccountingMutation(async () => {
+    return runAccountingMutation("saveRecord", [record, options], async () => {
     const now = nowIso();
     const normalized: AccountingRecord = {
         ...record,
@@ -461,21 +501,14 @@ export async function saveAccountingRecord(
     };
     const newYear = getRecordYear(normalized);
 
-    // Remove from old year if the date changed
-    const oldLocation = normalized.recordId ? await findRecordLocation(plugin, normalized.recordId) : null;
-    if (oldLocation && options.expectedUpdatedAt !== undefined) {
-        const currentFile = await loadAccountingRecordsFile(plugin, oldLocation.year);
-        const current = currentFile.records[oldLocation.index];
-        if (!current || current.updatedAt !== options.expectedUpdatedAt) throw new Error("记账记录已被其他操作修改，请重新读取");
+    const oldLocation = await findRecordLocation(plugin, normalized.recordId);
+    const oldFile = oldLocation ? await loadAccountingRecordsFile(plugin, oldLocation.year) : null;
+    const current = oldLocation ? oldFile?.records[oldLocation.index] : null;
+    if (options.expectedUpdatedAt !== undefined && current?.updatedAt !== options.expectedUpdatedAt) {
+        throw new Error("记账记录已被其他操作修改，请重新读取");
     }
     const affectedYears = new Set<number>([newYear]);
-    if (oldLocation && oldLocation.year !== newYear) {
-        const oldFile = await loadAccountingRecordsFile(plugin, oldLocation.year);
-        oldFile.records.splice(oldLocation.index, 1);
-        await saveAccountingRecordsFile(plugin, oldFile);
-        affectedYears.add(oldLocation.year);
-    }
-
+    const recordsIndex = await loadAccountingRecordsIndex(plugin);
     const newFile = await loadAccountingRecordsFile(plugin, newYear);
     const idx = newFile.records.findIndex((r) => r.recordId === normalized.recordId);
     if (idx >= 0) {
@@ -484,8 +517,18 @@ export async function saveAccountingRecord(
         newFile.records.push(normalized);
     }
     await saveAccountingRecordsFile(plugin, newFile);
-    await ensureRecordsIndexYear(plugin, newYear);
-    await updateAccountingSummaryIndexForYears(plugin, Array.from(affectedYears));
+    await ensureRecordsIndexYear(plugin, newYear, recordsIndex);
+    // Keep the source until both the destination file and its index are verified.
+    if (oldFile && oldLocation && oldLocation.year !== newYear) {
+        oldFile.records.splice(oldLocation.index, 1);
+        try {
+            await saveAccountingRecordsFile(plugin, oldFile);
+        } catch {
+            throw new Error("目标年度已保存，原年度清理结果未确认，请重新读取后处理，勿重复提交");
+        }
+        affectedYears.add(oldLocation.year);
+    }
+    await updateAccountingSummaryIndexForYearsUnlocked(plugin, Array.from(affectedYears));
     return normalized;
     });
 }
@@ -496,7 +539,7 @@ export async function archiveAccountingRecord(
     date?: string,
     options: { expectedUpdatedAt?: string } = {},
 ): Promise<void> {
-    return runAccountingMutation(async () => {
+    return runAccountingMutation("archiveRecord", [recordId, date ?? null, options], async () => {
     if (date) {
         const year = parseInt(date.slice(0, 4), 10);
         if (Number.isFinite(year)) {
@@ -507,7 +550,7 @@ export async function archiveAccountingRecord(
                 record.archived = true;
                 record.updatedAt = nowIso();
                 await saveAccountingRecordsFile(plugin, file);
-                await updateAccountingSummaryIndexForYears(plugin, [year]);
+                await updateAccountingSummaryIndexForYearsUnlocked(plugin, [year]);
                 return;
             }
         }
@@ -521,13 +564,13 @@ export async function archiveAccountingRecord(
     record.archived = true;
     record.updatedAt = nowIso();
     await saveAccountingRecordsFile(plugin, file);
-    await updateAccountingSummaryIndexForYears(plugin, [location.year]);
+    await updateAccountingSummaryIndexForYearsUnlocked(plugin, [location.year]);
     });
 }
 
 export async function bulkMergeAccountingRecords(plugin: any, records: AccountingRecord[]): Promise<number> {
     if (records.length === 0) return 0;
-    return runAccountingMutation(async () => {
+    return runAccountingMutation("mergeRecords", [records], async () => {
 
     const byYear = new Map<number, AccountingRecord[]>();
     for (const record of records) {
@@ -538,6 +581,7 @@ export async function bulkMergeAccountingRecords(plugin: any, records: Accountin
 
     let added = 0;
     const affectedYears: number[] = [];
+    const recordsIndex = await loadAccountingRecordsIndex(plugin);
     for (const [year, incoming] of byYear.entries()) {
         const file = await loadAccountingRecordsFile(plugin, year);
         const existingIds = new Set(file.records.map((r) => r.recordId));
@@ -557,12 +601,12 @@ export async function bulkMergeAccountingRecords(plugin: any, records: Accountin
         }
         if (incoming.length > 0) {
             await saveAccountingRecordsFile(plugin, file);
-            await ensureRecordsIndexYear(plugin, year);
+            await ensureRecordsIndexYear(plugin, year, recordsIndex);
             affectedYears.push(year);
         }
     }
     if (affectedYears.length > 0) {
-        await updateAccountingSummaryIndexForYears(plugin, affectedYears);
+        await updateAccountingSummaryIndexForYearsUnlocked(plugin, affectedYears);
     }
     return added;
     });
@@ -580,7 +624,7 @@ export async function writeAccountingAsset(
     asset: AccountingAccount,
     options: { expectedUpdatedAt?: string } = {},
 ): Promise<AccountingAccount> {
-    return runAccountingMutation(async () => {
+    return runAccountingMutation("saveAsset", [asset, options], async () => {
     const now = nowIso();
     const normalized: AccountingAccount = {
         ...asset,
@@ -608,7 +652,7 @@ export async function writeAccountingAsset(
 }
 
 export async function archiveAccountingAsset(plugin: any, accountId: string, options: { expectedUpdatedAt?: string } = {}): Promise<void> {
-    return runAccountingMutation(async () => {
+    return runAccountingMutation("archiveAsset", [accountId, options], async () => {
     const file = await loadAccountingAssetsFile(plugin);
     const asset = file.assets.find((a) => a.accountId === accountId);
     if (!asset) throw new Error("资产不存在");
@@ -621,7 +665,7 @@ export async function archiveAccountingAsset(plugin: any, accountId: string, opt
 
 export async function bulkMergeAccountingAssets(plugin: any, assets: AccountingAccount[]): Promise<number> {
     if (assets.length === 0) return 0;
-    return runAccountingMutation(async () => {
+    return runAccountingMutation("mergeAssets", [assets], async () => {
     const file = await loadAccountingAssetsFile(plugin);
     const existingIds = new Set(file.assets.map((a) => a.accountId));
     const existingNames = new Set(file.assets.map((a) => a.name.toLowerCase()));

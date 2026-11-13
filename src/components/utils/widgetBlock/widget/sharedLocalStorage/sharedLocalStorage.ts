@@ -1,4 +1,4 @@
-import { getFileOrNullChecked, readDirChecked } from "@/api";
+import { getFileOrNullChecked, putFileChecked, readDirChecked } from "@/api";
 import {
     destroySharedWidgetDataEvents,
     dispatchSharedWidgetDataUpdated,
@@ -65,8 +65,7 @@ function splitStoragePath(path: string): string[] {
     return segments;
 }
 
-export async function readSharedWidgetDirectoryChecked(relativeDirectory: string): Promise<IResReadDir[]> {
-    const plugin = getSharedWidgetStoragePlugin();
+export async function readSharedWidgetDirectoryChecked(relativeDirectory: string, plugin = getSharedWidgetStoragePlugin()): Promise<IResReadDir[]> {
     const pluginName = typeof plugin?.name === "string" && plugin.name.trim()
         ? plugin.name.trim()
         : "siyuan-homepage";
@@ -101,22 +100,34 @@ export function assertSharedWidgetYearFilesComplete(indexedYears: number[], actu
     }
 }
 
-function sharedDataFilePath(path: string): string {
-    const plugin = getSharedWidgetStoragePlugin();
+function sharedDataFilePath(path: string, plugin = getSharedWidgetStoragePlugin()): string {
     const pluginName = typeof plugin?.name === "string" && plugin.name.trim()
         ? plugin.name.trim()
         : "siyuan-homepage";
     return `/data/storage/petal/${[pluginName, ...splitStoragePath(path)].join("/")}`;
 }
 
-async function loadRaw(path: string): Promise<unknown> {
-    let raw = await getSharedWidgetStoragePlugin().loadData(path);
-    if (typeof raw === "string" && raw.trim() === "") {
-        const direct = await getFileOrNullChecked(sharedDataFilePath(path));
-        if (direct === null) return null;
-        raw = direct;
+export async function readPluginJsonFileChecked(plugin: any, path: string): Promise<unknown> {
+    const raw = await getFileOrNullChecked(sharedDataFilePath(path, plugin));
+    if (raw === null) return null;
+    const value = parseStoredJson(raw, path);
+    if (value == null) throw new Error(`本地数据文件内容异常，已停止写入：${path}`);
+    return value;
+}
+
+export async function writePluginJsonFileChecked(plugin: any, path: string, value: unknown): Promise<void> {
+    const serialized = JSON.stringify(value);
+    if (serialized === undefined) throw new Error(`本地数据无法序列化：${path}`);
+    await putFileChecked(sharedDataFilePath(path, plugin), false, new Blob([serialized], { type: "application/json" }));
+    // SDK loadData may return its session cache after a read failure.
+    const saved = await readPluginJsonFileChecked(plugin, path);
+    if (saved === null || JSON.stringify(saved) !== serialized) {
+        throw new Error(`本地数据写入结果未确认，请重新读取后处理：${path}`);
     }
-    return parseStoredJson(raw, path);
+}
+
+async function loadRaw(path: string): Promise<unknown> {
+    return readPluginJsonFileChecked(getSharedWidgetStoragePlugin(), path);
 }
 
 export async function loadSharedRawJson(path: string): Promise<unknown> {
@@ -145,7 +156,7 @@ export async function saveSharedJsonChecked<T extends SharedRevisionedFile>(
     validate?: SharedJsonValidator<T>,
     dispatch = true,
 ): Promise<T> {
-    await getSharedWidgetStoragePlugin().saveData(path, value);
+    await writePluginJsonFileChecked(getSharedWidgetStoragePlugin(), path, value);
     const saved = await loadSharedJson(path, normalize);
     if (!saved) throw new Error(`写入后无法重新读取本地数据：${path}`);
     if (saved.schema !== value.schema || saved.version !== value.version || saved.revision !== value.revision) {

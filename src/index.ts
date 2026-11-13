@@ -1,3 +1,5 @@
+import { ACCOUNTING_MUTATION_RPC, setAccountingMutationDispatcher } from "@/components/utils/widgetBlock/widget/accounting/accountingLocalStore";
+import { RobotKernelClient, getPluginKernelPort } from "@/features/robot-assistant/runtime/robot-kernel-client";
 import { mount, unmount } from "svelte";
 import {
     Plugin,
@@ -507,6 +509,11 @@ export default class PluginHomepage extends Plugin {
 
         // 第一部分：首个 await 前同步完成所有独立能力和最小主页入口注册。
         setSharedWidgetStoragePlugin(this);
+        setAccountingMutationDispatcher(async (action, args) => {
+            const client = new RobotKernelClient(getPluginKernelPort(this));
+            if (!client.available) throw new Error("记账内核尚未就绪，请稍后重试，已停止写入");
+            return client.call(ACCOUNTING_MUTATION_RPC, { action, args });
+        });
         setQuickNoteWritePlugin(this);
         setQuickNoteConfigLoader((plugin) => loadHomepageSharedCapabilityConfig(plugin));
         setKbSettingsPlugin(this);
