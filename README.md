@@ -1,4 +1,5 @@
 <div class="sy__outline" style="display:block;width:100%;max-width:100%;margin:0;padding:0 10px 32px;box-sizing:border-box;overflow:hidden;overflow-wrap:anywhere;line-height:1.75;color:#34453f;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Microsoft YaHei',sans-serif;">
+  <!--
   <div role="note" aria-label="双十一会员限时优惠" style="display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:14px;width:100%;max-width:100%;margin:0 0 18px;padding:18px 22px;box-sizing:border-box;border:1px solid #ead8ad;border-radius:16px;background:#fff9eb;color:#5b4a2b;">
     <div style="flex:1 1 420px;min-width:0;">
       <h2 style="margin:0;font-size:20px;line-height:1.4;color:#6d5630;">双十一限时特惠</h2>
@@ -10,6 +11,7 @@
       <strong style="font-size:28px;line-height:1.2;">8 折</strong>
     </div>
   </div>
+  -->
   <div style="display:block;width:100%;max-width:100%;margin:18px 0 16px;padding:36px 28px;box-sizing:border-box;text-align:center;border:1px solid #c8dfd7;border-radius:22px;background:linear-gradient(135deg,#f2faf6 0%,#fffaf0 52%,#f1f7fb 100%);box-shadow:0 10px 28px rgba(62,105,91,.08);">
     <p style="max-width:760px;margin:0 auto;font-size:28px;font-weight:700;line-height:1.45;color:#245747;">把笔记入口、效率工具、生活数据与 AI，放进每天真正愿意打开的思源首页</p>
     <p style="max-width:720px;margin:14px auto 0;font-size:16px;color:#61756e;">自由组合 30+ 组件，从查看笔记到管理任务、记录生活，再到让 AI 远程执行操作，一套插件搭建属于你的个人工作台。</p>

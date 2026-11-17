@@ -1,4 +1,5 @@
 import { createRuntimeId } from "@/libs/runtime-id";
+import { formatHabitDate } from "./habit-tracker-math";
 import {
   loadSharedJson,
   mutateSharedJson,
@@ -154,47 +155,84 @@ function normalizeHabit(value: unknown): HabitDefinition | null {
   };
 }
 
+function isDataObject(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+function invalidHabitData(detail: string): never {
+  throw new Error(`习惯数据异常（${detail}），未覆盖原文件，请备份后检查。`);
+}
+
+function isHabitDate(value: unknown): value is string {
+  return typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value)
+    && formatHabitDate(new Date(`${value}T00:00:00`)) === value;
+}
+
 function normalizeFile(value: unknown): HabitTrackerFile {
-  if (!value || typeof value !== "object") throw new Error("习惯数据结构无效");
-  const input = value as Record<string, unknown>;
+  if (!isDataObject(value)) invalidHabitData("文件结构无效");
+  const input = value;
   if (
     input.schema !== HABIT_TRACKER_SCHEMA ||
     input.version !== SHARED_WIDGET_DATA_VERSION
   ) {
-    throw new Error("习惯数据版本无效");
+    invalidHabitData("文件版本无效");
   }
-  const habits = Array.isArray(input.habits)
-    ? (input.habits.map(normalizeHabit).filter(Boolean) as HabitDefinition[])
-    : [];
-  const habitIds = new Set(habits.map((habit) => habit.id));
-  const logs = Array.isArray(input.logs)
-    ? input.logs.flatMap((value) => {
-        if (!value || typeof value !== "object") return [];
-        const log = value as Record<string, unknown>;
-        const habitId = String(log.habitId || "");
-        const date = String(log.date || "");
-        if (!habitIds.has(habitId) || !/^\d{4}-\d{2}-\d{2}$/.test(date))
-          return [];
-        return [
-          {
-            habitId,
-            date,
-            value: Math.max(0, Number(log.value) || 0),
-            updatedAt: String(log.updatedAt || ""),
-          },
-        ];
-      })
-    : [];
+  if (typeof input.revision !== "number" || !Number.isInteger(input.revision) || input.revision < 0
+    || typeof input.updatedAt !== "string" || !Array.isArray(input.habits) || !Array.isArray(input.logs)) {
+    invalidHabitData("文件字段不完整");
+  }
+  const habitIds = new Set<string>();
+  for (const [index, habit] of input.habits.entries()) {
+    if (!isDataObject(habit)
+      || typeof habit.id !== "string" || !habit.id || habit.id.trim() !== habit.id
+      || typeof habit.name !== "string" || !habit.name.trim()
+      || typeof habit.goalType !== "string" || !["check", "count", "amount", "duration"].includes(habit.goalType)
+      || typeof habit.target !== "number" || !Number.isFinite(habit.target) || habit.target <= 0
+      || typeof habit.step !== "number" || !Number.isFinite(habit.step) || habit.step <= 0
+      || typeof habit.unit !== "string" || !HABIT_COLORS.includes(habit.color as typeof HABIT_COLORS[number])
+      || typeof habit.archived !== "boolean" || typeof habit.createdAt !== "string" || typeof habit.updatedAt !== "string") {
+      invalidHabitData(`第 ${index + 1} 个习惯字段无效`);
+    }
+    if (habitIds.has(habit.id)) invalidHabitData(`第 ${index + 1} 个习惯标识重复`);
+    habitIds.add(habit.id);
+    const schedule = habit.schedule;
+    if (!isDataObject(schedule) || typeof schedule.kind !== "string" || !["daily", "weekdays", "weekly"].includes(schedule.kind)) {
+      invalidHabitData(`第 ${index + 1} 个习惯周期无效`);
+    }
+    if (schedule.kind === "weekdays" && (!Array.isArray(schedule.weekdays) || !schedule.weekdays.length
+      || schedule.weekdays.some(day => !Number.isInteger(day) || day < 0 || day > 6))) {
+      invalidHabitData(`第 ${index + 1} 个习惯执行日无效`);
+    }
+    if (schedule.kind === "weekly" && (typeof schedule.targetDays !== "number"
+      || !Number.isInteger(schedule.targetDays) || schedule.targetDays < 1 || schedule.targetDays > 7)) {
+      invalidHabitData(`第 ${index + 1} 个习惯周目标无效`);
+    }
+    const reminder = habit.reminder;
+    if (!isDataObject(reminder) || typeof reminder.enabled !== "boolean"
+      || typeof reminder.time !== "string" || !/^([01]\d|2[0-3]):[0-5]\d$/.test(reminder.time)) {
+      invalidHabitData(`第 ${index + 1} 个习惯提醒无效`);
+    }
+  }
+  const logKeys = new Set<string>();
+  for (const [index, log] of input.logs.entries()) {
+    if (!isDataObject(log) || typeof log.habitId !== "string" || !habitIds.has(log.habitId)
+      || !isHabitDate(log.date) || typeof log.value !== "number" || !Number.isFinite(log.value) || log.value < 0
+      || typeof log.updatedAt !== "string") {
+      invalidHabitData(`第 ${index + 1} 条打卡记录无效或关联习惯缺失`);
+    }
+    const key = JSON.stringify([log.habitId, log.date]);
+    if (logKeys.has(key)) invalidHabitData(`第 ${index + 1} 条打卡记录重复`);
+    logKeys.add(key);
+  }
+  // Validate persisted data without normalizing away rows or unknown metadata.
   return {
+    ...input,
     schema: HABIT_TRACKER_SCHEMA,
     version: SHARED_WIDGET_DATA_VERSION,
-    revision: Math.max(0, Number(input.revision) || 0),
-    updatedAt:
-      typeof input.updatedAt === "string"
-        ? input.updatedAt
-        : new Date(0).toISOString(),
-    habits,
-    logs,
+    revision: input.revision,
+    updatedAt: input.updatedAt,
+    habits: input.habits as HabitDefinition[],
+    logs: input.logs as HabitLog[],
   };
 }
 
@@ -224,10 +262,10 @@ export async function saveHabitDefinition(
     createEmpty: emptyFile,
     normalize: normalizeFile,
     mutate: (file) => {
-      file.habits = [
-        ...file.habits.filter((item) => item.id !== habit.id),
-        habit,
-      ];
+      const index = file.habits.findIndex(item => item.id === habit.id);
+      if (index < 0) file.habits.push(habit);
+      else file.habits[index] = { ...file.habits[index], ...habit };
+      return normalizeFile(file);
     },
   });
   return habit;
@@ -246,6 +284,7 @@ export async function deleteHabitDefinition(id: string): Promise<void> {
     mutate: (file) => {
       file.habits = file.habits.filter((habit) => habit.id !== id);
       file.logs = file.logs.filter((log) => log.habitId !== id);
+      return normalizeFile(file);
     },
   });
 }
@@ -255,6 +294,7 @@ export async function setHabitValue(
   date: string,
   value: number,
 ): Promise<void> {
+  if (!isHabitDate(date) || !Number.isFinite(value)) throw new Error("打卡日期或数值无效");
   await mutateSharedJson({
     store: "habit-tracker",
     path: HABIT_TRACKER_FILE,
@@ -264,16 +304,19 @@ export async function setHabitValue(
       if (!file.habits.some((habit) => habit.id === habitId))
         throw new Error("习惯不存在");
       const next = Math.max(0, value);
+      const previous = file.logs.find(log => log.habitId === habitId && log.date === date);
       file.logs = file.logs.filter(
         (log) => !(log.habitId === habitId && log.date === date),
       );
       if (next > 0)
         file.logs.push({
+          ...previous,
           habitId,
           date,
           value: next,
           updatedAt: new Date().toISOString(),
         });
+      return normalizeFile(file);
     },
   });
 }

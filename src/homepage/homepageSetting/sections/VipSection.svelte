@@ -1144,6 +1144,7 @@
         </a>
     </div>
 
+    <!--
     <div class="membership-promotion-card" role="note" aria-label="双十一会员限时优惠">
         <div class="membership-promotion-copy">
             <div class="membership-promotion-heading">
@@ -1156,6 +1157,8 @@
             <p class="membership-promotion-time">活动时间：2026 年 11 月 9 日 — 11 月 15 日</p>
         </div>
     </div>
+
+    -->
 
     <details class="membership-benefits-comparison">
         <summary>

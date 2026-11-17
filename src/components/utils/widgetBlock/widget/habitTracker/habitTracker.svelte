@@ -1,5 +1,6 @@
 <script lang="ts">
   import { mount, onMount } from "svelte";
+  import { showMessage } from "siyuan";
   import { svelteDialog } from "@/libs/dialog";
   import AdvancedFeatureLock from "../common/AdvancedFeatureLock.svelte";
   import WidgetSemanticTitle from "@/homepage/theme/widgetPresentation/components/WidgetSemanticTitle.svelte";
@@ -16,6 +17,7 @@
   let habits = $state<HabitDefinition[]>([]);
   let logs = $state<HabitLog[]>([]);
   let loading = $state(true);
+  let loadError = $state("");
   let advancedEnabled = $state(false);
   const today = formatHabitDate();
   const due = $derived(habits.filter((habit) => isHabitDue(habit, new Date(`${today}T00:00:00`))).slice(0, config.maxVisible));
@@ -24,13 +26,15 @@
   async function reload(): Promise<void> {
     if (!advancedEnabled) { loading = false; return; }
     loading = true;
-    try { const data = await loadHabitTracker(); habits = data.habits.filter((habit) => !habit.archived); logs = data.logs; }
-    catch (error) { console.warn("[habit-tracker] load failed", error); }
+    try { const data = await loadHabitTracker(); habits = data.habits.filter((habit) => !habit.archived); logs = data.logs; loadError = ""; }
+    catch (error) { loadError = error instanceof Error ? error.message : "习惯数据读取失败，原文件未改动。"; console.warn("[habit-tracker] load failed", error); }
     finally { loading = false; }
   }
   async function toggle(habit: HabitDefinition): Promise<void> {
-    const current = getHabitValue(logs, habit.id, today);
-    await setHabitValue(habit.id, today, habit.goalType === "check" ? (current >= 1 ? 0 : 1) : Math.min(habit.target, current + habit.step));
+    try {
+      const current = getHabitValue(logs, habit.id, today);
+      await setHabitValue(habit.id, today, habit.goalType === "check" ? (current >= 1 ? 0 : 1) : Math.min(habit.target, current + habit.step));
+    } catch (error) { showMessage(error instanceof Error ? error.message : "打卡保存失败", 4000, "error"); }
     await reload();
   }
   function openDetail(): void {
@@ -58,6 +62,9 @@
     <div class="widget-header">
       <WidgetSemanticTitle widgetType="habitTracker" configuredTitle={config.title} semanticLabel="习惯打卡" fallbackIcon="confirm" />
     </div>
+    {#if loadError}
+      <div class="data-error" role="alert"><p>{loadError}</p><button class="manage" type="button" disabled={loading} onclick={reload}>重新读取</button></div>
+    {:else}
     <div class="habit-summary"><strong>{completed}<small> / {due.length}</small></strong><span>今日完成</span></div>
     <div class="list">
       {#each due as habit (habit.id)}
@@ -69,9 +76,11 @@
       {/each}
     </div>
     {#if habits.length}<button class="manage" type="button" onclick={openDetail}>管理习惯</button>{/if}
+    {/if}
   {/if}
 </div>
 
 <style>
+  .data-error{min-height:0;overflow:auto;font-size:12px;color:var(--b3-theme-on-surface);line-height:1.5}.data-error p{margin:0 0 8px}.manage:disabled{opacity:.5;cursor:default}
   .habit-widget{container-type:size;width:100%;height:100%;min-width:0;min-height:0;display:flex;flex-direction:column;gap:8px;padding:10px;box-sizing:border-box;overflow:hidden;color:var(--b3-theme-on-background)}.widget-header{min-width:0;min-height:22px;padding-right:34px;display:flex;align-items:center}.widget-header :global(.widget-title){min-width:0;margin:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.habit-summary{position:static;display:flex;align-items:baseline;gap:7px;color:var(--b3-theme-on-surface);font-size:11px}.habit-summary strong{font-size:22px;line-height:1;color:var(--b3-theme-on-background)}.habit-summary small{font-size:12px;color:var(--b3-theme-on-surface)}.list{display:flex;min-height:0;overflow:auto;flex:1 1 auto;flex-direction:column;gap:6px}.list>button{position:relative;overflow:hidden;flex:0 0 auto;display:flex;align-items:center;gap:9px;text-align:left;border:0;border-radius:10px;padding:8px 10px;background:var(--b3-theme-surface);color:inherit;cursor:pointer}.list i{z-index:1;display:grid;place-items:center;flex:0 0 23px;width:23px;height:23px;border-radius:50%;border:1px solid color-mix(in srgb,var(--habit-color) 65%,var(--b3-border-color));font-style:normal}.list .done i{background:var(--habit-color);color:white}.list span{z-index:1;min-width:0;display:flex;flex:1;justify-content:space-between;gap:8px}.list strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.list em{font-size:11px;color:var(--b3-theme-on-surface);font-style:normal;white-space:nowrap}.list b{position:absolute;inset:auto auto 0 0;height:2px;background:var(--habit-color)}.empty{width:100%;min-height:72px;justify-content:center;text-align:center;color:var(--b3-theme-on-surface);cursor:pointer}.manage{flex:0 0 auto;align-self:flex-start;border:0;background:transparent;padding:3px 2px;color:var(--b3-theme-primary);font:inherit;font-size:12px;cursor:pointer}.manage:hover{text-decoration:underline}[data-color="blue"]{--habit-color:#4f86e8}[data-color="green"]{--habit-color:#34a66f}[data-color="amber"]{--habit-color:#d69a31}[data-color="violet"]{--habit-color:#8b6de0}[data-color="rose"]{--habit-color:#d9667d}[data-color="cyan"]{--habit-color:#2ba3ad}@container (max-width:260px){.list em{display:none}.list>button{padding-inline:8px}}@container (max-height:210px){.habit-widget{gap:5px;padding-block:8px}.habit-summary strong{font-size:18px}.list>button{padding-block:6px}.manage{font-size:11px}}
 </style>

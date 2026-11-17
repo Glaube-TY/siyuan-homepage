@@ -49,6 +49,7 @@
   let tasks = $state<ComponentTaskInfo[]>([]);
   let projects = $state<ProjectOption[]>([]);
   let habits = $state<HabitDefinition[]>([]);
+  let habitError = $state("");
   let sessions = $state<FocusSessionRecord[]>([]);
   let search = $state("");
   let loading = $state(true);
@@ -114,11 +115,15 @@
         console.warn("[FocusCenterDialog] load projects failed", error);
         return [];
       });
-      const [taskData, projectData, habitData, focusData] = await Promise.all([loadTaskData(plugin), projectRequest, loadHabitTracker(), loadFocusSessionsForRange(date(start), date(end))]);
+      const habitRequest = loadHabitTracker().catch((error) => {
+        if (active) habitError = error instanceof Error ? error.message : "习惯数据读取失败，请在习惯中心重新读取。";
+        return null;
+      });
+      const [taskData, projectData, habitData, focusData] = await Promise.all([loadTaskData(plugin), projectRequest, habitRequest, loadFocusSessionsForRange(date(start), date(end))]);
         if (!active) return;
         tasks = taskData.items;
         projects = projectData;
-        habits = habitData.habits.filter((habit) => !habit.archived);
+        habits = habitData ? habitData.habits.filter((habit) => !habit.archived) : [];
         sessions = focusData.sort((a, b) => b.startedAt.localeCompare(a.startedAt));
       } finally { if (active) loading = false; }
     })();
@@ -163,7 +168,7 @@
       <section class="binding-grid">
         <div class="panel"><h3>任务</h3>{#each filteredTasks as task}<button class:selected={selectedBinding?.kind === "task" && selectedBinding.id === task.id} onclick={() => selectTask(task)}><b>{taskTitle(task)}</b><small>{task.projectPath?.at(-1) || "未分组"}</small></button>{:else}<p>没有匹配任务</p>{/each}</div>
         <div class="panel"><h3>项目</h3>{#each filteredProjects as item}<button class:selected={selectedBinding?.kind === "project" && selectedBinding.id === item.binding.id} onclick={() => choose(item.binding)}><b>{item.binding.title}</b><small>{item.level ? item.path : "根项目"}</small></button>{:else}<p>项目索引中暂无项目</p>{/each}</div>
-        <div class="panel"><h3>习惯</h3>{#each filteredHabits as habit}<button class:selected={selectedBinding?.kind === "habit" && selectedBinding.id === habit.id} onclick={() => choose({ kind: "habit", id: habit.id, title: habit.name })}><b>{habit.name}</b><small>{habit.unit}</small></button>{:else}<p>没有匹配习惯</p>{/each}</div>
+        <div class="panel"><h3>习惯</h3>{#if habitError}<p role="alert">{habitError}</p>{:else}{#each filteredHabits as habit}<button class:selected={selectedBinding?.kind === "habit" && selectedBinding.id === habit.id} onclick={() => choose({ kind: "habit", id: habit.id, title: habit.name })}><b>{habit.name}</b><small>{habit.unit}</small></button>{:else}<p>没有匹配习惯</p>{/each}{/if}</div>
       </section>
     {:else if tab === "history"}
       <section class="history">{#each sessions as session}<article><div><b>{session.binding?.title || (session.segmentType === "focus" ? "自由专注" : session.segmentType === "long_break" ? "长休息" : "短休息")}</b><small>{formatTime(session.startedAt)} — {formatTime(session.endedAt)}</small></div><span>{formatDuration(session.actualSeconds)}</span><em class:cancelled={session.status === "cancelled"}>{session.status === "completed" ? "完成" : "中止"}</em></article>{:else}<div class="empty">还没有时间记录</div>{/each}</section>
