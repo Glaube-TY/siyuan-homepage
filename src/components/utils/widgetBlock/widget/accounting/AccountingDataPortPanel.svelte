@@ -15,11 +15,14 @@
         type AccountingImportPreview,
         type AccountingImportResult,
         type AccountingImportRow,
+        prepareAccountingImportAccounts,
+        accountingImportReviewMessage,
     } from "./accountingImportExport";
     import { loadAccountingRecordsAll } from "./accountingData";
     import { loadAccountingAccounts } from "./accountingAccountData";
     import type { AccountingAppSettings } from "./accountingSettings";
     import type { AccountingAccount, AccountingAccountInput } from "./accountingTypes";
+    import { accountingCurrency, resolveAccountingAccount } from "./accountingBalances";
 
     interface Props {
         plugin: any;
@@ -33,6 +36,23 @@
     let preview = $state<AccountingImportPreview | null>(null);
     let pendingRows = $state<AccountingImportRow[]>([]);
     let pendingAssets = $state<AccountingAccountInput[]>([]);
+    let existingAssets = $state<AccountingAccount[]>([]);
+    let existingIds = $state<Set<string>>(new Set());
+    let parseBlocked = $state(false);
+    let reviewRows = $derived(pendingRows.filter(r => !existingIds.has(r.recordId) && accountingImportReviewMessage(r)));
+    let selectableAccounts = $derived([...existingAssets, ...pendingAssets.filter(a => !findExisting(a))] as AccountingAccount[]);
+
+    function findExisting(account: AccountingAccountInput): AccountingAccount | undefined {
+        if (preview?.format === "siyuan-homepage-json") return existingAssets.find(a => a.accountId === account.accountId);
+        return resolveAccountingAccount(account.accountId, existingAssets, account.currency) || resolveAccountingAccount(account.name, existingAssets, account.currency);
+    }
+
+    function updateReviewAccount(row: AccountingImportRow, field: "account" | "counterAccount", event: Event): void {
+        const ref = (event.target as HTMLSelectElement).value;
+        row[field] = ref;
+        if (field === "account") row.assetRef = ref; else row.counterAssetRef = ref;
+        row.reviewAction = undefined;
+    }
     let isImporting = $state(false);
     let progress = $state({ current: 0, total: 0, success: 0, skipped: 0, failed: 0 });
     let result = $state<AccountingImportResult | null>(null);
@@ -93,26 +113,20 @@
             return;
         }
 
-        const existingRecordIds = new Set<string>();
-        const existingAccounts: AccountingAccount[] = [];
-
-        try {
-            const recordsResult = await loadAccountingRecordsAll(plugin);
-            recordsResult.records.forEach((r) => existingRecordIds.add(r.recordId));
-        } catch {
-            errors.push("无法读取现有流水，预览中的重复数量可能不准确。");
-        }
-
-        try {
-            const accountsResult = await loadAccountingAccounts(plugin);
-            existingAccounts.push(...accountsResult.accounts);
-        } catch {
-            errors.push("无法读取现有资产，预览中的新增资产数量可能不准确。");
-        }
+        const recordsResult = await loadAccountingRecordsAll(plugin, true);
+        const accountsResult = await loadAccountingAccounts(plugin, true);
+        if (!recordsResult.status.ok) throw new Error(recordsResult.status.message);
+        if (!accountsResult.status.ok) throw new Error(accountsResult.status.message);
+        const existingRecordIds = new Set(recordsResult.records.map(r => r.recordId));
+        const existingAccounts = accountsResult.accounts;
+        existingAssets = existingAccounts;
+        existingIds = existingRecordIds;
+        parseBlocked = errors.length > 0;
 
         pendingRows = rows;
-        pendingAssets = assets;
+        pendingAssets = prepareAccountingImportAccounts(rows.filter(r => !existingRecordIds.has(r.recordId)), existingAccounts, assets);
         preview = buildAccountingImportPreview(format, rows, existingRecordIds, existingAccounts, errors);
+        preview.newAssetCount = pendingAssets.filter(a => !findExisting(a)).length;
         result = null;
         importError = "";
     }
@@ -145,7 +159,7 @@
     }
 
     async function runImport(): Promise<void> {
-        if (!appSettings || pendingRows.length === 0) return;
+        if (!appSettings || (!pendingRows.length && !pendingAssets.length) || parseBlocked) return;
 
         isImporting = true;
         progress = { current: 0, total: pendingRows.length, success: 0, skipped: 0, failed: 0 };
@@ -156,19 +170,12 @@
             const existingRecordIds = new Set<string>();
             const existingAccounts: AccountingAccount[] = [];
 
-            try {
-                const recordsResult = await loadAccountingRecordsAll(plugin);
-                recordsResult.records.forEach((r) => existingRecordIds.add(r.recordId));
-            } catch {
-                // ignore
-            }
-
-            try {
-                const accountsResult = await loadAccountingAccounts(plugin);
-                existingAccounts.push(...accountsResult.accounts);
-            } catch {
-                // ignore
-            }
+            const recordsResult = await loadAccountingRecordsAll(plugin, true);
+            const accountsResult = await loadAccountingAccounts(plugin, true);
+            if (!recordsResult.status.ok) throw new Error(recordsResult.status.message);
+            if (!accountsResult.status.ok) throw new Error(accountsResult.status.message);
+            recordsResult.records.forEach(r => existingRecordIds.add(r.recordId));
+            existingAccounts.push(...accountsResult.accounts);
 
             result = await importAccountingData({
                 plugin,
@@ -195,6 +202,9 @@
         preview = null;
         pendingRows = [];
         pendingAssets = [];
+        existingAssets = [];
+        existingIds = new Set();
+        parseBlocked = false;
         result = null;
         importError = "";
         fileName = "";
@@ -303,6 +313,48 @@
                 </div>
             {/if}
 
+            {#if pendingAssets.length}
+                <div class="sp-preview-subtitle">导入账户</div>
+                <p class="sp-hint">欠款填负数，期初余额不包含本次导入的流水。</p>
+                {#each pendingAssets as account (account.accountId)}
+                    <div class="sp-account-review">
+                        <span>{account.name} · {account.currency}</span>
+                        {#if findExisting(account)}
+                            <span class="sp-hint">使用已有账户余额</span>
+                        {:else}
+                            <label>期初余额 <input class="sp-select" type="number" step="0.01" bind:value={account.openingBalance} disabled={isImporting} /></label>
+                        {/if}
+                    </div>
+                {/each}
+            {/if}
+            {#if reviewRows.length}
+                <div class="sp-preview-subtitle">特殊流水核对</div>
+                {#each reviewRows as row}
+                    <div class="sp-account-review">
+                        <strong>{row.date} · {row.rawType || row.direction} · {row.amount} {row.currency}</strong>
+                        <p class="sp-hint">{accountingImportReviewMessage(row)}</p>
+                        {#if !row.rawType?.includes("退款")}
+                            {#if !/借入|还款|还贷/.test(row.rawType || "")}
+                                <label>方向 <select class="sp-select" bind:value={row.direction} disabled={isImporting}><option value="expense">支出</option><option value="income">收入</option><option value="transfer">转账</option></select></label>
+                            {/if}
+                            <label>转出 / 记账账户 <select class="sp-select" value={row.assetRef || row.account} onchange={e => updateReviewAccount(row, "account", e)} disabled={isImporting}>
+                                <option value="">请选择</option>
+                                {#each selectableAccounts.filter(a => !a.archived && accountingCurrency(a.currency) === accountingCurrency(row.currency)) as a}<option value={a.accountId}>{a.name}</option>{/each}
+                            </select></label>
+                            {#if row.direction === "transfer"}<label>转入账户 <select class="sp-select" value={row.counterAssetRef || row.counterAccount || ""} onchange={e => updateReviewAccount(row, "counterAccount", e)} disabled={isImporting}>
+                                <option value="">请选择</option>
+                                {#each selectableAccounts.filter(a => !a.archived && accountingCurrency(a.currency) === accountingCurrency(row.currency)) as a}<option value={a.accountId}>{a.name}</option>{/each}
+                            </select></label>{/if}
+                        {/if}
+                        <label>处理方式 <select class="sp-select" bind:value={row.reviewAction} disabled={isImporting}>
+                            <option value={undefined}>待核对</option>
+                            {#if !row.rawType?.includes("退款")}<option value="confirmed">已核对，按所选账户导入</option>{/if}
+                            <option value="skip">跳过本次导入</option>
+                        </select></label>
+                    </div>
+                {/each}
+            {/if}
+
             {#if preview.errors.length > 0}
                 <div class="sp-preview-errors">
                     {#each preview.errors.slice(0, 5) as err}
@@ -313,7 +365,7 @@
         </div>
 
         <div class="sp-actions">
-            <button class="sp-button sp-button--primary" onclick={runImport} disabled={isImporting || preview.validRows === 0}>
+            <button class="sp-button sp-button--primary" onclick={runImport} disabled={isImporting || parseBlocked || preview.invalidRows > 0 || (!preview.validRows && !pendingAssets.length) || reviewRows.some(r => !r.reviewAction)}>
                 {#if isImporting}
                     导入中…
                 {:else}
@@ -344,7 +396,7 @@
     {/if}
 
     {#if importError}
-        <div class="sp-error">{importError}</div>
+        <div class="sp-error" role="alert">{importError}</div>
     {/if}
 
     {#if isPc}
@@ -358,6 +410,9 @@
 </section>
 
 <style>
+    .sp-account-review { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--b3-border-color); }
+    .sp-account-review label { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+    .sp-account-review .sp-hint { width: 100%; margin: 0; }
     .sp-section {
         margin-top: 16px;
         padding: 16px;

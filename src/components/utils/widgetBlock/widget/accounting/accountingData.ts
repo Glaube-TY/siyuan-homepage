@@ -9,7 +9,7 @@ import {
     loadRecentAccountingRecords,
     saveAccountingRecord as saveRecord,
 } from "./accountingLocalStore";
-import { normalizeAccountingCurrency } from "./accountingConstants";
+import { accountingCurrency } from "./accountingBalances";
 import type {
     AccountingDirection,
     AccountingLoadResult,
@@ -41,7 +41,9 @@ function createRecordId(): string {
 export function normalizeRecord(input: AccountingRecordInput): AccountingRecord {
     const now = new Date().toISOString();
     const direction = normalizeDirection(input.direction);
+    if (!Number.isFinite(input.amount) || input.amount < 0) throw new Error("流水金额必须是有效的非负金额");
     return {
+        ...input,
         recordId: input.recordId || createRecordId(),
         rowId: input.rowId || input.recordId || createRecordId(),
         title: input.title?.trim() || "未命名记录",
@@ -54,7 +56,7 @@ export function normalizeRecord(input: AccountingRecordInput): AccountingRecord 
         counterAccount: input.counterAccount?.trim() || undefined,
         tags: input.tags?.trim() || "",
         note: input.note?.trim() || "",
-        currency: normalizeAccountingCurrency(input.currency),
+        currency: accountingCurrency(input.currency),
         createdAt: input.createdAt || now,
         updatedAt: input.updatedAt || now,
         archived: input.archived ?? false,
@@ -135,9 +137,9 @@ export async function loadRecentRecords(plugin: any, limit: number): Promise<Acc
     }
 }
 
-export async function loadAccountingRecordsAll(plugin: any): Promise<AccountingLoadResult> {
+export async function loadAccountingRecordsAll(plugin: any, includeArchived = false): Promise<AccountingLoadResult> {
     try {
-        const records = await loadAllAccountingRecords(plugin);
+        const records = await loadAllAccountingRecords(plugin, includeArchived);
         return {
             records: sortRecordsDesc(records),
             status: createStatus(true, `${records.length} 条记录`),

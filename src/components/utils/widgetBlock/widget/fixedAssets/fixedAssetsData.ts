@@ -1,3 +1,4 @@
+import { formatLocalDate } from "@/components/tools/date-utils";
 import {
     FIXED_ASSETS_STORE_TRANSACTION_LOCK,
     loadSharedJson,
@@ -241,8 +242,9 @@ export function getAssetTotalCost(asset: Pick<FixedAssetRecord, "purchasePrice" 
 }
 
 export function getDaysBetween(startDate: string, endDate: string): number {
-    const start = new Date(`${startDate}T00:00:00`).getTime();
-    const end = new Date(`${endDate}T00:00:00`).getTime();
+    // Date-only values use UTC ordinals so DST never changes the calendar day count.
+    const start = new Date(`${startDate}T00:00:00Z`).getTime();
+    const end = new Date(`${endDate}T00:00:00Z`).getTime();
     if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) return 1;
     return Math.floor((end - start) / 86400000) + 1;
 }
@@ -250,13 +252,12 @@ export function getDaysBetween(startDate: string, endDate: string): number {
 export function getAssetCostDays(asset: FixedAssetRecord, now = new Date()): number {
     if (asset.costMode === "expectedLife" && asset.expectedDays && asset.expectedDays > 0) return asset.expectedDays;
     if (asset.costMode === "retireDate" && asset.retireDate) return getDaysBetween(asset.purchaseDate, asset.retireDate);
-    const pad = (value: number) => String(value).padStart(2, "0");
-    const today = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+    const today = formatLocalDate(now);
     return getDaysBetween(asset.purchaseDate, today);
 }
 
-export function getAssetDailyCost(asset: FixedAssetRecord): number {
-    return getAssetTotalCost(asset) / Math.max(1, getAssetCostDays(asset));
+export function getAssetDailyCost(asset: FixedAssetRecord, now = new Date()): number {
+    return getAssetTotalCost(asset) / Math.max(1, getAssetCostDays(asset, now));
 }
 
 export type FixedAssetCostPeriod = "hour" | "day" | "week" | "month" | "quarter" | "year";
@@ -290,6 +291,6 @@ export function getCostByPeriod(dailyCost: number, period: FixedAssetCostPeriod)
     return dailyCost * (FIXED_ASSET_COST_PERIODS[period] || FIXED_ASSET_COST_PERIODS.day).dailyMultiplier;
 }
 
-export function getAssetPeriodCost(asset: FixedAssetRecord, period: FixedAssetCostPeriod): number {
-    return getCostByPeriod(getAssetDailyCost(asset), period);
+export function getAssetPeriodCost(asset: FixedAssetRecord, period: FixedAssetCostPeriod, now = new Date()): number {
+    return getCostByPeriod(getAssetDailyCost(asset, now), period);
 }

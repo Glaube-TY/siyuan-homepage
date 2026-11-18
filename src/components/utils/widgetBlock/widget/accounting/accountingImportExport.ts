@@ -1,9 +1,9 @@
 import { formatAccountingDate } from "./accountingAnalytics";
-import { normalizeAccountingCurrency } from "./accountingConstants";
+import { accountingCurrency, resolveAccountingAccount, validateAccountingRecordCurrency } from "./accountingBalances";
 import {
     bulkMergeAccountingAssets,
     bulkMergeAccountingRecords,
-    updateAccountingSummaryIndexForYears,
+    loadAccountingSummaryIndex,
 } from "./accountingLocalStore";
 import { ACCOUNTING_EXPORT_VERSION } from "./accountingStoragePaths";
 import { loadAccountingAccounts, normalizeAccount } from "./accountingAccountData";
@@ -13,7 +13,6 @@ import type {
     AccountingAccount,
     AccountingAccountInput,
     AccountingRecord,
-    AccountingRecordInput,
 } from "./accountingTypes";
 
 export type AccountingImportFormat =
@@ -42,6 +41,9 @@ export interface AccountingImportRow {
     rawType?: string;
     assetRef?: string;
     counterAssetRef?: string;
+    reviewAction?: "confirmed" | "skip";
+    rowId?: string;
+    archived?: boolean;
 }
 
 export interface AccountingImportPreview {
@@ -184,7 +186,7 @@ function parseDate(value: string): string {
     const match = cleaned.match(/^(\d{4})-(\d{2})-(\d{2})/);
     if (match) return `${match[1]}-${match[2]}-${match[3]}`;
     const d = new Date(cleaned);
-    return Number.isFinite(d.getTime()) ? formatAccountingDate(d) : formatAccountingDate(new Date());
+    return Number.isFinite(d.getTime()) ? formatAccountingDate(d) : "";
 }
 
 function createImportId(prefix: string, id: string): string {
@@ -221,7 +223,7 @@ function mapQianjiType(
         case "退款":
             return { direction: "income", noteSuffix: "原类型：退款" };
         case "债务-借入":
-            return { direction: "income", noteSuffix: "原类型：债务-借入" };
+            return { direction: "transfer", noteSuffix: "原类型：债务-借入" };
         case "债务-还款":
             return { direction: "transfer", noteSuffix: "原类型：债务-还款" };
         default:
@@ -368,7 +370,7 @@ export function parseQianjiCsv(
             counterAccount,
             tags,
             note,
-            currency: normalizeAccountingCurrency(cells[idx.currency], settings.defaultCurrency || "CNY"),
+            currency: accountingCurrency(cleanCell(cells[idx.currency]) || settings.defaultCurrency),
             createdAt: new Date().toISOString(),
             updatedAt: new Date().toISOString(),
             sourceFormat: "qianji-csv",
@@ -481,7 +483,7 @@ export function parseQianjiJson(
             counterAccount,
             tags: "",
             note: noteParts.join(" | "),
-            currency: normalizeAccountingCurrency(raw.currency, settings.defaultCurrency || "CNY"),
+            currency: accountingCurrency(raw.currency || settings.defaultCurrency),
             createdAt: new Date().toISOString(),
             updatedAt: new Date().toISOString(),
             sourceFormat: "qianji-json",
@@ -556,7 +558,7 @@ export function parseGenericCsv(
             counterAccount,
             tags: buildQianjiTags(cells[idx.tags] || ""),
             note: cleanCell(cells[idx.note]),
-            currency: normalizeAccountingCurrency(cells[idx.currency], settings.defaultCurrency || "CNY"),
+            currency: accountingCurrency(cleanCell(cells[idx.currency]) || settings.defaultCurrency),
             createdAt: new Date().toISOString(),
             updatedAt: new Date().toISOString(),
             sourceFormat: "generic-csv",
@@ -572,7 +574,7 @@ export function parseGenericCsv(
 function normalizeGenericDirection(value: string): "expense" | "income" | "transfer" {
     const v = cleanCell(value).toLowerCase();
     if (v === "income" || v === "收入") return "income";
-    if (v === "transfer" || v === "转账") return "transfer";
+    if (v === "transfer" || v === "转账" || /借入|还款|还贷/.test(v)) return "transfer";
     return "expense";
 }
 
@@ -588,19 +590,30 @@ export function parseSiyuanHomepageJson(
         return { rows: [], assets: [], errors: ["JSON 解析失败"] };
     }
 
-    const payload = data as Partial<AccountingExportPayload>;
-    if (payload.schema !== "siyuan-homepage-accounting") {
+    const payload = data as Partial<AccountingExportPayload> | null;
+    if (!payload || payload.schema !== "siyuan-homepage-accounting") {
         return { rows: [], assets: [], errors: ["不是本插件的记账备份文件"] };
     }
 
-    const records = Array.isArray(payload.records) ? payload.records : [];
-    const assets = Array.isArray(payload.assets) ? payload.assets : [];
+    if (![1, 2, 3, ACCOUNTING_EXPORT_VERSION].includes(payload.version as number) || !Array.isArray(payload.records) || (payload.assets !== undefined && !Array.isArray(payload.assets))) {
+        return { rows: [], assets: [], errors: ["备份版本或结构异常，未读取为可导入的空数据"] };
+    }
+    const records = payload.records;
+    const assets = payload.assets || [];
+    if (assets.some(a => !a || typeof a.accountId !== "string" || !a.accountId || typeof a.name !== "string" || !a.name.trim() || typeof a.type !== "string" || typeof a.currency !== "string" || !Number.isFinite(a.openingBalance) || !Number.isFinite(a.currentBalance) || (a.balanceConvention !== undefined && a.balanceConvention !== "signed"))
+        || new Set(assets.map(a => a.accountId)).size !== assets.length) {
+        return { rows: [], assets: [], errors: ["备份账户数据异常，请保留原文件并核对"] };
+    }
+    if (records.some(r => !r || typeof r.recordId !== "string" || !r.recordId || !Number.isFinite(r.amount) || r.amount < 0 || !["expense", "income", "transfer"].includes(r.direction) || typeof r.date !== "string" || !r.date || typeof r.currency !== "string")) {
+        return { rows: [], assets: [], errors: ["备份流水数据异常，请保留原文件并核对"] };
+    }
 
     const rows: AccountingImportRow[] = records.map((record) => ({
+        ...record,
         recordId: record.recordId,
         title: record.title,
         direction: record.direction,
-        amount: Math.abs(Number(record.amount) || 0),
+        amount: record.amount,
         date: parseDate(record.date),
         categoryPrimary: record.categoryPrimary || "其他",
         categorySecondary: record.categorySecondary || "",
@@ -608,7 +621,7 @@ export function parseSiyuanHomepageJson(
         counterAccount: record.counterAccount,
         tags: record.tags || "",
         note: record.note || "",
-        currency: normalizeAccountingCurrency(record.currency, "CNY"),
+        currency: accountingCurrency(record.currency),
         createdAt: record.createdAt || new Date().toISOString(),
         updatedAt: record.updatedAt || new Date().toISOString(),
         sourceFormat: "siyuan-homepage-json",
@@ -680,7 +693,7 @@ export function buildAccountingImportPreview(
     existingAccounts: AccountingAccount[],
     parseErrors: string[],
 ): AccountingImportPreview {
-    const validRows = rows.filter((r) => r.amount > 0 && r.title && r.date);
+    const validRows = rows.filter(isValidAccountingImportRow);
     const invalidRows = rows.length - validRows.length;
 
     const expenseCount = validRows.filter((r) => r.direction === "expense").length;
@@ -732,169 +745,107 @@ export function buildAccountingImportPreview(
 
 // ── Import execution ──
 
+export function isValidAccountingImportRow(row: AccountingImportRow): boolean {
+    if (!row || typeof row.recordId !== "string" || !row.recordId || !row.title || !Number.isFinite(row.amount)
+        || (row.sourceFormat === "siyuan-homepage-json" ? row.amount < 0 : row.amount <= 0)
+        || !["expense", "income", "transfer"].includes(row.direction) || !/^\d{4}-\d{2}-\d{2}$/.test(row.date)) return false;
+    const [year, month, day] = row.date.split("-").map(Number);
+    const date = new Date(Date.UTC(year, month - 1, day));
+    return year > 1900 && date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day;
+}
+
+export function accountingImportReviewMessage(row: AccountingImportRow): string {
+    if (row.sourceFormat === "siyuan-homepage-json") return "";
+    const type = row.rawType || "";
+    if (type.includes("退款")) return "退款关联暂不自动恢复，请核对原账单并明确选择跳过本次导入";
+    if (/借入|还款|还贷/.test(type)) return "核对借款 / 还款的转出与转入账户，本金按转账导入，利息请另记支出";
+    if (row.direction === "transfer" && !(row.counterAssetRef || row.counterAccount)) return "转账缺少转入账户，请选择两边账户后确认";
+    if (!["支出", "收入", "转账", "报销", "报销记录", "expense", "income", "transfer"].includes(type.toLowerCase())) return "原类型无法确定，请核对收支方向及账户后确认";
+    return "";
+}
+
+function importAccountName(ref: string): string {
+    const value = ref.replace(/^qianji-asset:/, "");
+    return /^\d+$/.test(value) ? `钱迹资产 ${value}` : value;
+}
+
+function resolveImportAccount(ref: string | undefined, currency: string, accounts: AccountingAccount[], incoming: AccountingAccountInput[]): AccountingAccount | undefined {
+    if (!ref) return undefined;
+    const direct = resolveAccountingAccount(ref, accounts, currency) || resolveAccountingAccount(importAccountName(ref), accounts, currency);
+    if (direct) return direct;
+    const source = incoming.find(a => a.accountId === ref);
+    return source ? resolveAccountingAccount(source.name, accounts, currency) : undefined;
+}
+
+export function prepareAccountingImportAccounts(rows: AccountingImportRow[], existing: AccountingAccount[], incoming: AccountingAccountInput[] = []): AccountingAccountInput[] {
+    const result = incoming.map(a => ({ ...a }));
+    for (const row of rows) {
+        if (row.sourceFormat === "siyuan-homepage-json" || row.reviewAction === "skip") continue;
+        for (const ref of [row.assetRef || row.account, row.counterAssetRef || row.counterAccount]) {
+            if (!ref) continue;
+            const known = [...existing, ...result.map(normalizeAccount)];
+            if (resolveImportAccount(ref, row.currency, known, incoming)) continue;
+            const name = importAccountName(ref);
+            const currency = accountingCurrency(row.currency);
+            const accountId = ref.startsWith("qianji-asset:") ? ref : `import-asset:${currency}:${ref}`;
+            if (known.some(a => a.accountId === accountId)) throw new Error(`账户 ${name} 的币种冲突，请先核对`);
+            result.push({ accountId, rowId: accountId, name, currency, openingBalance: 0 });
+        }
+    }
+    return result;
+}
+
 export async function importAccountingData(
     options: AccountingImportOptions & { assets?: AccountingAccountInput[] },
 ): Promise<AccountingImportResult> {
-    const {
-        plugin,
-        appSettings,
-        rows,
-        existingRecordIds,
-        existingAccounts = [],
-        assets: incomingAssets = [],
-        onProgress,
-    } = options;
-
-    const result: AccountingImportResult = {
-        successCount: 0,
-        skippedCount: 0,
-        failedCount: 0,
-        newAssetCount: 0,
-        errors: [],
-    };
-
-    const validRows = rows.filter((r) => r.amount > 0 && r.title && r.date);
-
-    // 1. Resolve and bulk-merge assets
-    const existingAssetMap = new Map(existingAccounts.map((a) => [a.accountId, a]));
-    const existingAssetNameMap = new Map(existingAccounts.map((a) => [a.name.toLowerCase(), a]));
-
-    const assetInputsToCreate: AccountingAccountInput[] = [];
-    const pendingAssetIds = new Set<string>();
-    const pendingAssetNames = new Set<string>();
-
-    function addAssetInput(input: AccountingAccountInput): void {
-        const id = input.accountId?.trim();
-        const name = input.name?.trim() || "";
-        const nameLower = name.toLowerCase();
-        if (id && existingAssetMap.has(id)) return;
-        if (id && pendingAssetIds.has(id)) return;
-        if (nameLower && existingAssetNameMap.has(nameLower)) return;
-        if (nameLower && pendingAssetNames.has(nameLower)) return;
-        if (id) pendingAssetIds.add(id);
-        if (nameLower) pendingAssetNames.add(nameLower);
-        assetInputsToCreate.push(input);
+    const { plugin, rows, assets: incomingAssets = [], onProgress } = options;
+    const [recordsResult, accountsResult] = await Promise.all([loadAccountingRecordsAll(plugin, true), loadAccountingAccounts(plugin, true)]);
+    if (!recordsResult.status.ok) throw new Error(recordsResult.status.message);
+    if (!accountsResult.status.ok) throw new Error(accountsResult.status.message);
+    await loadAccountingSummaryIndex(plugin);
+    const existingIds = new Set([...options.existingRecordIds, ...recordsResult.records.map(r => r.recordId)]);
+    const existing = accountsResult.accounts;
+    const result: AccountingImportResult = { successCount: 0, skippedCount: 0, failedCount: 0, newAssetCount: 0, errors: [] };
+    const toImport: AccountingImportRow[] = [];
+    for (const row of rows) {
+        if (existingIds.has(row.recordId) || row.reviewAction === "skip") { result.skippedCount++; continue; }
+        if (!isValidAccountingImportRow(row)) throw new Error(`流水 ${row.recordId || "未标识"} 的日期、方向或金额无效，尚未写入`);
+        const review = accountingImportReviewMessage(row);
+        if (review && (row.reviewAction !== "confirmed" || row.rawType?.includes("退款"))) throw new Error(`${row.recordId}：${review}`);
+        if (/借入|还款|还贷/.test(row.rawType || "") && row.sourceFormat !== "siyuan-homepage-json" && row.direction !== "transfer") throw new Error("借款和偿还本金必须按转账导入");
+        existingIds.add(row.recordId);
+        toImport.push(row);
     }
-
-    for (const assetInput of incomingAssets) {
-        if (!assetInput.name?.trim()) continue;
-        addAssetInput({
-            ...assetInput,
-            accountId: assetInput.accountId?.trim() || `import-asset-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
-            archived: false,
-        });
+    const mode = rows.every(row => row.sourceFormat === "siyuan-homepage-json") ? "backup" : undefined;
+    const incoming = prepareAccountingImportAccounts(toImport, existing, incomingAssets);
+    const toCreate: AccountingAccount[] = [];
+    for (const input of incoming) {
+        const asset = normalizeAccount(input);
+        const known = [...existing, ...toCreate];
+        const sameId = known.find(a => a.accountId === asset.accountId);
+        if (sameId && accountingCurrency(sameId.currency) !== accountingCurrency(asset.currency)) throw new Error(`账户 ${asset.name} 的币种与已有账户不一致`);
+        if (sameId || (mode !== "backup" && resolveAccountingAccount(asset.name, known, asset.currency))) continue;
+        toCreate.push(asset);
     }
-
-    for (const row of validRows) {
-        for (const ref of [row.assetRef, row.counterAssetRef]) {
-            if (!ref) continue;
-            const rawName = ref.replace(/^qianji-asset:/, "");
-            const name = /^\d+$/.test(rawName) ? `钱迹资产 ${rawName}` : rawName;
-            const accountId = ref.startsWith("qianji-asset:") ? ref : `qianji-asset:${ref}`;
-            addAssetInput({
-                accountId,
-                name,
-                type: "internet",
-                currency: appSettings.defaultCurrency || "CNY",
-                openingBalance: 0,
-                currentBalance: 0,
-                note: "",
-                archived: false,
-            });
-        }
-    }
-
-    if (assetInputsToCreate.length > 0) {
-        const normalizedAssets = assetInputsToCreate.map(normalizeAccount);
-        result.newAssetCount = await bulkMergeAccountingAssets(plugin, normalizedAssets);
-    }
-
-    // Re-read all assets to map refs to current accountIds
-    const allAssetsResult = await loadAccountingAccounts(plugin);
-    const allAssets = allAssetsResult.accounts;
-    const refToAccountId = new Map<string, string>();
-    for (const asset of allAssets) {
-        refToAccountId.set(asset.accountId.toLowerCase(), asset.accountId);
-        refToAccountId.set(asset.name.toLowerCase(), asset.accountId);
-    }
-
-    function resolveAccountRef(ref: string | undefined): string | undefined {
-        if (!ref) return undefined;
-        const direct = refToAccountId.get(ref.toLowerCase());
-        if (direct) return direct;
-        const rawName = ref.replace(/^qianji-asset:/, "");
-        const name = /^\d+$/.test(rawName) ? `钱迹资产 ${rawName}` : rawName;
-        return refToAccountId.get(name.toLowerCase()) || ref;
-    }
-
-    // 2. Build record inputs, skipping duplicates
-    const seenRecordIds = new Set<string>();
-    const recordInputs: AccountingRecordInput[] = [];
-
-    for (let i = 0; i < validRows.length; i++) {
-        const row = validRows[i];
-        if (existingRecordIds.has(row.recordId) || seenRecordIds.has(row.recordId)) {
-            result.skippedCount++;
-            continue;
-        }
-        seenRecordIds.add(row.recordId);
-
-        recordInputs.push({
-            recordId: row.recordId,
-            title: row.title,
-            direction: row.direction,
-            amount: row.amount,
-            date: row.date,
-            categoryPrimary: row.categoryPrimary,
-            categorySecondary: row.categorySecondary || "",
-            account: resolveAccountRef(row.assetRef || row.account) || row.account,
-            counterAccount: resolveAccountRef(row.counterAssetRef || row.counterAccount) || row.counterAccount,
-            tags: row.tags || "",
-            note: row.note || "",
-            currency: row.currency,
-            createdAt: row.createdAt,
-            updatedAt: row.updatedAt,
-        });
-
-        if (i % 20 === 0 || i === validRows.length - 1) {
-            onProgress?.({
-                current: i + 1,
-                total: validRows.length,
-                success: result.successCount,
-                skipped: result.skippedCount,
-                failed: result.failedCount,
-            });
-            if (i < validRows.length - 1) {
-                await new Promise((resolve) => setTimeout(resolve, 0));
-            }
-        }
-    }
-
-    // 3. Bulk merge records by year (one read + one write per year)
-    if (recordInputs.length > 0) {
-        const recordsToSave = recordInputs.map(normalizeRecord);
-        const added = await bulkMergeAccountingRecords(plugin, recordsToSave);
-        result.successCount = added;
-    }
-
-    // 4. Update summary index for affected years
-    const affectedYears = new Set<number>();
-    for (const input of recordInputs) {
-        const year = parseInt(input.date.slice(0, 4), 10);
-        if (Number.isFinite(year)) affectedYears.add(year);
-    }
-    if (affectedYears.size > 0) {
-        await updateAccountingSummaryIndexForYears(plugin, Array.from(affectedYears));
-    }
-
-    onProgress?.({
-        current: validRows.length,
-        total: validRows.length,
-        success: result.successCount,
-        skipped: result.skippedCount,
-        failed: result.failedCount,
+    const plannedAccounts = [...existing, ...toCreate];
+    const records = toImport.map(row => {
+        const { sourceFormat: _format, rawType: _type, assetRef: _ref, counterAssetRef: _counterRef, reviewAction: _review, ...original } = row;
+        if (mode === "backup") return normalizeRecord(original);
+        const account = resolveImportAccount(row.assetRef || row.account, row.currency, plannedAccounts, incoming);
+        const counter = resolveImportAccount(row.counterAssetRef || row.counterAccount, row.currency, plannedAccounts, incoming);
+        if (!account || (row.direction === "transfer" && !counter)) throw new Error(`${row.recordId}：请先明确关联账户`);
+        const record = normalizeRecord({ ...original, account: account.accountId, counterAccount: counter?.accountId });
+        validateAccountingRecordCurrency(record, plannedAccounts);
+        return record;
     });
-
+    // All rows and existing files are checked before the first write; Kernel rechecks each mutation.
+    try {
+        if (toCreate.length) result.newAssetCount = await bulkMergeAccountingAssets(plugin, toCreate, mode);
+        if (records.length) result.successCount = await bulkMergeAccountingRecords(plugin, records, mode);
+    } catch (error) {
+        throw new Error(`导入未完整确认，请重新读取后核对；再次导入会按记录 ID 跳过已保存内容。${error instanceof Error ? error.message : ""}`);
+    }
+    onProgress?.({ current: rows.length, total: rows.length, success: result.successCount, skipped: result.skippedCount, failed: 0 });
     return result;
 }
 
@@ -910,9 +861,11 @@ export async function exportAccountingData(
     }
 
     const [recordsResult, assetsResult] = await Promise.all([
-        loadAccountingRecordsAll(plugin),
-        loadAccountingAccounts(plugin),
+        loadAccountingRecordsAll(plugin, true),
+        loadAccountingAccounts(plugin, true),
     ]);
+    if (!recordsResult.status.ok) throw new Error(recordsResult.status.message);
+    if (!assetsResult.status.ok) throw new Error(assetsResult.status.message);
 
     const payload: AccountingExportPayload = {
         schema: "siyuan-homepage-accounting",

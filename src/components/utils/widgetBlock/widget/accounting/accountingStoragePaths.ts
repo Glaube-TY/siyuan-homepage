@@ -18,7 +18,7 @@ export const SUMMARY_SCHEMA = "siyuan-homepage-accounting-summary";
 export const RECORDS_INDEX_SCHEMA = "siyuan-homepage-accounting-records-index";
 
 export const ACCOUNTING_RECORDS_VERSION = 1;
-export const ACCOUNTING_ASSETS_VERSION = 1;
+export const ACCOUNTING_ASSETS_VERSION = 2;
 export const ACCOUNTING_SUMMARY_VERSION = 1;
 export const ACCOUNTING_RECORDS_INDEX_VERSION = 1;
-export const ACCOUNTING_EXPORT_VERSION = 3;
+export const ACCOUNTING_EXPORT_VERSION = 4;

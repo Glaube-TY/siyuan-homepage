@@ -52,6 +52,7 @@
 
     let summary = $derived(summarizeAccounting(currentYearRecords, {
         period: "month",
+        currency: effectiveCurrency,
         monthlyBudget: effectiveBudget,
         recentLimit: config.homeRecentLimit,
         recentRecords,

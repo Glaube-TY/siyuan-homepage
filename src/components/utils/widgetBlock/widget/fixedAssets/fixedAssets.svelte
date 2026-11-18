@@ -1,6 +1,8 @@
 <script lang="ts">
     import { onDestroy, onMount } from "svelte";
     import { showMessage } from "siyuan";
+    import { formatLocalDate } from "@/components/tools/date-utils";
+    import { createLocalDayBoundaryWatcher } from "@/utils/runtime/localDayBoundaryWatcher";
     import {
         archiveFixedAsset,
         getAssetCostDays,
@@ -75,10 +77,12 @@
     let iconPickerButtonRef = $state<HTMLButtonElement | null>(null);
     let unsubscribeDataUpdated: (() => void) | null = null;
     let destroyed = false;
+    let currentDate = $state(new Date());
+    let stopDay: (() => void) | null = null;
 
     let sortedAssets = $derived(sortAssets(assets, sortBy).slice(0, listLimit));
     let totalCost = $derived(assets.reduce((sum, asset) => sum + getAssetTotalCost(asset), 0));
-    let totalDailyCost = $derived(assets.reduce((sum, asset) => sum + getAssetDailyCost(asset), 0));
+    let totalDailyCost = $derived(assets.reduce((sum, asset) => sum + getAssetDailyCost(asset, currentDate), 0));
     
     let summaryCards = $derived.by(() => {
         type SummaryCard = { label: string; value: string; subtle?: boolean };
@@ -156,6 +160,8 @@
             return;
         }
 
+        currentDate = new Date();
+        stopDay = createLocalDayBoundaryWatcher(() => { currentDate = new Date(); });
         unsubscribeDataUpdated = subscribeSharedWidgetDataUpdated("fixed-assets", () => {
             void refreshAssets();
         });
@@ -164,6 +170,8 @@
 
     onDestroy(() => {
         destroyed = true;
+        stopDay?.();
+        stopDay = null;
         unsubscribeDataUpdated?.();
         unsubscribeDataUpdated = null;
     });
@@ -197,7 +205,7 @@
             icon: "▣",
             purchasePrice: 0,
             extraCost: 0,
-            purchaseDate: new Date().toISOString().slice(0, 10),
+            purchaseDate: formatLocalDate(new Date()),
             retireDate: "",
             warrantyDate: "",
             expectedDays: 0,
@@ -247,11 +255,11 @@
     }
 
     function sortAssets(list: FixedAssetRecord[], sortValue: FixedAssetSortBy): FixedAssetRecord[] {
-        const today = new Date().toISOString().slice(0, 10);
+        const today = formatLocalDate(currentDate);
         const sorted = [...list];
 
         sorted.sort((a, b) => {
-            if (sortValue === "dailyCost") return getAssetDailyCost(b) - getAssetDailyCost(a);
+            if (sortValue === "dailyCost") return getAssetDailyCost(b, currentDate) - getAssetDailyCost(a, currentDate);
             if (sortValue === "totalCost") return getAssetTotalCost(b) - getAssetTotalCost(a);
             if (sortValue === "days") {
                 return getDaysBetween(b.purchaseDate, today) - getDaysBetween(a.purchaseDate, today);
@@ -276,7 +284,7 @@
     }
 
     function getOwnedDays(asset: FixedAssetRecord): number {
-        return getDaysBetween(asset.purchaseDate, new Date().toISOString().slice(0, 10));
+        return getDaysBetween(asset.purchaseDate, formatLocalDate(currentDate));
     }
 
     function openCreateEditor(): void {
@@ -426,7 +434,7 @@
                                 <span class="asset-info">
                                     <span class="asset-name">{asset.name}</span>
                                     <span class="asset-meta">
-                                        {asset.category} · {formatCurrency(getAssetTotalCost(asset))} · {formatCost(getAssetPeriodCost(asset, itemCostPeriod), FIXED_ASSET_COST_PERIODS[itemCostPeriod].suffix)}
+                                        {asset.category} · {formatCurrency(getAssetTotalCost(asset))} · {formatCost(getAssetPeriodCost(asset, itemCostPeriod, currentDate), FIXED_ASSET_COST_PERIODS[itemCostPeriod].suffix)}
                                     </span>
                                     {#if asset.note?.trim()}
                                         <span class="asset-note" title={asset.note}>{asset.note}</span>
@@ -539,7 +547,7 @@
                             id: form.id || "preview",
                             createdAt: form.createdAt || "",
                             updatedAt: form.updatedAt || "",
-                        })), "/天")}</strong>
+                        }, currentDate)), "/天")}</strong>
                     </div>
 
                     <div class="editor-actions">

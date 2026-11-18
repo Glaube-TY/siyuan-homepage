@@ -24,9 +24,9 @@
     resolveCountdownDisplayPreferences,
   } from "./countdownQuery";
   import {
-    createCountdownDayBoundaryWatcher,
     formatCountdownDisplayDate,
   } from "./countdownDateEngine";
+  import { createLocalDayBoundaryWatcher } from "@/utils/runtime/localDayBoundaryWatcher";
   import { subscribeSharedWidgetDataUpdated } from "../sharedLocalStorage/sharedWidgetDataEvents";
   import CountdownIcon from "@/features/countdown-center/components/CountdownIcon.svelte";
   import CountdownCardSvg from "./CountdownCardSvg.svelte";
@@ -245,7 +245,7 @@
     unsubscribeSettings = subscribeCountdownCenterSettingsChanged(
       () => void reload(),
     );
-    stopDay = createCountdownDayBoundaryWatcher(() => void reload());
+    stopDay = createLocalDayBoundaryWatcher(() => void reload());
     if (root && typeof IntersectionObserver !== "undefined") {
       observer = new IntersectionObserver(
         (entries) => (visible = entries[0]?.isIntersecting !== false),

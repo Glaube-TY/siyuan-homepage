@@ -1,5 +1,6 @@
 <script lang="ts">
     import { onMount } from "svelte";
+    import { formatLocalDate } from "@/components/tools/date-utils";
     import { showMessage } from "siyuan";
     import { writeTextToClipboard } from "@/libs/clipboard";
     import SettingSection from "@/libs/components/SettingSection.svelte";
@@ -291,8 +292,8 @@
             start.setMonth(start.getMonth() - clamped + 1, 1);
             const status = await rebuildHeatmapDailyIndexFromGlobalSql(
                 plugin,
-                start.toISOString().split("T")[0],
-                end.toISOString().split("T")[0],
+                formatLocalDate(start),
+                formatLocalDate(end),
             );
             heatmapIndexStatus = status;
             await onHeatmapIndexStatusChange?.(status);

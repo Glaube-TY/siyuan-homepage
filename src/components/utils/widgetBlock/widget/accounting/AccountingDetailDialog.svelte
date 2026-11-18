@@ -12,6 +12,7 @@
     import type { AccountingAppSettings } from "./accountingSettings";
     import { loadAccountingSettings } from "./accountingSettings";
     import { loadAccountingAccounts } from "./accountingAccountData";
+    import { accountingCurrency, inspectAccountingBalances } from "./accountingBalances";
     import {
         formatAccountingCurrency,
         summarizeAccounting,
@@ -86,10 +87,17 @@
     let availableYears = $state<number[]>([]);
     let selectedYear = $state<number>(new Date().getFullYear());
     let assetBalanceRecords = $state<AccountingRecord[]>([]);
+    let assetDataError = $state("");
+    let assetBalanceError = $state("");
+    let balancesLoading = $state(true);
+    let initialValues = $state<Partial<AccountingRecordInput> | undefined>();
+    let statsCurrency = $state("CNY");
+    let statsCurrencies = $derived([...new Set([effectiveCurrency, ...records.map(r => accountingCurrency(r.currency))])]);
 
     let summary = $derived(summarizeAccounting(records, {
+        currency: statsCurrency,
         period: effectivePeriod,
-        monthlyBudget: effectiveBudget,
+        monthlyBudget: statsCurrency === effectiveCurrency ? effectiveBudget : 0,
         recentLimit: config.homeRecentLimit,
     }));
 
@@ -105,6 +113,7 @@
     onMount(() => {
         activeTab = initialRecordId ? "record" : initialTab;
         localAppSettings = appSettings;
+        statsCurrency = appSettings?.defaultCurrency || "CNY";
         localAccounts = accounts;
         period = localAppSettings?.defaultPeriod || "month";
         void initializeYearsAndRecords();
@@ -134,6 +143,7 @@
         }
         listFilter = { ...listFilter, month: getMonthForYear(selectedYear) };
         await refreshRecordsForYear(selectedYear);
+        await refreshAssets();
         await refreshAssetBalanceRecords();
         if (initialRecordId && !initialEditApplied) {
             await openRecordAcrossYears(initialRecordId);
@@ -142,14 +152,16 @@
 
     async function refreshAssets(): Promise<void> {
         if (!plugin) {
-            localAccounts = [];
+            assetDataError = "插件未就绪，无法读取账户";
             return;
         }
         try {
-            const result = await loadAccountingAccounts(plugin);
+            const result = await loadAccountingAccounts(plugin, true);
+            if (!result.status.ok) throw new Error(result.status.message);
             localAccounts = result.accounts;
-        } catch {
-            localAccounts = [];
+            assetDataError = "";
+        } catch (error) {
+            assetDataError = error instanceof Error ? error.message : "读取账户失败";
         }
     }
 
@@ -188,14 +200,20 @@
 
     async function refreshAssetBalanceRecords(): Promise<void> {
         if (!plugin) {
-            assetBalanceRecords = records;
+            assetBalanceError = "插件未就绪，无法核对历史流水";
+            balancesLoading = false;
             return;
         }
+        balancesLoading = true;
         try {
             const result = await loadAccountingRecordsAll(plugin);
+            if (!result.status.ok) throw new Error(result.status.message);
             assetBalanceRecords = result.records;
-        } catch {
-            assetBalanceRecords = records;
+            assetBalanceError = "";
+        } catch (error) {
+            assetBalanceError = error instanceof Error ? error.message : "读取历史流水失败";
+        } finally {
+            balancesLoading = false;
         }
     }
 
@@ -230,12 +248,34 @@
     }
 
     function openCreateForm(): void {
+        initialValues = undefined;
         editingRecord = null;
         activeTab = "record";
     }
 
     function openEditForm(record: AccountingRecord): void {
+        initialValues = undefined;
         editingRecord = record;
+        activeTab = "record";
+    }
+
+    function openQuickTransfer(account: AccountingAccount, repay = false): void {
+        const currency = accountingCurrency(account.currency);
+        const report = repay ? inspectAccountingBalances(localAccounts, assetBalanceRecords) : undefined;
+        const funds = report ? localAccounts.filter(a =>
+            !a.archived && a.accountId !== account.accountId && accountingCurrency(a.currency) === currency
+            && !report.issues.has(a.accountId) && (report.balances.get(a.accountId) ?? 0) > 0,
+        ) : [];
+        const fund = funds.find(a => a.accountId === localAppSettings?.defaultAccountId) || funds[0];
+        editingRecord = null;
+        initialValues = {
+            direction: "transfer",
+            title: repay ? `还款 · ${account.name}` : "",
+            categoryPrimary: repay ? "还款" : "转账",
+            currency,
+            account: repay ? fund?.accountId || "" : account.accountId,
+            counterAccount: repay ? account.accountId : undefined,
+        };
         activeTab = "record";
     }
 
@@ -243,20 +283,27 @@
         if (!plugin) return;
         isSaving = true;
         actionError = "";
+        let saved = false;
         try {
             await saveAccountingRecord(plugin, {
                 ...input,
                 recordId: editingRecord?.recordId || input.recordId,
                 createdAt: editingRecord?.createdAt || input.createdAt,
                 currency: input.currency || effectiveCurrency,
-            });
+            }, { expectedUpdatedAt: editingRecord?.updatedAt });
+            saved = true;
             editingRecord = null;
+            initialValues = undefined;
             activeTab = "transactions";
+            selectedYear = Number(input.date.slice(0, 4));
+            availableYears = await loadAccountingRecordYears(plugin);
+            listFilter = { ...listFilter, month: input.date.slice(0, 7) };
             await refreshRecordsForYear(selectedYear);
             await refreshAssetBalanceRecords();
             await onChanged?.();
         } catch (error) {
-            actionError = error instanceof Error ? error.message : "保存记账流水失败";
+            actionError = (saved ? "流水已保存，刷新失败，请重新读取。" : "") + (error instanceof Error ? error.message : "保存记账流水失败");
+            if (!saved) throw error;
         } finally {
             isSaving = false;
         }
@@ -272,7 +319,7 @@
 
         actionError = "";
         try {
-            await archiveAccountingRecord(plugin, record.recordId, record.date);
+            await archiveAccountingRecord(plugin, record.recordId, record.date, { expectedUpdatedAt: record.updatedAt });
             if (editingRecord?.recordId === record.recordId) {
                 editingRecord = null;
             }
@@ -291,7 +338,7 @@
                 <span class="dialog-icon"><AccountingIcon name="wallet" size={19} /></span>
                 <div>
                     <h2>{config.title || "记账"}</h2>
-                    <p>{records.length} 条未归档流水 · {formatAccountingCurrency(summary.balance, effectiveCurrency)} 结余</p>
+                    <p>{records.length} 条未归档流水 · {formatAccountingCurrency(summary.balance, statsCurrency)} 结余</p>
                 </div>
             </div>
             <button type="button" class="dialog-close" onclick={onClose} title="关闭" aria-label="关闭记账">
@@ -309,6 +356,7 @@
                         onclick={() => {
                             activeTab = tab.key;
                             if (tab.key === "record" && !editingRecord) {
+                                initialValues = undefined;
                                 editingRecord = null;
                             }
                             // Reset scroll on tab switch
@@ -329,11 +377,15 @@
         {/if}
 
         <div class="dialog-body" bind:this={dialogBodyEl}>
+            {#if statsCurrencies.length > 1 && (activeTab === "overview" || activeTab === "analytics")}
+                <label class="currency-filter">统计币种 <select bind:value={statsCurrency}>{#each statsCurrencies as currency}<option value={currency}>{currency}</option>{/each}</select></label>
+            {/if}
             {#if isLoading}
                 <div class="dialog-state">加载记账数据...</div>
             {:else if !status.ok}
                 <div class="dialog-state error">
                     <strong>{status.message}</strong>
+                    <button type="button" onclick={initializeYearsAndRecords}>重新读取</button>
                     {#if status.missingFields.length > 0}
                         <span>缺少字段：{status.missingFields.join("、")}</span>
                     {/if}
@@ -342,8 +394,8 @@
                 <AccountingDashboard
                     {summary}
                     records={summary.recentRecords}
-                    defaultCurrency={effectiveCurrency}
-                    monthlyBudget={effectiveBudget}
+                    defaultCurrency={statsCurrency}
+                    monthlyBudget={statsCurrency === effectiveCurrency ? effectiveBudget : 0}
                     onAdd={openCreateForm}
                     onEdit={openEditForm}
                 />
@@ -368,6 +420,8 @@
             {:else if activeTab === "record"}
                 <AccountingRecordForm
                     record={editingRecord}
+                    {initialValues}
+                    balanceError={assetDataError || assetBalanceError || (balancesLoading ? "余额核对中" : "")}
                     defaultCurrency={effectiveCurrency}
                     submitting={isSaving}
                     appSettings={localAppSettings}
@@ -376,6 +430,7 @@
                     onSubmit={handleSaveRecord}
                     onCancel={() => {
                         editingRecord = null;
+                        initialValues = undefined;
                         activeTab = "transactions";
                     }}
                 />
@@ -392,10 +447,10 @@
                     <p>转账记录已保存，但趋势和分类统计默认只统计收入与支出。</p>
                 </div>
                 <AccountingCharts
-                    {records}
+                    records={records.filter(r => accountingCurrency(r.currency) === statsCurrency)}
                     {period}
                     year={selectedYear}
-                    defaultCurrency={effectiveCurrency}
+                    defaultCurrency={statsCurrency}
                     onYearChange={async (year) => {
                         await refreshRecordsForYear(year);
                     }}
@@ -415,9 +470,12 @@
                     appSettings={localAppSettings}
                     accounts={localAccounts}
                     records={assetBalanceRecords}
+                    dataError={assetDataError || assetBalanceError}
+                    {balancesLoading}
+                    onRetry={async () => { await refreshAssets(); await refreshAssetBalanceRecords(); }}
+                    onQuickTransfer={openQuickTransfer}
                     onChanged={async () => {
                         await refreshSettingsAndAssets();
-                        await refreshAssetBalanceRecords();
                         onSettingsChanged?.();
                     }}
                 />
@@ -426,6 +484,7 @@
 </div>
 
 <style lang="scss">
+    .currency-filter { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
     .accounting-dialog {
         width: 100%;
         height: 100%;

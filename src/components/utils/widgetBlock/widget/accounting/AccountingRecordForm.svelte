@@ -1,28 +1,24 @@
 <script lang="ts">
-    import { onMount } from "svelte";
     import AccountingIcon from "./AccountingIcon.svelte";
-    import {
-        DEFAULT_ACCOUNTS,
-    } from "./accountingConstants";
     import {
         EXPENSE_CATEGORIES,
         getCategoriesByDirection,
     } from "./accountingCategoryConfig";
     import type { CategoryItem } from "./accountingCategoryConfig";
     import {
-        calculateAssetBalances,
         formatAccountingDate,
+        formatAccountingCurrency,
         resolveAssetRef,
     } from "./accountingAnalytics";
     import { getEffectiveCategories, type AccountingAppSettings } from "./accountingSettings";
     import { normalizeAccountingCurrency } from "./accountingConstants";
+    import { accountingCurrency, inspectAccountingBalances } from "./accountingBalances";
     import type {
         AccountingAccount,
         AccountingDirection,
         AccountingRecord,
         AccountingRecordInput,
     } from "./accountingTypes";
-    import type { AccountingIconName } from "./accountingIconTypes";
 
     type DraftRecord = {
         recordId?: string;
@@ -42,6 +38,8 @@
 
     interface Props {
         record?: AccountingRecord | null;
+        initialValues?: Partial<AccountingRecordInput>;
+        balanceError?: string;
         defaultCurrency?: string;
         submitting?: boolean;
         appSettings?: AccountingAppSettings | null;
@@ -53,6 +51,8 @@
 
     let {
         record = null,
+        initialValues,
+        balanceError = "",
         defaultCurrency = "CNY",
         submitting = false,
         appSettings = null,
@@ -74,6 +74,7 @@
     let assetPickerTarget: "account" | "counterAccount" = $state("account");
     let assetPickerStyle = $state("");
     let datePickerStyle = $state("");
+    let pendingRecordId = "";
 
     let categories = $derived(
         appSettings
@@ -84,19 +85,20 @@
         categories.find((c) => c.label === draft.categoryPrimary) || null,
     );
 
-    let balanceMap = $derived(calculateAssetBalances(accounts, balanceRecords));
+    let balanceReport = $derived(inspectAccountingBalances(accounts, balanceRecords));
 
-    let selectedAccount = $derived(resolveAssetRef(draft.account, activeAccounts));
-    let selectedCounterAccount = $derived(resolveAssetRef(draft.counterAccount, activeAccounts));
+    let selectedAccount = $derived(resolveAssetRef(draft.account, activeAccounts, draft.currency));
+    let selectedCounterAccount = $derived(resolveAssetRef(draft.counterAccount, activeAccounts, draft.currency));
 
     $effect(() => {
-        const key = record?.recordId || "new";
+        const key = record?.recordId || JSON.stringify(initialValues || "new");
         if (key !== lastRecordKey) {
-            draft = createDraft(record, defaultCurrency);
+            draft = { ...createDraft(record, defaultCurrency), ...(!record ? initialValues : {}) };
             amountDisplay = formatAmountForDisplay(draft.amount);
             formError = "";
             showMore = false;
             lastRecordKey = key;
+            pendingRecordId = "";
         }
     });
 
@@ -127,7 +129,7 @@
                 ? (getEffectiveCategories(appSettings, "expense")[0]?.label || "其他")
                 : EXPENSE_CATEGORIES[0]?.label || "其他",
             categorySecondary: "",
-            account: activeAccounts[0]?.name || DEFAULT_ACCOUNTS[0] || "",
+            account: activeAccounts.find(a => accountingCurrency(a.currency) === accountingCurrency(currency))?.accountId || "",
             tags: "",
             note: "",
             currency: currency || "CNY",
@@ -193,32 +195,28 @@
             draft.counterAccount = account.accountId;
         } else {
             draft.account = account.accountId;
+            draft.currency = account.currency;
         }
         closeAssetPicker();
     }
 
     function assetDisplayName(ref: string | undefined): string {
-        if (!ref) return "选择资产";
-        const asset = resolveAssetRef(ref, activeAccounts);
-        return asset?.name || "选择资产";
+        if (draft.direction !== "transfer") {
+            return resolveAssetRef(ref, accounts, draft.currency)?.name || ref || "未关联账户";
+        }
+        return resolveAssetRef(ref, activeAccounts, draft.currency)?.name || "选择账户";
     }
 
     function assetDisplaySub(ref: string | undefined): string {
-        const asset = resolveAssetRef(ref, activeAccounts);
-        if (!asset) return "未识别资产";
+        const asset = resolveAssetRef(ref, activeAccounts, draft.currency);
+        if (!asset) return "";
         return formatAssetBalance(asset);
     }
 
-    function getAssetBalance(asset: AccountingAccount): number {
-        const computed = balanceMap.get(asset.accountId);
-        if (computed !== undefined && (balanceRecords.length > 0 || asset.openingBalance !== 0)) {
-            return computed;
-        }
-        return asset.currentBalance;
-    }
-
     function formatAssetBalance(asset: AccountingAccount): string {
-        return `${asset.currency} ${getAssetBalance(asset).toFixed(2)}`;
+        if (balanceError) return "余额未就绪";
+        if (balanceReport.issues.has(asset.accountId)) return "余额待核对";
+        return formatAccountingCurrency(balanceReport.balances.get(asset.accountId) || 0, asset.currency);
     }
 
     function setDate(date: string): void {
@@ -233,30 +231,6 @@
 
     function closeDatePicker(): void {
         datePickerOpen = false;
-    }
-
-    function assetIcon(type: string): AccountingIconName {
-        const map: Record<string, AccountingIconName> = {
-            internet: "smartphone",
-            debitCard: "banknote",
-            savingsCard: "piggyBank",
-            creditCard: "landmark",
-            cash: "banknote",
-            other: "moreHorizontal",
-        };
-        return map[type] || "moreHorizontal";
-    }
-
-    function assetTypeLabel(type: string): string {
-        const map: Record<string, string> = {
-            internet: "互联网账户",
-            debitCard: "借记卡",
-            savingsCard: "储蓄卡",
-            creditCard: "信用卡",
-            cash: "现金",
-            other: "其他",
-        };
-        return map[type] || type || "其他";
     }
 
     function dateQuickOptions(): { label: string; value: string }[] {
@@ -303,6 +277,7 @@
 
     async function handleSave(andContinue: boolean): Promise<void> {
         formError = "";
+        if (balanceError) { formError = balanceError + "，请重新读取账户与流水后保存"; return; }
         const amount = currentAmount();
         if (amount <= 0) {
             formError = "请输入金额";
@@ -310,35 +285,38 @@
         }
 
         if (draft.direction === "transfer") {
-            const fromId = resolveAssetRef(draft.account, activeAccounts)?.accountId || draft.account;
-            const toId = draft.counterAccount ? (resolveAssetRef(draft.counterAccount, activeAccounts)?.accountId || draft.counterAccount) : undefined;
+            const fromId = selectedAccount?.accountId;
+            const toId = selectedCounterAccount?.accountId;
             if (fromId && toId && fromId === toId) {
-                formError = "转出资产和转入资产不能相同";
+                formError = "转出账户和转入账户不能相同";
                 return;
             }
             if (!toId) {
-                formError = "请选择转入资产";
+                formError = "请选择转入账户";
                 return;
             }
-        } else if (!draft.account) {
-            formError = "请选择资产";
-            return;
+            const from = resolveAssetRef(fromId, activeAccounts);
+            const to = resolveAssetRef(toId, activeAccounts);
+            if (!from || !to) { formError = "请选择转出和转入账户"; return; }
+            if (accountingCurrency(from.currency) !== accountingCurrency(to.currency)) { formError = "跨币种转账请按实际兑换分别记录"; return; }
         }
 
         const title = draft.title.trim() || draft.categoryPrimary;
-        const accountId = resolveAssetRef(draft.account, activeAccounts)?.accountId || draft.account;
-        const counterAccountId = draft.counterAccount ? (resolveAssetRef(draft.counterAccount, activeAccounts)?.accountId || draft.counterAccount) : undefined;
+        const accountId = selectedAccount?.accountId || draft.account;
+        const counterAccountId = selectedCounterAccount?.accountId;
         try {
             await onSubmit({
                 ...draft,
+                recordId: draft.recordId || (pendingRecordId ||= `accounting-record-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`),
                 title,
                 amount,
                 account: accountId,
                 counterAccount: counterAccountId || undefined,
                 categoryPrimary: draft.categoryPrimary || "其他",
-                currency: normalizeAccountingCurrency(draft.currency || defaultCurrency, "CNY"),
+                currency: selectedAccount?.currency || normalizeAccountingCurrency(draft.currency || defaultCurrency, "CNY"),
             });
             if (!draft.recordId && andContinue) {
+                pendingRecordId = "";
                 draft = createDraft(null, defaultCurrency);
                 amountDisplay = "0";
                 showMore = false;
@@ -348,9 +326,9 @@
         }
     }
 
-    onMount(() => {
-        if (!draft.account && activeAccounts.length > 0) {
-            draft.account = activeAccounts[0].accountId;
+    $effect(() => {
+        if (!record && !initialValues && !draft.account && !balanceError) {
+            draft.account = activeAccounts.find(a => accountingCurrency(a.currency) === accountingCurrency(draft.currency))?.accountId || "";
         }
     });
 </script>
@@ -362,11 +340,13 @@
         <button
             class="qe-type-btn"
             class:active={draft.direction === "expense"}
+            disabled={submitting || initialValues?.direction === "transfer"}
             onclick={() => selectDirection("expense")}
         >支出</button>
         <button
             class="qe-type-btn"
             class:active={draft.direction === "income"}
+            disabled={submitting || initialValues?.direction === "transfer"}
             onclick={() => selectDirection("income")}
         >收入</button>
         <button
@@ -519,18 +499,18 @@
 
 <!-- Asset Picker Modal -->
 {#if assetPickerOpen}
-    <div class="asset-picker-overlay" onclick={closeAssetPicker} onkeydown={(e) => e.key === 'Escape' && closeAssetPicker()} role="dialog" aria-modal="true" aria-label="选择资产" tabindex="-1">
+    <div class="asset-picker-overlay" onclick={closeAssetPicker} onkeydown={(e) => e.key === 'Escape' && closeAssetPicker()} role="dialog" aria-modal="true" aria-label="选择账户" tabindex="-1">
         <div class="asset-picker-panel" style={assetPickerStyle} role="presentation" onclick={(e) => e.stopPropagation()} onkeydown={(e) => e.stopPropagation()}>
             <div class="asset-picker-header">
-                <strong>选择资产</strong>
-                <button class="asset-picker-close" onclick={closeAssetPicker}>
+                <strong>选择账户</strong>
+                <button class="asset-picker-close" aria-label="关闭账户选择" onclick={closeAssetPicker}>
                     <AccountingIcon name="close" size={18} />
                 </button>
             </div>
             {#if activeAccounts.length === 0}
                 <div class="asset-picker-empty">
-                    <AccountingIcon name="landmark" size={32} />
-                    <span>暂无资产，请先到资产页新增</span>
+                    <AccountingIcon name="wallet" size={32} />
+                    <span>暂无账户，可在资产页新增</span>
                 </div>
             {:else}
                 <div class="asset-picker-list">
@@ -543,11 +523,10 @@
                             onclick={() => selectAsset(acct)}
                         >
                             <span class="asset-picker-icon">
-                                <AccountingIcon name={assetIcon(acct.type)} size={20} />
+                                <AccountingIcon name="wallet" size={20} />
                             </span>
                             <span class="asset-picker-info">
                                 <span class="asset-picker-name">{acct.name}</span>
-                                <span class="asset-picker-type">{assetTypeLabel(acct.type)}</span>
                             </span>
                             <span class="asset-picker-balance">
                                 {formatAssetBalance(acct)}
@@ -1195,11 +1174,6 @@
     .asset-picker-name {
         font-weight: 600;
         font-size: 0.9rem;
-    }
-
-    .asset-picker-type {
-        font-size: 0.72rem;
-        color: var(--b3-theme-on-surface-light);
     }
 
     .asset-picker-balance {

@@ -1,4 +1,5 @@
 import { readPluginJsonFileChecked, writePluginJsonFileChecked, readSharedWidgetDirectoryChecked } from "../sharedLocalStorage/sharedLocalStorage";
+import { signedAccountingBalance, inspectAccountingBalances, validateAccountingRecordCurrency, accountingCurrency, resolveAccountingAccount } from "./accountingBalances";
 import type {
     AccountingAccount,
     AccountingAssetsFile,
@@ -53,8 +54,21 @@ export function setAccountingMutationDispatcher(dispatcher: AccountingMutationDi
     mutationDispatcher = dispatcher;
 }
 
-function runAccountingMutation<T>(action: AccountingMutationAction, args: unknown[], task: () => Promise<T>): Promise<T> {
-    if (mutationDispatcher) return mutationDispatcher(action, args) as Promise<T>;
+async function runAccountingMutation<T>(action: AccountingMutationAction, args: unknown[], task: () => Promise<T>): Promise<T> {
+    if (mutationDispatcher) {
+        try {
+            return await mutationDispatcher(action, args) as T;
+        } catch (error) {
+            // SiYuan keeps the rejected Error message in RPC data.
+            const data = (error as { data?: unknown } | null)?.data;
+            const prefix = `error invoking method "${ACCOUNTING_MUTATION_RPC}": promise rejected: Error: `;
+            if (typeof data === "string" && data.startsWith(prefix)) {
+                const message = data.slice(prefix.length).split("\n", 1)[0].trim();
+                if (message) throw new Error(message);
+            }
+            throw error;
+        }
+    }
     const result = accountingMutationTail.then(task, task);
     accountingMutationTail = result.then(() => undefined, () => undefined);
     return result;
@@ -82,7 +96,11 @@ function filterRecords(records: unknown[]): AccountingRecord[] {
     return records.filter((r): r is AccountingRecord => {
         if (!r || typeof r !== "object") return false;
         const rec = r as Record<string, unknown>;
-        return typeof rec.recordId === "string" && typeof rec.date === "string";
+        return typeof rec.recordId === "string" && !!rec.recordId && typeof rec.date === "string"
+            && typeof rec.amount === "number" && Number.isFinite(rec.amount) && rec.amount >= 0
+            && ["expense", "income", "transfer"].includes(String(rec.direction))
+            && typeof rec.account === "string" && typeof rec.currency === "string"
+            && (rec.archived === undefined || typeof rec.archived === "boolean");
     });
 }
 
@@ -90,7 +108,14 @@ function filterAssets(assets: unknown[]): AccountingAccount[] {
     return assets.filter((a): a is AccountingAccount => {
         if (!a || typeof a !== "object") return false;
         const acct = a as Record<string, unknown>;
-        return typeof acct.accountId === "string" && typeof acct.name === "string";
+        return typeof acct.accountId === "string" && !!acct.accountId.trim()
+            && typeof acct.name === "string" && !!acct.name.trim()
+            && typeof acct.type === "string" && typeof acct.currency === "string" && !!acct.currency.trim()
+            && typeof acct.openingBalance === "number" && Number.isFinite(acct.openingBalance)
+            && typeof acct.currentBalance === "number" && Number.isFinite(acct.currentBalance)
+            && (acct.archived === undefined || typeof acct.archived === "boolean")
+            && (acct.aliases === undefined || (Array.isArray(acct.aliases) && acct.aliases.every(name => typeof name === "string")))
+            && (acct.balanceConvention === undefined || acct.balanceConvention === "signed");
     });
 }
 
@@ -114,6 +139,7 @@ function normalizeRecordsFile(raw: unknown, expectedYear: number): AccountingRec
         throw new Error("记账年度明细异常，已保留原文件并停止写入");
     }
     return {
+        ...raw,
         schema: typeof raw.schema === "string" ? raw.schema : empty.schema,
         version: typeof raw.version === "number" ? raw.version : empty.version,
         year: typeof raw.year === "number" ? raw.year : expectedYear,
@@ -203,9 +229,13 @@ function emptyAssetsFile(): AccountingAssetsFile {
 function normalizeAssetsFile(raw: unknown): AccountingAssetsFile {
     const empty = emptyAssetsFile();
     if (raw === null) return empty;
-    assertFile(raw, ASSETS_SCHEMA, ACCOUNTING_ASSETS_VERSION);
+    if (!isObject(raw) || raw.schema !== ASSETS_SCHEMA || typeof raw.version !== "number" || ![1, ACCOUNTING_ASSETS_VERSION].includes(raw.version)) {
+        throw new Error("账户文件结构或版本异常，原文件已保留");
+    }
     if (!Array.isArray(raw.assets) || filterAssets(raw.assets).length !== raw.assets.length) throw new Error("记账文件内容异常，已保留原文件并停止写入");
+    if (new Set((raw.assets as AccountingAccount[]).map(a => a.accountId)).size !== raw.assets.length) throw new Error("账户标识重复，原文件已保留");
     return {
+        ...raw,
         schema: typeof raw.schema === "string" ? raw.schema : empty.schema,
         version: typeof raw.version === "number" ? raw.version : empty.version,
         updatedAt: typeof raw.updatedAt === "string" ? raw.updatedAt : empty.updatedAt,
@@ -219,10 +249,24 @@ export async function loadAccountingAssetsFile(plugin: any): Promise<AccountingA
 }
 
 async function saveAccountingAssetsFile(plugin: any, file: AccountingAssetsFile): Promise<void> {
+    const previous = await loadJsonFile(plugin, ASSETS_FILE);
+    if (previous !== null) {
+        const before = normalizeAssetsFile(previous);
+        const changed = new Set(before.assets.filter(old => {
+            const next = file.assets.find(a => a.accountId === old.accountId);
+            return !next || ["openingBalance", "currentBalance", "currency", "type", "balanceConvention", "archived"]
+                .some(key => (old as unknown as Record<string, unknown>)[key] !== (next as unknown as Record<string, unknown>)[key]);
+        }).map(a => a.accountId));
+        if (before.version === 1 || changed.size > 0) {
+            const backup = ACCOUNTING_DIR + "/backups/accounting-assets-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 10) + ".json";
+            await saveJsonFile(plugin, backup, previous);
+            file.assets = file.assets.map(a => changed.has(a.accountId) ? { ...a, balanceBackupPath: backup } : a);
+        }
+    }
     file.updatedAt = nowIso();
     file.schema = ASSETS_SCHEMA;
     file.version = ACCOUNTING_ASSETS_VERSION;
-    await saveJsonFile(plugin, ASSETS_FILE, file);
+    await saveJsonFile(plugin, ASSETS_FILE, normalizeAssetsFile(file));
 }
 
 // ── Summary index ──
@@ -444,12 +488,12 @@ export async function loadRecentAccountingRecords(plugin: any, limit: number): P
         .slice(0, limit);
 }
 
-export async function loadAllAccountingRecords(plugin: any): Promise<AccountingRecord[]> {
+export async function loadAllAccountingRecords(plugin: any, includeArchived = false): Promise<AccountingRecord[]> {
     const index = await loadAccountingRecordsIndex(plugin);
     const records: AccountingRecord[] = [];
     for (const year of index.years) {
         const file = await loadAccountingRecordsFile(plugin, year);
-        records.push(...file.records.filter((r) => !r.archived));
+        records.push(...file.records.filter((r) => includeArchived || !r.archived));
     }
     return records.sort((a, b) => {
         const dc = b.date.localeCompare(a.date);
@@ -490,7 +534,9 @@ export async function saveAccountingRecord(
 ): Promise<AccountingRecord> {
     return runAccountingMutation("saveRecord", [record, options], async () => {
     const now = nowIso();
-    const normalized: AccountingRecord = {
+    if (!Number.isFinite(record.amount) || record.amount < 0) throw new Error("流水金额无效");
+    validateAccountingRecordCurrency(record, (await loadAccountingAssetsFile(plugin)).assets);
+    let normalized: AccountingRecord = {
         ...record,
         recordId: record.recordId || createRecordId(),
         rowId: record.rowId || record.recordId || createRecordId(),
@@ -507,6 +553,7 @@ export async function saveAccountingRecord(
     if (options.expectedUpdatedAt !== undefined && current?.updatedAt !== options.expectedUpdatedAt) {
         throw new Error("记账记录已被其他操作修改，请重新读取");
     }
+    if (current) normalized = { ...current, ...normalized, rowId: current.rowId, createdAt: current.createdAt };
     const affectedYears = new Set<number>([newYear]);
     const recordsIndex = await loadAccountingRecordsIndex(plugin);
     const newFile = await loadAccountingRecordsFile(plugin, newYear);
@@ -568,10 +615,16 @@ export async function archiveAccountingRecord(
     });
 }
 
-export async function bulkMergeAccountingRecords(plugin: any, records: AccountingRecord[]): Promise<number> {
+export async function bulkMergeAccountingRecords(plugin: any, records: AccountingRecord[], mode?: "backup"): Promise<number> {
     if (records.length === 0) return 0;
-    return runAccountingMutation("mergeRecords", [records], async () => {
+    return runAccountingMutation("mergeRecords", mode ? [records, mode] : [records], async () => {
 
+    const accounts = (await loadAccountingAssetsFile(plugin)).assets;
+    for (const record of records) {
+        if (!Number.isFinite(record.amount) || record.amount < 0) throw new Error("导入流水金额无效");
+        // Backups can contain historical account links that no longer resolve.
+        if (mode !== "backup") validateAccountingRecordCurrency(record, accounts);
+    }
     const byYear = new Map<number, AccountingRecord[]>();
     for (const record of records) {
         const year = getRecordYear(record);
@@ -630,8 +683,8 @@ export async function writeAccountingAsset(
         ...asset,
         accountId: asset.accountId || createAccountId(),
         rowId: asset.rowId || asset.accountId || createAccountId(),
-        openingBalance: Math.max(0, Number(asset.openingBalance) || 0),
-        currentBalance: Math.max(0, Number(asset.currentBalance) || 0),
+        openingBalance: signedAccountingBalance(asset.openingBalance),
+        currentBalance: signedAccountingBalance(asset.currentBalance),
         sortOrder: Number.isFinite(Number(asset.sortOrder)) ? Number(asset.sortOrder) : 0,
         updatedAt: now,
         createdAt: asset.createdAt || now,
@@ -640,14 +693,30 @@ export async function writeAccountingAsset(
 
     const file = await loadAccountingAssetsFile(plugin);
     const idx = file.assets.findIndex((a) => a.accountId === normalized.accountId);
+    if (options.expectedUpdatedAt !== undefined && (idx < 0 || file.assets[idx].updatedAt !== options.expectedUpdatedAt)) {
+        throw new Error("资产账户已被其他操作修改，请重新读取");
+    }
     if (idx >= 0) {
-        if (options.expectedUpdatedAt !== undefined && file.assets[idx].updatedAt !== options.expectedUpdatedAt) throw new Error("资产账户已被其他操作修改，请重新读取");
-        file.assets[idx] = normalized;
+        const records = await loadAllAccountingRecords(plugin, true);
+        if (accountingCurrency(file.assets[idx].currency) !== accountingCurrency(normalized.currency)
+            && records.some(r => [r.account, r.counterAccount].some(ref => resolveAccountingAccount(ref, file.assets, r.currency)?.accountId === normalized.accountId))) {
+            throw new Error("账户已有流水，不能直接修改币种；请新建对应币种的账户");
+        }
+        if (!file.assets[idx].archived && normalized.archived) {
+            const report = inspectAccountingBalances(file.assets, records);
+            if (report.issues.has(normalized.accountId) || report.balances.get(normalized.accountId) !== 0) throw new Error("账户仍有余额、欠款或待核对项目，请先处理后关闭");
+        }
+        normalized.rowId = file.assets[idx].rowId;
+        normalized.createdAt = file.assets[idx].createdAt;
+        if (file.assets[idx].name !== normalized.name) {
+            normalized.aliases = [...new Set([...(file.assets[idx].aliases || []), file.assets[idx].name, ...(normalized.aliases || [])])];
+        }
+        file.assets[idx] = { ...file.assets[idx], ...normalized };
     } else {
         file.assets.push(normalized);
     }
     await saveAccountingAssetsFile(plugin, file);
-    return normalized;
+    return file.assets.find(a => a.accountId === normalized.accountId)!;
     });
 }
 
@@ -657,32 +726,36 @@ export async function archiveAccountingAsset(plugin: any, accountId: string, opt
     const asset = file.assets.find((a) => a.accountId === accountId);
     if (!asset) throw new Error("资产不存在");
     if (options.expectedUpdatedAt !== undefined && asset.updatedAt !== options.expectedUpdatedAt) throw new Error("资产账户已被其他操作修改，请重新读取");
+    if (asset.archived) return;
+    const report = inspectAccountingBalances(file.assets, await loadAllAccountingRecords(plugin));
+    if (report.issues.has(asset.accountId)) throw new Error("请先核对该账户余额，再关闭账户");
+    if (report.balances.get(asset.accountId) !== 0) throw new Error("账户尚有余额或欠款，请先转移余额或结清后再关闭");
     asset.archived = true;
     asset.updatedAt = nowIso();
     await saveAccountingAssetsFile(plugin, file);
     });
 }
 
-export async function bulkMergeAccountingAssets(plugin: any, assets: AccountingAccount[]): Promise<number> {
+export async function bulkMergeAccountingAssets(plugin: any, assets: AccountingAccount[], mode?: "backup"): Promise<number> {
     if (assets.length === 0) return 0;
-    return runAccountingMutation("mergeAssets", [assets], async () => {
+    return runAccountingMutation("mergeAssets", mode ? [assets, mode] : [assets], async () => {
     const file = await loadAccountingAssetsFile(plugin);
     const existingIds = new Set(file.assets.map((a) => a.accountId));
-    const existingNames = new Set(file.assets.map((a) => a.name.toLowerCase()));
+    const existingNames = new Set(file.assets.map((a) => accountingCurrency(a.currency) + ":" + a.name.toLowerCase()));
     const now = nowIso();
     let added = 0;
     for (const asset of assets) {
         if (existingIds.has(asset.accountId)) continue;
-        if (asset.name && existingNames.has(asset.name.toLowerCase())) continue;
+        if (mode !== "backup" && asset.name && existingNames.has(accountingCurrency(asset.currency) + ":" + asset.name.toLowerCase())) continue;
         const id = asset.accountId || createAccountId();
         existingIds.add(id);
-        if (asset.name) existingNames.add(asset.name.toLowerCase());
+        if (asset.name) existingNames.add(accountingCurrency(asset.currency) + ":" + asset.name.toLowerCase());
         file.assets.push({
             ...asset,
             accountId: id,
             rowId: asset.rowId || id,
-            openingBalance: Math.max(0, Number(asset.openingBalance) || 0),
-            currentBalance: Math.max(0, Number(asset.currentBalance) || 0),
+            openingBalance: signedAccountingBalance(asset.openingBalance),
+            currentBalance: signedAccountingBalance(asset.currentBalance),
             sortOrder: Number.isFinite(Number(asset.sortOrder)) ? Number(asset.sortOrder) : 0,
             updatedAt: now,
             createdAt: asset.createdAt || now,

@@ -1,4 +1,5 @@
 <script lang="ts">
+    import { formatLocalDate } from "@/components/tools/date-utils";
     import { onMount } from "svelte";
     import { showMessage } from "siyuan";
     import { sql, getBlockKramdown, updateBlock as updateBlockAPI } from "@/api";
@@ -84,7 +85,7 @@
             return `${formattedDate}T${formattedTime}`;
         }
 
-        const todayStr = new Date().toISOString().slice(0, 10);
+        const todayStr = formatLocalDate(new Date());
         const formattedTime = value.padStart(5, "0");
         return `${todayStr}T${formattedTime}`;
     }
@@ -107,7 +108,7 @@
         } else {
             const datePart =
                 taskData.reminder.split("T")[0] ||
-                new Date().toISOString().slice(0, 10);
+                formatLocalDate(new Date());
             taskData.reminder = `${datePart}T${newTime}`;
         }
     }

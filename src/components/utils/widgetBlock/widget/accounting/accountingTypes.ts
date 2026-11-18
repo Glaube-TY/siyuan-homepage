@@ -131,10 +131,14 @@ export interface AccountingAccount {
     accountId: string;
     rowId: string;
     name: string;
+    /** Kept for compatibility with existing account files and backups. */
     type: string;
     currency: string;
     openingBalance: number;
     currentBalance: number;
+    balanceConvention?: "signed";
+    balanceBackupPath?: string;
+    aliases?: string[];
     sortOrder: number;
     note: string;
     archived: boolean;
@@ -144,7 +148,6 @@ export interface AccountingAccount {
 
 export type AccountingAccountInput = Partial<AccountingAccount> & {
     name: string;
-    type: string;
 };
 
 export interface AccountingAccountStoreStatus {
@@ -199,18 +202,5 @@ export interface AccountingSummaryFile {
     updatedAt: string;
     years: Record<string, AccountingYearSummary>;
     months: Record<string, AccountingMonthSummary>;
-}
-
-export const ASSET_TYPE_OPTIONS = [
-    { value: "internet", label: "互联网账户" },
-    { value: "debitCard", label: "借记卡" },
-    { value: "savingsCard", label: "储蓄卡" },
-    { value: "creditCard", label: "信用卡" },
-    { value: "cash", label: "现金" },
-    { value: "other", label: "其他" },
-] as const;
-
-export function getAssetTypeLabel(type: string): string {
-    return ASSET_TYPE_OPTIONS.find((o) => o.value === type)?.label || type || "其他";
 }
 

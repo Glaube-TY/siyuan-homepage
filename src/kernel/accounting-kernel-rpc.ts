@@ -13,24 +13,27 @@ import {
 
 const date = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 const options = z.object({ expectedUpdatedAt: z.string().optional() }).strict();
+const importMode = z.literal("backup").optional();
 const record = z.object({
   recordId: z.string().min(1), rowId: z.string(), title: z.string(),
   direction: z.enum(["expense", "income", "transfer"]), amount: z.number().finite().nonnegative(), date,
   categoryPrimary: z.string(), categorySecondary: z.string(), account: z.string(), counterAccount: z.string().optional(),
   tags: z.string(), note: z.string(), currency: z.string(), createdAt: z.string(), updatedAt: z.string(), archived: z.boolean(),
-}).strict();
+}).passthrough();
 const asset = z.object({
   accountId: z.string().min(1), rowId: z.string(), name: z.string(), type: z.string(), currency: z.string(),
-  openingBalance: z.number().finite().nonnegative(), currentBalance: z.number().finite().nonnegative(), sortOrder: z.number().finite(),
+  openingBalance: z.number().finite(), currentBalance: z.number().finite(), sortOrder: z.number().finite(),
+  balanceConvention: z.literal("signed").optional(), balanceBackupPath: z.string().optional(),
+  aliases: z.array(z.string()).optional(),
   note: z.string(), archived: z.boolean(), createdAt: z.string(), updatedAt: z.string(),
-}).strict();
+}).passthrough();
 const request = z.discriminatedUnion("action", [
   z.object({ action: z.literal("saveRecord"), args: z.tuple([record, options]) }).strict(),
   z.object({ action: z.literal("archiveRecord"), args: z.tuple([z.string().min(1), date.nullable(), options]) }).strict(),
-  z.object({ action: z.literal("mergeRecords"), args: z.tuple([z.array(record)]) }).strict(),
+  z.object({ action: z.literal("mergeRecords"), args: z.tuple([z.array(record), importMode]) }).strict(),
   z.object({ action: z.literal("saveAsset"), args: z.tuple([asset, options]) }).strict(),
   z.object({ action: z.literal("archiveAsset"), args: z.tuple([z.string().min(1), options]) }).strict(),
-  z.object({ action: z.literal("mergeAssets"), args: z.tuple([z.array(asset)]) }).strict(),
+  z.object({ action: z.literal("mergeAssets"), args: z.tuple([z.array(asset), importMode]) }).strict(),
   z.object({ action: z.literal("updateSummary"), args: z.tuple([z.array(z.number().int().min(1901).max(9999))]) }).strict(),
   z.object({ action: z.literal("rebuildSummary"), args: z.tuple([]) }).strict(),
 ]);
@@ -44,10 +47,10 @@ export async function registerAccountingKernelRpc(
     switch (input.action) {
       case "saveRecord": return saveAccountingRecord(plugin, input.args[0], input.args[1]);
       case "archiveRecord": return archiveAccountingRecord(plugin, input.args[0], input.args[1] ?? undefined, input.args[2]);
-      case "mergeRecords": return bulkMergeAccountingRecords(plugin, input.args[0]);
+      case "mergeRecords": return bulkMergeAccountingRecords(plugin, input.args[0], input.args[1]);
       case "saveAsset": return writeAccountingAsset(plugin, input.args[0], input.args[1]);
       case "archiveAsset": return archiveAccountingAsset(plugin, input.args[0], input.args[1]);
-      case "mergeAssets": return bulkMergeAccountingAssets(plugin, input.args[0]);
+      case "mergeAssets": return bulkMergeAccountingAssets(plugin, input.args[0], input.args[1]);
       case "updateSummary": return updateAccountingSummaryIndexForYears(plugin, input.args[0]);
       case "rebuildSummary": return rebuildAccountingSummaryIndex(plugin);
     }

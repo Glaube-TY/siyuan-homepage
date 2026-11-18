@@ -1,3 +1,4 @@
+import { accountingCurrency, inspectAccountingBalances, resolveAccountingAccount } from "./accountingBalances";
 import type {
     AccountingAccount,
     AccountingCalendarDayItem,
@@ -85,11 +86,13 @@ export function summarizeAccounting(
         recentLimit?: number;
         referenceDate?: Date;
         recentRecords?: AccountingRecord[];
+        currency?: string;
     } = {},
 ): AccountingSummary {
     const period = options.period || "month";
     const { start, end } = getPeriodRange(period, options.referenceDate);
-    const periodRecords = records.filter((record) => !record.archived && isWithinRange(record, start, end));
+    const currencyMatches = (record: AccountingRecord) => !options.currency || accountingCurrency(record.currency) === accountingCurrency(options.currency);
+    const periodRecords = records.filter((record) => !record.archived && currencyMatches(record) && isWithinRange(record, start, end));
     const today = formatAccountingDate(options.referenceDate || new Date());
     const incomeTotal = periodRecords
         .filter((record) => record.direction === "income")
@@ -98,7 +101,7 @@ export function summarizeAccounting(
         .filter((record) => record.direction === "expense")
         .reduce((sum, record) => sum + getPositiveAmount(record), 0);
     const todayExpense = records
-        .filter((record) => !record.archived && record.direction === "expense" && record.date === today)
+        .filter((record) => !record.archived && currencyMatches(record) && record.direction === "expense" && record.date === today)
         .reduce((sum, record) => sum + getPositiveAmount(record), 0);
     const monthlyBudget = Math.max(0, Number(options.monthlyBudget) || 0);
     const recentLimit = Math.max(1, Number(options.recentLimit) || 5);
@@ -217,7 +220,6 @@ export function formatAccountingCurrency(value: number, currency: string = "CNY"
     return new Intl.NumberFormat("zh-CN", {
         style: "currency",
         currency: currency || "CNY",
-        maximumFractionDigits: Math.abs(value) >= 100 ? 0 : 2,
     }).format(Number.isFinite(value) ? value : 0);
 }
 
@@ -227,13 +229,9 @@ export function formatAccountingCurrency(value: number, currency: string = "CNY"
 export function resolveAssetRef(
     ref: string | undefined,
     accounts: AccountingAccount[],
+    currency?: string,
 ): AccountingAccount | undefined {
-    if (!ref) return undefined;
-    return (
-        accounts.find((a) => a.accountId === ref) ||
-        accounts.find((a) => a.rowId === ref) ||
-        accounts.find((a) => a.name.toLowerCase() === ref.toLowerCase())
-    );
+    return resolveAccountingAccount(ref, accounts, currency);
 }
 
 /** Get display name for a record account reference. */
@@ -248,35 +246,7 @@ export function calculateAssetBalances(
     accounts: AccountingAccount[],
     records: AccountingRecord[],
 ): Map<string, number> {
-    const balanceMap = new Map<string, number>();
-    for (const acct of accounts) {
-        balanceMap.set(acct.accountId, acct.openingBalance);
-    }
-    const unarchived = records.filter((r) => !r.archived);
-    for (const record of unarchived) {
-        const amount = Math.max(0, Number(record.amount) || 0);
-        if (record.direction === "expense") {
-            const asset = resolveAssetRef(record.account, accounts);
-            if (asset) {
-                balanceMap.set(asset.accountId, (balanceMap.get(asset.accountId) || 0) - amount);
-            }
-        } else if (record.direction === "income") {
-            const asset = resolveAssetRef(record.account, accounts);
-            if (asset) {
-                balanceMap.set(asset.accountId, (balanceMap.get(asset.accountId) || 0) + amount);
-            }
-        } else if (record.direction === "transfer") {
-            const from = resolveAssetRef(record.account, accounts);
-            const to = resolveAssetRef(record.counterAccount, accounts);
-            if (from) {
-                balanceMap.set(from.accountId, (balanceMap.get(from.accountId) || 0) - amount);
-            }
-            if (to) {
-                balanceMap.set(to.accountId, (balanceMap.get(to.accountId) || 0) + amount);
-            }
-        }
-    }
-    return balanceMap;
+    return inspectAccountingBalances(accounts, records).balances;
 }
 
 // ── Report Utilities ──

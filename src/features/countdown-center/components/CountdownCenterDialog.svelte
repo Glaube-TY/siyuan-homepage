@@ -34,7 +34,7 @@
     type CountdownCenterSettingsFile,
   } from "@/components/utils/widgetBlock/widget/countdown/countdownCenterSettings";
   import { queryCountdownWidgetEvents } from "@/components/utils/widgetBlock/widget/countdown/countdownQuery";
-  import { createCountdownDayBoundaryWatcher } from "@/components/utils/widgetBlock/widget/countdown/countdownDateEngine";
+  import { createLocalDayBoundaryWatcher } from "@/utils/runtime/localDayBoundaryWatcher";
   import { subscribeSharedWidgetDataUpdated } from "@/components/utils/widgetBlock/widget/sharedLocalStorage/sharedWidgetDataEvents";
   import {
     loadCountdownNotifySettings,
@@ -399,7 +399,7 @@
     unsubSettings = subscribeCountdownCenterSettingsChanged(
       () => void reloadSettings(),
     );
-    stopDay = createCountdownDayBoundaryWatcher(() => {
+    stopDay = createLocalDayBoundaryWatcher(() => {
       refreshVersion += 1;
     });
     window.addEventListener(

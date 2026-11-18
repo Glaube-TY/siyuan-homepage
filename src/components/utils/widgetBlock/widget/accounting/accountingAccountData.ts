@@ -4,7 +4,9 @@ import {
     readAccountingAssets,
     writeAccountingAsset,
 } from "./accountingLocalStore";
-import { normalizeAccountingCurrency } from "./accountingConstants";
+import { accountingCurrency, signedAccountingBalance } from "./accountingBalances";
+import { readPluginJsonFileChecked } from "../sharedLocalStorage/sharedLocalStorage";
+import { ASSETS_SCHEMA } from "./accountingStoragePaths";
 import type {
     AccountingAccount,
     AccountingAccountInput,
@@ -22,14 +24,17 @@ function createAccountId(): string {
 
 export function normalizeAccount(input: AccountingAccountInput): AccountingAccount {
     const now = new Date().toISOString();
+    if (input.balanceConvention !== undefined && input.balanceConvention !== "signed") throw new Error("账户余额方式无效");
+    const openingBalance = signedAccountingBalance(input.openingBalance);
     return {
+        ...input,
         accountId: input.accountId || createAccountId(),
         rowId: input.rowId || input.accountId || createAccountId(),
         name: input.name?.trim() || "未命名资产",
         type: input.type?.trim() || "other",
-        currency: normalizeAccountingCurrency(input.currency),
-        openingBalance: Math.max(0, Number(input.openingBalance) || 0),
-        currentBalance: Math.max(0, Number(input.currentBalance) || 0),
+        currency: accountingCurrency(input.currency),
+        openingBalance,
+        currentBalance: input.currentBalance === undefined ? openingBalance : signedAccountingBalance(input.currentBalance),
         sortOrder: Number.isFinite(Number(input.sortOrder)) ? Number(input.sortOrder) : 0,
         note: input.note?.trim() || "",
         archived: input.archived ?? false,
@@ -58,12 +63,22 @@ export async function saveAccountingAccount(
     input: AccountingAccountInput,
     options: { expectedUpdatedAt?: string } = {},
 ): Promise<AccountingAccount> {
-    const account = normalizeAccount(input);
-    return writeAccountingAsset(plugin, account, options);
+    const existing = input.accountId ? (await readAccountingAssets(plugin, true)).find(a => a.accountId === input.accountId) : undefined;
+    const account = normalizeAccount({ ...existing, ...input });
+    return writeAccountingAsset(plugin, account, { expectedUpdatedAt: options.expectedUpdatedAt ?? existing?.updatedAt });
 }
 
 export async function archiveAccountingAccount(plugin: any, accountId: string, options: { expectedUpdatedAt?: string } = {}): Promise<void> {
     await archiveAsset(plugin, accountId, options);
+}
+
+export async function readAccountingAccountBackup(plugin: any, path: string): Promise<unknown> {
+    if (!/^accounting\/backups\/accounting-assets-[a-z0-9-]+\.json$/.test(path)) throw new Error("账户快照路径无效");
+    const data = await readPluginJsonFileChecked(plugin, path);
+    if (!data || typeof data !== "object" || (data as any).schema !== ASSETS_SCHEMA || ![1, 2].includes((data as any).version) || !Array.isArray((data as any).assets)) {
+        throw new Error("账户快照不存在或内容异常");
+    }
+    return data;
 }
 
 export async function bulkSaveAccountingAccounts(plugin: any, inputs: AccountingAccountInput[]): Promise<AccountingAccount[]> {

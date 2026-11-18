@@ -1,3 +1,4 @@
+import { formatLocalDate } from "./date-utils";
 import type { ComponentMigrationStatus } from "@/components/utils/widgetBlock/widget/common/componentMigrationTypes";
 import {
     rebuildTaskIndexFromGlobalSql,
@@ -69,8 +70,8 @@ function getDefaultHeatmapRange(months: number): [string, string] {
     const start = new Date(now);
     start.setMonth(start.getMonth() - clamped + 1, 1);
     return [
-        start.toISOString().split("T")[0],
-        end.toISOString().split("T")[0],
+        formatLocalDate(start),
+        formatLocalDate(end),
     ];
 }
 
