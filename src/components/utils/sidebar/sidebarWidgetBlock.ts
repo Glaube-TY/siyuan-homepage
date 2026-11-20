@@ -1,7 +1,6 @@
 import { svelteDialog } from "../../../libs/dialog";
 import WidgetBlockStyle from "./sidebarStyleSetting.svelte";
 import WidgetBlockContent from "../widgetBlock/contentSetting.svelte";
-import { setBlockSize } from "../widgetBlock/utils/block-size-handler";
 import { mountWidgetContent, type WidgetRuntimeContext } from "../widgetBlock/widgetMountRegistry";
 import { mount, unmount } from "svelte";
 import { renderSiyuanIcon } from "@/components/tools/siyuanIcon";
@@ -57,10 +56,12 @@ export class WidgetBlock {
 
     private renderControls(includeRefresh = false): string {
         return `
-            <button class="block-style-button" title="样式设置">${renderSiyuanIcon("style", 14)}</button>
-            <button class="drag-handle" title="拖拽组件">${renderSiyuanIcon("drag", 14)}</button>
-            <button class="block-content-button" title="内容设置">${renderSiyuanIcon("settings", 14)}</button>
-            ${includeRefresh ? `<button class="block-update-button" title="刷新组件">${renderSiyuanIcon("refresh", 14)}</button>` : ""}
+            <div class="sidebar-widget-controls">
+                <button type="button" class="block-content-button" title="内容设置">${renderSiyuanIcon("settings", 14)}</button>
+                ${includeRefresh ? `<button type="button" class="block-update-button" title="刷新组件">${renderSiyuanIcon("refresh", 14)}</button>` : ""}
+                <button type="button" class="drag-handle" title="拖拽组件">${renderSiyuanIcon("drag", 14)}</button>
+                <button type="button" class="block-style-button" title="样式设置">${renderSiyuanIcon("style", 14)}</button>
+            </div>
         `;
     }
 
@@ -105,8 +106,6 @@ export class WidgetBlock {
                                                     target: containerEl,
                                                     props: {
                                                         plugin: this.plugin,
-                                                        currentBlockId: this.element.id,
-                                                        deviceViewContext: this.deviceViewContext,
                                                         blockElement: this.element,
                                                         onClose: () => {
                                                             dialogRef.close();
@@ -131,10 +130,6 @@ export class WidgetBlock {
                                                             } else {
                                                                 throw new Error(`组件删除状态无法确认，请人工检查：${result.reason}`);
                                                             }
-                                                            dialogRef.close();
-                                                        },
-                                                        onSetSize: (size: number) => {
-                                                            setBlockSize(this.currentBlockForSettingsRef.value, size, 4);
                                                             dialogRef.close();
                                                         },
                                                     },

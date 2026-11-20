@@ -1,16 +1,15 @@
 <script lang="ts">
     import { onMount } from "svelte";
+    import { showMessage } from "siyuan";
     import { saveLayout as saveSidebarLayout } from "@/components/utils/sidebar/widget_layout";
     import SiyuanIcon from "@/components/utils/shared/SiyuanIcon.svelte";
+    import { setBlockSize } from "../widgetBlock/utils/block-size-handler";
 
     interface Props {
         // 弹窗接收的 props
         plugin: any;
         onClose: () => void;
         onDelete: () => void;
-        onSetSize: (size: number) => void;
-        // 新增：接收当前区块的ID
-        currentBlockId?: string;
         // 新增：背景颜色和透明度
         backgroundColor?: string;
         backgroundOpacity?: number;
@@ -24,14 +23,39 @@
         plugin,
         onClose,
         onDelete,
-        onSetSize,
-        currentBlockId = "",
         backgroundColor = $bindable("#ffffff"),
         backgroundOpacity = $bindable(0.5),
         borderColor = $bindable("#000000"),
         borderWidth = $bindable(1),
         blockElement = null,
     }: Props = $props();
+
+    const rowSpans = [1, 2, 3, 4];
+    let savingSize = $state(false);
+
+    async function applySize(rows: number, columns: number): Promise<void> {
+        const element = blockElement;
+        const container = element?.parentElement;
+        if (!element || !container?.isConnected || savingSize) return;
+
+        const previousStyle = element.getAttribute("style");
+        savingSize = true;
+        try {
+            await setBlockSize(element, rows * 10 + columns, rowSpans.length);
+            if (!(await saveSidebarLayout(plugin, container))) {
+                throw new Error("侧边栏布局保存被拒绝");
+            }
+        } catch (error) {
+            if (previousStyle === null) element.removeAttribute("style");
+            else element.setAttribute("style", previousStyle);
+            console.warn("[Sidebar] 保存组件尺寸失败", error);
+            showMessage("组件尺寸保存失败，请重试。", 5000, "error");
+            return;
+        } finally {
+            savingSize = false;
+        }
+        onClose();
+    }
 
     // 更新背景的方法
     function updateBackground() {
@@ -132,311 +156,33 @@
 
     onMount(() => {
         loadCurrentStyles();
-        updateBackground();
-        updateBorder();
     });
 </script>
 
-<div class="settings-group">
+<div class="settings-group" aria-busy={savingSize}>
     <div class="setting-item">
         <div class="size-options-row">
-            <h4 style="margin-bottom: 0.5rem;">改变尺寸</h4>
+            <h4>改变尺寸</h4>
 
-            <div class="size-options-row-one">
-                <!-- 1x1 -->
-                <button
-                    type="button"
-                    class="size-option"
-                    aria-label="设置为 1x1 尺寸"
-                    onclick={() => {
-                        onSetSize(11);
-                        saveSidebarLayout(plugin);
-                    }}
-                >
-                    <svg
-                        width="30"
-                        height="30"
-                        viewBox="0 0 100 100"
-                        xmlns="http://www.w3.org/2000/svg"
-                    >
-                        <rect x="5" y="5" width="40" height="40" fill="black" />
-                        <rect
-                            x="55"
-                            y="5"
-                            width="40"
-                            height="40"
-                            fill="#CCCCCC"
-                        />
-                        <rect
-                            x="5"
-                            y="55"
-                            width="40"
-                            height="40"
-                            fill="#CCCCCC"
-                        />
-                        <rect
-                            x="55"
-                            y="55"
-                            width="40"
-                            height="40"
-                            fill="#CCCCCC"
-                        />
-                    </svg>
-                </button>
-
-                <!-- 2x1 -->
-                <button
-                    type="button"
-                    class="size-option"
-                    aria-label="设置为 2x1 尺寸"
-                    onclick={() => {
-                        onSetSize(21);
-                        saveSidebarLayout(plugin);
-                    }}
-                >
-                    <svg
-                        width="30"
-                        height="30"
-                        viewBox="0 0 100 100"
-                        xmlns="http://www.w3.org/2000/svg"
-                    >
-                        <rect x="5" y="5" width="40" height="40" fill="black" />
-                        <rect
-                            x="55"
-                            y="5"
-                            width="40"
-                            height="40"
-                            fill="#CCCCCC"
-                        />
-                        <rect
-                            x="5"
-                            y="55"
-                            width="40"
-                            height="40"
-                            fill="black"
-                        />
-                        <rect
-                            x="55"
-                            y="55"
-                            width="40"
-                            height="40"
-                            fill="#CCCCCC"
-                        />
-                    </svg>
-                </button>
-
-                <!-- 3x1 -->
-                <button
-                    type="button"
-                    class="size-option"
-                    aria-label="设置为 3x1 尺寸"
-                    onclick={() => {
-                        onSetSize(31);
-                        saveSidebarLayout(plugin);
-                    }}
-                >
-                    <svg
-                        width="30"
-                        height="30"
-                        viewBox="0 0 100 100"
-                        xmlns="http://www.w3.org/2000/svg"
-                    >
-                        <!-- 第一列 - 黑色 -->
-                        <rect x="5" y="5" width="28" height="28" fill="black" />
-                        <rect
-                            x="5"
-                            y="38"
-                            width="28"
-                            height="28"
-                            fill="black"
-                        />
-                        <rect
-                            x="5"
-                            y="71"
-                            width="28"
-                            height="28"
-                            fill="black"
-                        />
-
-                        <!-- 第二列 - 灰色 -->
-                        <rect
-                            x="38"
-                            y="5"
-                            width="28"
-                            height="28"
-                            fill="#CCCCCC"
-                        />
-                        <rect
-                            x="38"
-                            y="38"
-                            width="28"
-                            height="28"
-                            fill="#CCCCCC"
-                        />
-                        <rect
-                            x="38"
-                            y="71"
-                            width="28"
-                            height="28"
-                            fill="#CCCCCC"
-                        />
-
-                        <!-- 第三列 - 灰色 -->
-                        <rect
-                            x="71"
-                            y="5"
-                            width="28"
-                            height="28"
-                            fill="#CCCCCC"
-                        />
-                        <rect
-                            x="71"
-                            y="38"
-                            width="28"
-                            height="28"
-                            fill="#CCCCCC"
-                        />
-                        <rect
-                            x="71"
-                            y="71"
-                            width="28"
-                            height="28"
-                            fill="#CCCCCC"
-                        />
-                    </svg>
-                </button>
-
-                <!-- 4x1 -->
-                <button
-                    type="button"
-                    class="size-option"
-                    aria-label="设置为 4x1 尺寸"
-                    onclick={() => {
-                        onSetSize(41);
-                        saveSidebarLayout(plugin);
-                    }}
-                >
-                    <svg
-                        width="30"
-                        height="30"
-                        viewBox="0 0 200 200"
-                        xmlns="http://www.w3.org/2000/svg"
-                    >
-                        <!-- 第一列 - 黑色 -->
-                        <rect x="5" y="5" width="40" height="40" fill="black" />
-                        <rect
-                            x="5"
-                            y="55"
-                            width="40"
-                            height="40"
-                            fill="black"
-                        />
-                        <rect
-                            x="5"
-                            y="105"
-                            width="40"
-                            height="40"
-                            fill="black"
-                        />
-                        <rect
-                            x="5"
-                            y="155"
-                            width="40"
-                            height="40"
-                            fill="black"
-                        />
-
-                        <!-- 其他列 - 灰色 -->
-                        <rect
-                            x="55"
-                            y="5"
-                            width="40"
-                            height="40"
-                            fill="#CCCCCC"
-                        />
-                        <rect
-                            x="105"
-                            y="5"
-                            width="40"
-                            height="40"
-                            fill="#CCCCCC"
-                        />
-                        <rect
-                            x="155"
-                            y="5"
-                            width="40"
-                            height="40"
-                            fill="#CCCCCC"
-                        />
-
-                        <rect
-                            x="55"
-                            y="55"
-                            width="40"
-                            height="40"
-                            fill="#CCCCCC"
-                        />
-                        <rect
-                            x="105"
-                            y="55"
-                            width="40"
-                            height="40"
-                            fill="#CCCCCC"
-                        />
-                        <rect
-                            x="155"
-                            y="55"
-                            width="40"
-                            height="40"
-                            fill="#CCCCCC"
-                        />
-
-                        <rect
-                            x="55"
-                            y="105"
-                            width="40"
-                            height="40"
-                            fill="#CCCCCC"
-                        />
-                        <rect
-                            x="105"
-                            y="105"
-                            width="40"
-                            height="40"
-                            fill="#CCCCCC"
-                        />
-                        <rect
-                            x="155"
-                            y="105"
-                            width="40"
-                            height="40"
-                            fill="#CCCCCC"
-                        />
-
-                        <rect
-                            x="55"
-                            y="155"
-                            width="40"
-                            height="40"
-                            fill="#CCCCCC"
-                        />
-                        <rect
-                            x="105"
-                            y="155"
-                            width="40"
-                            height="40"
-                            fill="#CCCCCC"
-                        />
-                        <rect
-                            x="155"
-                            y="155"
-                            width="40"
-                            height="40"
-                            fill="#CCCCCC"
-                        />
-                    </svg>
-                </button>
-            </div>
+            {#each [1, 2] as columns (columns)}
+                {@const label = columns === 1 ? "单列" : "双列"}
+                <div class="size-options-group" role="group" aria-label={label}>
+                    <span>{label}</span>
+                    <div class="size-options">
+                        {#each rowSpans as rows (rows)}
+                            <button
+                                type="button"
+                                class="b3-button b3-button--outline size-option"
+                                aria-label={`设置为 ${rows} 行 ${columns} 列`}
+                                disabled={savingSize}
+                                onclick={() => applySize(rows, columns)}
+                            >
+                                {rows}×{columns}
+                            </button>
+                        {/each}
+                    </div>
+                </div>
+            {/each}
         </div>
     </div>
 
@@ -453,6 +199,7 @@
                         id="bg-color"
                         type="color"
                         bind:value={backgroundColor}
+                        disabled={savingSize}
                         onchange={() => {
                             updateBackground();
                         saveSidebarLayout(plugin);
@@ -470,6 +217,7 @@
                         max="1"
                         step="0.01"
                         bind:value={backgroundOpacity}
+                        disabled={savingSize}
                         oninput={() => {
                             updateBackground();
                         saveSidebarLayout(plugin);
@@ -488,6 +236,7 @@
                         id="border-color"
                         type="color"
                         bind:value={borderColor}
+                        disabled={savingSize}
                         onchange={() => {
                             updateBorder();
                         saveSidebarLayout(plugin);
@@ -505,6 +254,7 @@
                         max="10"
                         step="1"
                         bind:value={borderWidth}
+                        disabled={savingSize}
                         oninput={() => {
                             updateBorder();
                             saveSidebarLayout(plugin);
@@ -518,11 +268,11 @@
 
     <!-- 操作按钮：删除和取消在一行 -->
     <div class="action-buttons-row">
-        <button class="delete-button" onclick={onDelete}>
+        <button class="delete-button" disabled={savingSize} onclick={onDelete}>
             <SiyuanIcon name="delete" size={14} />
             <span>删除组件</span>
         </button>
-        <button class="cancel-button" onclick={onClose}>
+        <button class="cancel-button" disabled={savingSize} onclick={onClose}>
             <SiyuanIcon name="cancel" size={14} />
             <span>取消</span>
         </button>
@@ -552,24 +302,21 @@
             align-items: center;
         }
 
-        .size-options-row-one {
+        .size-options-row h4 {
+            margin: 0 0 0.25rem;
+        }
+
+        .size-options-group,
+        .size-options {
             display: flex;
-            gap: 1rem;
+            gap: 0.5rem;
             flex-wrap: wrap;
             align-items: center;
+            justify-content: center;
         }
 
         .size-option {
-            background: var(--b3-theme-background);
-            border-radius: 10px;
-            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-        }
-
-        .size-option:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 4px 12px rgba(99, 102, 241, 0.2);
-            border-color: var(--b3-theme-primary);
+            min-inline-size: 2.375rem;
         }
 
         .color-picker-group label,

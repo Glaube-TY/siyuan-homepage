@@ -3,7 +3,7 @@ import { WidgetBlock } from "./sidebarWidgetBlock";
 import { saveLayoutForContainer, restoreLayoutForContainer } from "../widgetBlock/utils/layout-shared";
 
 export async function saveLayout(plugin: Plugin, containerEl?: HTMLElement | null) {
-    await saveLayoutForContainer(plugin, {
+    return saveLayoutForContainer(plugin, {
         containerSelector: ".sidebar-widget",
         layoutFileName: "desktop-sidebar",
         containerEl,

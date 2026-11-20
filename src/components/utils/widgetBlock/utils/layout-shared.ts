@@ -1440,7 +1440,9 @@ function recoverGridSpanFromWidgetConfig(
     const sanitizedStyle = style?.trim() || "";
     const hasColumnSpan = /grid-column(?:-end)?\s*:\s*span\s+\d+/i.test(sanitizedStyle);
     const hasRowSpan = /grid-row(?:-end)?\s*:\s*span\s+\d+/i.test(sanitizedStyle);
-    if (hasColumnSpan && hasRowSpan) return style;
+    // CSSOM 可能把行、列跨度一起序列化为 grid-area。
+    const hasGridAreaSpans = /(?:^|;)\s*grid-area\s*:\s*span\s+\d+\s*\/\s*span\s+\d+\b/i.test(sanitizedStyle);
+    if (hasGridAreaSpans || (hasColumnSpan && hasRowSpan)) return style;
 
     const config = normalizeWidgetConfigData(contentData);
     let rowSize = Number(config?.rowSize);
