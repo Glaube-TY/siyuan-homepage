@@ -1,8 +1,11 @@
 <script lang="ts">
     import { onMount, onDestroy } from "svelte";
     import { showMessage } from "siyuan";
+    import { getTaskIndexResult } from "@/components/tools/siyuanComponentDataApi";
+    import { parseTaskLine, type GenerateTasksPlusTaskInput } from "@/features/task-data/task-parser";
+    import { isEnhancedDiarySystemTaskMarkdown } from "../../enhancedDiaryUtils";
     import type { EnhancedDiaryWorkspaceTask } from "../enhancedDiaryWorkspaceTaskService";
-    import type { GenerateTasksPlusTaskInput } from "@/features/task-data/task-parser";
+    import { loadCommonTaskNames, updateCommonTaskName } from "../enhancedDiaryCommonTasks";
     import WorkspaceIcon from "./WorkspaceIcon.svelte";
     import WorkspaceProjectPicker from "./WorkspaceProjectPicker.svelte";
     import { loadEnhancedDiaryProjectIndexForWorkspace } from "../enhancedDiaryWorkspaceProjectService";
@@ -37,6 +40,15 @@
     let projectLoading = $state(false);
     let submitting = $state(false);
     let submitted = $state(false);
+    let commonTaskNames = $state<string[] | null>(null);
+    let commonTasksLoadFailed = $state(false);
+    let savingCommonTask = $state(false);
+    let indexedTaskNames = $state.raw<Map<string, string> | null>(null);
+    let taskNamesRequested = false;
+    let nameSuggestionsOpen = $state(false);
+    let activeNameSuggestion = $state(-1);
+    const nameSuggestionsId = $props.id();
+    let taskNameInput: HTMLInputElement;
     let alive = true;
     onDestroy(() => { alive = false; });
 
@@ -50,6 +62,27 @@
 
     const hasExtended = $derived(recurrence !== "" || reminder !== "" || location !== "");
     const dateRangeInvalid = $derived(!!startDate && !!deadline && startDate > deadline);
+    const currentTaskName = $derived(taskname.trim());
+    const isCommonTask = $derived(commonTaskNames?.includes(currentTaskName) ?? false);
+    const commonTaskBusy = $derived(savingCommonTask || submitting || submitted);
+    const nameSuggestions = $derived.by(() => {
+        if (!nameSuggestionsOpen || !indexedTaskNames) return [];
+        const query = currentTaskName.toLowerCase();
+        const limit = 6;
+        const exact = indexedTaskNames.get(query);
+        const bestMatches = exact ? [exact] : [];
+        const partialMatches: string[] = [];
+        for (const [key, name] of indexedTaskNames) {
+            if (key === query) continue;
+            if (key.startsWith(query)) {
+                bestMatches.push(name);
+                if (bestMatches.length === limit) break;
+            } else if (partialMatches.length < limit && key.includes(query)) {
+                partialMatches.push(name);
+            }
+        }
+        return [...bestMatches, ...partialMatches].slice(0, limit);
+    });
     const availableTagSuggestions = $derived(tagSuggestions.filter((tag) =>
         !parseTags(tagsText).some((selected) => selected.toLocaleLowerCase() === tag.toLocaleLowerCase())
     ));
@@ -88,6 +121,82 @@
         }
     }
 
+    async function refreshCommonTasks(): Promise<void> {
+        commonTaskNames = null;
+        commonTasksLoadFailed = false;
+        try {
+            const names = await loadCommonTaskNames();
+            if (alive) commonTaskNames = names;
+        } catch {
+            if (alive) commonTasksLoadFailed = true;
+        }
+    }
+
+    async function changeCommonTask(name: string, operation: "save" | "remove"): Promise<void> {
+        if (!alive || commonTaskBusy || commonTaskNames === null) return;
+        savingCommonTask = true;
+        try {
+            const names = await updateCommonTaskName(name, operation);
+            if (alive) {
+                commonTaskNames = names;
+                if (operation === "remove") taskNameInput?.focus();
+            }
+        } catch (error) {
+            if (alive) {
+                showMessage(error instanceof Error ? error.message : "常用任务保存失败", 4000, "error");
+                await refreshCommonTasks();
+            }
+        } finally {
+            if (alive) savingCommonTask = false;
+        }
+    }
+
+    async function handleTaskNameInput(event: Event & { currentTarget: HTMLInputElement }): Promise<void> {
+        if (mode !== "create" || (event as InputEvent).isComposing) return;
+        activeNameSuggestion = -1;
+        nameSuggestionsOpen = [...event.currentTarget.value.trim()].length >= 2;
+        if (!nameSuggestionsOpen || taskNamesRequested) return;
+        taskNamesRequested = true;
+        try {
+            const { items } = await getTaskIndexResult();
+            if (!alive) return;
+            const names = new Map<string, string>();
+            for (const item of items) {
+                const { taskname: name, markdown } = parseTaskLine(item.markdown || item.content || "");
+                const key = name.toLowerCase();
+                if (key && !names.has(key) && !isEnhancedDiarySystemTaskMarkdown(markdown)) names.set(key, name);
+            }
+            indexedTaskNames = names;
+        } catch {
+            if (alive) showMessage("任务联想加载失败，请检查任务索引", 4000, "error");
+        }
+    }
+
+    function fillTaskName(name: string): void {
+        taskname = name;
+        nameSuggestionsOpen = false;
+    }
+
+    function handleTaskNameKeydown(event: KeyboardEvent): void {
+        if (!nameSuggestions.length || event.isComposing || event.keyCode === 229) return;
+        if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+            event.preventDefault();
+            const lastIndex = nameSuggestions.length - 1;
+            if (event.key === "ArrowDown") activeNameSuggestion = Math.min(activeNameSuggestion + 1, lastIndex);
+            else activeNameSuggestion = activeNameSuggestion < 0 ? lastIndex : Math.max(0, activeNameSuggestion - 1);
+            taskNameInput.ownerDocument.getElementById(`${nameSuggestionsId}-${activeNameSuggestion}`)
+                ?.scrollIntoView({ block: "nearest" });
+        } else if (event.key === "Enter" && activeNameSuggestion >= 0) {
+            event.preventDefault();
+            event.stopPropagation();
+            fillTaskName(nameSuggestions[activeNameSuggestion]);
+        } else if (event.key === "Escape") {
+            event.preventDefault();
+            event.stopPropagation();
+            nameSuggestionsOpen = false;
+        }
+    }
+
     function addSuggestedTag(tag: string): void {
         tagsText = [...parseTags(tagsText), tag].join(" ");
     }
@@ -109,6 +218,7 @@
         projectTargetId = task?.projectTargetId || initialInput.projectTargetId || "";
         projectAssociationEnabled = !!projectTargetId;
         showMore = !!(recurrence || reminder || location);
+        if (mode === "create") void refreshCommonTasks();
         if (isEnhancedDiaryProjectStorageReady(projectStorage)) {
             projectLoading = true;
             loadEnhancedDiaryProjectIndexForWorkspace(projectStorage!)
@@ -129,17 +239,74 @@
 
 <div class="task-editor-panel">
     <div class="panel-section panel-name">
-        <label class="task-name-label" for="workspace-task-name">
-            <span>任务名称</span>
-            <small>必填</small>
-        </label>
-        <input
-            id="workspace-task-name"
-            type="text"
-            class="b3-text-field task-name-input"
-            bind:value={taskname}
-            placeholder="输入任务名称"
-        />
+        <div class="task-name-header">
+            <label class="task-name-label" for="workspace-task-name">
+                <span>任务名称</span>
+                <small>必填</small>
+            </label>
+            {#if mode === "create"}
+                <button type="button" class="wk-btn wk-btn-ghost"
+                    disabled={!currentTaskName || commonTaskNames === null || isCommonTask || commonTaskBusy}
+                    onclick={() => changeCommonTask(currentTaskName, "save")}>
+                    {isCommonTask ? "已存为常用" : "存为常用"}
+                </button>
+            {/if}
+        </div>
+        <div class="task-name-field">
+            <input
+                id="workspace-task-name"
+                type="text"
+                class="b3-text-field task-name-input"
+                bind:this={taskNameInput}
+                bind:value={taskname}
+                placeholder="输入任务名称"
+                autocomplete={mode === "create" ? "off" : undefined}
+                role={mode === "create" ? "combobox" : undefined}
+                aria-autocomplete={mode === "create" ? "list" : undefined}
+                aria-expanded={mode === "create" ? nameSuggestions.length > 0 : undefined}
+                aria-controls={nameSuggestions.length ? nameSuggestionsId : undefined}
+                aria-activedescendant={nameSuggestions[activeNameSuggestion] ? `${nameSuggestionsId}-${activeNameSuggestion}` : undefined}
+                oninput={handleTaskNameInput}
+                oncompositionstart={() => (nameSuggestionsOpen = false)}
+                oncompositionend={handleTaskNameInput}
+                onblur={() => (nameSuggestionsOpen = false)}
+                onkeydown={handleTaskNameKeydown}
+            />
+            {#if nameSuggestions.length}
+                <div id={nameSuggestionsId} class="task-name-suggestions" role="listbox" aria-label="任务名称联想">
+                    {#each nameSuggestions as name, index (name)}
+                        <button type="button" role="option" tabindex="-1" id={`${nameSuggestionsId}-${index}`}
+                            aria-selected={index === activeNameSuggestion} title={name}
+                            onmousedown={(event) => event.preventDefault()} onclick={() => fillTaskName(name)}>
+                            {name}
+                        </button>
+                    {/each}
+                </div>
+            {/if}
+        </div>
+        {#if commonTaskNames?.length}
+            <div class="common-task-list" role="group" aria-label="常用任务">
+                <span aria-hidden="true">常用任务</span>
+                {#each commonTaskNames as name (name)}
+                    <div class="common-task-item">
+                        <button type="button" class="wk-btn wk-btn-ghost common-task-name" title={name}
+                            disabled={commonTaskBusy} onclick={() => fillTaskName(name)}>
+                            <span>{name}</span>
+                        </button>
+                        <button type="button" class="wk-btn common-task-remove"
+                            title="移除常用任务" aria-label={`移除常用任务 ${name}`}
+                            disabled={commonTaskBusy} onclick={() => changeCommonTask(name, "remove")}>
+                            <WorkspaceIcon name="close" size={12} />
+                        </button>
+                    </div>
+                {/each}
+            </div>
+        {:else if commonTasksLoadFailed}
+            <div class="common-task-list">
+                <span role="status">常用任务读取失败</span>
+                <button type="button" class="wk-btn wk-btn-ghost" onclick={refreshCommonTasks}>重试</button>
+            </div>
+        {/if}
     </div>
 
     <div class="panel-section project-association-section">
@@ -259,11 +426,18 @@
         padding-bottom: 10px;
     }
 
+    .task-name-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        margin-bottom: 7px;
+    }
+
     .task-name-label {
         display: flex;
         align-items: baseline;
         gap: 6px;
-        margin-bottom: 7px;
         color: var(--wk-ink-secondary);
         font-size: var(--wk-text-sm);
         font-weight: 600;
@@ -273,6 +447,35 @@
         color: var(--wk-ink-faint);
         font-size: var(--wk-text-xs);
         font-weight: 400;
+    }
+
+    .common-task-list {
+        display: flex;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 5px;
+        margin-top: 8px;
+        color: var(--wk-ink-muted);
+        font-size: var(--wk-text-sm);
+    }
+
+    .task-name-header .wk-btn,
+    .common-task-list .wk-btn {
+        min-height: 26px;
+        padding: 3px 7px;
+        font-size: var(--wk-text-sm);
+    }
+
+    .common-task-item { display: inline-flex; max-width: 100%; }
+    .common-task-name { min-width: 0; }
+    .common-task-name span { overflow: hidden; text-overflow: ellipsis; }
+    .common-task-remove { flex: none; }
+    .common-task-remove:hover:not(:disabled) { color: var(--wk-primary); }
+
+    .task-name-header button:focus-visible,
+    .common-task-list button:focus-visible {
+        outline: 2px solid var(--wk-primary);
+        outline-offset: -2px;
     }
 
     .task-name-input {
@@ -296,6 +499,46 @@
     .task-name-input::placeholder {
         color: var(--wk-ink-faint);
         font-weight: 400;
+    }
+
+    .task-name-field { position: relative; }
+
+    .task-name-suggestions {
+        position: absolute;
+        z-index: 3;
+        inset: calc(100% + 4px) 0 auto;
+        box-sizing: border-box;
+        max-height: min(224px, 40dvh);
+        overflow: auto;
+        overscroll-behavior: contain;
+        padding: 4px;
+        border: 1px solid var(--wk-border);
+        border-radius: var(--wk-radius-md);
+        background: var(--wk-surface);
+        box-shadow: var(--wk-shadow-popover);
+    }
+
+    .task-name-suggestions button {
+        display: block;
+        width: 100%;
+        min-height: 34px;
+        padding: 6px 9px;
+        border: 0;
+        border-radius: var(--wk-radius-sm);
+        background: transparent;
+        color: var(--wk-ink);
+        font: inherit;
+        font-size: var(--wk-text-base);
+        text-align: start;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        cursor: pointer;
+    }
+
+    .task-name-suggestions button:hover,
+    .task-name-suggestions button[aria-selected="true"] {
+        background: var(--wk-primary-subtle);
     }
 
     .project-association-section { display: grid; }

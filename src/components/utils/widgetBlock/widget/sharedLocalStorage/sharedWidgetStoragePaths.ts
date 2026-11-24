@@ -2,6 +2,7 @@ export type SharedWidgetStore =
   | "focus"
   | "cybmok"
   | "countdown"
+  | "enhanced-diary-common-tasks"
   | "global-calendar"
   | "habit-tracker"
   | "fixed-assets"
@@ -12,6 +13,7 @@ export const CYBMOK_INDEX_FILE = "cybmok/cybmok-index.json";
 export const COUNTDOWN_EVENTS_FILE = "countdown/countdown-events.json";
 export const COUNTDOWN_CENTER_SETTINGS_FILE =
   "countdown/countdown-center-settings.json";
+export const ENHANCED_DIARY_COMMON_TASKS_FILE = "enhanced-diary/common-tasks.json";
 export const GLOBAL_CALENDAR_EVENTS_FILE = "global-calendar/events.json";
 export const HABIT_TRACKER_FILE = "habit-tracker/habits.json";
 export const FIXED_ASSETS_FILE = "fixed-assets/fixed-assets.json";
@@ -24,6 +26,8 @@ export const CYBMOK_BATCHES_SCHEMA = "siyuan-homepage-cybmok-batches";
 export const COUNTDOWN_EVENTS_SCHEMA = "siyuan-homepage-countdown-events";
 export const COUNTDOWN_CENTER_SETTINGS_SCHEMA =
   "siyuan-homepage-countdown-center-settings";
+export const ENHANCED_DIARY_COMMON_TASKS_SCHEMA =
+  "siyuan-homepage-enhanced-diary-common-tasks";
 export const GLOBAL_CALENDAR_EVENTS_SCHEMA =
   "siyuan-homepage-global-calendar-events";
 export const HABIT_TRACKER_SCHEMA = "siyuan-homepage-habit-tracker";
