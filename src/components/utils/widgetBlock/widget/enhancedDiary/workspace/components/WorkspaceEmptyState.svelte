@@ -4,43 +4,43 @@
         description?: string;
         actionLabel?: string;
         onAction?: () => void;
+        secondaryActionLabel?: string;
+        onSecondaryAction?: () => void;
     }
 
-    let { title, description = "", actionLabel = "", onAction }: Props = $props();
+    let {
+        title, description, actionLabel, onAction, secondaryActionLabel, onSecondaryAction,
+    }: Props = $props();
 </script>
 
 <div class="empty-state">
     <strong>{title}</strong>
-    {#if description}
-        <p>{description}</p>
+    {#if description}<p>{description}</p>{/if}
+    {#if (actionLabel && onAction) || (secondaryActionLabel && onSecondaryAction)}
+        <div class="actions">
+            {#if actionLabel && onAction}
+                <button type="button" class="wk-btn wk-btn-primary" onclick={onAction}>{actionLabel}</button>
+            {/if}
+            {#if secondaryActionLabel && onSecondaryAction}
+                <button type="button" class="wk-btn wk-btn-ghost" onclick={onSecondaryAction}>{secondaryActionLabel}</button>
+            {/if}
+        </div>
     {/if}
-    {#if actionLabel && onAction}<button type="button" onclick={onAction}>{actionLabel}</button>{/if}
 </div>
 
 <style>
     .empty-state {
-        border: 1px dashed var(--wk-border);
+        display: grid;
+        justify-items: center;
+        gap: 6px;
+        padding: 24px 16px;
+        border: 1px solid var(--wk-border-light);
         border-radius: var(--wk-radius-sm);
-        padding: 20px 16px;
-        background: transparent;
-        color: var(--wk-ink);
+        background: var(--wk-surface-3);
         text-align: center;
     }
 
-    strong {
-        display: block;
-        font-size: var(--wk-text-base);
-        font-weight: 500;
-        color: var(--wk-ink-muted);
-        margin-bottom: 5px;
-    }
-
-    p {
-        margin: 0;
-        font-size: var(--wk-text-sm);
-        line-height: 1.5;
-        color: var(--wk-ink-faint);
-    }
-
-    button { margin-top: 10px; padding: 5px 10px; border: 1px solid var(--wk-border); border-radius: 7px; background: var(--wk-surface); color: var(--wk-primary); cursor: pointer; }
+    strong { color: var(--wk-ink); font-size: var(--wk-text-base); font-weight: 600; }
+    p { margin: 0; color: var(--wk-ink-secondary); font-size: var(--wk-text-sm); line-height: 1.5; }
+    .actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; margin-top: 6px; }
 </style>

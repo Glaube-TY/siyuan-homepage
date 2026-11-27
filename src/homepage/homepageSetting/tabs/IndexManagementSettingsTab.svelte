@@ -428,7 +428,7 @@
     </SettingRow>
 </SettingSection>
 
-<SettingSection title="收藏文档索引">
+<SettingSection title="收藏文档索引" focusKey="index-favorites">
     <SettingRow
         title="刷新收藏索引"
         description="检查收藏索引中的文档是否仍然存在，并移除已失效的记录。"
@@ -452,7 +452,7 @@
     {/if}
 </SettingSection>
 
-<SettingSection title="复习文档索引">
+<SettingSection title="复习文档索引" focusKey="index-review">
     <SettingRow
         title="刷新复习索引"
         description="检查复习索引中的文档和内容块是否仍然存在，并移除已失效的记录。"
@@ -476,7 +476,7 @@
     {/if}
 </SettingSection>
 
-<SettingSection title="任务索引">
+<SettingSection title="任务索引" focusKey="index-tasks">
     <SettingRow
         title="刷新最近文档增量索引"
         description="基于最近文档快照，只对变动文档按 root_id 精确刷新任务索引，不做全库扫描。"
@@ -513,7 +513,7 @@
     {/if}
 </SettingSection>
 
-<SettingSection title="热力图索引">
+<SettingSection title="热力图索引" focusKey="index-heatmap">
     <SettingRow title="重建范围（月）" description="设置热力图重建的月份范围，默认 12 个月（1-60）">
         <input
             type="number"

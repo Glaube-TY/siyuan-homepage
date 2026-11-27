@@ -133,11 +133,13 @@ export async function getLatestFavoritesNotes(
     notebookId: string | undefined,
     includeBuiltinDocIcon: boolean | undefined,
     plugin?: any,
+    readOnly = false,
 ): Promise<ComponentDataResult<ComponentDocInfo>> {
     void includeBuiltinDocIcon;
     const result = await getFavoritesIndexResult(
         splitNotebookIds(notebookId),
         plugin,
+        readOnly,
     );
     return {
         ...result,

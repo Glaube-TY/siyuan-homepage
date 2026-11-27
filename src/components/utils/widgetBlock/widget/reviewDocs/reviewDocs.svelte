@@ -35,7 +35,6 @@
         parseIntervalsText,
         shouldUseIntervalSchedule,
     } from "./reviewDocsSchedule";
-    import { ensureReviewIndexInitialized } from "@/components/tools/siyuanComponentDataApi";
     import {
         DEFAULT_REVIEW_DOCS_CONFIG,
         type ReviewDocsConfig,
@@ -61,7 +60,7 @@
     let logStatusMessage = $state("");
     let todayReviewed = $state<number | null>(null);
     let reviewIndexStatus = $state<"ok" | "empty" | "limited" | "disabled" | "unsupported" | "error">("empty");
-    let reviewIndexMessage = $state("复习索引为空；新增复习计划后会写入索引。");
+    let reviewIndexMessage = $state("");
     let currentView = $state<ReviewView>("due");
     let currentSortBy = $state<ReviewSortBy>("dueAsc");
     let selectedCategory = $state("");
@@ -121,23 +120,29 @@
         };
     }
 
-    async function refreshAll() {
+    async function refreshAll(readOnly = false) {
         if (!advancedEnabled || isDestroyed) return;
+        let indexRead = false;
         try {
-            await ensureReviewIndexInitialized(plugin);
-            if (isDestroyed) return;
-            const result = await loadAllReviewItemsResult(plugin, reviewDocsSelectedNotebookIds);
+            const result = await loadAllReviewItemsResult(plugin, reviewDocsSelectedNotebookIds, readOnly);
             if (isDestroyed) return;
             allItems = result.items;
             reviewIndexStatus = result.status;
-            reviewIndexMessage = result.message || reviewIndexMessage;
+            reviewIndexMessage = result.message || "";
+            indexRead = true;
+            if (readOnly) return;
             const stats = await loadReviewLogStats();
             if (isDestroyed) return;
             todayReviewed = stats.todayReviewed;
             logStatusMessage = stats.statusMessage;
         } catch (error) {
             if (isDestroyed) return;
-            showMessage(error instanceof Error ? error.message : "复习文档加载失败", 4000);
+            const message = error instanceof Error ? error.message : "复习文档加载失败";
+            if (!indexRead) {
+                reviewIndexStatus = "error";
+                reviewIndexMessage = message;
+            }
+            if (!readOnly) showMessage(message, 4000);
         } finally {
             if (!isDestroyed) {
                 isLoading = false;
@@ -533,17 +538,22 @@
                 <div class="empty-state">加载复习计划...</div>
             {:else if visibleItems.length === 0}
                 {#if reviewIndexStatus === "disabled"}
-                    <LocalIndexEmptyState
-                        title="本地索引为空"
-                        message="复习本地索引为空，请新增复习计划或刷新索引。"
-                        {plugin}
-                        hint="新增复习计划会进入本地索引；也可到主页设置 > 检索管理中刷新索引。"
-                    />
+                    <LocalIndexEmptyState title="复习索引未建立" state="unindexed" {plugin} indexFocusKey="index-review" />
+                {:else if reviewIndexStatus === "error" || reviewIndexStatus === "unsupported"}
+                    <LocalIndexEmptyState title="复习索引暂不可用" message={reviewIndexMessage} state="error"
+                        {plugin} indexFocusKey="index-review" onRetry={() => refreshAll(true)} />
+                {:else if allItems.length}
+                    <LocalIndexEmptyState title="没有匹配的复习计划" {plugin} indexFocusKey="index-review"
+                        actionLabel="查看全部" onAction={() => {
+                            currentView = "all";
+                            selectedCategory = "";
+                            selectedPriority = "all";
+                            searchText = "";
+                        }} />
                 {:else}
-                    <div class="empty-state">
-                        <strong>暂无可显示的复习计划</strong>
-                        <span>{reviewIndexMessage}</span>
-                    </div>
+                    <LocalIndexEmptyState title="暂无复习计划"
+                        message={reviewIndexStatus === "limited" ? reviewIndexMessage : "可从文档或块菜单加入复习计划。"}
+                        {plugin} indexFocusKey="index-review" />
                 {/if}
             {:else}
                 {#each visibleItems as item}

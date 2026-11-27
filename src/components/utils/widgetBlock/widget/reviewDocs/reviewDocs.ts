@@ -210,18 +210,19 @@ function filterReviewItemsByNotebooks<T extends { box?: string }>(
 export async function loadAllReviewItemsResult(
     plugin?: any,
     notebookIds: string[] = [],
+    readOnly = false,
 ): Promise<ComponentDataResult<ReviewItem>> {
     void plugin;
-    const result = await getReviewIndexResult<any>();
-    const rawItems = (result as ComponentDataResult<ReviewItem>).items || [];
+    const result = await getReviewIndexResult<ReviewItem>(plugin, readOnly);
+    const rawItems = result.items;
     const items = filterReviewItemsByNotebooks(
         rawItems.map((item) => refreshReviewItemDueStatus(item)),
         notebookIds,
     );
     return {
-        ...(result as ComponentDataResult<ReviewItem>),
+        ...result,
         items,
-        status: items.length > 0 ? "ok" : (items.length === 0 && notebookIds.length > 0 ? "empty" : (result as ComponentDataResult<ReviewItem>).status),
+        status: result.status === "ok" && items.length === 0 ? "empty" : result.status,
     };
 }
 

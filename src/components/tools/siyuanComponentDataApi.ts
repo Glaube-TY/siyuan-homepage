@@ -363,22 +363,6 @@ async function writeJsonIndexPayload(path: string, payload: unknown): Promise<vo
     await putFileChecked(path, false, makeJsonBlob(payload));
 }
 
-async function doesIndexFileExist(path: string): Promise<boolean> {
-    if (path === TASK_INDEX_PATH) return (await readTaskIndexSnapshot()).fileExists;
-    try {
-        const raw = await getFile(path);
-        const parsed = await fileContentToObject(raw);
-        return parsed !== undefined && parsed !== null;
-    } catch (error) {
-        const msg = error instanceof Error ? error.message : String(error);
-        const lower = msg.toLowerCase();
-        if (lower.includes("file does not exist") || lower.includes("not found") || lower.includes("404")) {
-            return false;
-        }
-        return false;
-    }
-}
-
 function escapeSqlString(value: string): string {
     return value.replace(/'/g, "''");
 }
@@ -396,6 +380,7 @@ export async function filterExistingItems<T extends { id?: string }>(
     items: T[],
     path: string,
     maxChecks = 100,
+    persistCleanup = true,
 ): Promise<T[]> {
     const result: T[] = [];
     let changed = false;
@@ -414,7 +399,7 @@ export async function filterExistingItems<T extends { id?: string }>(
         }
         result.push(item);
     }
-    if (changed) {
+    if (changed && persistCleanup) {
         try {
             await writeJsonIndex(path, result);
         } catch {
@@ -503,6 +488,19 @@ function emptyHeatmapDailyIndex(): HeatmapDailyIndexPayload {
         },
         docs: {},
     };
+}
+
+async function readHeatmapDailyIndex(): Promise<HeatmapDailyIndexPayload | null> {
+    const raw = await getFileOrNullChecked(HEATMAP_DAILY_INDEX_PATH);
+    if (raw === null) return null;
+    const parsed = await fileContentToObject(raw);
+    if (!isPlainJsonObject(parsed) ||
+        (parsed.version !== INDEX_VERSION && parsed.version !== HEATMAP_INDEX_VERSION) ||
+        !isPlainJsonObject(parsed.totals) || !isPlainJsonObject(parsed.docs) ||
+        Object.values(parsed.docs).some((entry) => !isPlainJsonObject(entry))) {
+        throw new Error("热力图索引格式或版本异常。");
+    }
+    return ensureHeatmapDailyIndexShape(parsed as unknown as HeatmapDailyIndexPayload);
 }
 
 function ensureHeatmapDailyIndexShape(payload: HeatmapDailyIndexPayload): HeatmapDailyIndexPayload {
@@ -1256,11 +1254,11 @@ export async function getTaskIndexResult(
     plugin?: any,
 ): Promise<ComponentDataResult<ComponentTaskInfo>> {
     void plugin;
-    const { items: rows } = await readTaskIndexSnapshot();
+    const { fileExists, items: rows } = await readTaskIndexSnapshot();
     const filtered = notebookIds.length > 0
         ? rows.filter((item) => item.box && notebookIds.includes(item.box))
         : rows;
-    if (filtered.length > 0) {
+    if (fileExists) {
         return okResult(
             filtered.sort((a, b) => String(b.updated).localeCompare(String(a.updated))),
             "index",
@@ -1752,20 +1750,6 @@ export interface IndexInitializationResult {
     status: ComponentMigrationStatus;
 }
 
-/**
- * 任务索引前台自动初始化：仅在 task-index.json 不存在时执行一次全量重建。
- * 后续组件加载/刷新应使用 refreshTaskIndexFromRecentDocuments 做增量刷新。
- */
-export async function ensureTaskIndexInitialized(
-    plugin: any,
-): Promise<IndexInitializationResult> {
-    if (await doesIndexFileExist(TASK_INDEX_PATH)) {
-        return { initialized: false, status: { lastStatus: "idle" } };
-    }
-    const status = await rebuildTaskIndexFromGlobalSql(plugin);
-    return { initialized: status.lastStatus === "success", status };
-}
-
 export async function getRecentDocumentsApi(
     notebookIds: string[] = [],
     includeBuiltinDocIcon = false,
@@ -2095,7 +2079,7 @@ async function queryHeatmapBlocksByRootIds(rootIds: string[]): Promise<{ blocksB
 
 export async function refreshHeatmapIndexFromRecentDocuments(
     plugin?: any,
-    options: { force?: boolean; ttlMs?: number } = {},
+    options: { force?: boolean; ttlMs?: number; onlyIfIndexed?: boolean } = {},
 ): Promise<ComponentMigrationStatus> {
     void plugin;
     const now = new Date().toISOString();
@@ -2112,11 +2096,10 @@ export async function refreshHeatmapIndexFromRecentDocuments(
     }
 
     try {
+        const index = await readHeatmapDailyIndex();
+        if (!index && options.onlyIfIndexed) return { lastStatus: "idle" };
         const { changedDocs, commit } = await prepareChangedRecentDocsForIndex("heatmap");
-        const payload = await readJsonIndexPayload<HeatmapDailyIndexPayload>(
-            HEATMAP_DAILY_INDEX_PATH,
-            emptyHeatmapDailyIndex(),
-        );
+        const payload = index ?? emptyHeatmapDailyIndex();
         const needsDocumentCountUpgrade = Number(payload.version || 0) < HEATMAP_INDEX_VERSION;
         ensureHeatmapDailyIndexShape(payload);
         if (needsDocumentCountUpgrade) {
@@ -2289,22 +2272,6 @@ export async function rebuildHeatmapDailyIndexFromGlobalSql(
     }
 }
 
-/**
- * 热力图索引前台自动初始化：仅在 heatmap-daily-index.json 不存在时按当前范围执行一次全量重建。
- * 后续组件加载/刷新应使用 refreshHeatmapDailyIndexFromRecentDocuments 做增量刷新。
- */
-export async function ensureHeatmapIndexInitialized(
-    plugin: any,
-    startDate: string,
-    endDate: string,
-): Promise<IndexInitializationResult> {
-    if (await doesIndexFileExist(HEATMAP_DAILY_INDEX_PATH)) {
-        return { initialized: false, status: { lastStatus: "idle" } };
-    }
-    const status = await rebuildHeatmapDailyIndexFromGlobalSql(plugin, startDate, endDate);
-    return { initialized: status.lastStatus === "success", status };
-}
-
 export async function getRecentHeatmapCountsResult(
     startDate: string,
     endDate: string,
@@ -2312,12 +2279,8 @@ export async function getRecentHeatmapCountsResult(
     plugin?: any,
 ): Promise<ComponentCountsResult> {
     void plugin;
-    const index = ensureHeatmapDailyIndexShape(
-        await readJsonIndexPayload<HeatmapDailyIndexPayload>(
-            HEATMAP_DAILY_INDEX_PATH,
-            emptyHeatmapDailyIndex(),
-        ),
-    );
+    const index = await readHeatmapDailyIndex();
+    if (!index) return { counts: {}, status: "disabled", mode: "index" };
     const counts = pickCountsByRange(index.totals?.[countType] || {}, startDate, endDate);
     const hasIndexData = Object.values(counts).some((value) => Number(value) > 0);
     if (hasIndexData) {
@@ -2444,6 +2407,7 @@ export async function getLatestDailyNotesResult(
 export async function getFavoritesIndexResult(
     notebookIds: string[] = [],
     plugin?: any,
+    readOnly = false,
 ): Promise<ComponentDataResult<ComponentDocInfo>> {
     void plugin;
     const strict = await readFavoritesIndexStrict();
@@ -2478,10 +2442,12 @@ export async function getFavoritesIndexResult(
 
     // 精准删除失效ID（通过严格存储层，保留groups并派发事件）
     if (staleIds.length > 0) {
-        try {
-            await removeFavoriteItemsByIds(staleIds);
-        } catch (error) {
-            console.warn("[Homepage] 清理失效收藏文档失败", error);
+        if (!readOnly) {
+            try {
+                await removeFavoriteItemsByIds(staleIds);
+            } catch (error) {
+                console.warn("[Homepage] 清理失效收藏文档失败", error);
+            }
         }
         // 重新读取过滤后的items
         items = items.filter((item) => !staleIds.includes(item.id));
@@ -2491,10 +2457,7 @@ export async function getFavoritesIndexResult(
     const filtered = notebookIds.length > 0
         ? hydrated.filter((item) => item.box && notebookIds.includes(item.box))
         : hydrated;
-    if (filtered.length > 0) {
-        return okResult(filtered, "index");
-    }
-    return disabledResult("收藏索引为空，可重新收藏文档。", "index");
+    return okResult(filtered, "index");
 }
 
 /**
@@ -2561,14 +2524,19 @@ export async function reorderFavoriteIndexItems(orderedIds: string[]): Promise<v
 
 export async function getReviewIndexResult<T = any>(
     plugin?: any,
+    readOnly = false,
 ): Promise<ComponentDataResult<T>> {
     void plugin;
-    const rows = await readJsonIndex<T & { id?: string }>(REVIEW_INDEX_PATH);
-    const existing = await filterExistingItems(rows, REVIEW_INDEX_PATH);
-    if (existing.length > 0) {
-        return okResult(existing as T[], "index");
+    if (!(await reviewIndexFileExistsChecked())) {
+        return disabledResult("复习索引未建立。", "index");
     }
-    return disabledResult("复习索引为空；新增复习计划后会写入索引。", "index");
+    const parsed = await fileContentToObject(await getFileChecked(REVIEW_INDEX_PATH));
+    const payload = parsed as { version?: unknown; items?: unknown } | null | undefined;
+    const rows = Array.isArray(parsed) ? parsed : payload?.version === INDEX_VERSION ? payload.items : undefined;
+    if (!Array.isArray(rows)) throw new Error("复习索引格式或版本异常。");
+    rows.forEach((item, index) => checkedReviewIndexItemId(item, `第 ${index + 1} 项`));
+    const existing = await filterExistingItems<T & { id: string }>(rows, REVIEW_INDEX_PATH, 100, !readOnly);
+    return okResult(existing, "index");
 }
 
 export async function updateReviewIndexItem<T extends { id: string }>(item: T): Promise<void> {
@@ -2763,29 +2731,6 @@ export async function loadReviewIndexItemsChecked(): Promise<ReviewItem[]> {
     if (payload.version !== INDEX_VERSION) throw new Error(`复习索引版本不支持：${String(payload.version)}。`);
     if (!Array.isArray(payload.items)) throw new Error("复习索引 items 不是数组。");
     return payload.items.map(normalizeReviewIndexItemChecked);
-}
-
-/**
- * 复习索引前台自动初始化：仅在 review-index.json 不存在时创建一个空索引文件。
- * 当前索引不存在时创建空文件，后续由新增复习计划写入。
- */
-export async function ensureReviewIndexInitialized(
-    plugin: any,
-): Promise<IndexInitializationResult> {
-    void plugin;
-    if (await doesIndexFileExist(REVIEW_INDEX_PATH)) {
-        return { initialized: false, status: { lastStatus: "idle" } };
-    }
-    const now = new Date().toISOString();
-    await writeJsonIndex(REVIEW_INDEX_PATH, []);
-    return {
-        initialized: true,
-        status: {
-            lastRunAt: now,
-            lastStatus: "success",
-            lastMessage: "已创建空复习索引；新增复习计划后会自动写入。",
-        },
-    };
 }
 
 export async function refreshFavoritesIndex(plugin?: any): Promise<ComponentMigrationStatus> {

@@ -1,4 +1,5 @@
 <script lang="ts">
+    import { untrack } from "svelte";
     import type { VirtualElement } from "@floating-ui/dom";
     import type { EnhancedDiaryWorkspaceProject } from "../enhancedDiaryWorkspaceData";
     import type { EnhancedDiaryWorkspaceTaskSettings } from "../../enhancedDiaryTypes";
@@ -33,7 +34,7 @@
     import WorkspaceTaskKanbanView from "./WorkspaceTaskKanbanView.svelte";
     import WorkspaceTaskListView from "./WorkspaceTaskListView.svelte";
     import WorkspaceTaskMatrixView from "./WorkspaceTaskMatrixView.svelte";
-    import WorkspaceTaskToolbar from "./WorkspaceTaskToolbar.svelte";
+    import WorkspaceTaskToolbar, { completionScopeLabels, quickFilterLabels } from "./WorkspaceTaskToolbar.svelte";
     import WorkspaceTaskTimelineView from "./WorkspaceTaskTimelineView.svelte";
 
     type RiskFilter = "all" | "risk" | "stale" | "deadline" | "relation";
@@ -86,6 +87,7 @@
 
     let search = $state("");
     let completionScope = $state<WorkspaceTaskCompletionScope>("active");
+    let followsDefaultScope = true;
     let view = $state<WorkspaceTaskViewMode>("list");
     let sort = $state<WorkspaceTaskSortKey>("smart");
     let quickFilter = $state<WorkspaceTaskStatusFilter>("active");
@@ -107,6 +109,12 @@
     let completionScopeBeforeCalendar = $state<WorkspaceTaskCompletionScope | null>(null);
     let calendarCompletionScopeAutoApplied = $state(false);
 
+    const defaultCompletionScope = $derived(taskSettings?.defaultCompletionScope ?? "active");
+    const defaultScopeForView = $derived(
+        view === "calendar" && taskSettings?.showCompletedInCalendar && defaultCompletionScope === "active"
+            ? "all"
+            : defaultCompletionScope,
+    );
     const projectStatuses = $derived(new Map(projectTargets.map((project) => [project.targetId, project.status] as const)));
     const allModels = $derived(buildWorkspaceTaskViewModels(tasks, {
         today,
@@ -179,6 +187,7 @@
 
     function handleCompletionScopeChange(nextScope: WorkspaceTaskCompletionScope): void {
         closeFloatingTask();
+        followsDefaultScope = false;
         completionScope = nextScope;
         selectedTaskIds = [];
         if (view === "calendar" && calendarCompletionScopeAutoApplied) {
@@ -189,6 +198,7 @@
 
     function handleQuickFilterChange(nextFilter: WorkspaceTaskStatusFilter): void {
         closeFloatingTask();
+        followsDefaultScope = false;
         quickFilter = nextFilter;
         completionScope = "active";
         if (view === "calendar" && calendarCompletionScopeAutoApplied) {
@@ -199,7 +209,8 @@
 
     function applyExternalFilters(): void {
         closeFloatingTask();
-        if (filterVersion === 0 && taskSettings) {
+        followsDefaultScope = filterVersion === 0;
+        if (followsDefaultScope && taskSettings) {
             completionScope = taskSettings.defaultCompletionScope;
             quickFilter = "active";
             sort = taskSettings.defaultSort;
@@ -228,6 +239,14 @@
         if (filterVersion === appliedFilterVersion) return;
         appliedFilterVersion = filterVersion;
         applyExternalFilters();
+    });
+    $effect(() => {
+        const expectedScope = defaultScopeForView;
+        untrack(() => {
+            if (!followsDefaultScope || completionScope === expectedScope) return;
+            completionScope = defaultCompletionScope;
+            initializeCalendarCompletionScope();
+        });
     });
     $effect(() => {
         if (selectVersion === appliedSelectVersion) return;
@@ -274,6 +293,12 @@
     const relationCount = $derived(allModels.filter((model) => !model.task.completed && model.relationNeedsAttention).length);
     const filterCount = $derived((projectTargetId ? 1 : 0) + selectedTags.length + priorityLevels.length + sources.length + (schedule !== "all" ? 1 : 0) + (risk !== "all" ? 1 : 0));
 
+    const activeQuickFilterLabel = $derived(quickFilterLabels[quickFilter]);
+    const activeFilterCount = $derived(filterCount + [
+        search.trim(), activeQuickFilterLabel, completionScope !== defaultScopeForView, dateFilter, analyticsFilter,
+    ].filter(Boolean).length);
+    const canViewActive = $derived(activeCount > 0 && completionScope !== "active");
+
     $effect(() => {
         const ids = new Set(filteredModels.map((model) => model.task.blockId));
         const nextSelectedTaskIds = selectedTaskIds.filter((id) => ids.has(id));
@@ -302,6 +327,19 @@
         closeFloatingTask();
         projectTargetId = ""; selectedTags = []; priorityLevels = []; schedule = "all"; sources = []; risk = "all"; analyticsFilter = null;
     }
+    function resetCompletionScope(): void {
+        followsDefaultScope = true;
+        completionScope = defaultCompletionScope;
+        selectedTaskIds = [];
+        initializeCalendarCompletionScope();
+    }
+    function resetAllTaskFilters(): void {
+        search = "";
+        clearAdvancedFilters();
+        dateFilter = "";
+        quickFilter = "active";
+        resetCompletionScope();
+    }
     function toggleBatchModel(model: WorkspaceTaskViewModel): void {
         const id = model.task.blockId;
         selectedTaskIds = selectedTaskIds.includes(id) ? selectedTaskIds.filter((value) => value !== id) : [...selectedTaskIds, id];
@@ -325,23 +363,38 @@
 <svelte:window onpointerdown={handleWindowPointerDown} />
 
 <section class="task-panel">
-    <header class="page-heading"><div><h2>任务</h2><p>管理当前行动、时间安排与项目推进</p></div><button type="button" class="wk-btn wk-btn-primary" onclick={onCreate}>新建任务</button></header>
+    <header class="page-heading">
+        <h2>任务</h2>
+        <button type="button" class="wk-btn wk-btn-primary" onclick={onCreate}>新建任务</button>
+    </header>
     <WorkspaceTaskToolbar
         {search} {completionScope} {view} {sort} {quickFilter} {activeCount} {completedCount}
         totalCount={allModels.length} {todayCount} {overdueCount} {migrateCount} {highPriorityCount} {unscheduledCount} {relationCount} projects={projectTargets}
-        {tagOptions} {projectTargetId} {selectedTags} {priorityLevels} {schedule} {sources} {risk} {filterCount} {batchSelecting}
+        {tagOptions} {projectTargetId} {selectedTags} {priorityLevels} {schedule} {sources} {risk} {filterCount} hasActiveFilters={activeFilterCount > 0} {batchSelecting}
         onSearchChange={(value) => updateTaskControls(() => (search = value))} onCompletionScopeChange={handleCompletionScopeChange}
         onViewChange={handleViewChange} onSortChange={(value) => updateTaskControls(() => (sort = value))}
         onQuickFilterChange={handleQuickFilterChange}
         onProjectChange={(value) => updateTaskControls(() => (projectTargetId = value))} onTagsChange={(value) => updateTaskControls(() => (selectedTags = value))}
         onPrioritiesChange={(value) => updateTaskControls(() => (priorityLevels = value))} onScheduleChange={(value) => updateTaskControls(() => (schedule = value))}
         onSourcesChange={(value) => updateTaskControls(() => (sources = value))}
-        onRiskChange={(value) => updateTaskControls(() => (risk = value))} onClearFilters={clearAdvancedFilters}
+        onRiskChange={(value) => updateTaskControls(() => (risk = value))} onClearFilters={resetAllTaskFilters}
         onToggleBatch={handleToggleBatch}
     />
 
-    {#if filterCount > 0 || dateFilter || analyticsFilter}
-        <div class="active-filters"><span>当前筛选：</span>
+    {#if activeFilterCount}
+        <div class="active-filters" role="group" aria-label="当前筛选">
+            {#if search.trim()}
+                <button type="button" title={search.trim()} aria-label={`移除搜索：${search.trim()}`}
+                    onclick={() => updateTaskControls(() => (search = ""))}>搜索：{search.trim()} ×</button>
+            {/if}
+            {#if activeQuickFilterLabel}
+                <button type="button" aria-label={`移除筛选：${activeQuickFilterLabel}`}
+                    onclick={() => updateTaskControls(() => (quickFilter = "active"))}>{activeQuickFilterLabel} ×</button>
+            {/if}
+            {#if completionScope !== defaultScopeForView}
+                <button type="button" aria-label={`移除完成范围：${completionScopeLabels[completionScope]}`}
+                    onclick={() => updateTaskControls(resetCompletionScope)}>{completionScopeLabels[completionScope]} ×</button>
+            {/if}
             {#if projectTargetId}<button type="button" onclick={() => updateTaskControls(() => (projectTargetId = ""))}>项目：{projectTargetId === "__none__" ? "未关联" : projectTargets.find((project) => project.targetId === projectTargetId)?.name || projectTargetId} ×</button>{/if}
             {#each selectedTags as tag}<button type="button" onclick={() => updateTaskControls(() => (selectedTags = selectedTags.filter((value) => value !== tag)))}>#{tag}# ×</button>{/each}
             {#each priorityLevels as level}<button type="button" onclick={() => updateTaskControls(() => (priorityLevels = priorityLevels.filter((value) => value !== level)))}>优先级：{priorityFilterLabel(level)} ×</button>{/each}
@@ -350,7 +403,7 @@
             {#if risk !== "all"}<button type="button" onclick={() => updateTaskControls(() => (risk = "all"))}>风险：{riskFilterLabel(risk)} ×</button>{/if}
             {#if dateFilter}<button type="button" onclick={() => updateTaskControls(() => (dateFilter = ""))}>日期：{dateFilter} ×</button>{/if}
             {#if analyticsFilter}<button type="button" onclick={() => updateTaskControls(() => (analyticsFilter = null))}>{analyticsFilter.label || analyticsFilter.key} ×</button>{/if}
-            <button type="button" class="clear-all" onclick={() => { clearAdvancedFilters(); dateFilter = ""; quickFilter = "active"; }}>清除全部</button>
+            <button type="button" class="clear-all" onclick={resetAllTaskFilters}>清除全部</button>
         </div>
     {/if}
 
@@ -358,8 +411,20 @@
         <div class="batch-bar"><strong>已选择 {selectedBatchModels.length} 条</strong><button type="button" onclick={() => (selectedTaskIds = filteredModels.map((model) => model.task.blockId))}>全选当前结果</button><button type="button" onclick={() => (selectedTaskIds = [])}>清空</button><button type="button" disabled={!selectedBatchModels.some((model) => !model.task.completed)} onclick={() => onBatchComplete(selectedBatchModels.filter((model) => !model.task.completed).map((model) => model.task))}>批量完成</button><button type="button" disabled={selectedBatchModels.length === 0} onclick={() => onBatchPostpone(selectedBatchModels.map((model) => model.task), "tomorrow")}>推迟明天</button><button type="button" disabled={selectedBatchModels.length === 0} onclick={() => onBatchPostpone(selectedBatchModels.map((model) => model.task), "nextWeek")}>推迟下周</button></div>
     {/if}
 
-    {#if filteredModels.length === 0 && view !== "analytics"}
-        <WorkspaceEmptyState title="没有匹配的任务" description="调整完成范围、搜索或筛选条件后再试。" actionLabel="清除筛选" onAction={() => { search = ""; clearAdvancedFilters(); dateFilter = ""; quickFilter = "active"; }} />
+    {#if allModels.length === 0}
+        <WorkspaceEmptyState title="暂无任务" actionLabel="新建任务" onAction={onCreate} />
+    {:else if filteredModels.length === 0}
+        {#if activeFilterCount}
+            <WorkspaceEmptyState title="没有匹配的任务" actionLabel="清除筛选" onAction={resetAllTaskFilters} />
+        {:else}
+            <WorkspaceEmptyState
+                title={`暂无${completionScopeLabels[completionScope]}任务`}
+                actionLabel={canViewActive ? "查看待办" : completionScope !== "all" ? "查看全部" : undefined}
+                onAction={() => handleCompletionScopeChange(canViewActive ? "active" : "all")}
+                secondaryActionLabel={canViewActive && completionScope !== "all" ? "查看全部" : undefined}
+                onSecondaryAction={() => handleCompletionScopeChange("all")}
+            />
+        {/if}
     {:else if view === "list"}
         <div class="list-layout"><div class="list-master-pane"><WorkspaceTaskListView models={filteredModels} {completionScope} {selectedTaskId} {batchSelecting} {selectedTaskIds} onSelect={(model) => (selectedTaskId = model.task.blockId)} onToggle={handleTaskToggle} onBatchToggle={toggleBatchModel} onTagClick={addTagFilter} onProjectClick={openProject} /></div><div class="list-detail-pane"><WorkspaceTaskDetail model={selectedModel} onEdit={() => selectedModel && onEdit(selectedModel.task)} onToggle={() => selectedModel && onToggle(selectedModel.task)} onDelete={() => selectedModel && onDelete(selectedModel.task)} onMigrate={() => selectedModel && onMigrate(selectedModel.task)} onPostpone={(target) => selectedModel && onPostpone(selectedModel.task, target)} onOpenBlock={() => onOpenBlock(selectedModel?.task.blockId)} onOpenDoc={() => onOpenDoc(selectedModel?.task.sourceDocId)} onOpenProject={openProject} onTagClick={addTagFilter} /></div></div>
     {:else if view === "kanban"}
@@ -382,9 +447,33 @@
 
 <style>
     .task-panel { container-type: inline-size; display: grid; gap: 14px; min-width: 0; }
-    .page-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; } h2, p { margin: 0; } h2 { color: var(--wk-ink); font-size: 20px; } p { margin-top: 3px; color: var(--wk-ink-muted); }
-    .active-filters, .batch-bar { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; padding: 8px 10px; border: 1px solid var(--wk-border); border-radius: 9px; background: var(--wk-background); color: var(--wk-ink-muted); font-size: var(--wk-text-sm); }
-    .active-filters button, .batch-bar button { padding: 3px 7px; border: 1px solid var(--wk-border); border-radius: 999px; background: var(--wk-surface); color: var(--wk-ink-secondary); cursor: pointer; } .active-filters .clear-all { margin-left: auto; color: var(--wk-primary); }
+    .page-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+    .page-heading h2 { margin: 0; color: var(--wk-ink); font-size: 20px; }
+    .page-heading .wk-btn { flex-shrink: 0; }
+    .active-filters, .batch-bar {
+        display: flex;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 6px;
+        color: var(--wk-ink-secondary);
+        font-size: var(--wk-text-sm);
+    }
+    .batch-bar { padding: 8px 10px; border: 1px solid var(--wk-border-light); border-radius: var(--wk-radius-sm); }
+    .active-filters button, .batch-bar button {
+        min-height: 28px;
+        max-width: 100%;
+        padding: 3px 9px;
+        border: 0;
+        border-radius: var(--wk-radius-sm);
+        background: var(--wk-surface-3);
+        color: var(--wk-ink-secondary);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        cursor: pointer;
+    }
+    .active-filters button:hover, .batch-bar button:hover:not(:disabled) { background: var(--wk-primary-subtle); color: var(--wk-ink); }
+    .active-filters .clear-all { background: transparent; color: var(--wk-primary); }
     .batch-bar button:disabled { opacity: .45; cursor: default; }
     .list-layout { display: grid; grid-template-columns: minmax(0, .94fr) minmax(360px, 1.06fr); align-items: start; gap: 12px; min-width: 0; }
     .list-master-pane, .list-detail-pane { min-width: 0; }

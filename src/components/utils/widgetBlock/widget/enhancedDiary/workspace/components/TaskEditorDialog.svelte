@@ -1,4 +1,5 @@
 <script lang="ts">
+    import ChevronRight from "@lucide/svelte/icons/chevron-right";
     import { onMount, onDestroy } from "svelte";
     import { showMessage } from "siyuan";
     import { getTaskIndexResult } from "@/components/tools/siyuanComponentDataApi";
@@ -33,6 +34,7 @@
     let reminder = $state("");
     let location = $state("");
     let tagsText = $state("");
+    let showAttributes = $state(false);
     let showMore = $state(false);
     let projectAssociationEnabled = $state(false);
     let projectTargetId = $state("");
@@ -60,6 +62,9 @@
         { value: "❗❗❗❗", label: "紧急" },
     ];
 
+    const attributeCount = $derived([
+        projectTargetId, startDate || deadline, priority, tagsText.trim(), recurrence.trim(), reminder.trim(), location.trim(),
+    ].filter(Boolean).length);
     const hasExtended = $derived(recurrence !== "" || reminder !== "" || location !== "");
     const dateRangeInvalid = $derived(!!startDate && !!deadline && startDate > deadline);
     const currentTaskName = $derived(taskname.trim());
@@ -96,6 +101,11 @@
 
     async function submit(): Promise<void> {
         if (submitting || submitted || !alive) return;
+        if (!currentTaskName) {
+            showMessage("任务名称不能为空", 3000);
+            taskNameInput?.focus();
+            return;
+        }
         submitting = true;
         try {
             const result = await onSubmit({
@@ -178,7 +188,18 @@
     }
 
     function handleTaskNameKeydown(event: KeyboardEvent): void {
-        if (!nameSuggestions.length || event.isComposing || event.keyCode === 229) return;
+        if (event.isComposing || event.keyCode === 229) return;
+        if (event.key === "Enter") {
+            event.preventDefault();
+            event.stopPropagation();
+            if (event.repeat) return;
+            const suggestion = nameSuggestions[activeNameSuggestion];
+            if (suggestion) fillTaskName(suggestion);
+            else void submit();
+            return;
+        }
+
+        if (!nameSuggestions.length) return;
         if (event.key === "ArrowDown" || event.key === "ArrowUp") {
             event.preventDefault();
             const lastIndex = nameSuggestions.length - 1;
@@ -186,10 +207,6 @@
             else activeNameSuggestion = activeNameSuggestion < 0 ? lastIndex : Math.max(0, activeNameSuggestion - 1);
             taskNameInput.ownerDocument.getElementById(`${nameSuggestionsId}-${activeNameSuggestion}`)
                 ?.scrollIntoView({ block: "nearest" });
-        } else if (event.key === "Enter" && activeNameSuggestion >= 0) {
-            event.preventDefault();
-            event.stopPropagation();
-            fillTaskName(nameSuggestions[activeNameSuggestion]);
         } else if (event.key === "Escape") {
             event.preventDefault();
             event.stopPropagation();
@@ -218,7 +235,11 @@
         projectTargetId = task?.projectTargetId || initialInput.projectTargetId || "";
         projectAssociationEnabled = !!projectTargetId;
         showMore = !!(recurrence || reminder || location);
-        if (mode === "create") void refreshCommonTasks();
+        showAttributes = mode === "edit" || attributeCount > 0;
+        if (mode === "create") {
+            taskNameInput.focus({ preventScroll: true });
+            void refreshCommonTasks();
+        }
         if (isEnhancedDiaryProjectStorageReady(projectStorage)) {
             projectLoading = true;
             loadEnhancedDiaryProjectIndexForWorkspace(projectStorage!)
@@ -242,7 +263,6 @@
         <div class="task-name-header">
             <label class="task-name-label" for="workspace-task-name">
                 <span>任务名称</span>
-                <small>必填</small>
             </label>
             {#if mode === "create"}
                 <button type="button" class="wk-btn wk-btn-ghost"
@@ -256,6 +276,7 @@
             <input
                 id="workspace-task-name"
                 type="text"
+                aria-required="true"
                 class="b3-text-field task-name-input"
                 bind:this={taskNameInput}
                 bind:value={taskname}
@@ -309,92 +330,105 @@
         {/if}
     </div>
 
-    <div class="panel-section project-association-section">
-        <label class="project-association-toggle">
-            <input type="checkbox" checked={projectAssociationEnabled} onchange={handleProjectAssociationChange} />
-            <span>关联项目<small>勾选后选择具体项目</small></span>
-        </label>
-        {#if projectAssociationEnabled}
-            <div class="project-picker-slot">
-                {#if projectLoading}<p class="project-state">正在加载项目树…</p>
-                {:else if projectIndex}<WorkspaceProjectPicker index={projectIndex} value={projectTargetId} allowClear={false} preserveSelected={mode === "edit"} onChange={(id) => (projectTargetId = id)} />
-                {:else}<p class="project-state">请先在强化日记设置中配置项目位置。</p>{/if}
-            </div>
-        {/if}
-    </div>
-
-    <div class="panel-section">
-        <div class="section-label">日期</div>
-        <div class="date-row">
-            <label class="field-label">
-                开始
-                <input type="date" class="field-input" bind:value={startDate} />
+    <button type="button" class="attributes-toggle" aria-expanded={showAttributes}
+        aria-controls={`${nameSuggestionsId}-attributes`} onclick={() => (showAttributes = !showAttributes)}>
+        <span>任务属性</span>
+        <span class="attributes-disclosure">
+            {#if !showAttributes && attributeCount}
+                <span class="attributes-summary">已填写 {attributeCount} 项</span>
+            {/if}
+            <ChevronRight size={15} aria-hidden="true" />
+        </span>
+    </button>
+    <div class="task-attributes" id={`${nameSuggestionsId}-attributes`} hidden={!showAttributes}>
+        <div class="panel-section project-association-section">
+            <label class="project-association-toggle">
+                <input type="checkbox" checked={projectAssociationEnabled} onchange={handleProjectAssociationChange} />
+                <span>关联项目</span>
             </label>
-            <label class="field-label">
-                截止
-                <input type="date" class="field-input" bind:value={deadline} />
-            </label>
+            {#if projectAssociationEnabled}
+                <div class="project-picker-slot">
+                    {#if projectLoading}<p class="project-state">正在加载项目树…</p>
+                    {:else if projectIndex}<WorkspaceProjectPicker index={projectIndex} value={projectTargetId} allowClear={false} preserveSelected={mode === "edit"} onChange={(id) => (projectTargetId = id)} />
+                    {:else}<p class="project-state">请先在强化日记设置中配置项目位置。</p>{/if}
+                </div>
+            {/if}
         </div>
-        {#if dateRangeInvalid}<p class="date-warning">开始日期晚于截止日期，请确认日期顺序；保存时不会自动交换。</p>{/if}
-    </div>
 
-    <div class="panel-section">
-        <div class="section-label">属性</div>
-        <div class="field-group">
-            <div class="field-col">
-                <span class="field-label-text">优先级</span>
-                <div class="wk-chip-group">
-                    {#each priorityOptions as opt}
-                        <button
-                            type="button"
-                            class="wk-chip"
-                            class:selected={priority === opt.value}
-                            onclick={() => (priority = opt.value)}
-                        >
-                            {opt.label}
-                        </button>
-                    {/each}
+        <div class="panel-section">
+            <div class="section-label">日期</div>
+            <div class="date-row">
+                <label class="field-label">
+                    开始
+                    <input type="date" class="field-input" bind:value={startDate} />
+                </label>
+                <label class="field-label">
+                    截止
+                    <input type="date" class="field-input" bind:value={deadline} />
+                </label>
+            </div>
+            {#if dateRangeInvalid}<p class="date-warning">开始日期晚于截止日期，请确认日期顺序；保存时不会自动交换。</p>{/if}
+        </div>
+
+        <div class="panel-section">
+            <div class="field-group">
+                <div class="field-col">
+                    <span class="field-label-text">优先级</span>
+                    <div class="wk-chip-group">
+                        {#each priorityOptions as opt}
+                            <button
+                                type="button"
+                                class="wk-chip"
+                                class:selected={priority === opt.value}
+                                aria-pressed={priority === opt.value}
+                                onclick={() => (priority = opt.value)}
+                            >
+                                {opt.label}
+                            </button>
+                        {/each}
+                    </div>
+                </div>
+                <div class="field-col">
+                    <label class="field-label-text" for={`${nameSuggestionsId}-tags`}>标签</label>
+                    <input
+                        id={`${nameSuggestionsId}-tags`}
+                        type="text"
+                        class="field-input"
+                        bind:value={tagsText}
+                        placeholder="空格或逗号分隔"
+                    />
+                    {#if availableTagSuggestions.length}<div class="tag-suggestions">{#each availableTagSuggestions.slice(0, 12) as tag}<button type="button" onclick={() => addSuggestedTag(tag)}>#{tag}#</button>{/each}</div>{/if}
                 </div>
             </div>
-            <div class="field-col">
-                <span class="field-label-text">标签</span>
-                <input
-                    type="text"
-                    class="field-input"
-                    bind:value={tagsText}
-                    placeholder="空格或逗号分隔"
-                />
-                {#if availableTagSuggestions.length}<div class="tag-suggestions">{#each availableTagSuggestions.slice(0, 12) as tag}<button type="button" onclick={() => addSuggestedTag(tag)}>#{tag}#</button>{/each}</div>{/if}
-            </div>
         </div>
-    </div>
 
-    <button type="button" class="more-toggle" onclick={() => (showMore = !showMore)}>
-        <WorkspaceIcon name="settings" size={13} />
-        {showMore ? "收起更多选项" : "更多选项"}
-        {#if hasExtended && !showMore}
-            <span class="more-has-value">•</span>
+        <button type="button" class="more-toggle" aria-expanded={showMore} onclick={() => (showMore = !showMore)}>
+            <WorkspaceIcon name="settings" size={13} />
+            {showMore ? "收起更多选项" : "更多选项"}
+            {#if hasExtended && !showMore}
+                <span class="attributes-summary">已填写</span>
+            {/if}
+        </button>
+
+        {#if showMore}
+            <div class="panel-section panel-extended">
+                <div class="extended-grid">
+                    <label class="field-label">
+                        重复规则
+                        <input type="text" class="field-input" bind:value={recurrence} placeholder="每天 / 每周" />
+                    </label>
+                    <label class="field-label">
+                        提醒时间
+                        <input type="text" class="field-input" bind:value={reminder} placeholder="HH:mm 或 YYYY-MM-DD HH:mm" />
+                    </label>
+                    <label class="field-label full-width">
+                        地点
+                        <input type="text" class="field-input" bind:value={location} placeholder="可选地点" />
+                    </label>
+                </div>
+            </div>
         {/if}
-    </button>
-
-    {#if showMore}
-        <div class="panel-section panel-extended">
-            <div class="extended-grid">
-                <label class="field-label">
-                    重复规则
-                    <input type="text" class="field-input" bind:value={recurrence} placeholder="每天 / 每周" />
-                </label>
-                <label class="field-label">
-                    提醒时间
-                    <input type="text" class="field-input" bind:value={reminder} placeholder="HH:mm 或 YYYY-MM-DD HH:mm" />
-                </label>
-                <label class="field-label full-width">
-                    地点
-                    <input type="text" class="field-input" bind:value={location} placeholder="可选地点" />
-                </label>
-            </div>
-        </div>
-    {/if}
+    </div>
 
     <div class="panel-footer">
         <button type="button" class="wk-btn wk-btn-ghost" onclick={onClose} disabled={submitting}>取消</button>
@@ -443,12 +477,6 @@
         font-weight: 600;
     }
 
-    .task-name-label small {
-        color: var(--wk-ink-faint);
-        font-size: var(--wk-text-xs);
-        font-weight: 400;
-    }
-
     .common-task-list {
         display: flex;
         align-items: center;
@@ -466,7 +494,13 @@
         font-size: var(--wk-text-sm);
     }
 
-    .common-task-item { display: inline-flex; max-width: 100%; }
+    .common-task-item {
+        display: inline-flex;
+        max-width: 100%;
+        border: 1px solid var(--wk-border-light);
+        border-radius: var(--wk-radius-sm);
+        background: var(--wk-surface-3);
+    }
     .common-task-name { min-width: 0; }
     .common-task-name span { overflow: hidden; text-overflow: ellipsis; }
     .common-task-remove { flex: none; }
@@ -541,11 +575,39 @@
         background: var(--wk-primary-subtle);
     }
 
+    .attributes-toggle {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        min-height: 38px;
+        margin: 0 20px;
+        padding: 6px 0;
+        border: 0;
+        border-top: 1px solid var(--wk-border-light);
+        background: transparent;
+        color: var(--wk-ink);
+        font: inherit;
+        font-weight: 600;
+        cursor: pointer;
+    }
+    .attributes-toggle:hover { background: var(--wk-surface-3); color: var(--wk-primary); }
+    .attributes-toggle:focus-visible { outline: 2px solid var(--wk-primary); outline-offset: -2px; }
+    .attributes-disclosure { display: inline-flex; align-items: center; gap: 6px; color: var(--wk-ink-secondary); }
+    .attributes-disclosure :global(svg) { fill: none; }
+    .attributes-toggle[aria-expanded="true"] .attributes-disclosure :global(svg) { transform: rotate(90deg); }
+    .attributes-summary { color: var(--wk-ink-secondary); font-size: var(--wk-text-xs); font-weight: 400; }
+    .task-attributes {
+        margin: 0 20px 10px;
+        padding: 3px 0 0;
+        border: 1px solid var(--wk-border-light);
+        border-radius: var(--wk-radius-md);
+        background: var(--wk-surface-3);
+    }
+    .task-attributes .panel-section { padding-inline: 14px; }
     .project-association-section { display: grid; }
     .project-association-toggle { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: start; gap: 8px; color: var(--wk-ink-secondary); cursor: pointer; }
     .project-association-toggle input { margin: 2px 0 0; accent-color: var(--wk-primary); }
     .project-association-toggle span { display: grid; gap: 2px; font-size: var(--wk-text-sm); font-weight: 600; }
-    .project-association-toggle small { color: var(--wk-ink-faint); font-size: var(--wk-text-xs); font-weight: 400; }
     .project-picker-slot { margin-top: 10px; }
 
     .section-label {
@@ -631,10 +693,6 @@
         color: var(--wk-primary);
     }
 
-    .more-has-value {
-        color: var(--wk-primary);
-        font-size: 12px;
-    }
 
     .panel-extended {
         padding-top: 10px;

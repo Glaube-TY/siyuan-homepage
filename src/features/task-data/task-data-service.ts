@@ -1,6 +1,6 @@
 import {
-  ensureTaskIndexInitialized,
   getTaskIndexResult,
+  readTaskIndexSnapshot,
   refreshTaskIndexFromRecentDocuments,
   type ComponentDataResult,
   type ComponentTaskInfo,
@@ -40,9 +40,10 @@ async function prepareTaskData(plugin: any, forceRefresh: boolean): Promise<{ ok
     return prepareTaskData(plugin, true);
   }
   const flight = (async () => {
-    const initialization = await ensureTaskIndexInitialized(plugin);
-    if (initialization.status.lastStatus === "error") {
-      return { ok: false, message: initialization.status.lastMessage || "任务索引初始化失败。" };
+    try {
+      if (!(await readTaskIndexSnapshot()).fileExists) return { ok: true };
+    } catch (error) {
+      return { ok: false, message: error instanceof Error ? error.message : "任务索引读取失败。" };
     }
     const refresh = await refreshTaskIndexFromRecentDocuments(plugin, { force: forceRefresh });
     return refresh.lastStatus === "error"

@@ -44,6 +44,7 @@
         border-radius: 8px;
         padding: 1rem;
         margin-bottom: 1rem;
+        scroll-margin-top: 12px;
     }
 
     .setting-section:focus {

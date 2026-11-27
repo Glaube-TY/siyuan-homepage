@@ -1,4 +1,5 @@
 <script lang="ts">
+    import type { Snippet } from "svelte";
     import type { EnhancedDiaryWorkspaceProject } from "../enhancedDiaryWorkspaceData";
     import type { WorkspaceTaskPriorityLevel } from "../enhancedDiaryWorkspaceTaskModel";
     import type { WorkspaceTaskScheduleFilter } from "../enhancedDiaryWorkspaceNavigation";
@@ -16,6 +17,8 @@
         sources: SourceKind[];
         risk: RiskFilter;
         activeCount: number;
+        compactActiveCount: number;
+        canClear: boolean;
         onProjectChange: (value: string) => void;
         onTagsChange: (value: string[]) => void;
         onPrioritiesChange: (value: WorkspaceTaskPriorityLevel[]) => void;
@@ -23,12 +26,13 @@
         onSourcesChange: (value: SourceKind[]) => void;
         onRiskChange: (value: RiskFilter) => void;
         onClear: () => void;
+        shortcuts?: Snippet;
     }
 
     let {
         projects, tagOptions, projectTargetId, selectedTags, priorityLevels, schedule, sources, risk,
-        activeCount, onProjectChange, onTagsChange, onPrioritiesChange, onScheduleChange,
-        onSourcesChange, onRiskChange, onClear,
+        activeCount, compactActiveCount, canClear, onProjectChange, onTagsChange, onPrioritiesChange, onScheduleChange,
+        onSourcesChange, onRiskChange, onClear, shortcuts,
     }: Props = $props();
     let detailsElement = $state<HTMLDetailsElement | null>(null);
     let open = $state(false);
@@ -58,26 +62,33 @@
         open = false;
     }
     function handleWindowKeydown(event: KeyboardEvent): void {
-        if (open && event.key === "Escape") open = false;
+        if (open && event.key === "Escape") closePopover();
+    }
+    function closePopover(): void {
+        open = false;
+        detailsElement?.querySelector("summary")?.focus();
     }
     function handleClear(): void {
         onClear();
         tagSearch = "";
-        open = false;
+        closePopover();
     }
 </script>
 
 <svelte:window onpointerdown={handleWindowPointerDown} onkeydown={handleWindowKeydown} />
 
 <details class="task-filter-popover" bind:this={detailsElement} bind:open>
-    <summary class:active={activeCount > 0}>
-        <WorkspaceTaskIcon name="filter" />筛选{activeCount > 0 ? ` ${activeCount}` : ""}
+    <summary class:active={activeCount > 0} class:compact-active={compactActiveCount > 0} aria-expanded={open}>
+        <WorkspaceTaskIcon name="filter" />筛选
+        {#if activeCount}<span class="wide-count">{activeCount}</span>{/if}
+        {#if compactActiveCount}<span class="compact-count">{compactActiveCount}</span>{/if}
     </summary>
     <div class="popover-panel">
         <div class="popover-heading">
             <strong>任务筛选</strong>
-            <button type="button" class="popover-close" onclick={() => (open = false)}>关闭</button>
+            <button type="button" class="popover-close" onclick={closePopover}>关闭</button>
         </div>
+        {@render shortcuts?.()}
         <label>项目
             <select value={projectTargetId} onchange={(event) => onProjectChange((event.currentTarget as HTMLSelectElement).value)}>
                 <option value="">全部项目</option><option value="__none__">未关联项目</option>
@@ -115,16 +126,40 @@
                 <option value="all">全部</option><option value="risk">高风险</option><option value="stale">停滞</option><option value="deadline">截止风险</option><option value="relation">项目关系需维护</option>
             </select></label>
         </div>
-        <button type="button" class="clear" onclick={handleClear} disabled={activeCount === 0}>清除全部筛选</button>
+        <button type="button" class="clear" onclick={handleClear} disabled={!canClear}>清除全部筛选</button>
     </div>
 </details>
 
 <style>
     .task-filter-popover { position: relative; }
-    summary { display: inline-flex; align-items: center; gap: 6px; min-height: 34px; padding: 0 10px; border: 1px solid var(--wk-border); border-radius: 8px; color: var(--wk-ink-secondary); background: var(--wk-surface); cursor: pointer; list-style: none; }
+    summary { display: inline-flex; align-items: center; gap: 6px; min-height: 34px; padding: 0 10px; border: 1px solid var(--wk-border); border-radius: 8px; color: var(--wk-ink-secondary); background: var(--wk-surface); cursor: pointer; list-style: none; white-space: nowrap; }
+    summary:focus-visible { outline: 2px solid var(--wk-primary); outline-offset: -2px; }
+    .compact-count { display: none; }
+    @container (max-width: 600px) {
+        .task-filter-popover { position: static; }
+        .task-filter-popover .popover-panel {
+            z-index: 70;
+            inset-inline: 0 auto;
+            width: min(390px, 100%);
+            max-height: min(42vh, 420px);
+        }
+        summary {
+            box-sizing: border-box;
+            height: 34px;
+            min-height: 34px;
+            gap: 4px;
+            padding-inline: 7px;
+            border-color: var(--wk-border-light);
+            border-radius: var(--wk-radius-sm);
+        }
+        summary:hover { background: var(--wk-surface-3); }
+        summary.compact-active { color: var(--wk-primary); border-color: var(--wk-primary); }
+        summary :global(svg), .wide-count { display: none; }
+        .compact-count { display: inline; }
+    }
     summary::-webkit-details-marker { display: none; }
     summary.active { color: var(--wk-primary); border-color: var(--wk-primary); }
-    .popover-panel { position: absolute; z-index: 20; top: calc(100% + 6px); right: 0; display: grid; gap: 12px; width: min(390px, calc(100vw - 36px)); max-height: min(70vh, 620px); overflow: auto; padding: 14px; border: 1px solid var(--wk-border); border-radius: 12px; background: var(--wk-surface); box-shadow: var(--wk-shadow-popover); box-sizing: border-box; }
+    .popover-panel { position: absolute; z-index: 20; top: calc(100% + 6px); right: 0; display: grid; gap: 12px; width: min(390px, 100cqw, calc(100vw - 36px)); max-height: min(70vh, 620px); overflow: auto; padding: 14px; border: 1px solid var(--wk-border); border-radius: 12px; background: var(--wk-surface); box-shadow: var(--wk-shadow-popover); box-sizing: border-box; }
     .popover-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; color: var(--wk-ink); }
     .popover-close { min-height: 34px; padding: 0 10px; border: 1px solid var(--wk-border); border-radius: 7px; background: var(--wk-background); color: var(--wk-ink-secondary); cursor: pointer; }
     label { display: grid; gap: 5px; color: var(--wk-ink-secondary); font-size: var(--wk-text-sm); }

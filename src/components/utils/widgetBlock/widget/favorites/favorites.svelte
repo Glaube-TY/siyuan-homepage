@@ -41,8 +41,8 @@
     const isMobilePlacement = $derived(placement === "mobile");
 
     let favoritesNotes: ComponentDocInfo[] = $state([]);
-    let favoritesDataStatus = $state<"ok" | "empty" | "limited" | "disabled" | "unsupported" | "error">("empty");
-    let favoritesStatusMessage = $state("收藏索引为空，可从文档树重新收藏文档。");
+    let favoritesDataStatus = $state<"ok" | "empty" | "limited" | "disabled" | "unsupported" | "error" | null>(null);
+    let favoritesStatusMessage = $state("");
 
     // 分组加载状态机
     type GroupLoadState = { kind: "idle" } | { kind: "loading" } | { kind: "ready" } | { kind: "error"; message: string };
@@ -132,9 +132,9 @@
         }
     }
 
-    async function safeLoadFavorites(): Promise<void> {
+    async function safeLoadFavorites(readOnly = false): Promise<void> {
         try {
-            await loadFavorites();
+            await loadFavorites(readOnly);
         } catch (error) {
             if (isDestroyed) return;
             favoritesDataStatus = "error";
@@ -142,17 +142,18 @@
         }
     }
 
-    async function loadFavorites(): Promise<void> {
+    async function loadFavorites(readOnly = false): Promise<void> {
         const result = await getLatestFavoritesNotes(
             favoritesSortOrder,
             contentTypeJsonObj.data?.favoritesNotebookId,
             useBuiltinDocIcon,
             plugin,
+            readOnly,
         );
         if (isDestroyed) return;
         favoritesNotes = result.items;
         favoritesDataStatus = result.status;
-        favoritesStatusMessage = result.message || favoritesStatusMessage;
+        favoritesStatusMessage = result.message || "";
 
         // 有效分组关闭时不读取分组数据
         if (!effectiveGroupingEnabled) {
@@ -355,6 +356,21 @@
     });
 </script>
 
+{#snippet favoritesEmpty()}
+    {#if favoritesDataStatus === null}
+        <div class="favorites-empty-state" role="status">正在加载收藏…</div>
+    {:else if favoritesDataStatus === "disabled"}
+        <LocalIndexEmptyState title="收藏索引未建立" state="unindexed" {plugin} indexFocusKey="index-favorites" />
+    {:else if favoritesDataStatus === "error" || favoritesDataStatus === "unsupported"}
+        <LocalIndexEmptyState title="收藏索引暂不可用" message={favoritesStatusMessage}
+            state="error" {plugin} indexFocusKey="index-favorites" onRetry={() => safeLoadFavorites(true)} />
+    {:else}
+        <LocalIndexEmptyState title="暂无可显示的收藏"
+            message={favoritesDataStatus === "limited" ? favoritesStatusMessage : "可从文档树的右键菜单添加收藏。"}
+            {plugin} indexFocusKey="index-favorites" />
+    {/if}
+{/snippet}
+
 {#if isMobilePlacement}
     <div class="mobile-favorites-widget" data-widget-part="root">
         <header class="mobile-favorites-header" data-widget-part="header">
@@ -440,21 +456,7 @@
                     {/each}
                 {/if}
             {:else}
-                {#if favoritesDataStatus === "disabled"}
-                    <LocalIndexEmptyState
-                        title="本地索引为空"
-                        message="收藏本地索引为空，请重新收藏文档或刷新索引。"
-                        {plugin}
-                        hint="从文档树右键重新收藏，或到主页设置 > 检索管理中刷新收藏索引。"
-                    />
-                {:else if favoritesDataStatus === "error"}
-                    <div class="mobile-favorites-empty" data-widget-part="error">
-                        <strong>收藏索引暂不可用</strong>
-                        <span>{favoritesStatusMessage}</span>
-                    </div>
-                {:else}
-                    <div class="mobile-favorites-empty">{favoritesStatusMessage}</div>
-                {/if}
+                {@render favoritesEmpty()}
             {/if}
         </div>
     </div>
@@ -613,17 +615,7 @@
                     </ul>
                 {/if}
             {:else}
-                {#if favoritesDataStatus === "disabled"}
-                    <LocalIndexEmptyState title="本地索引为空" message="收藏本地索引为空，请重新收藏文档或刷新索引。" {plugin}
-                        hint="从文档树右键重新收藏，或到主页设置 > 检索管理中刷新收藏索引。" />
-                {:else if favoritesDataStatus === "error"}
-                    <div class="favorites-empty-state" data-widget-part="error">
-                        <strong>收藏索引暂不可用</strong>
-                        <span>{favoritesStatusMessage}</span>
-                    </div>
-                {:else}
-                    <div class="favorites-empty-state" data-widget-part="empty"><strong>收藏索引为空</strong><span>{favoritesStatusMessage}</span></div>
-                {/if}
+                {@render favoritesEmpty()}
             {/if}
         </div>
     </div>

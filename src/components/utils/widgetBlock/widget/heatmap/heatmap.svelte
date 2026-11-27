@@ -5,7 +5,6 @@
     import LocalIndexEmptyState from "../common/LocalIndexEmptyState.svelte";
     import { isPremiumHeatmapCountType } from "@/features/entitlement/homepage-premium-features";
     import {
-        ensureHeatmapIndexInitialized,
         getRecentHeatmapCountsResult,
         refreshHeatmapIndexFromRecentDocuments,
         type ComponentCountsResult,
@@ -54,7 +53,7 @@
     let currentChartData: [string, number][] = [];
     let currentCounts: Record<string, number> = {};
     let hasHeatmapData = $state(false);
-    let heatmapStatusMessage = $state("热力图索引为空，请到主页设置 > 检索管理中刷新或手动重建索引。");
+    let heatmapStatusMessage = $state("");
     let heatmapDataStatus = $state<"ok" | "empty" | "limited" | "disabled" | "unsupported" | "error">("empty");
     let isInitializing = $state(false);
     // 会员锁定状态
@@ -117,16 +116,20 @@
         }
     }
 
-    async function loadHeatmapData() {
+    async function loadHeatmapData(readOnly = false) {
         const monthCount = clampHeatmapMonthCount(pastMonthCount);
         const [startDate, endDate] = getHeatmapRangeByMonthCount(monthCount);
         const forceIndexRefresh = runtimeContext.forceIndexRefresh === true;
-        await refreshHeatmapIndexFromRecentDocuments(plugin, {
-            force: forceIndexRefresh,
-        });
+        if (!readOnly) {
+            const status = await refreshHeatmapIndexFromRecentDocuments(plugin, {
+                force: forceIndexRefresh,
+                onlyIfIndexed: true,
+            });
+            if (status.lastStatus === "error") throw new Error(status.lastMessage || "热力图索引刷新失败。");
+        }
         const cacheKey = getHeatmapCacheKey(heatmapCountType, startDate, endDate, monthCount);
 
-        let result = forceIndexRefresh ? null : getCachedResult(cacheKey);
+        let result = readOnly || forceIndexRefresh ? null : getCachedResult(cacheKey);
         if (!result) {
             result = await getRecentHeatmapCountsResult(
                 startDate,
@@ -141,15 +144,26 @@
 
         const counts = result.counts;
         currentCounts = counts;
-        heatmapStatusMessage = result.message || heatmapStatusMessage;
+        heatmapStatusMessage = result.message || "";
         heatmapDataStatus = result.status;
 
         const hasPositiveData = Object.values(counts).some((value) => Number(value) > 0);
-        const shouldRenderHeatmap = hasPositiveData || result.mode === "index";
+        hasHeatmapData = hasPositiveData && (result.status === "ok" || result.status === "limited");
+        if (hasHeatmapData) currentChartData = buildHeatmapCalendarData(counts, monthCount);
+    }
 
-        if (shouldRenderHeatmap && result.status !== "disabled" && result.status !== "error") {
-            currentChartData = buildHeatmapCalendarData(counts, monthCount);
-            hasHeatmapData = true;
+    async function retryHeatmap(): Promise<void> {
+        try {
+            await loadHeatmapData(true);
+            await tick();
+            if (!isDestroyed && hasHeatmapData) {
+                setupResizeObserver();
+                scheduleHeatmapRender();
+            }
+        } catch (error) {
+            if (isDestroyed) return;
+            heatmapDataStatus = "error";
+            heatmapStatusMessage = error instanceof Error ? error.message : "无法读取热力图索引。";
         }
     }
 
@@ -160,23 +174,13 @@
             return;
         }
 
-        const monthCount = clampHeatmapMonthCount(pastMonthCount);
-        const [startDate, endDate] = getHeatmapRangeByMonthCount(monthCount);
         isInitializing = true;
-        heatmapStatusMessage = "正在初始化热力图索引...";
         try {
-            const initResult = await ensureHeatmapIndexInitialized(plugin, startDate, endDate);
-            if (isDestroyed) return;
-            if (initResult.initialized && initResult.status.lastStatus !== "success") {
-                heatmapDataStatus = "error";
-                heatmapStatusMessage = `${initResult.status.lastMessage || "热力图索引初始化失败"}，请到主页设置 > 检索管理中手动重建索引。`;
-                return;
-            }
             await loadHeatmapData();
         } catch (error) {
             if (isDestroyed) return;
             heatmapDataStatus = "error";
-            heatmapStatusMessage = error instanceof Error ? error.message : "热力图索引初始化失败，请到主页设置 > 检索管理中手动重建索引。";
+            heatmapStatusMessage = error instanceof Error ? error.message : "热力图索引初始化失败。";
         } finally {
             if (!isDestroyed) {
                 isInitializing = false;
@@ -576,17 +580,13 @@
             </div>
         {:else}
             {#if heatmapDataStatus === "disabled"}
-                <LocalIndexEmptyState
-                    title="本地索引为空"
-                    message="热力图本地索引为空，请到检索管理中重建索引。"
-                    {plugin}
-                    hint="请到主页设置 > 检索管理中刷新最近文档增量索引，或手动重建本地索引。"
-                />
+                <LocalIndexEmptyState title="热力图索引未建立" state="unindexed" {plugin} indexFocusKey="index-heatmap" />
+            {:else if heatmapDataStatus === "error" || heatmapDataStatus === "unsupported"}
+                <LocalIndexEmptyState title="热力图索引暂不可用" message={heatmapStatusMessage} state="error"
+                    {plugin} indexFocusKey="index-heatmap" onRetry={retryHeatmap} />
             {:else}
-                <div class="heatmap-empty-state">
-                    <strong>{heatmapStatusMessage}</strong>
-                    <span>可到主页设置 > 检索管理中刷新最近文档增量索引，或手动重建当前范围索引。</span>
-                </div>
+                <LocalIndexEmptyState title="所选范围暂无活动" message={heatmapDataStatus === "limited" ? heatmapStatusMessage : undefined}
+                    {plugin} indexFocusKey="index-heatmap" />
             {/if}
         {/if}
     {/if}

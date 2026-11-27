@@ -32,10 +32,10 @@
     let tasksPlusSelectedNotebookIds = $derived<{ label: string; value: string }[]>(
         parsed.data?.tasksPlusSelectedNotebookIds ?? []
     );
-    let tasksList: any[] = [];
+    let tasksList = $state.raw<any[]>([]);
     let tasksListFormat: any = $state();
     let taskDataStatus = $state<"ok" | "empty" | "limited" | "disabled" | "unsupported" | "error">("empty");
-    let taskStatusMessage = $state("任务索引为空，请到主页设置 > 检索管理中建立任务索引或刷新最近文档增量索引。");
+    let taskStatusMessage = $state("");
     let isInitializing = $state(false);
     // 组件销毁后丢弃异步结果，避免更新已卸载状态
     let isDestroyed = false;
@@ -263,13 +263,12 @@
         return lines.join("\n");
     }
 
-    onMount(async () => {
-        isDestroyed = false;
-        isInitializing = true;
-        taskStatusMessage = "正在初始化任务索引...";
+    async function loadTasks(readOnly = false): Promise<void> {
+        if (!readOnly) isInitializing = true;
         try {
             const taskResult = await loadTaskData(plugin, {
                 notebookIds: tasksPlusSelectedNotebookIds.map((item) => item.value),
+                refresh: !readOnly,
                 forceRefresh: runtimeContext.forceIndexRefresh === true,
             });
             if (isDestroyed) return;
@@ -277,19 +276,26 @@
             taskStatusMessage = taskResult.message || "";
             tasksList = taskResult.items;
             tasksListFormat = await formatTasksList(tasksList, internalFilter, isCustomFilter, customFilter, tasksSort);
-            for (const task of tasksListFormat) {
-                if (isDestroyed) return;
-                await updateTaskBasedOnRecurrence(task);
+            if (!readOnly) {
+                for (const task of tasksListFormat) {
+                    if (isDestroyed) return;
+                    await updateTaskBasedOnRecurrence(task);
+                }
             }
         } catch {
             if (isDestroyed) return;
             taskDataStatus = "error";
-            taskStatusMessage = "任务索引初始化失败，请到主页设置 > 检索管理中手动重建索引。";
+            taskStatusMessage = "无法读取任务索引。";
             tasksList = [];
             tasksListFormat = [];
         } finally {
             if (!isDestroyed) isInitializing = false;
         }
+    }
+
+    onMount(() => {
+        isDestroyed = false;
+        void loadTasks();
     });
 
     onDestroy(() => {
@@ -396,17 +402,17 @@
             </div>
         {:else}
             {#if taskDataStatus === "disabled"}
-                <LocalIndexEmptyState
-                    title="本地索引为空"
-                    message="任务本地索引为空，请到检索管理中重建索引。"
-                    {plugin}
-                    hint="请到主页设置 > 检索管理中刷新最近文档增量索引，或手动重建任务索引。"
-                />
+                <LocalIndexEmptyState title="任务索引未建立" state="unindexed" {plugin} indexFocusKey="index-tasks" />
+            {:else if taskDataStatus === "error" || taskDataStatus === "unsupported"}
+                <LocalIndexEmptyState title="任务索引暂不可用" message={taskStatusMessage} state="error"
+                    {plugin} indexFocusKey="index-tasks" onRetry={() => loadTasks(true)} />
+            {:else if tasksList.length}
+                <LocalIndexEmptyState title="没有匹配的任务" message="可在组件设置中调整筛选条件。"
+                    {plugin} indexFocusKey="index-tasks" />
             {:else}
-                <div class="empty-tips">
-                    <strong>没有可显示的任务</strong>
-                    <span>{taskStatusMessage || "请到主页设置 > 检索管理中维护任务索引。"}</span>
-                </div>
+                <LocalIndexEmptyState title="暂无任务"
+                    message={taskDataStatus === "limited" ? taskStatusMessage : "可在文档中添加待办。"}
+                    {plugin} indexFocusKey="index-tasks" />
             {/if}
         {/if}
     </div>
