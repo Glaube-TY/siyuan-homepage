@@ -19,6 +19,8 @@
 
     .widget-quick-search {
         position: relative;
+        display: grid;
+        gap: 8px;
         flex: 0 0 auto;
         min-width: 0;
         margin-bottom: 1rem;
@@ -104,6 +106,12 @@
         flex: 1 1 auto;
         min-height: 0;
         overflow: hidden;
+    }
+
+    .tab-content:focus-visible {
+        outline: 2px solid var(--b3-theme-primary, Highlight);
+        outline-offset: -2px;
+        border-radius: $cs-radius-md;
     }
 
     // 组件选择区：固定不滚动

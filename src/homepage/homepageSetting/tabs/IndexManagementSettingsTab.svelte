@@ -5,6 +5,7 @@
     import { writeTextToClipboard } from "@/libs/clipboard";
     import SettingSection from "@/libs/components/SettingSection.svelte";
     import SettingRow from "@/libs/components/SettingRow.svelte";
+    import { openEmptyDocCleanerDialog } from "@/homepage/features/emptyDocCleaner/openEmptyDocCleanerDialog";
     import type { ComponentMigrationStatus } from "@/components/utils/widgetBlock/widget/common/componentMigrationTypes";
     import {
         rebuildAllHomepageIndexes,
@@ -648,6 +649,14 @@
             </button>
         </SettingRow>
     {/if}
+</SettingSection>
+
+<SettingSection title="数据维护" focusKey="maintenance-clean-empty-docs">
+    <SettingRow title="清理空文档">
+        <button type="button" class="index-action-btn" onclick={() => openEmptyDocCleanerDialog(plugin)} disabled={!plugin}>
+            清理空文档
+        </button>
+    </SettingRow>
 </SettingSection>
 
 <style lang="scss">

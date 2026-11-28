@@ -109,15 +109,11 @@
     {#if advanced}
         <div class="sidebar-widget" bind:this={sidebarWidgetContainer}></div>
         <div class="sidebar-setting">
-            <button
-                class="add-widget-btn"
-                onclick={() =>
-                    addCustomBlock(plugin, currentBlockForSettingsRef, sidebarWidgetContainer)}
-                >
-                    <SiyuanIcon name="create" size={14} />
-                    <span>添加组件</span>
-                </button
-            >
+            <button type="button" class="add-widget-btn"
+                onclick={() => addCustomBlock(plugin, currentBlockForSettingsRef, sidebarWidgetContainer)}>
+                <SiyuanIcon name="create" size={14} />
+                <span>添加组件</span>
+            </button>
         </div>
     {:else}
         <div class="sidebar-not-advanced">

@@ -220,11 +220,19 @@
             justify-content: space-around;
             gap: 2px;
             overflow-x: auto;
+            overflow-y: hidden;
             border: 1px solid var(--wk-border-subtle);
             padding: 7px 8px calc(7px + env(safe-area-inset-bottom));
             border-radius: 20px;
             box-shadow: var(--wk-shadow-sm);
             background: var(--b3-theme-surface);
+        }
+
+        .nav-group {
+            display: flex;
+            flex-direction: row;
+            flex: 0 0 auto;
+            gap: 2px;
         }
 
         .nav-section-label,
@@ -255,6 +263,7 @@
 
         .tab-label {
             font-size: 12px;
+            white-space: nowrap;
         }
     }
 </style>

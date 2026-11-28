@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onMount, tick } from "svelte";
+  import WidgetCatalogScope from "./WidgetCatalogScope.svelte";
   import { showMessage } from "siyuan";
   import { checkExistingMusicPlayer } from "./widget/musicPlayer/musicPlayerInstanceGuard";
   import { lsNotebooks } from "@/api";
@@ -121,6 +122,7 @@
 
   let activeTab = $state("note");
   let widgetSearchText = $state("");
+  let widgetConfigurationPanel: HTMLDivElement;
   const widgetSearchResults = $derived(getWidgetSearchResults(widgetSearchText));
 
   let notebooks = $state([]);
@@ -568,21 +570,24 @@
     );
   }
 
-  function selectWidgetSearchResult(value: string): void {
+  async function selectWidgetSearchResult(value: string): Promise<void> {
     const result = widgetSearchResults.find((option) => option.value === value);
     if (!result || result.disabled) return;
     handleContentTypeChange(result.value);
     widgetSearchText = "";
+    await tick();
+    widgetConfigurationPanel?.querySelector(".dynamic-content-area")?.scrollTo({ top: 0 });
+    widgetConfigurationPanel?.focus({ preventScroll: true });
   }
 
   function handleWidgetSearchKeydown(event: KeyboardEvent): void {
-    if (event.key !== "Escape" && event.key !== "Enter") return;
+    if (!widgetSearchText.trim() || event.isComposing || (event.key !== "Escape" && event.key !== "Enter")) return;
     event.preventDefault();
     event.stopPropagation();
     if (event.key === "Escape") widgetSearchText = "";
     else {
       const first = widgetSearchResults.find((option) => !option.disabled);
-      if (first) selectWidgetSearchResult(first.value);
+      if (first) void selectWidgetSearchResult(first.value);
     }
   }
 
@@ -1075,13 +1080,14 @@
 
 <div class="settings-container">
   <div class="widget-quick-search">
+    <WidgetCatalogScope surface={deviceViewContext.surface} />
     <div class="widget-search-input-row">
       <input type="search" aria-label="搜索组件" placeholder="搜索组件名称、类型或分类" bind:value={widgetSearchText} onkeydown={handleWidgetSearchKeydown} />
       {#if widgetSearchText}<button type="button" onclick={() => widgetSearchText = ""}>清空搜索</button>{/if}
     </div>
     {#if widgetSearchText.trim()}<div class="widget-search-results" role="region" aria-label="组件搜索结果">
       {#each widgetSearchResults as result (result.value)}
-        <button type="button" disabled={result.disabled === true} onclick={() => selectWidgetSearchResult(result.value)}>
+        <button type="button" disabled={result.disabled === true} onclick={() => void selectWidgetSearchResult(result.value)}>
           <span class="widget-search-name">{result.label}{#if result.requiresAdvanced}<PremiumMark />{/if}</span>
           <small>{result.categoryLabel}</small>
         </button>
@@ -1091,12 +1097,12 @@
   <!-- 分类导航栏 -->
   <div class="tab-nav">
     {#each WIDGET_CATEGORIES as category (category.value)}
-      <button type="button" onclick={() => handleCategoryChange(category.value)} class:active={activeTab === category.value}>{category.label}</button>
+      <button type="button" onclick={() => handleCategoryChange(category.value)} class:active={activeTab === category.value} aria-pressed={activeTab === category.value}>{category.label}</button>
     {/each}
   </div>
 
   <!-- 动态内容容器 -->
-  <div class="tab-content">
+  <div class="tab-content" role="region" aria-label="组件配置" tabindex="-1" bind:this={widgetConfigurationPanel}>
     {#if activeTab === "note"}
       <!-- 笔记数据 -->
       <div class="content-type-select">

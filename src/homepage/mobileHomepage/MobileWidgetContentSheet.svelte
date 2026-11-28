@@ -3,6 +3,7 @@
     import PremiumMark from "@/components/utils/shared/PremiumMark.svelte";
     import SiyuanIcon from "@/components/utils/shared/SiyuanIcon.svelte";
     import MobileWidgetContentForm from "./MobileWidgetContentForm.svelte";
+    import WidgetCatalogScope from "@/components/utils/widgetBlock/WidgetCatalogScope.svelte";
     import MusicCloudConnectionDialog from "@/components/utils/widgetBlock/widget/musicPlayer/MusicCloudConnectionDialog.svelte";
     import FavoritesManagerDialog from "@/features/favorites-manager/components/FavoritesManagerDialog.svelte";
     import CountdownCenterDialog from "@/features/countdown-center/components/CountdownCenterDialog.svelte";
@@ -134,8 +135,8 @@
             </button>
         {/if}
         <div>
-            <div class="mobile-widget-sheet-eyebrow">内容设置</div>
             <h3>{title}{#if isPremiumWidgetType(selectedContentType)}<PremiumMark />{/if}</h3>
+            <WidgetCatalogScope surface={deviceViewContext.surface} />
         </div>
         <button class="mobile-widget-sheet-close" type="button" aria-label="关闭" onclick={onClose}>
             <SiyuanIcon name="cancel" size={16} />

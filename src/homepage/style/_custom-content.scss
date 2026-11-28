@@ -10,6 +10,72 @@
         }
     }
 
+    .homepage-workspace-empty {
+        align-self: center;
+        box-sizing: border-box;
+        width: min(100%, 340px);
+        margin: 16px auto;
+        padding: 20px 16px;
+        text-align: center;
+        color: var(--hp-text, var(--b3-theme-on-surface, CanvasText));
+        background: var(--hp-surface-muted, var(--b3-theme-surface, Canvas));
+        border: 1px solid var(--hp-border, var(--b3-border-color, ButtonBorder));
+        border-radius: var(--hp-radius-card, 12px);
+
+        p {
+            margin: 0 0 12px;
+            font-size: 14px;
+            font-weight: 600;
+        }
+    }
+
+    .hp-widget-workspace:has(.custom-content:not([aria-hidden="true"]) > .widget-block) .homepage-workspace-empty {
+        display: none;
+    }
+
+    .homepage-workspace-empty__actions {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: center;
+        gap: 8px;
+
+        button {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            min-height: 36px;
+            padding: 0 12px;
+            color: inherit;
+            background: transparent;
+            border: 1px solid var(--hp-border, var(--b3-border-color, ButtonBorder));
+            border-radius: var(--hp-radius-control, 8px);
+            font: inherit;
+            font-size: 13px;
+            cursor: pointer;
+
+            &:hover {
+                background: var(--hp-surface, var(--b3-theme-background, Canvas));
+            }
+
+            &:focus-visible {
+                outline: 2px solid var(--b3-theme-primary, Highlight);
+                outline-offset: 2px;
+            }
+
+            &.homepage-workspace-empty__add {
+                color: var(--b3-theme-primary, LinkText);
+                background: color-mix(in srgb, var(--b3-theme-primary, Highlight) 10%, transparent);
+                border-color: color-mix(in srgb, var(--b3-theme-primary, Highlight) 26%, transparent);
+                font-weight: 600;
+
+                &:hover {
+                    background: color-mix(in srgb, var(--b3-theme-primary, Highlight) 16%, transparent);
+                }
+            }
+        }
+    }
+
     .component-section-panels {
         position: relative;
         min-width: 0;

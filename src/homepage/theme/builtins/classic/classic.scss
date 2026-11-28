@@ -204,15 +204,7 @@
 
     .hp-action--more {
         width: fit-content;
-        opacity: 0;
-        pointer-events: none;
-    }
-
-    .hp-actions:hover .hp-action--more,
-    .hp-actions:focus-within .hp-action--more,
-    .hp-action--more[aria-expanded="true"] {
-        opacity: 1;
-        pointer-events: auto;
+        border-color: var(--b3-border-color, ButtonBorder);
     }
 
     .hp-actions__menu {

@@ -1,14 +1,24 @@
+[data-sidebar-container="true"] {
+    height: 100%;
+    min-height: 0;
+}
+
 .sidebar-display {
     padding: 10px;
     display: flex;
     flex-direction: column;
-    overflow-y: auto;
+    height: 100%;
+    min-height: 0;
+    box-sizing: border-box;
+    overflow: hidden;
 
     .sidebar-widget {
         display: grid;
         grid-template-columns: repeat(2, minmax(0, 1fr));
-        flex-grow: 1;
-        height: auto;
+        align-content: start;
+        flex: 1 1 auto;
+        min-height: 0;
+        overflow-y: auto;
         background-color: var(--b3-theme-background);
         gap: 5px;
 
@@ -70,30 +80,47 @@
 
     .sidebar-setting {
         display: flex;
-        align-items: center;
+        flex: 0 0 auto;
         justify-content: center;
-        margin-top: 10px;
-        gap: 10px;
-        opacity: 0;
-        transition: all 0.3s;
+        align-items: center;
+        margin-top: 8px;
+        padding-top: 8px;
+        border-top: 1px solid var(--b3-border-color, ButtonBorder);
+    }
+
+    .sidebar-widget:not(:has(> .widget-block)) {
+        flex: 0 0 0;
+
+        + .sidebar-setting {
+            flex: 1 1 auto;
+            margin: 0;
+            padding: 0;
+            border: 0;
+        }
+    }
+
+    .add-widget-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        min-height: 34px;
+        padding: 0 12px;
+        border: 1px solid var(--b3-border-color, ButtonBorder);
+        border-radius: 8px;
+        color: var(--b3-theme-on-surface, ButtonText);
+        background: var(--b3-theme-surface, ButtonFace);
+        font: inherit;
+        font-weight: 500;
+        cursor: pointer;
 
         &:hover {
-            opacity: 1;
+            color: var(--b3-theme-primary, LinkText);
+            background: color-mix(in srgb, var(--b3-theme-primary, Highlight) 10%, var(--b3-theme-surface, ButtonFace));
         }
 
-        button {
-            padding: 10px;
-            background-color: transparent;
-            border: 1px solid var(--b3-border-color);
-            border-radius: 5px;
-            display: inline-flex;
-            align-items: center;
-            gap: 6px;
-
-            &:hover {
-                background-color: var(--b3-theme-primary);
-                color: white;
-            }
+        &:focus-visible {
+            outline: 2px solid var(--b3-theme-primary, Highlight);
+            outline-offset: 2px;
         }
     }
 

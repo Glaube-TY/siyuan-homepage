@@ -1,6 +1,8 @@
 <script lang="ts">
     import { floatingPopoverAction } from "@/components/utils/shared/floating-popover-action";
     import SiyuanIcon from "@/components/utils/shared/SiyuanIcon.svelte";
+    import PremiumMark from "@/components/utils/shared/PremiumMark.svelte";
+    import { getButtonActionMeta } from "@/homepage/buttonRegistry";
     import type { HomepageActionsModel } from "../../api/types";
     interface Props {
         actions: HomepageActionsModel;
@@ -49,15 +51,16 @@
 <div class="hp-actions" data-hp-context-region="actions" class:hp-actions--compact={compact} role="navigation" aria-label="主页功能">
     <div class="hp-actions__primary">
         {#each primary as item (item.id)}
-            <button class="hp-action" type="button" data-hp-action={item.action} title={item.shortcut ? `${item.label} · ${item.shortcut}` : item.label} onclick={() => void actions.invoke(item.id)}>
+            <button class="hp-action" type="button" data-hp-action={item.action} aria-label={compact ? item.label : undefined} title={item.shortcut ? `${item.label} · ${item.shortcut}` : item.label} onclick={() => void actions.invoke(item.id)}>
                 {#if item.iconName}<span class="hp-action__icon" aria-hidden="true"><SiyuanIcon name={item.iconName} size={14} /></span>{/if}
                 {#if !compact}<span class="hp-action__label">{item.label}</span>{/if}
+                {#if getButtonActionMeta(item)?.requiresAdvanced}<PremiumMark />{/if}
             </button>
         {/each}
     </div>
     {#if overflow.length > 0}
         <div class="hp-actions__overflow">
-            <button class="hp-action hp-action--more" type="button" bind:this={overflowButton} aria-haspopup="menu" aria-expanded={overflowOpen} onclick={() => (overflowOpen = !overflowOpen)}>
+            <button class="hp-action hp-action--more" type="button" bind:this={overflowButton} aria-label="更多" aria-haspopup="menu" aria-expanded={overflowOpen} onclick={() => (overflowOpen = !overflowOpen)}>
                 <span class="hp-action__icon" aria-hidden="true"><SiyuanIcon name="more" size={14} /></span>
                 {#if !compact}<span class="hp-action__label">更多</span>{/if}
             </button>
@@ -72,6 +75,7 @@
                         <button class="hp-actions__menu-item" type="button" role="menuitem" data-hp-action={item.action} onclick={() => void invokeOverflowAction(item.id)}>
                             {#if item.iconName}<span class="hp-action__icon" aria-hidden="true"><SiyuanIcon name={item.iconName} size={14} /></span>{/if}
                             <span class="hp-action__label">{item.label}</span>
+                            {#if getButtonActionMeta(item)?.requiresAdvanced}<PremiumMark />{/if}
                         </button>
                     {/each}
                 </div>

@@ -132,6 +132,8 @@
         type HomepageWidgetDomSnapshot,
     } from "./homepage-widget-dom";
 
+    import SiyuanIcon from "@/components/utils/shared/SiyuanIcon.svelte";
+    import PremiumMark from "@/components/utils/shared/PremiumMark.svelte";
     import "./style/homepage.scss"
     import "./theme/style/theme-host.scss";
     import HomepageInitialLoadOverlay from "./theme/components/HomepageInitialLoadOverlay.svelte";
@@ -146,7 +148,6 @@
     import {
         createBuiltinButton,
         isHomepageContextOnlyAction,
-        type HomepageContextOnlyAction,
     } from "./buttonRegistry";
     import { normalizeHomepageAppearanceConfig } from "./theme/runtime/appearanceConfig";
     import { createHomepageEntitlementSnapshot } from "./theme/runtime/entitlementResolver";
@@ -1406,10 +1407,11 @@
         );
     }
 
-    const HOMEPAGE_CONTEXT_BUTTONS: Record<HomepageContextOnlyAction, ButtonItem> = {
+    const HOMEPAGE_CONTEXT_BUTTONS = {
         addWidget: createBuiltinButton("addWidget"),
         settings: createBuiltinButton("settings"),
     };
+    const HOMEPAGE_TEMPLATE_BUTTON = createBuiltinButton("templateCenter");
     const HOMEPAGE_CONTEXT_REGION_SETTINGS: Record<HomepageContextRegion, {
         selector: string;
         icon: string;
@@ -4018,6 +4020,12 @@
         footerEnabled,
         footerContent,
     }));
+    const readyComponentWorkspace = $derived.by(() => {
+        const sectionId = getCurrentComponentSectionId();
+        const state = sectionId === undefined ? undefined : sectionRuntimeStates.get(sectionId);
+        return initialWidgetGridReady && preparingComponentSectionId === undefined
+            && state?.status === "ready" && state.structuralComplete;
+    });
     const homepageQuickActionButtons = $derived(buttonsList.filter(
         (item) => !isHomepageContextOnlyAction(getButtonAction(item)),
     ));
@@ -4187,6 +4195,22 @@
                             />
                         {/if}
                     </div>
+                {/if}
+                {#if readyComponentWorkspace}
+                    <section class="homepage-workspace-empty" aria-label="空组件区">
+                        <p>暂无组件</p>
+                        <div class="homepage-workspace-empty__actions">
+                            <button type="button" class="homepage-workspace-empty__add"
+                                onclick={() => void invokeHomepageButton(HOMEPAGE_CONTEXT_BUTTONS.addWidget)}>
+                                <SiyuanIcon name="create" size={16} />
+                                添加组件
+                            </button>
+                            <button type="button" onclick={() => void invokeHomepageButton(HOMEPAGE_TEMPLATE_BUTTON)}>
+                                布局模板
+                                <PremiumMark />
+                            </button>
+                        </div>
+                    </section>
                 {/if}
             </div>
         </div>

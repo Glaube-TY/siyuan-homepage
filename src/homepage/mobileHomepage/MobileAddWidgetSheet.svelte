@@ -2,6 +2,7 @@
     import { onMount } from "svelte";
     import PremiumMark from "@/components/utils/shared/PremiumMark.svelte";
     import SiyuanIcon from "@/components/utils/shared/SiyuanIcon.svelte";
+    import WidgetCatalogScope from "@/components/utils/widgetBlock/WidgetCatalogScope.svelte";
     import {
         MOBILE_WIDGET_CATEGORIES,
         MOBILE_WIDGET_CATALOG,
@@ -45,8 +46,8 @@
 <div class="mobile-widget-sheet mobile-add-widget-sheet" role="dialog" aria-modal="true" aria-label="添加组件">
     <header class="mobile-widget-sheet-header">
         <div>
-            <div class="mobile-widget-sheet-eyebrow">添加组件</div>
-            <h3>选择要添加到移动主页的组件</h3>
+            <h3>添加组件</h3>
+            <WidgetCatalogScope surface="mobile-homepage" />
         </div>
         <button class="mobile-widget-sheet-close" type="button" aria-label="关闭" onclick={onClose}>
             <SiyuanIcon name="cancel" size={16} />

@@ -458,6 +458,8 @@
             highlights={["复习计划"]}
             compact
         />
+    {:else if reviewIndexStatus === "disabled"}
+        <LocalIndexEmptyState title="复习索引未建立" state="unindexed" {plugin} indexFocusKey="index-review" />
     {:else}
         <div class="review-docs-header" class:mobile-titlebar={isMobilePlacement}>
             <WidgetSemanticTitle
@@ -537,9 +539,7 @@
             {#if isLoading}
                 <div class="empty-state">加载复习计划...</div>
             {:else if visibleItems.length === 0}
-                {#if reviewIndexStatus === "disabled"}
-                    <LocalIndexEmptyState title="复习索引未建立" state="unindexed" {plugin} indexFocusKey="index-review" />
-                {:else if reviewIndexStatus === "error" || reviewIndexStatus === "unsupported"}
+                {#if reviewIndexStatus === "error" || reviewIndexStatus === "unsupported"}
                     <LocalIndexEmptyState title="复习索引暂不可用" message={reviewIndexMessage} state="error"
                         {plugin} indexFocusKey="index-review" onRetry={() => refreshAll(true)} />
                 {:else if allItems.length}

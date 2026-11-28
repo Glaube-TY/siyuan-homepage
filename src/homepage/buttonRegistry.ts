@@ -9,10 +9,10 @@ export interface HomepageButtonItem {
 
 export const CORE_ACTIONS = ["search", "diary", "aiKnowledgeBase", "addWidget", "templateCenter", "cleanEmptyDocs", "settings"] as const;
 export type CoreAction = typeof CORE_ACTIONS[number];
-export const HOMEPAGE_CONTEXT_ONLY_ACTIONS = ["addWidget", "settings"] as const satisfies readonly CoreAction[];
+export const HOMEPAGE_CONTEXT_ONLY_ACTIONS = ["settings"] as const satisfies readonly CoreAction[];
 export type HomepageContextOnlyAction = typeof HOMEPAGE_CONTEXT_ONLY_ACTIONS[number];
 
-const QUICK_ACTIONS = ["search", "diary", "aiKnowledgeBase", "templateCenter", "cleanEmptyDocs"] as const satisfies readonly CoreAction[];
+const QUICK_ACTIONS = ["search", "diary", "aiKnowledgeBase", "addWidget", "templateCenter", "cleanEmptyDocs"] as const satisfies readonly CoreAction[];
 
 interface BuiltinButtonDefinition {
     id: number;
@@ -27,8 +27,8 @@ const BUILTIN_BUTTONS: Record<CoreAction, BuiltinButtonDefinition> = {
     diary: { id: 1728000001000, label: "今日日记", icon: "iconCalendar", shortcut: "Alt+5", checked: true },
     aiKnowledgeBase: { id: 1728000001500, label: "AI 知识库", icon: "iconNotebrain", shortcut: "", checked: true },
     addWidget: { id: 1728000002000, label: "添加组件", icon: "iconAdd", shortcut: "", checked: true },
-    templateCenter: { id: 1728000002400, label: "布局模板", icon: "iconMarkdown", shortcut: "", checked: true },
-    cleanEmptyDocs: { id: 1728000002500, label: "清理空文档", icon: "iconTrashcan", shortcut: "", checked: true },
+    templateCenter: { id: 1728000002400, label: "布局模板", icon: "iconMarkdown", shortcut: "", checked: false },
+    cleanEmptyDocs: { id: 1728000002500, label: "清理空文档", icon: "iconTrashcan", shortcut: "", checked: false },
     settings: { id: 1728000003000, label: "主页设置", icon: "iconSettings", shortcut: "", checked: true },
 };
 
@@ -116,46 +116,12 @@ export function normalizeButtonsList(rawList: unknown): HomepageButtonItem[] {
         return createDefaultButtons();
     }
 
-    // 老用户：如果不存在 action === "cleanEmptyDocs"，追加内置按钮（checked: false）
-    const hasCleanEmptyDocs = normalized.some((item) => item.action === "cleanEmptyDocs");
-    if (!hasCleanEmptyDocs) {
-        const maxOrder = normalized.length > 0 ? Math.max(...normalized.map((b) => b.order)) : -1;
-        normalized.push({
-            id: 1728000002500,
-            label: "清理空文档",
-            checked: false,
-            shortcut: "",
-            order: maxOrder + 1,
-            action: "cleanEmptyDocs",
-        });
-    }
-
-    // 老用户：如果不存在 action === "templateCenter"，追加内置按钮（checked: false）
-    const hasTemplateCenter = normalized.some((item) => item.action === "templateCenter");
-    if (!hasTemplateCenter) {
-        const maxOrder = normalized.length > 0 ? Math.max(...normalized.map((b) => b.order)) : -1;
-        normalized.push({
-            id: 1728000002400,
-            label: "布局模板",
-            checked: false,
-            shortcut: "",
-            order: maxOrder + 1,
-            action: "templateCenter",
-        });
-    }
-
-    // 老用户：如果不存在 action === "aiKnowledgeBase"，追加内置按钮
-    const hasAiKnowledgeBase = normalized.some((item) => item.action === "aiKnowledgeBase");
-    if (!hasAiKnowledgeBase) {
-        const maxOrder = normalized.length > 0 ? Math.max(...normalized.map((b) => b.order)) : -1;
-        normalized.push({
-            id: 1728000001500,
-            label: "AI 知识库",
-            checked: true,
-            shortcut: "",
-            order: maxOrder + 1,
-            action: "aiKnowledgeBase",
-        });
+    // 新增入口追加到已保存按钮之后，已有勾选状态保持原样。
+    let maxOrder = Math.max(...normalized.map((item) => item.order));
+    for (const action of ["cleanEmptyDocs", "templateCenter", "aiKnowledgeBase", "addWidget"] as const) {
+        if (normalized.some((item) => item.action === action)) continue;
+        const button = createBuiltinButton(action, ++maxOrder);
+        normalized.push(action === "addWidget" ? { ...button, checked: false } : button);
     }
 
     // 统一内置按钮的显示信息与固定功能，清理旧配置中残留的表情图标和被修改的快捷键。

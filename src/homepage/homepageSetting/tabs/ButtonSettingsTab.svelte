@@ -104,6 +104,11 @@
 </SettingSection>
 
 <style>
+    .button-list-item:focus {
+        outline: 2px solid var(--b3-theme-primary, Highlight);
+        outline-offset: -2px;
+    }
+
     .builtin-info-card {
         padding: 1rem;
         background: var(--b3-theme-surface);
@@ -207,6 +212,8 @@
                         class="button-list-item"
                         class:active={selectedButton?.id === item.id}
                         data-button-id={item.id}
+                        data-homepage-setting-title={item.label}
+                        tabindex="-1"
                     >
                         <button
                             type="button"

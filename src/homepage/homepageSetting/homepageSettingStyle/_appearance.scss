@@ -1,4 +1,5 @@
 .appearance-settings { padding: 4px; }
+.appearance-settings:focus { outline: 2px solid var(--b3-theme-primary, Highlight); outline-offset: -2px; }
 .appearance-settings__intro h3 { margin: 0 0 8px; }
 .appearance-settings__intro p { color: var(--b3-theme-on-surface); }
 .appearance-settings__notice { margin: 12px 0; padding: 10px 12px; border-radius: 8px; background: color-mix(in srgb, var(--b3-theme-primary) 12%, transparent); }

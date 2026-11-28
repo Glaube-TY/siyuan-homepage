@@ -52,7 +52,7 @@ interface EntryDefaults {
     requiresAdvanced?: boolean;
 }
 
-type EntryInput = Omit<SettingSearchEntry, "mainTab" | "subTab" | "section" | "scope" | "target"> & {
+type EntryInput = Omit<SettingSearchEntry, "mainTab" | "subTab" | "scope" | "target"> & {
     target?: SettingSearchEntry["target"];
 };
 
@@ -69,13 +69,13 @@ const SETTINGS_SEARCH_REGISTRY: readonly SettingSearchEntry[] = [
         { mainTab: "homepage", subTab: "behavior", section: "主页行为", scope: "current-device" },
         [
             { id: "homepage.behavior.auto-open", title: "自动打开主页", description: "启动思源后自动进入主页", keywords: ["启动", "首页"] },
-            { id: "homepage.behavior.sidebar", title: "开启侧边栏", description: "在桌面端启用主页侧边栏", keywords: ["边栏", "dock"], requiresAdvanced: true },
+            { id: "homepage.behavior.sidebar", title: "开启侧边栏", description: "在桌面端启用主页侧边栏", keywords: ["侧栏", "边栏", "dock", "改侧栏宽度", "侧边栏宽度", "侧栏宽度", "改侧边栏宽度"], requiresAdvanced: true },
         ],
     ),
     ...defineSettings(
         { mainTab: "homepage", subTab: "appearance", scope: "current-device" },
         [
-            { id: "homepage.appearance.theme", title: "主页主题", description: "选择当前设备桌面主页使用的主题", keywords: ["外观", "经典", "卡片"], target: "section" },
+            { id: "homepage.appearance.theme", section: "主页主题", title: "主页主题", description: "选择当前设备桌面主页使用的主题", keywords: ["换主题", "切换主题", "改主题", "外观", "经典", "卡片"], target: "section" },
         ],
     ),
     ...defineSettings(
@@ -83,7 +83,7 @@ const SETTINGS_SEARCH_REGISTRY: readonly SettingSearchEntry[] = [
         [
             { id: "homepage.mobile.auto-open-enabled", title: "移动端自动打开窗口", description: "移动端启动后自动打开所选界面", keywords: ["手机", "启动"] },
             { id: "homepage.mobile.auto-open-target", title: "自动打开", description: "选择移动端启动后默认打开的界面", keywords: ["手机", "主页"] },
-            { id: "homepage.mobile.preview", title: "打开手机端主页", description: "在电脑上以手机尺寸编辑移动端主页", keywords: ["预览", "编辑"] },
+            { id: "homepage.mobile.preview", title: "打开手机端主页", description: "在电脑上以手机尺寸编辑移动端主页", keywords: ["移动端主页", "手机主页", "预览", "编辑"] },
         ],
     ),
     ...defineSettings(
@@ -165,6 +165,8 @@ const SETTINGS_SEARCH_REGISTRY: readonly SettingSearchEntry[] = [
         { mainTab: "homepage", subTab: "button", section: "快捷按钮管理", scope: "current-device" },
         [
             { id: "homepage.buttons.manage", title: "快捷按钮管理", description: "新增、删除、排序并配置主页快捷按钮", target: "section" },
+            { id: "homepage.buttons.add-widget", title: "添加组件", description: "设置主页快捷栏的添加组件入口", keywords: ["加组件", "新增组件"] },
+            { id: "homepage.buttons.templates", title: "布局模板", description: "设置主页快捷栏的布局模板入口", keywords: ["主页模板", "换布局"] },
             { id: "homepage.buttons.label", title: "按钮标签", description: "修改选中快捷按钮显示的文字" },
             { id: "homepage.buttons.shortcut", title: "快捷键", description: "为选中的主页按钮设置组合快捷键" },
         ],
@@ -209,8 +211,11 @@ const SETTINGS_SEARCH_REGISTRY: readonly SettingSearchEntry[] = [
         [
             { id: "homepage.indexing.all", title: "检索总操作", description: "统一检查或重建主页组件检索数据", target: "section" },
             { id: "homepage.indexing.favorites", title: "收藏文档索引", description: "管理收藏文档组件使用的索引", target: "section" },
+            { id: "homepage.indexing.refresh-favorites", section: "收藏文档索引", title: "刷新收藏索引", description: "检查收藏中的失效文档", keywords: ["刷新收藏", "更新收藏索引"] },
             { id: "homepage.indexing.review", title: "复习文档索引", description: "管理复习文档组件使用的索引", target: "section" },
             { id: "homepage.indexing.tasks", title: "任务索引", description: "管理任务组件使用的索引", target: "section" },
+            { id: "homepage.indexing.rebuild-tasks", section: "任务索引", title: "重建任务索引", description: "根据任务块重建本地任务索引", keywords: ["任务重建", "重建任务"] },
+            { id: "homepage.indexing.clean-empty-docs", section: "数据维护", title: "清理空文档", description: "打开空文档检查与清理窗口", keywords: ["删空文档", "删除空文档", "空白文档清理"] },
             { id: "homepage.indexing.heatmap", title: "热力图索引", description: "管理热力图组件使用的数据索引", target: "section" },
             { id: "homepage.indexing.statistics", title: "统计卡片索引", description: "管理统计卡片使用的数据索引", target: "section" },
             { id: "homepage.indexing.diary", title: "强化日记索引", description: "管理强化日记及项目记录索引", target: "section" },
@@ -433,16 +438,17 @@ function scoreEntry(entry: SettingSearchEntry, query: string): number {
     const title = normalizeSearchText(entry.title);
     const description = normalizeSearchText(entry.description);
     const section = normalizeSearchText(entry.section ?? "");
-    const keywords = normalizeSearchText([
+    const keywords = [
         ...(entry.keywords ?? []),
         ...(entry.requiresAdvanced ? ["会员", "VIP", "高级"] : []),
-    ].join(" "));
+    ].map(normalizeSearchText);
     const path = normalizeSearchText(`${MAIN_TAB_LABELS.get(entry.mainTab) ?? ""}${getSubTabLabel(entry) ?? ""}`);
     const scope = normalizeSearchText(SETTING_SCOPE_LABELS[entry.scope]);
     if (title === normalizedQuery) return 120;
+    if (keywords.includes(normalizedQuery)) return 104;
     if (title.startsWith(normalizedQuery)) return 100;
     if (title.includes(normalizedQuery)) return 80;
-    if (keywords.includes(normalizedQuery)) return 62;
+    if (keywords.some((keyword) => keyword.includes(normalizedQuery))) return 62;
     if (section.includes(normalizedQuery)) return 48;
     if (description.includes(normalizedQuery)) return 38;
     if (path.includes(normalizedQuery)) return 24;
